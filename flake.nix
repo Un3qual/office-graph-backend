@@ -47,10 +47,6 @@
               echo "  Elixir:  $(elixir --version | tail -n 1)"
               echo "  Node:    $(node --version)"
               echo "  OpenSpec: $(openspec --version)"
-              if [ -z "''${OFFICE_GRAPH_NIX_ZSH:-}" ]; then
-                export OFFICE_GRAPH_NIX_ZSH=1
-                exec zsh
-              fi
             '';
           };
         }
