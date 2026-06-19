@@ -29,6 +29,13 @@ mark, reference, and render structures.
   typed references, and derived renders MUST be representable without storing
   the canonical content as a single JSON document
 
+#### Scenario: First portable schema is implemented
+- **WHEN** the first rich text schema is built
+- **THEN** it MUST support paragraphs, headings, ordered and unordered lists,
+  list items, quotes, code blocks, text runs, hard breaks, basic inline marks,
+  and typed references for principals, graph items, external references, URLs,
+  and artifacts
+
 ### Requirement: Copy-On-Write Rich Text Revisions
 Office Graph SHALL store rich text revision history as semantic commits with
 changed content versions rather than full document snapshots.
@@ -38,6 +45,12 @@ changed content versions rather than full document snapshots.
 - **THEN** Office Graph MUST create a new document revision and mark-version
   change for the affected inline node without recreating unchanged blocks,
   inline nodes, references, or render-independent document structure
+
+#### Scenario: Rich text revision is reconstructed
+- **WHEN** Office Graph reconstructs a rich text document revision
+- **THEN** it MUST use copy-on-write version rows, revision validity ranges,
+  placement-version state, and derived render caches rather than treating full
+  materialized snapshots as canonical storage
 
 #### Scenario: Text range receives a mark
 - **WHEN** a mark applies to only part of an inline text run
@@ -54,6 +67,12 @@ mark type definitions and versioned mark applications.
 - **THEN** it MUST be represented by a mark type with key, value kind,
   compatibility or exclusivity rules, introduction version, and deprecation
   state rather than by adding one-off columns to inline text rows
+
+#### Scenario: MVP mark set is selected
+- **WHEN** the MVP mark set is selected
+- **THEN** bold, italic, underline, strikethrough, inline code, highlight, and
+  link presentation MUST be representable without adding mark-specific columns
+  to inline text rows
 
 ### Requirement: Typed Rich Text References
 Office Graph SHALL extract mentions, graph-item references, artifact links,
@@ -135,6 +154,17 @@ than treating every selection as a mutable text boundary range.
 - **THEN** the pinned quote MUST preserve the original selected order and MAY
   mark the source as reordered; live excerpts MUST define whether they render
   in original selection order or current source order
+
+### Requirement: Unsupported Rich Text Features
+Office Graph SHALL handle unsupported editor features explicitly instead of
+silently storing them in canonical editor payloads.
+
+#### Scenario: Unsupported native editor feature is submitted
+- **WHEN** native authoring submits content that the portable schema cannot
+  represent safely
+- **THEN** Office Graph MUST reject the feature, flatten it when it is
+  style-only, or store it as an artifact/raw adapter payload until an accepted
+  design promotes it into the portable schema
 
 ### Requirement: Agent Markdown Is Derived
 Office Graph SHALL serialize rich text to agent Markdown as a derived render

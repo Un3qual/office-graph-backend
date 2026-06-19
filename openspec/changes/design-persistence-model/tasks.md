@@ -62,29 +62,29 @@
 
 ## 3. Open Decisions Before Migrations
 
-- [ ] 3.1 Split the first-class persistence inventory into immediate MVP
+- [x] 3.1 Split the first-class persistence inventory into immediate MVP
   migration scope, near-follow-up scaffolding, and deferred external-reference-
   only domains.
-- [ ] 3.2 Decide whether review comments and review findings both ship in the
+- [x] 3.2 Decide whether review comments and review findings both ship in the
   first software proving workflow or whether one starts as external reference
   context.
-- [ ] 3.3 Decide whether observability issues and events are provider-neutral
+- [x] 3.3 Decide whether observability issues and events are provider-neutral
   from day one or begin with Sentry-focused normalized records after an
   integration spike.
-- [ ] 3.4 Decide which graph projection queries need dedicated read models in
+- [x] 3.4 Decide which graph projection queries need dedicated read models in
   MVP, if any.
-- [ ] 3.5 Decide which high-volume tables are only partition-ready in MVP and
+- [x] 3.5 Decide which high-volume tables are only partition-ready in MVP and
   which, if any, need day-one partitioning.
-- [ ] 3.6 Decide the first portable rich text node, mark, and reference types
+- [x] 3.6 Decide the first portable rich text node, mark, and reference types
   and the handling for unsupported editor features.
-- [ ] 3.7 Decide whether rich text reconstruction uses validity ranges,
+- [x] 3.7 Decide whether rich text reconstruction uses validity ranges,
   explicit revision membership rows, periodic materialized snapshots, or a
   hybrid.
-- [ ] 3.8 Decide which MVP ordered structures use graph-addressable ordered
+- [x] 3.8 Decide which MVP ordered structures use graph-addressable ordered
   placement tables and which use typed embedded placement tables.
-- [ ] 3.9 Decide the first sortable position-key implementation, rebalance
+- [x] 3.9 Decide the first sortable position-key implementation, rebalance
   policy, and conflict behavior for concurrent reorders.
-- [ ] 3.10 Decide the first operation-correlation record shape shared by
+- [x] 3.10 Decide the first operation-correlation record shape shared by
   revisions, audit records, run events, sync events, proposed graph changes,
   and domain events.
 

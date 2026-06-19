@@ -14,6 +14,22 @@ resources, external-reference-only records, and raw archives.
   documents, external references, raw payload archives, and operation
   correlation records
 
+#### Scenario: Immediate migration cut is selected
+- **WHEN** the first MVP migration scope is selected
+- **THEN** it MUST include the work-container, graph identity, graph
+  relationship, core work-loop, conversation, rich text foundation, external
+  reference, raw archive, operation correlation, external source, and software
+  proving resources needed for the software review/fix/verification workflow
+
+#### Scenario: Near-follow-up resources are reserved
+- **WHEN** work packets, runs, run events, proposed graph changes, context
+  expansion requests, final revision/audit/tombstone records, projection read
+  models, or API/UI render caches are considered during the first migration
+  cut
+- **THEN** they MUST remain reserved typed concepts until their dedicated
+  follow-on designs define fields, lifecycle, authorization, and operational
+  behavior
+
 #### Scenario: Nearby execution resources are reserved
 - **WHEN** persistence planning accounts for agent and execution follow-ons
 - **THEN** work packets, runs, run events, proposed graph changes, and context
@@ -31,6 +47,18 @@ making software concepts mandatory for all departments.
   observability issues, and observability events MUST be represented as
   first-class provider-neutral resources where Office Graph needs lifecycle,
   query, revision, verification, or agent behavior
+
+#### Scenario: Review discussion becomes actionable
+- **WHEN** an imported or native review comment contains actionable work
+- **THEN** Office Graph MUST preserve the review comment as discussion context
+  and MUST create or link a review finding for severity, status, waiver, fix,
+  and verification behavior
+
+#### Scenario: Observability workflow starts with Sentry
+- **WHEN** the first observability integration is modeled
+- **THEN** observability issues and events MUST use provider-neutral base
+  resources, with Sentry-specific fields added only through justified
+  extension tables
 
 ### Requirement: External Reference Inventory Boundary
 Office Graph SHALL keep low-certainty or deferred workflow domains as external

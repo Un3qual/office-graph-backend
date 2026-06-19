@@ -39,6 +39,12 @@ graph-addressable resources through concrete graph identity foreign keys.
   `item_graph_item_id` foreign keys, collection kind, structure kind,
   ordering strategy, parent placement, position key, and lifecycle state
 
+#### Scenario: MVP graph-addressable ordering is selected
+- **WHEN** the MVP needs ordering for task lists, plan sections, cards, or
+  work-container ordered views
+- **THEN** those ordered structures SHOULD use graph-addressable ordered
+  placement tables when the ordered items are first-class graph items
+
 ### Requirement: Typed Embedded Ordered Placements
 Office Graph SHALL support typed placement tables for embedded or
 domain-specific ordered structures.
@@ -48,6 +54,11 @@ domain-specific ordered structures.
 - **THEN** Office Graph SHOULD use a typed rich text placement table with
   concrete document, block, parent placement, position key, and revision
   validity columns that follow the shared ordered-placement contract
+
+#### Scenario: MVP rich text block order is selected
+- **WHEN** the first rich text persistence schema is implemented
+- **THEN** rich text block order MUST use typed embedded placement tables from
+  the start rather than a generic graph-addressable placement table
 
 #### Scenario: Photo gallery order is added later
 - **WHEN** a future photo gallery block needs reorderable photos
@@ -63,6 +74,18 @@ and moves do not require renumbering sibling rows.
 - **WHEN** an ordered item is inserted between two existing siblings
 - **THEN** Office Graph MUST be able to assign a sortable position key between
   the neighboring keys without updating every sibling row
+
+#### Scenario: First position key is stored
+- **WHEN** the first manual ordering implementation stores a position key
+- **THEN** it MUST use a lexicographically sortable fractional string over a
+  fixed ASCII alphabet with bytewise comparison semantics and uniqueness scoped
+  by collection, parent placement, active lifecycle state, and position key
+
+#### Scenario: Position key range is exhausted
+- **WHEN** neighboring position keys leave insufficient room, keys exceed an
+  accepted length threshold, or repeated inserts concentrate in one range
+- **THEN** Office Graph MUST rebalance through a domain operation that creates
+  new placement versions under one operation correlation record
 
 #### Scenario: Dense numbering is displayed
 - **WHEN** users or APIs need numbered list positions, gallery indexes, slide
@@ -80,6 +103,13 @@ as a content-version change.
 - **THEN** Office Graph MUST create, close, or supersede placement-version
   state for the move without creating new content-version rows for unchanged
   content
+
+#### Scenario: Concurrent moves conflict
+- **WHEN** two reorder commands modify the same collection or placement version
+  concurrently
+- **THEN** Office Graph MUST use optimistic version checks and either retry
+  against the latest sibling keys when the move intent remains unambiguous or
+  return a conflict/proposed change for review
 
 ### Requirement: Ordering Strategies Are Extensible
 Office Graph SHALL allow new ordering strategies without changing the base

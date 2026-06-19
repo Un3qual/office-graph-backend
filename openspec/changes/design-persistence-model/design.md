@@ -533,6 +533,136 @@ Alternatives considered:
   becomes a weak relational model for embedded or high-volume structures that
   need concrete foreign keys and domain-specific constraints.
 
+### 14. Bound the first migration cut before implementation
+
+The immediate MVP migration scope should include the smallest relational
+foundation that can support the shared work graph, node-scoped conversation,
+evidence-based verification, external reference ingestion, and the software
+review/fix/verification proving workflow. It should not try to build every
+reserved execution resource or every future department workflow in the first
+schema pass.
+
+Immediate MVP migration scope:
+
+- organization, workspace, initiative/project, and workstream records
+- graph items, graph relationships, and graph-addressable ordered collections
+- signals, requirements, tasks, questions, decisions, checks, evidence, and
+  artifacts
+- conversations and conversation messages
+- rich text document, revision, block, inline, mark, reference, anchor, quote,
+  and derived-render foundations needed by those body fields
+- external sources or integration installations
+- external references and raw payload archives
+- operation correlation records
+- provider-neutral software proving records for repositories, refs/branches,
+  commits, pull requests, review threads, review comments, review findings,
+  check runs, issues, observability issues, and observability events
+
+Near-follow-up scaffolding should remain reserved but should wait for its
+dedicated design before migrations create full behavior: work packets, runs,
+run events, proposed graph changes, context expansion requests, final
+revision/audit/tombstone structures, provider-specific extension tables beyond
+the first integration needs, projection read models, and API/UI render caches.
+
+Deferred domains stay external-reference-only or artifact-first in MVP until a
+workflow promotes them: design assets/comments, campaign assets, social posts,
+finance records, spreadsheets, external documents/comments, and ticketing
+records outside the selected proving workflow.
+
+Review comments and review findings both ship in the first software proving
+workflow. Review comments preserve provider or native discussion context;
+review findings capture actionable product state such as severity, status,
+waiver, fix linkage, and verification. Imported review-bot comments may create
+review comments first and then promote or link actionable content to review
+findings.
+
+Observability issues and observability events should be provider-neutral from
+day one, with Sentry as the first likely external source. Sentry-specific
+fields, cursors, grouping details, or replay semantics belong in extension
+tables only after an integration spike proves they cannot live in the shared
+issue/event model.
+
+### 15. Keep MVP projections query-backed and partition-ready
+
+MVP graph projections should start as authorization-filtered query results over
+truth tables, supported by indexes and narrow SQL query modules. The first
+migrations should not create persisted projection read models for arbitrary
+subgraphs because authorization, classification, redaction, and graph edges are
+still core truth-table concerns.
+
+Dedicated read models may be introduced later for stable, high-traffic
+projections only after `design-api-realtime-and-ui-projections` defines their
+query shape, invalidation behavior, authorization filter, and staleness
+contract. Likely candidates are inbox/queue lists, node-neighborhood summaries,
+verification dashboards, and agent-context assembly caches.
+
+All high-volume tables should be partition-ready in MVP, but none require
+day-one partitioning before first customer data. Raw payload archives, source
+events, sync events, run events, audit records, authorization decision records,
+revision/history records, model calls, tool-call logs, conversation messages,
+observability events, and check-run annotations should carry organization,
+source or resource references, created/received timestamps, retention metadata,
+and narrow envelope fields so time or tenant partitioning can be added later.
+
+### 16. Narrow rich text and ordered placement for the first schema
+
+The first portable rich text schema should support paragraphs, headings,
+ordered and unordered lists, list items, quotes, code blocks, text runs, hard
+breaks, and basic inline marks: bold, italic, underline, strikethrough, inline
+code, highlight, and link presentation. Product references should be typed
+rows for principals, graph items, external references, URLs, and artifacts.
+
+Unsupported editor features should be rejected during native authoring when
+they cannot be represented safely, flattened when they are style-only, or
+stored as artifacts/raw adapter payloads for imported content until a later
+accepted change promotes them into the portable schema.
+
+Rich text reconstruction should use a hybrid copy-on-write model for the first
+implementation design: version rows carry validity ranges tied to document
+revisions, placement versions define block order, and derived render caches
+store current/head outputs for editing, preview, search, and agent Markdown.
+Full materialized document snapshots are not canonical storage; they may be
+added later only as derived caches for performance or export.
+
+MVP ordered structures should use graph-addressable ordered placement tables
+for first-class graph items such as task lists, plan sections, cards, and
+work-container ordered views. Rich text block order should use typed embedded
+placement tables from the start. Future galleries, slides, tables, and
+domain-specific nested structures should add typed placement tables when their
+workflow is selected.
+
+The first sortable position key should be a lexicographically sortable
+fractional string over a fixed ASCII alphabet, generated between neighboring
+siblings and compared with bytewise semantics. Placement uniqueness should be
+scoped by collection, parent placement, active lifecycle state, and position
+key. Rebalancing should be a domain operation that creates new placement
+versions under one operation correlation record when gaps become too small,
+keys exceed an accepted length threshold, or repeated inserts concentrate in
+one range.
+
+Concurrent reorders should use optimistic placement or collection version
+checks. On conflict, a command may reload the latest sibling keys and retry if
+the user's or agent's move intent is still unambiguous; otherwise it must
+return a conflict for human review or a proposed graph change rather than
+silently overwriting another move.
+
+### 17. Define the first operation correlation shape
+
+The first operation correlation record should identify one meaningful command
+or externally observed action without becoming a universal event payload. It
+should include organization, optional workspace/initiative/workstream scope,
+actor principal when present, delegated principal when present, agent run when
+present, external source when present, command key, idempotency key when
+applicable, request/trace identifiers, policy bundle or authorization context
+version when applicable, reason, origin, and occurred/created timestamps.
+
+Records produced by the operation should reference `operation_id` directly:
+revisions, audit records, run events, sync events, domain events, proposed
+graph changes, and derived records each keep their own typed payload. The
+operation record may point to a primary graph item or external reference when
+one exists, but it must not introduce a polymorphic local `resource_type` plus
+`resource_id` target model.
+
 ## Risks / Trade-offs
 
 - [Risk] The MVP inventory is still too broad. -> Mitigation: specs and tasks
@@ -583,25 +713,11 @@ work should consume the persistence model in this order:
    tables, rendering caches, search indexing, and collaboration/session
    behavior.
 
-## Open Questions
+## Remaining Open Questions
 
-- Which first-class MVP resources are immediate implementation scope versus
-  near-follow-up scaffolding?
-- Should review comments and review findings both ship in the first software
-  proving workflow, or should review findings be native first while provider
-  comments remain external references until imported examples require them?
-- Should observability issues/events be provider-neutral from day one, or
-  should Sentry start as an external source with normalized issue/event
-  records added after the first integration spike?
-- Which graph projection queries need read models in MVP, if any?
-- Which high-volume tables should be partition-ready only, and which need
-  partitioning before first customer data?
-- Which rich text node and mark types are in the first portable schema, and
-  which unsupported editor features should be flattened, rejected, or stored
-  as artifacts?
-- Should rich text reconstruction use validity ranges, explicit revision
-  membership rows, periodic materialized snapshots, or a hybrid once document
-  sizes and edit patterns are better understood?
-- Which ordered structures should use graph-addressable ordered placement
-  tables in MVP, and which should use typed embedded placement tables from the
-  start?
+No migration-blocking persistence questions remain in this change. The
+remaining details intentionally move to follow-on changes for revision/audit
+and soft deletion, code organization, ingestion and integrations, agent
+runtime, runs and verification, proposed graph changes, work packets and
+readiness, API/realtime/UI projections, rich text implementation, and ordered
+placement implementation.

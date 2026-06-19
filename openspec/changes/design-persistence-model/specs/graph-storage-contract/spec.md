@@ -60,3 +60,11 @@ results over scoped graph data, not as tenants or access-granting containers.
   external references, revisions, summaries, or counts
 - **THEN** every included record MUST remain governed by its own tenant, scope,
   classification, and authorization facts
+
+#### Scenario: Dedicated projection read model is proposed
+- **WHEN** Office Graph introduces a persisted read model for inboxes, queues,
+  node-neighborhood summaries, verification dashboards, agent-context caches,
+  or another graph projection
+- **THEN** the design MUST define the source truth tables, authorization and
+  redaction rules, invalidation behavior, staleness contract, and operation
+  correlation before the read model becomes durable MVP storage
