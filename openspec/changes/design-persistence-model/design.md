@@ -69,6 +69,15 @@ The expected shape is:
 - typed relationship records for graph edges
 - typed attachments and external references for provider or domain context
 
+Core persistence must not use polymorphic local references such as
+`resource_type` plus `resource_id` for Office Graph-owned records. SQL-level
+referential integrity should come from either a concrete foreign key to
+`graph_items` for first-class graph-addressable resources, or a concrete
+domain-table foreign key for typed embedded resources. External references may
+store provider object type and external identifier because those point outside
+the local relational model; that exception must not be used for internal
+Office Graph resource links.
+
 Alternatives considered:
 
 - **Single generic node table with JSON properties:** Flexible, but too weak
@@ -103,6 +112,8 @@ First-class Office Graph resources:
 - conversations
 - conversation messages
 - rich text documents and revision structures
+- ordered collections, placements, and placement versions for graph-addressable
+  ordered structures
 - external references
 - raw payload archives
 - operation or command correlation records
@@ -414,6 +425,8 @@ The expected persistence shape is:
 - versioned `rich_text_inline_mark_versions` for mark applications
 - typed reference tables for principal mentions, graph-item references,
   external links, artifacts, and future attachment references
+- sidecar anchor, range, and quote-snapshot tables for references to whole
+  resources, selected blocks, and selected inline spans
 - derived render/cache tables for plain text, sanitized HTML, agent Markdown,
   Lexical JSON adapter output, or future editor adapter payloads
 
@@ -436,6 +449,23 @@ references into Lexical custom nodes, GraphQL/JSON API response shapes,
 Markdown links for agents, or redacted placeholders when authorization
 requires it.
 
+Quotes and fine-grained references should be non-invasive sidecar records by
+default. Creating a quote from another rich text document must not modify the
+source document unless the user explicitly inserts a named source anchor or
+bookmark. Pinned quotes should record the target document, target revision,
+selected block or inline range, copied normalized snapshot fragment, hash, and
+source authorization/classification context. Live references should resolve
+against the latest authorized source state and carry resolution status such as
+resolved, stale, deleted, ambiguous, or source-reordered.
+
+Selections should preserve the user's intent. A text selection that crosses
+multiple inline runs should store start and end anchors against stable inline
+version identities plus offsets and, for pinned quotes, store the copied
+fragment. Selecting several list items should be modeled as a block selection
+set, not a loose boundary range; if the source list is later reordered, pinned
+quotes preserve the original selected order while live excerpts must state
+whether they render in original selection order or current source order.
+
 The first rich text schema should stay intentionally narrow: paragraphs,
 headings, lists, quotes, code blocks, text runs, basic marks, principal
 mentions, graph-item references, external links, and artifact references.
@@ -451,6 +481,57 @@ Alternatives considered:
   but wasteful when small edits touch one word or mark deep in a document.
 - **Boolean mark columns on inline rows:** Easy for bold/italic/underline, but
   creates schema churn when new marks need values or compatibility rules.
+
+### 13. Model ordering as an extensible placement contract with concrete FKs
+
+Ordered structures should share semantics without forcing every ordered thing
+through one polymorphic table. The reusable concept is an ordered placement
+contract: stable collection identity, stable item membership, parent/child
+placement when the structure is nested, fractional/manual position keys,
+revision validity, lifecycle state, and derived dense ordinals for display.
+
+For first-class graph-addressable resources, Office Graph may use generic
+ordering tables with concrete graph foreign keys:
+
+- `ordered_collections` with organization, collection kind, structure kind,
+  ordering strategy, and `owner_graph_item_id`
+- `ordered_placements` with collection, `item_graph_item_id`,
+  `parent_placement_id`, and lifecycle state
+- `ordered_placement_versions` with position key, validity revision or
+  operation range, move/reorder metadata, and optional placement-state changes
+
+For embedded or high-volume structures, Office Graph should use typed placement
+tables that follow the same contract while preserving concrete foreign keys.
+Examples include `rich_text_block_placements` with `document_id` and
+`block_id`, or future `gallery_photo_placements` with `gallery_id` and
+`gallery_photo_id`. Domain-specific placement details such as crop, focal
+point, grid span, swimlane, or board column should live in typed extension
+tables or typed placement-version tables, not in a generic JSON payload.
+
+Manual reordering should update placement version state rather than content
+state. Dense list numbers, card positions, slide numbers, or gallery display
+indexes are derived from current placement order. A move of a document block,
+task, or gallery photo should close or supersede the prior placement version
+and create a new placement version with a new position key, without creating a
+new content version for unchanged content.
+
+Ordering strategies can grow over time. The first accepted strategy should be
+fractional manual ordering, using sortable position keys so insertion and
+reordering do not require renumbering sibling rows. Later strategies can add
+append-only sequence, priority rank, grid placement, grouped/swimlane ordering,
+or topological ordering without changing the identity and versioning contract.
+
+Alternatives considered:
+
+- **Polymorphic `owner_type`/`owner_id` and `item_type`/`item_id` tables:**
+  Easy to generalize in diagrams, but weak for SQL constraints, Ash resources,
+  authorization, migrations, and query planning.
+- **Dense integer order columns on each table:** Simple initially, but
+  expensive and fragile for frequent reordering, nested structures, and
+  revision history.
+- **One generic ordered placement table for everything:** Reuses code, but
+  becomes a weak relational model for embedded or high-volume structures that
+  need concrete foreign keys and domain-specific constraints.
 
 ## Risks / Trade-offs
 
@@ -476,6 +557,10 @@ Alternatives considered:
   known. -> Mitigation: keep the first portable schema narrow, require adapter
   support for accepted nodes/marks, and route unsupported content through
   artifacts or later schema promotion.
+- [Risk] The ordered-placement contract becomes a generic schema escape hatch.
+  -> Mitigation: allow reusable behavior, but require concrete graph-item
+  foreign keys or typed domain foreign keys instead of polymorphic local
+  references.
 
 ## Migration Plan
 
@@ -494,8 +579,9 @@ work should consume the persistence model in this order:
    `design-api-realtime-and-ui-projections` to refine high-volume event,
    context, run, and projection read patterns.
 6. Use a future rich text implementation design to refine editor adapters,
-   copy-on-write reconstruction, rendering caches, search indexing, and
-   collaboration/session behavior.
+   copy-on-write reconstruction, anchor resolution, quote snapshots, ordering
+   tables, rendering caches, search indexing, and collaboration/session
+   behavior.
 
 ## Open Questions
 
@@ -516,3 +602,6 @@ work should consume the persistence model in this order:
 - Should rich text reconstruction use validity ranges, explicit revision
   membership rows, periodic materialized snapshots, or a hybrid once document
   sizes and edit patterns are better understood?
+- Which ordered structures should use graph-addressable ordered placement
+  tables in MVP, and which should use typed embedded placement tables from the
+  start?

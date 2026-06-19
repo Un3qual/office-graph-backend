@@ -67,6 +67,75 @@ external links, and future attachment references into typed relational rows.
   applicable target and stable inline anchor so authorization, notifications,
   graph traversal, search, and agent context do not parse editor payloads
 
+### Requirement: Non-Invasive Anchors And Quotes
+Office Graph SHALL model rich text anchors, references, and quotes as sidecar
+records unless a user explicitly inserts a visible source anchor or bookmark.
+
+#### Scenario: Quote is created from another document
+- **WHEN** a user quotes or references selected content from a source rich text
+  document
+- **THEN** Office Graph MUST create quote/reference metadata and MUST NOT alter
+  the source document solely to support that quote or reference
+
+#### Scenario: Named source anchor is inserted
+- **WHEN** a user explicitly creates a durable named anchor or bookmark inside
+  the source document
+- **THEN** that anchor insertion is a normal source document edit with its own
+  revision and authorization checks
+
+### Requirement: Pinned Quotes Preserve Source State
+Office Graph SHALL preserve pinned quotes against the source revision and
+selected source span that produced them.
+
+#### Scenario: Pinned quote is saved
+- **WHEN** selected source content is inserted as a pinned quote
+- **THEN** the quote MUST record source document, source revision, selected
+  block or inline range, copied normalized snapshot fragment, snapshot digest,
+  provenance, and source authorization or classification context
+
+#### Scenario: Source content later changes
+- **WHEN** the quoted source content is later edited, deleted, or reordered
+- **THEN** the pinned quote MUST continue rendering the saved snapshot and MAY
+  expose source-changed, source-deleted, or source-reordered status without
+  silently mutating the quote text
+
+### Requirement: Live References Resolve With Status
+Office Graph SHALL distinguish live references from pinned quotes.
+
+#### Scenario: Live reference is rendered
+- **WHEN** a live reference or live excerpt is rendered
+- **THEN** Office Graph MUST resolve it against the latest authorized source
+  state and return a resolution status such as resolved, stale, deleted,
+  ambiguous, unauthorized, or source-reordered
+
+#### Scenario: Live reference cannot be safely resolved
+- **WHEN** the referenced source span cannot be mapped unambiguously to the
+  latest source revision
+- **THEN** Office Graph MUST avoid fabricating updated quote text and MUST
+  render an explicit unresolved or stale state for users and agents
+
+### Requirement: Selection Intent Is Preserved
+Office Graph SHALL model source selections according to user intent rather
+than treating every selection as a mutable text boundary range.
+
+#### Scenario: Selection crosses inline formatting
+- **WHEN** a selected quote spans multiple inline runs or marks, such as text
+  that begins inside bold text and ends inside italic text
+- **THEN** the anchor/range model MUST represent start and end inline anchors
+  with offsets and preserve the copied marked fragment for pinned quotes
+
+#### Scenario: Several list items are selected
+- **WHEN** a user selects multiple list items to quote or reference
+- **THEN** Office Graph MUST represent the selection as a block selection set
+  by stable block identities unless the user explicitly chooses a boundary
+  range
+
+#### Scenario: Source list items are reordered
+- **WHEN** source list items referenced by a pinned quote are later reordered
+- **THEN** the pinned quote MUST preserve the original selected order and MAY
+  mark the source as reordered; live excerpts MUST define whether they render
+  in original selection order or current source order
+
 ### Requirement: Agent Markdown Is Derived
 Office Graph SHALL serialize rich text to agent Markdown as a derived render
 with stable Office Graph references.

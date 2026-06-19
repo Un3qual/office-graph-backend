@@ -28,6 +28,9 @@ provider-neutral, tenant-scoped persistence decisions for the MVP.
   bodies, comments, document sections, and plan sections, including normalized
   blocks, inline nodes, mark applications, references, revision history, and
   agent Markdown serialization.
+- Define an extensible ordered-placement persistence contract for ordered
+  document blocks, list items, plan sections, tasks, galleries, boards, and
+  future ordered structures without using polymorphic local foreign keys.
 - Define explicit tenant, workspace, initiative/project, workstream, team,
   component, repository, integration, external-source, and artifact scope rules
   for durable records.
@@ -64,6 +67,9 @@ provider-neutral, tenant-scoped persistence decisions for the MVP.
 - `portable-rich-text-persistence`: Defines normalized, editor-independent rich
   text storage, revision history, mark/reference extraction, and derived
   serialization for Lexical, Markdown, and future editor adapters.
+- `ordered-placement-model`: Defines reusable ordered-collection semantics,
+  versioned placements, fractional/manual ordering, graph-addressable ordering,
+  typed embedded ordering, and SQL-safe foreign-key rules.
 - `tenant-scope-indexing`: Defines tenant/scope columns, baseline indexes,
   external-id uniqueness, soft-delete-aware uniqueness, and query-shape
   requirements.
