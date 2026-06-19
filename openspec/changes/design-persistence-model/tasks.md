@@ -90,7 +90,7 @@
 
 ## 4. Follow-On Planning Work
 
-- [ ] 4.1 Create or continue `design-revision-audit-soft-delete` to finalize
+- [x] 4.1 Create or continue `design-revision-audit-soft-delete` to finalize
   revision records, audit logs, tombstones, retention, legal hold, restore
   behavior, and how operation correlation links them without duplicating data.
 - [ ] 4.2 Create or continue `design-code-organization-and-boundaries` to map
