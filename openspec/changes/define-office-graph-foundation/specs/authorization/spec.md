@@ -1,5 +1,12 @@
 ## ADDED Requirements
 
+This foundation capability is framing. Canonical identity and authorization
+schema inventory is owned by `design-identity-and-authorization-schema`;
+canonical authentication mechanics are owned by
+`design-identity-and-authentication`; canonical governance semantics and the
+agent effective permission formula are owned by
+`design-enterprise-governance/specs/authorization-governance`.
+
 ### Requirement: Unified Principal Model
 
 Office Graph SHALL authorize humans, agents, service accounts, integrations,

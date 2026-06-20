@@ -38,6 +38,10 @@ execution, review, verification, provenance, and external context.
 ### Requirement: Edges Do Not Grant Access
 Office Graph SHALL NOT treat graph relationships as automatic access grants.
 
+This capability is the canonical owner for the "edges do not grant access"
+rule, in coordination with `design-enterprise-governance/specs/tenancy` for
+tenant and scope policy.
+
 #### Scenario: Traversal crosses scope boundary
 - **WHEN** graph traversal follows an edge to an item outside the actor's
   authorized scope

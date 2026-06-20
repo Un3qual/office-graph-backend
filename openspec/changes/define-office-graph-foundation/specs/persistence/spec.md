@@ -1,5 +1,11 @@
 ## ADDED Requirements
 
+This foundation capability is framing. Canonical persistence rules are owned
+by `design-persistence-model`, canonical JSON policy by
+`design-persistence-model/specs/json-storage-policy`, and canonical
+revision/audit/operation-correlation requirements by
+`design-revision-audit-soft-delete`.
+
 ### Requirement: Provider-Neutral Relational Base Tables
 
 Office Graph SHALL prefer provider-neutral relational base tables for concepts

@@ -55,7 +55,7 @@
   account and agent credential issuance, external identity reconciliation, and
   first-org/first-admin bootstrap in
   `design-identity-and-authentication`.
-- [ ] Reconcile canonical capability ownership before promoting foundation
+- [x] Reconcile canonical capability ownership before promoting foundation
   requirements so this foundation change stays product framing rather than a
   duplicate durable source for authorization, persistence, work graph, audit,
   or code organization details.

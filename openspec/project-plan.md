@@ -1059,6 +1059,28 @@ generation because Ash policies, graph projections, audit decisions, runtime
 authority checks, integration credentials, and agent behavior all depend on
 those facts.
 
+### Canonical Concept Ownership
+
+These active changes may reference each other, but each shared concept should
+have one canonical owner before promotion into durable specs:
+
+| Concept | Canonical owner | Referencing changes |
+| --- | --- | --- |
+| Principal model | `design-identity-and-authorization-schema` plus `design-enterprise-governance/specs/authorization-governance` | foundation, code organization, authentication |
+| Authentication mechanics | `design-identity-and-authentication` | governance, code organization |
+| Scope hierarchy | `design-identity-and-authorization-schema/specs/scope-hierarchy-storage` | governance, persistence |
+| Audit record shape | `design-revision-audit-soft-delete/specs/audit-record-boundaries` | governance, code organization |
+| Operation correlation | `design-revision-audit-soft-delete/specs/operation-correlation` | persistence, governance, code organization |
+| Agent effective permission formula | `design-enterprise-governance/specs/authorization-governance` | foundation, agent runtime, work packets |
+| Edges do not grant access | `design-work-graph-core/specs/graph-relationships` plus `design-enterprise-governance/specs/tenancy` | persistence, projections |
+| JSON storage policy | `design-persistence-model/specs/json-storage-policy` | revision/audit, integrations |
+| Check/evidence/verification vocabulary | `design-runs-and-verification` when created | foundation, governance, persistence |
+
+`define-office-graph-foundation` is durable product framing. It should not be
+promoted wholesale into duplicate canonical authorization, persistence,
+work-graph, or backend-architecture specs when more granular changes own the
+actual durable requirements.
+
 ## Architecture Notes To Resolve Before Code
 
 - Prefer a modular monolith with clear Ash domains first unless there is a

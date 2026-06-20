@@ -146,8 +146,8 @@ denials, redactions, placeholders, approval requirements, and escalations.
 - **WHEN** an agent action is allowed
 - **THEN** the decision must be explainable as the intersection of delegator
   permission, agent capability, work packet autonomy policy, tool or
-  integration scope, organization policy, resource classification policy, and
-  any approved context expansion or temporary grant
+  integration scope, organization policy, resource sensitivity policy, and any
+  approved context expansion or temporary grant
 
 ### Requirement: Durable Authorization Decision Records
 Policy-sensitive authorization decisions SHALL be recorded durably when they

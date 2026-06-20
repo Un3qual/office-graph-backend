@@ -7,11 +7,13 @@ action with a narrow operation correlation record.
 #### Scenario: Operation is created
 - **WHEN** a human, agent, integration, webhook source, service account, or
   system job performs a meaningful command or externally observed action
-- **THEN** Office Graph MUST be able to record organization, optional work
-  scope, actor principal when present, delegator when present, agent run when
+- **THEN** Office Graph MUST be able to record organization, optional
+  workspace scope, optional initiative scope, optional workstream scope, actor
+  principal when present, delegated principal when present, agent run when
   present, service account or external source when present, command key,
-  idempotency key when applicable, request or trace identifiers, policy or
-  authorization context version when applicable, origin, reason, and timestamps
+  idempotency key when applicable, request or trace identifiers, authority
+  basis, reason, source surface, primary graph item or external reference when
+  present, and timestamps
 
 #### Scenario: Operation has a primary target
 - **WHEN** an operation has a primary Office Graph target

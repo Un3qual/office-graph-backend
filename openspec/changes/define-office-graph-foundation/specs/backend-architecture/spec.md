@@ -1,5 +1,9 @@
 ## ADDED Requirements
 
+This foundation capability is framing. Canonical code organization, Boundary,
+Ash/Ecto, operation contract, API entrypoint, and library-extraction
+requirements are owned by `design-code-organization-and-boundaries`.
+
 ### Requirement: Modular Monolith First
 
 Office Graph SHALL start as a modular monolith with explicit domain

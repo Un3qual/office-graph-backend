@@ -1,5 +1,9 @@
 ## ADDED Requirements
 
+This foundation capability is framing. Canonical graph item and relationship
+requirements are owned by `design-work-graph-core`; proposed mutation safety
+semantics are owned by `design-proposed-graph-changes` when created.
+
 ### Requirement: Department-Neutral Work Graph
 
 Office Graph SHALL model work as a typed, department-neutral graph of

@@ -6,6 +6,11 @@ including writes, external syncs, agent actions, approvals, denials, revisions,
 audit events, run events, domain events, tombstones, raw archive links, and
 proposed graph changes.
 
+The canonical durable field list for operation correlation is owned by
+`design-revision-audit-soft-delete/specs/operation-correlation`. Code
+organization owns how entrypoints and contexts propagate that operation
+context through public APIs.
+
 #### Scenario: A human submits a command
 - **WHEN** an API request performs a durable write
 - **THEN** the entrypoint builds an operation context with organization, scope,

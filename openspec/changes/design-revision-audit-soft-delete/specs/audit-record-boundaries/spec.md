@@ -1,5 +1,10 @@
 ## ADDED Requirements
 
+This capability owns the canonical audit record shape. Governance and code
+organization specs may summarize audit needs, but durable audit envelope,
+target, detail, visibility, immutability, projection, and export requirements
+are owned here.
+
 ### Requirement: Durable Audit Triggers
 Office Graph SHALL create durable audit records for policy-sensitive behavior
 and denied or escalated policy-sensitive attempts.

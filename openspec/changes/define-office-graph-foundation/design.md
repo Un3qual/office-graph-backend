@@ -69,6 +69,13 @@ integrated vendor can copy into its own product.
 
 ## Capability Boundaries
 
+This foundation change owns product framing, vocabulary, locked platform
+choices, and the first proving workflow. Granular follow-on changes own
+canonical durable requirements for identity, authentication, authorization,
+scope hierarchy, work-graph relationships, persistence, revision/audit,
+operation correlation, code organization, ingestion, proposed changes, runs,
+verification, and API/UI behavior.
+
 ### Foundation
 
 Owns product framing, locked platform decisions, OpenSpec scope, first proving
