@@ -62,6 +62,58 @@ Office Graph resources in core persistence.
   external-reference identity because the target is outside the local SQL
   foreign-key model
 
+### Requirement: API Interfaces Over Typed Storage
+Office Graph SHALL implement GraphQL capability interfaces as API contracts
+over concrete typed resources and authorization-aware domain contracts.
+
+#### Scenario: Resource implements a capability interface
+- **WHEN** a graph-addressable resource implements a GraphQL interface such as
+  closable, updatable, reactable, comment-like, approvable, subscribable, or a
+  future projection/configuration interface
+- **THEN** its interface fields MUST be resolved from the resource's typed
+  storage, graph identity, and owning domain contracts rather than from a
+  polymorphic local `resource_type` plus `resource_id` table
+
+#### Scenario: Viewer affordance field is exposed
+- **WHEN** GraphQL exposes fields such as `viewerCanUpdate`,
+  `viewerCanReact`, `viewerCanClose`, `viewerCanApprove`, or
+  `viewerDidAuthor`
+- **THEN** the resolver MUST use the authorization/policy boundary and current
+  actor context instead of inferring permission from type membership alone
+
+#### Scenario: Interface-backed mutation is proposed
+- **WHEN** an API mutation would update, close, approve, react to, comment on,
+  or otherwise mutate any interface implementor
+- **THEN** the mutation MUST route through a typed domain action,
+  proposed-graph-change path, or other explicit capability command that
+  preserves validation, lifecycle, operation correlation, revision, audit, and
+  authorization semantics
+
+### Requirement: Scoped URL Identifiers Are Separate From Graph Identity
+Office Graph SHALL keep optional scoped URL numbers or handles separate from
+graph identity, GraphQL global IDs, and durable primary keys.
+
+#### Scenario: Scoped URL number is allocated
+- **WHEN** a future accepted design allocates a human-facing number such as a
+  task, question, finding, view, workflow, pull request, or form number inside
+  a scope
+- **THEN** the allocation MUST store scope kind, scope identity, resource kind,
+  number, allocation operation, and owning resource explicitly rather than
+  deriving the URL number from a table primary key
+
+#### Scenario: Scoped URL number is deleted or tombstoned
+- **WHEN** a resource with a URL-facing scoped number is deleted, archived, or
+  replaced
+- **THEN** Office Graph MUST preserve a reservation or tombstone so the same
+  scoped URL token is not reassigned to a different resource
+
+#### Scenario: Allocation strategy is selected
+- **WHEN** implementation chooses between Postgres sequences, per-scope
+  sequence families, transactional counter rows, or another allocator
+- **THEN** the design MUST state whether gaps are acceptable, how contention
+  is handled, how retries behave, and how allocation participates in the same
+  transaction as resource creation
+
 ### Requirement: Graph Projections Are Query Results
 Office Graph SHALL treat graph projections as authorization-filtered query
 results over scoped graph data, not as tenants or access-granting containers.

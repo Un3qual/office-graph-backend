@@ -50,6 +50,26 @@ same domain contracts rather than separate business logic implementations.
 - **THEN** the transport layer adds mapping code without moving business rules
   out of the owning context
 
+### Requirement: GraphQL Interface Resolvers Use Domain Contracts
+GraphQL interface resolvers SHALL resolve shared capability fields through
+typed resources, projection interfaces, and authorization/domain contracts
+rather than through direct table access or duplicated policy logic.
+
+#### Scenario: Capability interface field is resolved
+- **WHEN** an Absinthe resolver resolves shared interface fields such as
+  closable, updatable, reactable, comment-like, approvable, subscribable,
+  projection-capable, or configurable-field behavior
+- **THEN** it MUST call the owning public domain query/capability contract and
+  authorization boundary needed to compute both resource state and
+  viewer-specific affordances
+
+#### Scenario: Interface implementor is added
+- **WHEN** a new resource type implements an existing GraphQL capability
+  interface
+- **THEN** its owning context MUST expose the capability contract, tests, and
+  authorization behavior before the API layer adds the type to the interface
+  resolution map
+
 ### Requirement: Projection Entrypoints
 Projection and read endpoints SHALL use approved projection/read-model
 interfaces that apply authorization, redaction, tombstone visibility, and

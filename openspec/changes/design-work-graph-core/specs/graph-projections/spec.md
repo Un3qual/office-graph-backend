@@ -81,3 +81,34 @@ for users, agents, and auditors to understand visible context.
 - **THEN** the context package MUST preserve enough projection rationale for
   the agent runtime to cite context boundaries and request expansion when
   needed
+
+### Requirement: Saved Projection Configuration Does Not Grant Access
+Office Graph SHALL treat saved views, workflow views, field selections,
+filters, grouping, sorting, and layout configuration as projection
+configuration over scoped graph data rather than as authorization or tenancy
+state.
+
+#### Scenario: Saved view is requested
+- **WHEN** a user, agent, or API client requests a saved graph view,
+  workstream board, review surface, evidence chain, workflow view, or another
+  named projection configuration
+- **THEN** Office Graph MUST apply the saved filter, grouping, sorting, field
+  selection, layout, and view number only after enforcing the same
+  authorization, redaction, tombstone visibility, and sensitivity rules as an
+  equivalent ad hoc projection
+
+#### Scenario: Field configuration is exposed through an API
+- **WHEN** GraphQL or JSON API exposes configurable fields, view fields,
+  dynamic intake fields, or provider-derived field definitions
+- **THEN** field configuration MAY be polymorphic in the API, but values that
+  affect workflow state, policy, reporting, verification, or agent context
+  MUST resolve to typed storage or an explicitly accepted raw/unmodeled
+  exception
+
+#### Scenario: Workflow configuration is exposed
+- **WHEN** Office Graph exposes project, initiative, workstream, or workflow
+  pack configuration such as enabled workflows, trigger rules, or named
+  automation views
+- **THEN** the configuration MUST be represented as a typed product resource
+  with explicit scope and ownership and MUST NOT allow arbitrary mutation of
+  graph truth tables outside approved domain actions

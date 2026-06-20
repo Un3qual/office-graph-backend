@@ -14,6 +14,9 @@ decided and promoted into formal OpenSpec changes or specs.
 - User notes from this thread about micro-approval, structured outputs,
   generative UI, clickable plan sections, validation artifacts, nested agents,
   execution packages, review agents, and integration packages.
+- User notes and research from June 20, 2026 about GitHub ProjectsV2 GraphQL
+  design, GraphQL capability interfaces, scoped URL numbers, and form/survey
+  schema patterns.
 
 The generated PRD is useful but not final. Treat its concrete choices as
 candidate design material until explicitly accepted.
@@ -216,6 +219,123 @@ combine cross-tool context, department-neutral work history, internal agents,
 permissions, revision history, and verification evidence. This reduces the
 risk that an integration partner can simply copy one visible feature and make
 Office Graph irrelevant inside its own product.
+
+## GitHub ProjectsV2 And Dynamic Schema Research
+
+Research source status: current as of June 20, 2026, using GitHub GraphQL
+schema introspection through `gh api graphql`, GitHub's GraphQL reference,
+PostgreSQL 18 documentation, Formbricks' Prisma schema, and LimeSurvey model
+source. These notes are design inputs; they become implementation decisions
+only where promoted into OpenSpec changes/specs.
+
+### GitHub ProjectsV2 Lessons
+
+GitHub's ProjectsV2 GraphQL API is a strong reference for polymorphic reads
+with explicit writes:
+
+- `ProjectV2` implements capability interfaces such as `Closable`, `Node`,
+  and `Updatable`; it exposes owner, items, fields, views, workflows,
+  repositories, teams, status updates, scoped `number`, URL/resource path, and
+  viewer affordance fields such as `viewerCanClose`, `viewerCanReopen`, and
+  `viewerCanUpdate`.
+- `ProjectV2View` and `ProjectV2Workflow` are project-owned configuration
+  objects with scoped `number` fields. Views expose layout, filter,
+  group-by, vertical group-by, sort fields, and visible fields. Workflows are
+  exposed more narrowly as named, numbered, enabled project configuration.
+- Project fields are not one flat table in the API. `ProjectV2Field`,
+  `ProjectV2IterationField`, and `ProjectV2SingleSelectField` share
+  `ProjectV2FieldCommon`, while `ProjectV2FieldConfiguration` is a union.
+  Item values are another union: scalar values such as text, number, date,
+  iteration, and single-select share `ProjectV2ItemFieldValueCommon`, while
+  relationship-backed values such as labels, milestones, repositories,
+  reviewers, pull requests, and issue fields expose typed connections.
+- `ProjectV2ItemContent` is a union over draft issues, issues, and pull
+  requests. That keeps project item reads polymorphic without forcing issues,
+  pull requests, and draft issues into one storage model.
+- Mutations are domain-specific: add items, create/update fields, update item
+  field values, move item position by `afterId`, archive/unarchive items,
+  link/unlink repositories and teams, update project metadata, and manage
+  status updates. The public mutation list does not expose broad generic
+  create/update view or workflow mutation families.
+
+Office Graph should copy the shape, not the product specifics: GraphQL may
+offer polymorphic reads and shared interfaces, while durable writes still enter
+through typed domain actions, proposed graph changes, or narrow configuration
+commands.
+
+### Interface Consequences
+
+GitHub's capability interfaces are not just shared field bundles. Examples
+include:
+
+- `Closable`: `closed`, `closedAt`, `viewerCanClose`, `viewerCanReopen`.
+- `Updatable`: `viewerCanUpdate`.
+- `Reactable`: reactions/reaction groups plus `viewerCanReact`.
+- `Comment`: body variants, author/editor, edit metadata, and
+  `viewerDidAuthor`.
+- `Subscribable`: subscription state and `viewerCanSubscribe`.
+
+For Office Graph, this means a capability interface should have:
+
+- one owning domain contract for each mutating action;
+- authorization-aware resolvers for viewer affordance fields;
+- concrete typed storage for business state;
+- tests proving equivalent authorization across GraphQL, JSON API, agents,
+  workers, integrations, and domain commands;
+- no requirement that all implementors share one table.
+
+### Scoped URL Number Options
+
+Scoped URL numbers like `/org/repo/pulls/1` are feasible in Postgres, but they
+must stay separate from GraphQL global IDs and durable internal primary keys.
+The viable options are:
+
+- **Postgres sequences per resource family or per scope family:** simple and
+  concurrent, but sequence values can have gaps after aborts, conflicts, or
+  crashes. Good for human-friendly unique numbers when gaps are acceptable.
+- **Transactional counter rows keyed by `(organization, scope kind, scope id,
+  resource kind)`:** can allocate numbers in the same transaction as the
+  resource and avoid rollback gaps, but creates a hot row for busy scopes and
+  requires consistent lock ordering/retry behavior.
+- **Derived dense numbers:** attractive visually, but unstable under deletion,
+  moves, imports, and authorization filtering. Wrong for durable URLs.
+- **Human slugs/handles only:** avoids counters, but loses familiar short
+  numeric URLs and collision-free local references.
+
+The safest exploratory rule is: if scoped numbers are adopted, store them as
+durable URL tokens with an explicit scope, resource kind, number, allocation
+operation, and reservation/tombstone behavior. They should never be reused for
+a different resource after deletion, even if display names or other active
+record identifiers are reusable.
+
+### Form And Survey Schema Lessons
+
+Form/survey systems show two useful poles:
+
+- Formbricks stores survey questions, endings, variables, hidden fields,
+  quota logic, follow-up triggers/actions, styling, metadata, and response
+  data mostly as JSON, while keeping workspace/contact/attribute keys and
+  typed contact attribute values relational where the product needs indexing
+  and filtering.
+- LimeSurvey has a more relational survey-definition model, with surveys,
+  question groups, questions, subquestions, answers, conditions, quotas,
+  question attributes, localization tables, tokens/participants, and response
+  models. It also constrains updates once a survey is active.
+
+Office Graph should not introduce a general user-defined schema engine just
+because forms might arrive later. The practical takeaway is narrower:
+
+- raw third-party forms and submitted payloads can start as raw archives or
+  external references;
+- native Office Graph intake/forms should become versioned product resources
+  before they affect authorization, routing, reporting, agent context,
+  verification, or workflow state;
+- a future builder should separate form definition versions, questions,
+  options, branching/conditions, presentation metadata, submissions, answers,
+  and typed answer values;
+- JSON may remain useful for raw imported payloads and transient UI
+  configuration, but not as the durable source of queryable answers or
+  policy-relevant fields.
 
 ## OpenSpec Strategy
 

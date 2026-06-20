@@ -23,6 +23,14 @@ walking skeleton.
   shapes needed for that flow without introducing broad projection, agent
   runtime, or provider-integration APIs
 
+#### Scenario: GraphQL interface is introduced in the skeleton
+- **WHEN** the walking skeleton introduces a shared GraphQL interface for
+  graph-addressable, updatable, closable, comment-like, approvable,
+  evidence-bearing, or projection-visible resources
+- **THEN** the interface MUST be backed by typed resource/domain contracts and
+  authorization-aware viewer affordance fields, and it MUST NOT introduce a
+  generic mutation path that bypasses typed domain actions
+
 ### Requirement: Minimal JSON API Surface
 Office Graph SHALL add only the JSON API endpoints needed for the walking
 skeleton.
