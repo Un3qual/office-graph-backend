@@ -741,10 +741,13 @@ work should consume the persistence model in this order:
    responsibilities into Ash domains, Ecto modules, and boundary rules.
 4. Use `design-ingestion-and-integrations` to refine raw payload archives,
    source events, idempotency, replay, and provider adapter contracts.
-5. Use `design-agent-runtime`, `design-runs-and-verification`, and
+5. Use `design-proposed-graph-changes` to define proposed mutation shape,
+   validation, authorization, and domain-action application before agents or
+   adapters propose durable graph changes.
+6. Use `design-agent-runtime`, `design-runs-and-verification`, and
    `design-api-realtime-and-ui-projections` to refine high-volume event,
    context, run, and projection read patterns.
-6. Use a future rich text implementation design to refine editor adapters,
+7. Use a future rich text implementation design to refine editor adapters,
    copy-on-write reconstruction, anchor resolution, quote snapshots, ordering
    tables, rendering caches, search indexing, and collaboration/session
    behavior.
@@ -753,10 +756,3 @@ work should consume the persistence model in this order:
 
 No persistence-only questions remain, but first migration readiness is blocked
 until the cross-change implementation-readiness gate is complete.
-
-No migration-blocking persistence questions remain in this change. The
-remaining details intentionally move to follow-on changes for revision/audit
-and soft deletion, code organization, ingestion and integrations, agent
-runtime, runs and verification, proposed graph changes, work packets and
-readiness, API/realtime/UI projections, rich text implementation, and ordered
-placement implementation.

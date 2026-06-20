@@ -85,6 +85,12 @@ These are logical ownership areas. The first implementation plan may merge or
 split module folders where it improves clarity, but each durable resource,
 command, query, event, and policy must still have one clear owner.
 
+Provider adapters, manual intake, raw archive processing, idempotency/replay,
+sync events, and proposed graph changes should have explicit context owners.
+Adapters produce typed provider-neutral envelopes; proposed changes are applied
+only through owning domain actions. Neither adapter modules nor generated UI
+entrypoints should write graph truth tables directly.
+
 Identity and authentication should expose public contracts for session
 verification, external identity reconciliation, credential
 issuance/revocation, auth event emission, and SecretStore adapter calls.

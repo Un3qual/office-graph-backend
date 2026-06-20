@@ -1043,6 +1043,11 @@ revision path. It also needs skeletal `work_packets`, `runs`, `run_events`,
 extent required to prove the loop; full runtime behavior belongs to later
 dedicated changes.
 
+Manual pasted intake is the first walking-skeleton adapter. Provider webhooks
+and API polling should use the same raw archive, normalized event, idempotency,
+replay, adapter output, and domain-action routing contract after the manual
+path proves the loop.
+
 Current remediation dependency order:
 
 ```text
@@ -1083,6 +1088,8 @@ have one canonical owner before promotion into durable specs:
 | Agent effective permission formula | `design-enterprise-governance/specs/authorization-governance` | foundation, agent runtime, work packets |
 | Edges do not grant access | `design-work-graph-core/specs/graph-relationships` plus `design-enterprise-governance/specs/tenancy` | persistence, projections |
 | JSON storage policy | `design-persistence-model/specs/json-storage-policy` | revision/audit, integrations |
+| Ingestion adapter contract | `design-ingestion-and-integrations/specs/provider-adapter-contract` | persistence, code organization, proposed changes |
+| Proposed graph change lifecycle | `design-proposed-graph-changes` | ingestion, agent runtime, work packets, code organization |
 | Check/evidence/verification vocabulary | `design-runs-and-verification` when created | foundation, governance, persistence |
 
 `define-office-graph-foundation` is durable product framing. It should not be
