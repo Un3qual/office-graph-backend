@@ -85,6 +85,14 @@ These are logical ownership areas. The first implementation plan may merge or
 split module folders where it improves clarity, but each durable resource,
 command, query, event, and policy must still have one clear owner.
 
+Identity and authentication should expose public contracts for session
+verification, external identity reconciliation, credential
+issuance/revocation, auth event emission, and SecretStore adapter calls.
+Entrypoints such as controllers, Absinthe resolvers, JSON API handlers,
+webhooks, Oban jobs, and agent adapters should create authenticated
+principal/session context through those contracts before invoking domain
+actions.
+
 Alternatives considered:
 
 - **Umbrella app from day one:** Gives visible separation, but creates
@@ -252,6 +260,11 @@ ordered placement. Library-ready code should avoid direct Phoenix controller
 dependencies, UI assumptions, Office Graph-only naming in generic layers, and
 hidden access to product contexts. It should receive dependencies through
 behaviours, configuration, explicit data contracts, or callbacks.
+
+For identity/authentication specifically, Office Graph graph semantics should
+remain behind typed inputs or adapter contracts. Session verification,
+credential issuance, external identity reconciliation, and auth event emission
+should not depend on Phoenix controller modules or private work-graph modules.
 
 Extraction should happen only after the public API stabilizes, tests prove the
 boundary, and there is either another consumer or a clear operational reason to

@@ -5,6 +5,11 @@ Office Graph SHALL include enterprise identity integration posture in the MVP
 architecture for SSO, OIDC, SAML, identity-provider group mapping, and external
 identity links.
 
+The detailed login, session, token, external identity reconciliation, bootstrap,
+and local identity-lab mechanics are owned by
+`design-identity-and-authentication`; this capability owns the enterprise
+posture and governance requirements those mechanics must satisfy.
+
 #### Scenario: Identity model is designed
 - **WHEN** users, principals, memberships, roles, or groups are modeled
 - **THEN** the design must preserve a path to map external identity-provider

@@ -1010,6 +1010,12 @@ resolved:
 - proposed graph change semantics
 - code organization and Boundary decisions
 
+Ownership note: `design-identity-and-authorization-schema` owns durable
+principal, external identity, authorization, scope, policy fact, sensitivity,
+and credential metadata facts. `design-identity-and-authentication` owns how
+principals authenticate, receive sessions or runtime credentials, reconcile
+external identities, and bootstrap the first organization/owner.
+
 The `design-persistence-model` statement that no migration-blocking persistence
 questions remain is superseded by this cross-change readiness gate. Persistence
 may have no remaining persistence-only blockers while first migration readiness
