@@ -53,7 +53,7 @@ same domain contracts rather than separate business logic implementations.
 ### Requirement: Projection Entrypoints
 Projection and read endpoints SHALL use approved projection/read-model
 interfaces that apply authorization, redaction, tombstone visibility, and
-classification policy before returning data.
+sensitivity policy before returning data.
 
 #### Scenario: A focused node view is requested
 - **WHEN** an API entrypoint returns a focused graph neighborhood

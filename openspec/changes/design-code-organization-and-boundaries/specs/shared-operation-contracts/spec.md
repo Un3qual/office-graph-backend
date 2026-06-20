@@ -11,6 +11,10 @@ The canonical durable field list for operation correlation is owned by
 organization owns how entrypoints and contexts propagate that operation
 context through public APIs.
 
+Operation correlation starts as `OfficeGraph.Operations`, a dedicated context
+for operation context structs, idempotency basis, and durable operation
+records.
+
 #### Scenario: A human submits a command
 - **WHEN** an API request performs a durable write
 - **THEN** the entrypoint builds an operation context with organization, scope,
@@ -71,3 +75,19 @@ behaviours, or event APIs for callers.
 - **WHEN** a context emits events consumed by other contexts
 - **THEN** it uses the approved domain-event contract and includes operation
   correlation when the event comes from a meaningful command
+
+### Requirement: Transactional Side Effects
+Durable domain actions SHALL keep truth-table mutations and side effects
+transactionally safe.
+
+#### Scenario: Durable domain action writes product state
+- **WHEN** a domain action changes product state
+- **THEN** it MUST write product state, operation correlation, revisions, and
+  audit records in one approved transaction boundary where those records apply
+
+#### Scenario: External side effect is needed
+- **WHEN** a domain action needs a job, domain event, notification, export, or
+  external write
+- **THEN** it MUST enqueue or emit that side effect through an approved
+  transaction-safe mechanism so retries cannot create duplicate truth-table
+  mutations

@@ -7,6 +7,11 @@ projection read models, authorization-filtered neighborhoods, replay,
 analytics, raw archive lookup, high-volume event scans, partition maintenance,
 backfills, and bulk reconciliation.
 
+The first approved direct SQL paths are authorization-filtered graph
+neighborhood projections, mixed-type graph projection queries,
+replay/idempotency scans, operation-correlated history joins, and high-volume
+event/sync maintenance.
+
 #### Scenario: A graph projection query is planned
 - **WHEN** a projection requires traversal or aggregation that is awkward for
   normal Ash actions
@@ -19,7 +24,7 @@ backfills, and bulk reconciliation.
 
 ### Requirement: Direct Query Authorization Inputs
 Direct Ecto and SQL read paths MUST accept tenant, scope, actor, authorization,
-classification, soft-delete, and operation context inputs as required by the
+sensitivity, soft-delete, and operation context inputs as required by the
 records they read.
 
 #### Scenario: A direct query returns graph data

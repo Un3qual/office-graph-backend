@@ -81,6 +81,36 @@ Initial logical contexts should include:
 - API and realtime entrypoints
 - projection/read-model support
 
+The first namespace map should be:
+
+```text
+OfficeGraph
+OfficeGraph.Foundation
+OfficeGraph.Identity
+OfficeGraph.Tenancy
+OfficeGraph.Authorization
+OfficeGraph.Operations
+OfficeGraph.Audit
+OfficeGraph.Revisions
+OfficeGraph.WorkContainers
+OfficeGraph.WorkGraph
+OfficeGraph.Content
+OfficeGraph.ExternalRefs
+OfficeGraph.Integrations
+OfficeGraph.SoftwareProving
+OfficeGraph.WorkPackets
+OfficeGraph.Runs
+OfficeGraph.Verification
+OfficeGraph.ProposedChanges
+OfficeGraph.AgentRuntime
+OfficeGraph.Projections
+OfficeGraphWeb
+```
+
+Public context modules should live at `lib/office_graph/<context>.ex`.
+Internal implementation should live under `lib/office_graph/<context>/`.
+Web/API entrypoints should live under `lib/office_graph_web/`.
+
 These are logical ownership areas. The first implementation plan may merge or
 split module folders where it improves clarity, but each durable resource,
 command, query, event, and policy must still have one clear owner.
@@ -178,6 +208,12 @@ lookup, high-volume event scans, partition maintenance, backfills, and bulk
 reconciliation. These paths must be owned by a bounded context and exposed as
 named query/read-model modules or maintenance APIs.
 
+The first direct SQL paths should be limited to authorization-filtered graph
+neighborhood projections, mixed-type graph projection queries,
+replay/idempotency scans, operation-correlated history joins, and high-volume
+event/sync maintenance. Normal single-context CRUD and simple lists should use
+Ash-backed composition.
+
 Direct Ecto or SQL must not become a way to bypass policies, revisions, audit,
 tombstones, soft-delete filters, or tenant/scope constraints. Query modules
 must accept tenant, scope, actor, authorization, classification, and operation
@@ -207,6 +243,18 @@ source/origin.
 This operation contract is cross-context infrastructure, but it must not become
 a generic event payload or polymorphic target model. Domain records still own
 their typed data and concrete relationships.
+
+Operation correlation starts as `OfficeGraph.Operations`, a dedicated context
+that owns operation context structs, idempotency basis, and durable operation
+records. It does not live under audit or revisions because it spans audit,
+revisions, authorization decisions, runs, sync events, proposed changes, jobs,
+and external actions.
+
+Durable domain actions should use one transaction for product state, operation
+correlation, revisions, and audit records. Jobs, domain events, and external
+side effects should be enqueued or emitted only through approved
+transaction-safe mechanisms so retries cannot create duplicate truth-table
+mutations.
 
 Alternatives considered:
 
@@ -272,9 +320,23 @@ remain behind typed inputs or adapter contracts. Session verification,
 credential issuance, external identity reconciliation, and auth event emission
 should not depend on Phoenix controller modules or private work-graph modules.
 
+Add behaviours early only where the seam is already clear: provider adapters,
+SecretStore, external identity/SCIM test adapters, agent tool adapters, and
+notifier/export sinks. Keep rich text, ordered placement, revisions, audit, and
+authorization policy concrete until their public contracts stabilize.
+
 Extraction should happen only after the public API stabilizes, tests prove the
 boundary, and there is either another consumer or a clear operational reason to
 split. Until then, library-ready domains remain internal Boundary contexts.
+
+### 8a. Keep software proving separate from provider adapters
+
+Provider-neutral software proving records belong in
+`OfficeGraph.SoftwareProving`. GitHub, Sentry, GitLab, CodeRabbit, Greptile,
+and future provider adapters belong under `OfficeGraph.Integrations`.
+Provider-neutral review findings, review comments, check runs, commits, pull
+requests, observability issues, and evidence-oriented resources belong under
+software proving when they become Office Graph product facts.
 
 Alternatives considered:
 

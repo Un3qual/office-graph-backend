@@ -41,6 +41,12 @@ change is considered complete.
 - **THEN** Boundary validation is included with compilation, formatting, tests,
   and OpenSpec validation
 
+#### Scenario: First app shell exists
+- **WHEN** the first Phoenix app shell exists
+- **THEN** coarse Boundary contexts MUST be defined and Boundary validation
+  MUST run in local verification and CI before backend work is considered
+  complete
+
 #### Scenario: Boundary validation fails
 - **WHEN** a Boundary rule fails in local verification or CI
 - **THEN** the change is not considered complete until the dependency rule is

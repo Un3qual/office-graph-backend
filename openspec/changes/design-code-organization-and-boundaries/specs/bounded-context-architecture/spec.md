@@ -58,6 +58,21 @@ projections.
 - **THEN** it explains how the initial context map's ownership areas remain
   represented
 
+#### Scenario: First namespace map is generated
+- **WHEN** the first Phoenix backend code cut is generated
+- **THEN** it MUST use the `OfficeGraph` and `OfficeGraphWeb` top-level
+  namespaces with explicit contexts for Foundation, Identity, Tenancy,
+  Authorization, Operations, Audit, Revisions, WorkContainers, WorkGraph,
+  Content, ExternalRefs, Integrations, SoftwareProving, WorkPackets, Runs,
+  Verification, ProposedChanges, AgentRuntime, and Projections unless the
+  implementation plan explicitly justifies a narrower temporary grouping
+
+#### Scenario: Public and private modules are placed
+- **WHEN** context modules are created
+- **THEN** public context modules live at `lib/office_graph/<context>.ex`,
+  internal implementation lives under `lib/office_graph/<context>/`, and
+  web/API entrypoints live under `lib/office_graph_web/`
+
 #### Scenario: A context is merged for MVP
 - **WHEN** two ownership areas share a folder or Ash domain in the first code
   cut
