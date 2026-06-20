@@ -74,6 +74,9 @@
 - [ ] 4.7 Feed capability, grant, approval gate, separation-of-duties, and
   manager/team-lead verification requirements into
   `design-proposed-graph-changes` and `design-work-packets-and-readiness`.
+- [x] 4.8 Create `design-identity-and-authorization-schema` as the concrete
+  schema inventory owner for identity, authorization scopes, policy facts,
+  sensitivity labels, and credential metadata.
 
 ## 5. Validation
 

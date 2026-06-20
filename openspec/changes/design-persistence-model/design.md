@@ -15,6 +15,12 @@ it does establish the first schema/resource inventory and the rules later
 Phoenix, Ash, Ecto, GraphQL, JSON API, Oban, integration, and agent-runtime
 work should follow.
 
+The concrete identity, authorization, scope hierarchy, policy fact,
+sensitivity label, and credential metadata inventory is owned by
+`design-identity-and-authorization-schema`. This persistence change references
+that inventory as a required companion before first migrations rather than
+duplicating every identity and authorization table family here.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -25,6 +31,8 @@ work should follow.
 - Define how graph identity, typed resources, domain attachments,
   conversations, external references, and projections map into relational
   persistence.
+- Treat the identity/authorization schema inventory as a required companion
+  before first migrations.
 - Keep shared external concepts provider-neutral by default.
 - Avoid JSON/JSONB for core queryable product data.
 - Define when JSON storage is acceptable for raw payload, replay, debugging,
@@ -117,6 +125,14 @@ First-class Office Graph resources:
 - external references
 - raw payload archives
 - operation or command correlation records
+
+Required companion identity and authorization resources are owned by
+`design-identity-and-authorization-schema`: principals, principal profiles,
+external identity links, authorization scopes, scope paths, capabilities,
+roles, role capabilities, role assignments, explicit grants,
+team/group/department/org-unit policy facts, sensitivity labels and
+assignments, policy bundle versions, authorization fact-version anchors when
+needed, and credential metadata.
 
 First-class execution resources expected by nearby follow-on designs:
 

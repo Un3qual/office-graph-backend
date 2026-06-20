@@ -30,6 +30,14 @@ resources, external-reference-only records, and raw archives.
   follow-on designs define fields, lifecycle, authorization, and operational
   behavior
 
+#### Scenario: Companion identity and authorization inventory is required
+- **WHEN** the first backend migration scope is selected
+- **THEN** it MUST include or explicitly sequence the companion identity and
+  authorization schema inventory owned by
+  `design-identity-and-authorization-schema` rather than treating principals,
+  scopes, roles, capabilities, grants, policy facts, sensitivity labels, or
+  credential metadata as later optional add-ons
+
 #### Scenario: Nearby execution resources are reserved
 - **WHEN** persistence planning accounts for agent and execution follow-ons
 - **THEN** work packets, runs, run events, proposed graph changes, and context

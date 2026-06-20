@@ -124,6 +124,10 @@
   building reusable placement APIs, typed placement migrations, position-key
   libraries, rebalance jobs, derived ordinal projections, or strategy-specific
   extension tables.
+- [x] 4.11 Reference `design-identity-and-authorization-schema` as the owning
+  companion inventory for principals, external identities, authorization
+  scopes, roles, capabilities, grants, policy facts, sensitivity labels, and
+  credential metadata before first migrations.
 
 ## 5. Validation
 

@@ -188,6 +188,14 @@ Alternatives considered:
 - **Separate auth paths for agents/integrations:** Easier short term, but
   would create inconsistent policy and audit semantics.
 
+Concrete persistence inventory for principals, human profile records, external
+identity links, authorization scopes, scope closure rows, roles, capabilities,
+assignments, grants, organization policy facts, sensitivity labels, policy
+bundle versions, authorization fact-version anchors, authorization decision
+records, and credential metadata is owned by
+`design-identity-and-authorization-schema`. This governance change owns the
+policy semantics those facts support.
+
 ### 5. Use scoped roles plus MVP custom roles
 
 Initial system roles should be simple and assignable at the appropriate scope:
@@ -309,6 +317,10 @@ touch several departments.
 Graph edges remain context relationships, not permission inheritance. A graph
 edge can make a cross-scope relationship visible to policy, but it cannot
 grant access by itself.
+
+The first storage design for this hierarchy is an adjacency list plus closure
+table owned by `design-identity-and-authorization-schema`. Governance policy
+depends on the hierarchy but does not redefine the storage table list.
 
 Departments and teams should be modeled as familiar organization scopes rather
 than forcing users to learn a novel graph term. SCIM-provisioned departments,
@@ -488,6 +500,11 @@ Secret values should be protected behind a `SecretStore` boundary. Product
 tables should store references, fingerprints, version identifiers, ownership,
 scope, provider, lifecycle, rotation, revocation, and policy metadata, not
 plaintext secrets.
+
+Credential security semantics stay here, while the secret-free credential
+metadata table-family inventory is owned by
+`design-identity-and-authorization-schema`. Authentication and credential
+issuance mechanics are owned by `design-identity-and-authentication`.
 
 The default SaaS production posture should be Office Graph-managed secret
 storage: a customer supplies an integration credential to Office Graph, and
