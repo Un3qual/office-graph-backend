@@ -46,6 +46,27 @@
   archival data.
 - [ ] Decide the revision table pattern for the first aggregates.
 
+### Plan Review Remediation
+
+- [ ] Resolve the concrete identity, authorization, credential, scope
+  hierarchy, policy fact, sensitivity label, and external identity inventory in
+  `design-identity-and-authorization-schema`.
+- [ ] Resolve authentication mechanics, session/token behavior, service
+  account and agent credential issuance, external identity reconciliation, and
+  first-org/first-admin bootstrap in
+  `design-identity-and-authentication`.
+- [ ] Reconcile canonical capability ownership before promoting foundation
+  requirements so this foundation change stays product framing rather than a
+  duplicate durable source for authorization, persistence, work graph, audit,
+  or code organization details.
+- [ ] Narrow the first backend target to the walking skeleton captured in
+  `openspec/project-plan.md` and the persistence/work-graph changes.
+- [ ] Capture manual intake, ingestion normalization, idempotency, replay, and
+  proposed graph change semantics in `design-ingestion-and-integrations` and
+  `design-proposed-graph-changes` before backend code generation.
+- [ ] Mark individual open questions above complete only after the downstream
+  active change that owns the decision contains the accepted answer.
+
 ## 4. Follow-On OpenSpec Changes
 
 - [ ] Create `design-work-graph-core`.

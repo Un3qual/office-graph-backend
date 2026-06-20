@@ -935,7 +935,13 @@ Discussion output:
 - Validation checklist.
 - Research reference policy.
 
-## Proposed First Formal OpenSpec Changes
+## Historical Proposed First Formal OpenSpec Changes
+
+This was the first formal change order proposed during discovery. It remains
+useful history, but the plan-review remediation lane below supersedes it for
+current execution order because governance, identity, authorization,
+authentication, ingestion, proposed changes, and code organization decisions
+now block safe backend code generation.
 
 1. `define-office-graph-foundation`
    - Establish the agent-governed company work graph direction, company-wide
@@ -984,6 +990,68 @@ Discussion output:
 These should stay design-heavy until the first MVP cut is chosen. Avoid
 generating Phoenix/Ash code before these boundaries are stable enough to avoid
 rewrites.
+
+## Plan Review Remediation
+
+Claude's 2026-06-20 plan review and the follow-up Codex review are accepted as
+remediation input for the OpenSpec plan. They are not durable product
+requirements by themselves; product requirements become durable only when they
+are captured in `openspec/project.md`, a formal OpenSpec change, or an archived
+spec.
+
+Backend code generation must not start until these cross-change blockers are
+resolved:
+
+- identity and authorization schema inventory
+- authentication mechanics
+- canonical spec ownership and promotion policy
+- first executable walking skeleton
+- ingestion semantics
+- proposed graph change semantics
+- code organization and Boundary decisions
+
+The `design-persistence-model` statement that no migration-blocking persistence
+questions remain is superseded by this cross-change readiness gate. Persistence
+may have no remaining persistence-only blockers while first migration readiness
+is still blocked by identity, authorization, ingestion, proposed-change,
+walking-skeleton, or code-organization decisions.
+
+The first backend target is a narrow walking skeleton, not a maximal first
+schema. The first executable slice should prove the core loop:
+
+```text
+manual intake signal
+  -> task
+  -> review finding
+  -> required verification check
+  -> evidence item
+  -> verified completion
+```
+
+Current remediation dependency order:
+
+```text
+define-office-graph-foundation
+  -> design-enterprise-governance
+  -> design-identity-and-authorization-schema
+  -> design-identity-and-authentication
+  -> design-work-graph-core
+  -> design-persistence-model
+  -> design-revision-audit-soft-delete
+  -> design-code-organization-and-boundaries
+  -> design-ingestion-and-integrations
+  -> design-proposed-graph-changes
+  -> design-work-packets-and-readiness
+  -> design-runs-and-verification
+  -> design-agent-runtime
+  -> design-api-realtime-and-ui-projections
+  -> first-backend-walking-skeleton
+```
+
+This order intentionally moves governance and identity before storage and code
+generation because Ash policies, graph projections, audit decisions, runtime
+authority checks, integration credentials, and agent behavior all depend on
+those facts.
 
 ## Architecture Notes To Resolve Before Code
 
