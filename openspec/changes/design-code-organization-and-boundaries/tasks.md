@@ -1,0 +1,94 @@
+## 1. Review And Acceptance
+
+- [ ] 1.1 Review `proposal.md` against `openspec/project.md`,
+  `openspec/project-plan.md`, and the accepted foundation direction.
+- [ ] 1.2 Confirm this change remains design-only and does not start Phoenix,
+  Ash, Ecto, database migration, GraphQL, JSON API, React, Oban, integration,
+  or agent-runtime implementation.
+- [ ] 1.3 Confirm the backend starts as one Phoenix API application with
+  Boundary-enforced internal contexts rather than an umbrella app,
+  microservice split, or separate Hex packages.
+- [ ] 1.4 Confirm the initial context map covers identity, tenancy,
+  authorization, audit, operation correlation, work containers, work graph,
+  content, ordered placement, revisions, tombstones, external references, raw
+  archives, integrations, software proving records, work packets, runs,
+  verification, proposed graph changes, agent runtime, entrypoints, and
+  projections.
+- [ ] 1.5 Confirm Ash owns normal domain mutations, validations, lifecycle
+  rules, and policy integration for typed resources.
+- [ ] 1.6 Confirm direct Ecto and explicit SQL are limited to context-owned
+  traversal, projection, replay, analytics, high-volume, partition,
+  maintenance, backfill, and bulk reconciliation paths.
+- [ ] 1.7 Confirm operation correlation is the shared write spine without
+  becoming a generic event payload or polymorphic target model.
+- [ ] 1.8 Confirm revisions, audit records, authorization decisions,
+  tombstones, raw archives, external sync events, run events, and domain events
+  remain separate typed record families.
+- [ ] 1.9 Confirm library-ready domains stay internal until their APIs, tests,
+  configuration, and data contracts are stable enough for extraction.
+- [ ] 1.10 Confirm controllers, resolvers, JSON API handlers, Oban workers,
+  integration adapters, and agent runtime tools enter through public domain
+  contracts.
+
+## 2. Capability Spec Review
+
+- [ ] 2.1 Review `bounded-context-architecture` requirements for the modular
+  monolith baseline, context ownership, dependency direction, and initial
+  context map.
+- [ ] 2.2 Review `ash-domain-boundaries` requirements for Ash domain ownership,
+  public Ash access, authorization integration, and shared side-effect
+  contracts.
+- [ ] 2.3 Review `ecto-sql-boundaries` requirements for approved direct SQL
+  paths, authorization inputs, mutation safeguards, and read-model ownership.
+- [ ] 2.4 Review `boundary-enforcement` requirements for Boundary definitions,
+  private module protection, CI verification, and test discipline.
+- [ ] 2.5 Review `shared-operation-contracts` requirements for operation
+  context propagation, concern separation, concrete references, and shared
+  contract ownership.
+- [ ] 2.6 Review `extractable-library-boundaries` requirements for candidate
+  identification, extraction gates, product-assumption isolation, and
+  extraction-readiness tests.
+- [ ] 2.7 Review `entrypoint-boundary-contracts` requirements for thin
+  entrypoints, shared policy/mutation paths, API surface reuse, and projection
+  entrypoint behavior.
+
+## 3. Open Decisions Before Code Generation
+
+- [ ] 3.1 Decide exact Elixir module names and folder layout for the first
+  Phoenix code cut.
+- [ ] 3.2 Decide whether operation correlation starts as a dedicated context or
+  under a broader revision/audit primitives context.
+- [ ] 3.3 Decide whether software proving records begin as a separate context or
+  as a provider-neutral integration subdomain.
+- [ ] 3.4 Decide which first graph projection queries require direct SQL versus
+  Ash-backed query composition.
+- [ ] 3.5 Decide how strict initial Boundary exports should be before the first
+  working resource set exists.
+- [ ] 3.6 Decide which library-candidate domains need behaviours or callback
+  seams in the first code cut.
+
+## 4. Follow-On Planning Work
+
+- [ ] 4.1 Feed the context map, Boundary rules, and Ash/Ecto ownership rules
+  into the first backend app-generation change.
+- [ ] 4.2 Feed entrypoint and projection rules into
+  `design-api-realtime-and-ui-projections`.
+- [ ] 4.3 Feed provider adapter, raw archive, sync event, and
+  provider-neutral ownership rules into `design-ingestion-and-integrations`.
+- [ ] 4.4 Feed agent entrypoint, operation context, authorization, and
+  extractability rules into `design-agent-runtime`.
+- [ ] 4.5 Feed shared operation, revision, audit, and validation rules into
+  `design-proposed-graph-changes`.
+- [ ] 4.6 Feed work packet, run, verification, evidence, and read-model
+  ownership rules into `design-work-packets-and-readiness` and
+  `design-runs-and-verification`.
+- [ ] 4.7 Create a future implementation plan before generating Phoenix, Ash,
+  Ecto, Boundary, API, Oban, integration, or agent-runtime code.
+
+## 5. Validation
+
+- [x] 5.1 Run `openspec status --change design-code-organization-and-boundaries`.
+- [x] 5.2 Run `openspec validate design-code-organization-and-boundaries --strict`.
+- [x] 5.3 Run `openspec validate --changes --strict`.
+- [x] 5.4 Fix any schema, delta, scenario-format, task-formatting, or
+  validation issues reported by OpenSpec.
