@@ -25,6 +25,9 @@ decisions into this file or into formal OpenSpec specs.
 ## Fixed Choices
 
 - Backend stack: Elixir, Phoenix, Ash, and Postgres.
+- Development Postgres runs through Docker Compose. The project Nix shell
+  remains the entrypoint for application/runtime CLI tools, but local database
+  process management should be documented as `docker compose` commands.
 - Frontend stack: React from day one, though frontend work has not started yet.
 - Phoenix LiveView is forbidden for the product UI.
 - API surface: both GraphQL and JSON API are required.

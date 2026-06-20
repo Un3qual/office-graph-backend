@@ -10,6 +10,12 @@ gate.
   tests, Boundary checks, database setup/migration checks, and
   `openspec validate --changes --strict` from the project Nix shell
 
+#### Scenario: Verification requires Postgres
+- **WHEN** database-backed verification commands run locally
+- **THEN** the verification documentation MUST start or require the Docker
+  Compose Postgres service before running Ecto setup, migrations, resource
+  tests, API smoke tests, or end-to-end walking-skeleton tests
+
 ### Requirement: Walking Skeleton End-To-End Test
 Office Graph SHALL include an executable test for the full first product loop.
 

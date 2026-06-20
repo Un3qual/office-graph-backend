@@ -53,6 +53,23 @@ shell.
   `nix --extra-experimental-features 'nix-command flakes' develop --command`
   or execute from inside the equivalent Nix development shell
 
+### Requirement: Docker Compose Development Postgres
+Office Graph SHALL use Docker Compose to run Postgres for local development and
+test database workflows.
+
+#### Scenario: Local database is needed
+- **WHEN** a developer starts, stops, resets, or prepares the local Postgres
+  database for development or tests
+- **THEN** the documented path MUST use a checked-in Docker Compose
+  configuration with a named Postgres service, stable local connection
+  settings, health check, and durable named volume rather than a Nix-managed
+  Postgres process or an assumed host-local database
+
+#### Scenario: Application commands use the database
+- **WHEN** Mix, Ecto, test, API, or verification commands connect to Postgres
+- **THEN** those application commands MUST still run through the project Nix
+  shell while Docker Compose owns only the local Postgres service lifecycle
+
 ### Requirement: No Broad Runtime Surface In Baseline
 Office Graph SHALL keep the first app baseline focused on the walking
 skeleton.

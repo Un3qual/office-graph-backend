@@ -29,6 +29,9 @@ storage, actions, API calls, and tests.
 
 - Generate the first Phoenix API backend at the repository root using the
   project Nix shell for runtime and CLI dependencies.
+- Add a Docker Compose managed Postgres service for local development and
+  tests, with documented `docker compose` commands for starting, stopping, and
+  resetting the database.
 - Configure Ecto/Postgres, Ash, Boundary, Absinthe GraphQL, JSON API support,
   ExUnit, formatting, and project verification commands.
 - Implement the minimum bounded contexts and public context modules needed for
@@ -111,6 +114,26 @@ Alternatives considered:
   validation, and API integration model.
 - **Ash for everything including specialized SQL:** Keeps one abstraction, but
   forces traversal/replay/history paths through the wrong tool.
+
+### 3a. Use Docker Compose for local Postgres
+
+Development and test Postgres should run through Docker Compose, not through a
+Nix-managed database process or an assumed host-local service. The first
+implementation should add a checked-in Compose file with a named Postgres
+service, stable local ports, durable named volume, health check, and documented
+commands for start, stop, reset, and test database preparation. Application,
+Mix, OpenSpec, and verification commands still run through the project Nix
+shell; Compose owns only the local database process.
+
+Alternatives considered:
+
+- **Nix-managed Postgres process:** Keeps every tool under the flake, but makes
+  database lifecycle less familiar and less portable for contributors already
+  using Docker.
+- **Assume a host-local Postgres service:** Avoids Compose files, but produces
+  inconsistent local setup and hidden prerequisites.
+- **Remote/shared development database:** Reduces local setup, but is wrong for
+  repeatable tests, destructive resets, and offline development.
 
 ### 4. Implement a narrow schema with stable extension points
 
@@ -198,6 +221,9 @@ Alternatives considered:
 - [Risk] Manual intake may look too artificial. -> Mitigation: model it through
   the exact archive, normalization, idempotency, and proposed-change path that
   later provider adapters will use.
+- [Risk] Docker Compose adds a non-Nix local service prerequisite. -> Mitigation:
+  keep the Compose contract narrow to Postgres, document exact commands, and
+  continue running application and verification commands through the Nix shell.
 - [Risk] Dependency setup may need network access for Hex packages and Phoenix
   generator archives. -> Mitigation: keep dependency choices explicit in
   `mix.exs`, run setup inside the Nix shell, and document any required
@@ -207,8 +233,8 @@ Alternatives considered:
 
 1. Generate the Phoenix API application in the repository root and commit the
    clean app baseline before adding domain behavior.
-2. Add dependencies, configuration, formatter, Boundary setup, database config,
-   and verification aliases.
+2. Add dependencies, configuration, formatter, Boundary setup, Docker Compose
+   Postgres config, Ecto database config, and verification aliases.
 3. Add migrations/resources in dependency order: identity/tenancy,
    operations, graph identity, content, intake/raw archive, domain loop,
    proposed changes, verification/evidence, revision/audit.
@@ -229,6 +255,7 @@ After persistent data exists, normal Ecto migration rollback rules apply.
 - Exact Hex dependency versions should be selected during implementation based
   on currently compatible Phoenix, Ash, Absinthe, JSON API, Boundary, Ecto,
   Postgrex, and test package releases.
-- The local Postgres startup path should be confirmed during implementation:
-  Nix-provided Postgres tooling, Docker, or an existing local service are all
-  acceptable if the commands are documented and repeatable.
+- The local Postgres startup path is fixed: use Docker Compose. Implementation
+  should decide the exact Compose file name, service name, database names,
+  credentials, and reset commands, then document them beside the app setup
+  commands.

@@ -8,11 +8,14 @@
   support, test helpers, and supporting verification tooling.
 - [ ] 1.3 Configure application, repo, endpoint, runtime/test/dev database,
   logger, formatter, and Mix aliases from inside the project Nix shell.
-- [ ] 1.4 Add documented setup and verification commands that use
+- [ ] 1.4 Add Docker Compose configuration for local development/test Postgres
+  with a named service, stable local connection settings, health check,
+  durable named volume, and documented start/stop/reset commands.
+- [ ] 1.5 Add documented setup and verification commands that use
   `nix --extra-experimental-features 'nix-command flakes' develop --command`.
-- [ ] 1.5 Verify the clean app baseline with compile, format check, and the
+- [ ] 1.6 Verify the clean app baseline with compile, format check, and the
   default test suite before adding domain behavior.
-- [ ] 1.6 Commit the generated app baseline before starting domain/resource
+- [ ] 1.7 Commit the generated app baseline before starting domain/resource
   implementation.
 
 ## 2. Boundary And Context Layout
@@ -124,9 +127,9 @@
 
 - [ ] 8.1 Update OpenSpec task checkboxes as implementation tasks complete and
   keep unrelated future tracks open.
-- [ ] 8.2 Document any local Postgres startup requirement, network-backed Hex
-  dependency setup, and repeatable development commands discovered during
-  implementation.
+- [ ] 8.2 Document Docker Compose Postgres startup/reset commands,
+  network-backed Hex dependency setup, and repeatable development commands
+  discovered during implementation.
 - [ ] 8.3 Confirm no React frontend, LiveView UI, provider webhook/API polling,
   full agent runtime, generic ordered-placement framework, or full rich text
   editor behavior was introduced in this change.
