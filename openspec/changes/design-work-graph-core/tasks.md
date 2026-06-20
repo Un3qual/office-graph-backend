@@ -76,6 +76,8 @@
   `design-runs-and-verification`.
 - [ ] 4.9 Feed initial projection families and authorization-filtered graph
   context into `design-api-realtime-and-ui-projections`.
+- [x] 4.10 Feed the first executable walking skeleton graph slice into
+  `design-persistence-model` and the project remediation plan.
 
 ## 5. Validation
 

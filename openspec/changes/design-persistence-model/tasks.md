@@ -128,6 +128,15 @@
   companion inventory for principals, external identities, authorization
   scopes, roles, capabilities, grants, policy facts, sensitivity labels, and
   credential metadata before first migrations.
+- [x] 4.12 Define the first walking skeleton persistence scope and pull
+  skeletal work packets, runs, run events, proposed graph changes, and
+  verification results forward only as needed to prove the loop.
+- [x] 4.13 Narrow rich text v1 to normalized documents, current blocks, basic
+  marks/references, whole-document semantic revisions, and derived plain text.
+- [x] 4.14 Narrow ordered placement v1 to explicit task-list ordering and rich
+  text block ordering with concrete references.
+- [x] 4.15 Add the graph identity plus typed resource same-transaction
+  invariant.
 
 ## 5. Validation
 

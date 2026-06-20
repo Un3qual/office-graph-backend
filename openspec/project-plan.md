@@ -1034,6 +1034,15 @@ manual intake signal
   -> verified completion
 ```
 
+Walking skeleton acceptance means the first backend cut includes one
+organization, one workspace, one initiative, one authenticated principal, one
+role assignment, one graph identity per graph-addressable resource, one audit
+record for a sensitive action, one operation correlation record, and one typed
+revision path. It also needs skeletal `work_packets`, `runs`, `run_events`,
+`proposed_graph_changes`, and `verification_results` records only to the
+extent required to prove the loop; full runtime behavior belongs to later
+dedicated changes.
+
 Current remediation dependency order:
 
 ```text

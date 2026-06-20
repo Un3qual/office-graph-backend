@@ -12,6 +12,17 @@ business meaning in typed resources.
   and a typed resource record for fields, validations, lifecycle, and domain
   actions when the concept has business behavior
 
+#### Scenario: Graph-addressable typed resource is created
+- **WHEN** a domain action creates a graph-addressable typed resource
+- **THEN** the graph identity record and typed resource record MUST be written
+  in the same database transaction so either both become visible or neither
+  becomes visible
+
+#### Scenario: Graph identity allocation is requested
+- **WHEN** a typed resource context needs graph addressability
+- **THEN** it MUST use the graph identity context's public allocation contract
+  while the typed resource context owns business validation and lifecycle
+
 ### Requirement: Typed Relationships
 Office Graph SHALL persist graph edges as typed relationship records rather
 than opaque edge payloads.

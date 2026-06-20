@@ -14,6 +14,11 @@ application, revision history, and frontend projections are designed in full.
 It should be concrete enough to guide those later changes without prematurely
 committing to every table, Ash resource, or UI screen.
 
+The first backend implementation target is narrower than the full graph model:
+manual intake signal -> task -> review finding -> required verification check
+-> evidence item -> verified completion. The broader taxonomy remains the
+direction, but this walking skeleton is the first executable graph slice.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -22,6 +27,8 @@ committing to every table, Ash resource, or UI screen.
   initiative/project, and workstream.
 - Define a department-neutral graph item taxonomy that works for engineering,
   design, marketing, social media, finance, operations, and leadership.
+- Define the first executable graph slice for manual intake through verified
+  completion.
 - Define how typed graph relationships behave, including direction, lifecycle,
   provenance, validation, traversal, and authorization expectations.
 - Define graph projections as authorization-filtered views over scoped graph
@@ -129,6 +136,27 @@ Alternatives considered:
   first-class treatment.
 - **Only generic task/comment/artifact types:** Easier to build, but too weak
   for requirements, decisions, checks, evidence, runs, and agent governance.
+
+### 3a. Start implementation with the walking skeleton graph slice
+
+The first executable graph slice is:
+
+```text
+manual intake signal
+  -> task
+  -> review finding
+  -> required verification check
+  -> evidence item
+  -> verified completion
+```
+
+This slice should include one organization, one workspace, one initiative, one
+authenticated principal, one role assignment, graph identities for each
+graph-addressable resource, one operation correlation record, one audit record
+for a sensitive action, and one typed revision path. It should prove graph
+addressability, relationship creation, authorization filtering, evidence-based
+verification, and proposed-change safety without requiring the full future
+runtime or integration surface.
 
 ### 4. Use type-specific statuses plus projection-level status families
 

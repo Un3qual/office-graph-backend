@@ -48,6 +48,13 @@ needs review, restore, audit support, or historical context.
   version state that reconstructs the change without creating unrelated
   content revisions
 
+#### Scenario: Task title and description change together
+- **WHEN** a user edits a task title and one word of the task description in
+  one save
+- **THEN** the task aggregate revision MUST capture the title change and
+  reference the rich text document revision for the description change, with
+  both records referencing the same operation correlation identifier
+
 ### Requirement: Revision Concern Separation
 Office Graph SHALL keep revision records distinct from audit records, domain
 events, run events, external sync events, authorization decision records, and

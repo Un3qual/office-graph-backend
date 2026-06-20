@@ -17,9 +17,18 @@ resources, external-reference-only records, and raw archives.
 #### Scenario: Immediate migration cut is selected
 - **WHEN** the first MVP migration scope is selected
 - **THEN** it MUST include the work-container, graph identity, graph
-  relationship, core work-loop, conversation, rich text foundation, external
-  reference, raw archive, operation correlation, external source, and software
-  proving resources needed for the software review/fix/verification workflow
+  relationship, core work-loop, conversation, narrowed rich text foundation,
+  external reference, raw archive, operation correlation, manual intake, review
+  finding, verification check, evidence, and verified-completion resources
+  needed for the walking skeleton
+
+#### Scenario: Walking skeleton execution records are selected
+- **WHEN** the first backend cut proves manual intake through verified
+  completion
+- **THEN** it MUST include skeletal work packets, runs, run events, proposed
+  graph changes, and verification results only to the extent needed to prove
+  readiness, traceability, proposed mutation safety, and evidence-based
+  completion
 
 #### Scenario: Near-follow-up resources are reserved
 - **WHEN** work packets, runs, run events, proposed graph changes, context
@@ -40,9 +49,10 @@ resources, external-reference-only records, and raw archives.
 
 #### Scenario: Nearby execution resources are reserved
 - **WHEN** persistence planning accounts for agent and execution follow-ons
-- **THEN** work packets, runs, run events, proposed graph changes, and context
-  expansion requests MUST be reserved as typed relational concepts rather than
-  generic attachments
+- **THEN** context expansion requests and full work packet, run, proposed
+  graph change, and verification state machines MUST remain reserved typed
+  concepts until their dedicated follow-on designs define complete fields,
+  lifecycle, authorization, and operational behavior
 
 ### Requirement: Software Proving Resource Inventory
 Office Graph SHALL include provider-neutral software proving resources without

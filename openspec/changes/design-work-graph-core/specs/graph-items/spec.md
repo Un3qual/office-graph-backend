@@ -29,6 +29,12 @@ Office Graph SHALL define a small department-neutral core graph item taxonomy.
   references, and addressable document or plan sections without making
   software-specific concepts mandatory
 
+#### Scenario: First executable graph slice is built
+- **WHEN** the first backend walking skeleton is implemented
+- **THEN** it MUST support manual intake signal, task, review finding,
+  required verification check, evidence item, and verified completion as the
+  first graph-addressable slice before expanding to the full taxonomy
+
 #### Scenario: Department-specific workflow is added
 - **WHEN** a design, marketing, social, finance, operations, leadership, or
   engineering workflow adds specialized data

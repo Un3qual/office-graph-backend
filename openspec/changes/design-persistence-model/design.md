@@ -77,6 +77,12 @@ The expected shape is:
 - typed relationship records for graph edges
 - typed attachments and external references for provider or domain context
 
+Graph-addressable typed resources must be created through one domain action
+that writes the graph identity and the typed resource in the same database
+transaction. If either insert fails, neither record becomes visible. The graph
+identity context provides the public allocation contract; typed resource
+contexts own business validation and lifecycle.
+
 Core persistence must not use polymorphic local references such as
 `resource_type` plus `resource_id` for Office Graph-owned records. SQL-level
 referential integrity should come from either a concrete foreign key to
@@ -141,6 +147,7 @@ First-class execution resources expected by nearby follow-on designs:
 - run events
 - proposed graph changes
 - context expansion requests
+- verification results
 
 The exact fields and state machines for work packets, runs, proposed graph
 changes, and revision/audit records belong to their dedicated changes, but the
@@ -554,12 +561,20 @@ Alternatives considered:
 
 ### 14. Bound the first migration cut before implementation
 
-The immediate MVP migration scope should include the smallest relational
-foundation that can support the shared work graph, node-scoped conversation,
-evidence-based verification, external reference ingestion, and the software
-review/fix/verification proving workflow. It should not try to build every
-reserved execution resource or every future department workflow in the first
-schema pass.
+The immediate MVP migration scope should be the smallest relational foundation
+that can run this walking skeleton:
+
+```text
+manual intake signal
+  -> task
+  -> review finding
+  -> required verification check
+  -> evidence item
+  -> verified completion
+```
+
+It should not try to build every reserved execution resource, every future
+department workflow, or a maximal first schema.
 
 Immediate MVP migration scope:
 
@@ -568,20 +583,24 @@ Immediate MVP migration scope:
 - signals, requirements, tasks, questions, decisions, checks, evidence, and
   artifacts
 - conversations and conversation messages
-- rich text document, revision, block, inline, mark, reference, anchor, quote,
-  and derived-render foundations needed by those body fields
+- rich text documents, current blocks, basic marks, typed references,
+  whole-document semantic revision records, and derived plain text where needed
+  by those body fields
 - external sources or integration installations
 - external references and raw payload archives
 - operation correlation records
-- provider-neutral software proving records for repositories, refs/branches,
-  commits, pull requests, review threads, review comments, review findings,
-  check runs, issues, observability issues, and observability events
+- provider-neutral software proving records needed by the walking skeleton,
+  especially review findings and the minimum external reference or artifact
+  context needed to explain their source
+- skeletal `work_packets`, `runs`, `run_events`, `proposed_graph_changes`, and
+  `verification_results` records needed to prove readiness, execution trace,
+  proposed mutation safety, and evidence-based completion
 
 Near-follow-up scaffolding should remain reserved but should wait for its
-dedicated design before migrations create full behavior: work packets, runs,
-run events, proposed graph changes, context expansion requests, final
-revision/audit/tombstone structures, provider-specific extension tables beyond
-the first integration needs, projection read models, and API/UI render caches.
+dedicated design before migrations create full behavior: context expansion
+requests, final revision/audit/tombstone structures, full provider-neutral
+software proving schemas, provider-specific extension tables beyond the first
+integration needs, projection read models, and API/UI render caches.
 
 Deferred domains stay external-reference-only or artifact-first in MVP until a
 workflow promotes them: design assets/comments, campaign assets, social posts,
@@ -625,30 +644,28 @@ and narrow envelope fields so time or tenant partitioning can be added later.
 
 ### 16. Narrow rich text and ordered placement for the first schema
 
-The first portable rich text schema should support paragraphs, headings,
-ordered and unordered lists, list items, quotes, code blocks, text runs, hard
-breaks, and basic inline marks: bold, italic, underline, strikethrough, inline
-code, highlight, and link presentation. Product references should be typed
-rows for principals, graph items, external references, URLs, and artifacts.
+The first portable rich text schema should support normalized
+`rich_text_documents`, current `rich_text_blocks`, text runs, basic marks for
+bold, italic, inline code, links, principal mentions, graph item references,
+external references, URLs, and artifact references, whole-document semantic
+revision records, and derived plain text where needed for search or agent
+context.
 
 Unsupported editor features should be rejected during native authoring when
 they cannot be represented safely, flattened when they are style-only, or
 stored as artifacts/raw adapter payloads for imported content until a later
 accepted change promotes them into the portable schema.
 
-Rich text reconstruction should use a hybrid copy-on-write model for the first
-implementation design: version rows carry validity ranges tied to document
-revisions, placement versions define block order, and derived render caches
-store current/head outputs for editing, preview, search, and agent Markdown.
-Full materialized document snapshots are not canonical storage; they may be
-added later only as derived caches for performance or export.
+Per-inline copy-on-write reconstruction, quote snapshots, live quote
+resolution, selection-intent preservation, HTML render caches, Lexical adapter
+persistence, and collaboration/session state are deferred to a future rich text
+implementation change.
 
-MVP ordered structures should use graph-addressable ordered placement tables
-for first-class graph items such as task lists, plan sections, cards, and
-work-container ordered views. Rich text block order should use typed embedded
-placement tables from the start. Future galleries, slides, tables, and
-domain-specific nested structures should add typed placement tables when their
-workflow is selected.
+MVP ordered structures should use explicit domain-owned ordering for task
+lists and rich text blocks. The durable no-polymorphic-FK rule remains, but a
+reusable generic ordered-placement API, rebalancing job design, dense ordinal
+projections, grid placement, swimlanes, and topological ordering are deferred
+until real usage requires them.
 
 The first sortable position key should be a lexicographically sortable
 fractional string over a fixed ASCII alphabet, generated between neighboring
@@ -733,6 +750,9 @@ work should consume the persistence model in this order:
    behavior.
 
 ## Remaining Open Questions
+
+No persistence-only questions remain, but first migration readiness is blocked
+until the cross-change implementation-readiness gate is complete.
 
 No migration-blocking persistence questions remain in this change. The
 remaining details intentionally move to follow-on changes for revision/audit
