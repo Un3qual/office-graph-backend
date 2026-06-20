@@ -84,6 +84,9 @@
   `design-runs-and-verification`.
 - [ ] 4.7 Create a future implementation plan before generating Phoenix, Ash,
   Ecto, Boundary, API, Oban, integration, or agent-runtime code.
+- [x] 4.8 Add the cross-change backend implementation-readiness gate and name
+  `first-backend-walking-skeleton` as the next app-generation change after the
+  gate is satisfied and approved.
 
 ## 5. Validation
 

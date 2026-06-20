@@ -1,5 +1,11 @@
 ## ADDED Requirements
 
+Verification vocabulary uses four distinct terms:
+`verification_check` for desired conditions, `approval_gate` for governed
+approval requirements, `check_run` for provider-neutral CI or external-system
+check executions, and `check_waiver` for authorized exceptions against a
+verification check.
+
 ### Requirement: Checks And Evidence Are Distinct
 
 Office Graph SHALL model checks separately from evidence.

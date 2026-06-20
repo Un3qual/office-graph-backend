@@ -1097,6 +1097,45 @@ promoted wholesale into duplicate canonical authorization, persistence,
 work-graph, or backend-architecture specs when more granular changes own the
 actual durable requirements.
 
+### Backend Implementation-Readiness Gate
+
+The first backend app-generation change may start only when all items below
+are true:
+
+- `design-identity-and-authorization-schema` exists and validates.
+- `design-identity-and-authentication` exists and validates.
+- `design-ingestion-and-integrations` exists and validates.
+- `design-proposed-graph-changes` exists and validates.
+- Canonical concept owner table is recorded.
+- Foundation is marked as framing and is not promoted wholesale into duplicate
+  canonical specs.
+- The walking skeleton is defined and accepted.
+- Rich text v1 is narrowed.
+- Ordered placement v1 is narrowed.
+- Check vocabulary is disambiguated into `verification_check`,
+  `approval_gate`, `check_run`, and `check_waiver`.
+- Visibility scope and sensitivity labels are separated.
+- Edge tombstone and restore rules are recorded.
+- `initiative_id` is the durable column name; `project` remains a
+  customer-facing alias.
+- Code organization tasks 3.1 through 3.6 are complete.
+- All active changes pass `openspec validate --changes --strict`.
+
+After this gate is satisfied and approved, the next OpenSpec change should be
+`first-backend-walking-skeleton`. It should generate the Phoenix API app,
+configure Boundary, create only the minimal Ash/Ecto resources needed for the
+walking skeleton, and include verification commands for compile, format,
+tests, Boundary, and OpenSpec.
+
+Verification vocabulary for future specs:
+
+- `verification_check`: desired condition that must be satisfied before a
+  task, packet, requirement, or completion claim is accepted.
+- `approval_gate`: governed human or policy approval requirement that can
+  produce evidence or satisfy/unblock a verification check.
+- `check_run`: provider-neutral CI or external-system check execution record.
+- `check_waiver`: authorized exception against a verification check.
+
 ## Architecture Notes To Resolve Before Code
 
 - Prefer a modular monolith with clear Ash domains first unless there is a
