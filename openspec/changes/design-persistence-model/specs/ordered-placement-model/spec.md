@@ -48,6 +48,32 @@ text schema.
   with concrete document and block references, current ordering state, and
   semantic document revision linkage
 
+### Requirement: Ordered Placement V1 Extension Contract
+Office Graph SHALL keep v1 ordering domain-owned while preserving a clear path
+to future shared ordering behavior.
+
+#### Scenario: V1 ordered structures are persisted
+- **WHEN** task-list ordering or rich text block ordering is implemented in the
+  first backend cut
+- **THEN** the chosen fields or typed placement tables MUST carry stable owner
+  references, stable item references, sortable position keys, lifecycle state,
+  operation correlation, and optimistic conflict metadata compatible with a
+  later shared placement service or library
+
+#### Scenario: Future generic placement behavior is introduced
+- **WHEN** a future accepted ordered placement implementation adds reusable
+  placement APIs, galleries, slides, swimlanes, grid placement, topological
+  ordering, dense ordinal projections, or rebalance jobs
+- **THEN** it MUST wrap, extend, or migrate from the v1 domain-owned ordering
+  records through additive typed tables and backfills rather than requiring a
+  wholesale rewrite to polymorphic local owner/item references
+
+#### Scenario: Ordering strategy evolves
+- **WHEN** a domain outgrows the first sortable position-key strategy
+- **THEN** the new strategy MUST preserve existing collection or owner
+  identity, item identity, lifecycle state, operation correlation, and audit or
+  revision linkage so historical moves remain explainable
+
 ### Requirement: Reordering Does Not Change Content
 Office Graph SHALL treat reorder actions as ordering state changes rather than
 content edits when the item content does not change.

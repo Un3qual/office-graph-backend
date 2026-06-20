@@ -19,12 +19,13 @@
   authorization, filtering, indexing, export, retention, or deletion.
 - [x] 1.8 Confirm rich text bodies use normalized Office Graph document state
   instead of Lexical JSON or another editor payload as canonical storage.
-- [x] 1.9 Confirm rich text revisions use copy-on-write semantic revisions with
-  normalized blocks, inline nodes, marks, typed references, anchors, ranges,
-  and quote snapshots.
-- [x] 1.10 Confirm ordered structures use an extensible placement contract with
-  concrete foreign keys, fractional manual ordering, versioned placement
-  state, and derived dense ordinals.
+- [x] 1.9 Confirm rich text revisions use whole-document semantic revisions in
+  v1 with stable identities that allow later copy-on-write inline versions,
+  anchors, ranges, and quote snapshots to attach without replacing the v1
+  model.
+- [x] 1.10 Confirm ordered structures use domain-owned ordering in v1 with
+  concrete foreign keys, sortable position keys, lifecycle state, operation
+  correlation, and compatibility with later shared placement behavior.
 - [x] 1.11 Confirm high-volume tables are partition-ready and linked by
   operation correlation instead of duplicated large payloads.
 
@@ -52,13 +53,12 @@
 - [x] 2.8 Review `large-table-growth` requirements for partition-ready high-
   volume tables, archive references, and operation correlation.
 - [x] 2.9 Review `portable-rich-text-persistence` requirements for editor-
-  independent rich text, copy-on-write revisions, normalized marks, typed
-  references, non-invasive quotes, live reference resolution, selection
-  intent, and derived agent Markdown.
-- [x] 2.10 Review `ordered-placement-model` requirements for reusable ordering
-  semantics, graph-addressable collections, typed embedded placements,
-  fractional ordering, placement-version moves, and future ordering
-  strategies.
+  independent rich text, stable extension identities, whole-document semantic
+  revisions, normalized marks, typed references, deferred quote/reconstruction
+  behavior, and derived plain text.
+- [x] 2.10 Review `ordered-placement-model` requirements for domain-owned v1
+  ordering, concrete references, sortable position keys, lifecycle state,
+  operation correlation, and future shared ordering strategies.
 
 ## 3. Open Decisions Before Migrations
 
@@ -77,11 +77,12 @@
   which, if any, need day-one partitioning.
 - [x] 3.6 Decide the first portable rich text node, mark, and reference types
   and the handling for unsupported editor features.
-- [x] 3.7 Decide whether rich text reconstruction uses validity ranges,
-  explicit revision membership rows, periodic materialized snapshots, or a
-  hybrid.
-- [x] 3.8 Decide which MVP ordered structures use graph-addressable ordered
-  placement tables and which use typed embedded placement tables.
+- [x] 3.7 Decide that v1 uses whole-document semantic revisions while keeping
+  stable identities for future validity ranges, explicit revision membership
+  rows, periodic materialized snapshots, or a hybrid.
+- [x] 3.8 Decide which MVP ordered structures use explicit domain-owned fields
+  or typed placement tables while preserving compatibility with future shared
+  placement behavior.
 - [x] 3.9 Decide the first sortable position-key implementation, rebalance
   policy, and conflict behavior for concurrent reorders.
 - [x] 3.10 Decide the first operation-correlation record shape shared by
@@ -139,6 +140,8 @@
   invariant.
 - [x] 4.16 Lock schema-facing scope language to `initiative` and cross-link
   audit JSON details as a controlled JSON exception.
+- [x] 4.17 Add rich text and ordering extension invariants so MVP narrowing
+  does not force a later redesign when deferred features are promoted.
 
 ## 5. Validation
 

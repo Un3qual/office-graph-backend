@@ -1112,6 +1112,8 @@ are true:
 - The walking skeleton is defined and accepted.
 - Rich text v1 is narrowed.
 - Ordered placement v1 is narrowed.
+- Rich text and ordered placement v1 preserve stable extension points for the
+  deferred rich-text/editor and shared-ordering features.
 - Check vocabulary is disambiguated into `verification_check`,
   `approval_gate`, `check_run`, and `check_waiver`.
 - Visibility scope and sensitivity labels are separated.

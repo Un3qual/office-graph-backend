@@ -651,6 +651,15 @@ external references, URLs, and artifact references, whole-document semantic
 revision records, and derived plain text where needed for search or agent
 context.
 
+The narrowing is an implementation sequencing decision, not a disposable
+schema. V1 rich text records should carry stable document, block, reference,
+revision, and operation-correlation identities so future inline-version,
+range-anchor, quote-snapshot, render-cache, collaboration, and editor-adapter
+tables can attach to the same durable model. Later rich text work should add
+tables, typed backfills, and renderer records tied to source revisions rather
+than replacing the v1 records with Lexical JSON, HTML, Markdown, or another
+editor-specific canonical payload.
+
 Unsupported editor features should be rejected during native authoring when
 they cannot be represented safely, flattened when they are style-only, or
 stored as artifacts/raw adapter payloads for imported content until a later
@@ -666,6 +675,13 @@ lists and rich text blocks. The durable no-polymorphic-FK rule remains, but a
 reusable generic ordered-placement API, rebalancing job design, dense ordinal
 projections, grid placement, swimlanes, and topological ordering are deferred
 until real usage requires them.
+
+The v1 task-list and rich-text-block ordering records should still follow a
+shared placement shape: stable owner reference, stable item reference, sortable
+position key, lifecycle state, operation correlation, and optimistic conflict
+metadata. This lets a future shared placement service wrap, extend, or migrate
+the domain-owned records through additive typed tables and backfills instead
+of replacing them with a broad polymorphic placement table.
 
 The first sortable position key should be a lexicographically sortable
 fractional string over a fixed ASCII alphabet, generated between neighboring

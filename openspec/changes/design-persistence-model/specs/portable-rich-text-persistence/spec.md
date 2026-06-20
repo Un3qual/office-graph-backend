@@ -40,6 +40,36 @@ the walking skeleton.
   reference row so authorization, notifications, graph traversal, search, and
   agent context do not parse editor payloads
 
+### Requirement: Rich Text V1 Extension Contract
+Office Graph SHALL keep the first rich text schema small while preserving an
+upgrade path for later editor, quote, collaboration, and reconstruction
+features.
+
+#### Scenario: V1 rich text records are created
+- **WHEN** the first backend cut creates rich text documents, blocks, marks,
+  references, revisions, or derived plain text
+- **THEN** those records MUST use stable document, block, reference, revision,
+  and operation-correlation identities that future inline-version,
+  range-anchor, quote-snapshot, render-cache, collaboration, and editor-adapter
+  tables can reference without replacing the v1 document or block model
+
+#### Scenario: Deferred rich text feature is added later
+- **WHEN** a future accepted rich text implementation adds per-inline
+  reconstruction, source-range anchoring, quote snapshots, live quote
+  resolution, collaboration state, render caches, or persisted editor-adapter
+  payloads
+- **THEN** it MUST extend the v1 normalized rich text model through additive
+  tables, typed backfills, or renderer records tied to source revisions rather
+  than making Lexical JSON, HTML, Markdown, or another editor payload the new
+  canonical state
+
+#### Scenario: Unsupported imported content is promoted
+- **WHEN** imported artifact or raw adapter payload content is later promoted
+  into first-class rich text
+- **THEN** the promotion MUST preserve provenance and create normalized
+  document, block, mark, reference, and revision records instead of exposing
+  the raw payload as the normal query, authorization, or agent-context surface
+
 ### Requirement: Whole-Document Semantic Revisions For V1
 Office Graph SHALL use whole-document semantic revision records for the first
 rich text cut.
