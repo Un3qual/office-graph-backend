@@ -17,7 +17,7 @@
 ## 3. Follow-On Planning Work
 
 - [x] 3.1 Feed adapter behaviours into `design-code-organization-and-boundaries`.
-- [ ] 3.2 Feed raw archive and replay storage needs into first backend walking
+- [x] 3.2 Feed raw archive and replay storage needs into first backend walking
   skeleton planning.
 - [x] 3.3 Feed proposed mutation routing into `design-proposed-graph-changes`.
 - [ ] 3.4 Feed webhook/source principal requirements into future integration

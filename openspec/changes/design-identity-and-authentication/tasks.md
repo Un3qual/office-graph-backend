@@ -26,7 +26,7 @@
 
 ## 3. Follow-On Planning Work
 
-- [ ] 3.1 Feed authenticated principal/session context contracts into the first
+- [x] 3.1 Feed authenticated principal/session context contracts into the first
   backend walking-skeleton implementation plan.
 - [ ] 3.2 Feed service account, webhook, integration, and agent credential
   mechanics into `design-ingestion-and-integrations` and

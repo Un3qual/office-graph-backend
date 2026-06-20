@@ -24,7 +24,7 @@
 
 ## 3. Follow-On Planning Work
 
-- [ ] 3.1 Feed accepted principal, profile, external identity, scope, role,
+- [x] 3.1 Feed accepted principal, profile, external identity, scope, role,
   capability, grant, group, team, and credential inventory into first migration
   planning after the implementation-readiness gate is satisfied.
 - [ ] 3.2 Feed scope hierarchy and scope move semantics into authorization,

@@ -69,7 +69,7 @@
 
 ## 4. Follow-On Planning Work
 
-- [ ] 4.1 Feed the context map, Boundary rules, and Ash/Ecto ownership rules
+- [x] 4.1 Feed the context map, Boundary rules, and Ash/Ecto ownership rules
   into the first backend app-generation change.
 - [ ] 4.2 Feed entrypoint and projection rules into
   `design-api-realtime-and-ui-projections`.
@@ -82,7 +82,7 @@
 - [ ] 4.6 Feed work packet, run, verification, evidence, and read-model
   ownership rules into `design-work-packets-and-readiness` and
   `design-runs-and-verification`.
-- [ ] 4.7 Create a future implementation plan before generating Phoenix, Ash,
+- [x] 4.7 Create a future implementation plan before generating Phoenix, Ash,
   Ecto, Boundary, API, Oban, integration, or agent-runtime code.
 - [x] 4.8 Add the cross-change backend implementation-readiness gate and name
   `first-backend-walking-skeleton` as the next app-generation change after the
