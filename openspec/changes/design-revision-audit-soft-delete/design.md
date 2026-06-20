@@ -85,6 +85,16 @@ Large or sensitive payloads should be referenced, not copied. Revisions can
 point to rich text revision records, artifacts, raw archives, derived renders,
 or external references when those records already own the payload.
 
+The first migration posture is to make native, high-value product history
+first-class. Graph items, rich text documents and placements, conversations
+and messages, review findings, evidence, and provider-neutral imported product
+records should get bespoke typed revision tables or concrete revision modules
+when their state needs domain-specific reconstruction. Simpler administrative
+metadata, labels, non-URL display fields, and low-complexity settings can use
+shared typed revision helper conventions as long as they keep concrete
+foreign keys, typed changed-field names, operation correlation, and
+record-family-specific reconstruction rules.
+
 Alternatives considered:
 
 - **Opaque snapshot JSON:** Easy to implement but weak for policy, query,
@@ -113,6 +123,17 @@ traceability, including:
 Normal low-risk reads can remain operational logs unless organization policy,
 classification, resource kind, or customer configuration requires durable read
 audit.
+
+Authorization decision records are a separate typed record family and should
+be written for every denied, redacted, escalated, approval-gated, and
+sensitive-read decision. The first record shape should include organization,
+scope, principal, delegator, service account or agent run when applicable,
+requested action, target references, decision result, authority basis,
+policy bundle and version, matched rule or obligation references, redaction or
+projection outcome, operation correlation, request or trace identifier,
+source/origin, reason when available, and timestamp. Audit records may point to
+authorization decisions, and authorization decisions may point to redacted
+graph projection references, but neither should copy the other's payload.
 
 Alternatives considered:
 
@@ -210,10 +231,30 @@ columns may be `deleted_at`/`deleted_by` for simple records or a domain-specific
 tombstone table when the resource needs richer metadata, redaction, legal-hold
 state, or external-provider reconciliation.
 
-Uniqueness should be explicit. User-facing names and slugs can usually use
-active-record partial uniqueness when reuse after deletion is allowed. Provider
-external identifiers should usually remain reserved per organization, source,
-object type, and external identifier even if the local product row is deleted.
+The first tombstone shape should include organization and scope, resource kind,
+concrete resource reference, deletion actor/source, operation, deletion time,
+reason when available, lifecycle state, restore eligibility, purge eligibility,
+retention class, legal-hold state, redaction state, and optional replacement or
+restore-as-new linkage. Graph items and work containers can usually retain
+soft-delete columns plus tombstone metadata when they carry URL handles,
+children, or legal-hold state. Conversations and messages should preserve
+thread/message deletion state separately enough to restore or redact a thread
+without rewriting message history. Provider-neutral imported records should
+include external source/object identifiers and reconciliation state. Artifacts
+should preserve payload retention, digest, redaction, and storage-reference
+state separately from product visibility.
+
+Uniqueness should be explicit. Native URL-bearing slugs and handles are durable
+reservations within their organization and scope and are not freed by soft
+deletion. If an item with slug `foo` has ever existed, a new generated slug
+that would otherwise be `foo` should become `foo-1`, then `foo-2`, and so on.
+Deleted URLs must not resolve to a different new resource; they may show an
+authorized tombstone, redirect to a restored/replaced resource, or return an
+authorized not-found or gone response. Display names, labels, and other
+non-URL user-facing identifiers may use active-record partial uniqueness when
+reuse after deletion is allowed. Provider external identifiers should remain
+reserved per organization, source, object type, and external identifier even
+if the local product row is deleted.
 
 Append-only records such as audit logs, authorization decisions, raw archives,
 run events, external sync events, and immutable revision rows are not
@@ -235,6 +276,11 @@ must check authorization, scope, classification, retention state, legal hold,
 uniqueness conflicts, external-provider state, and revision/audit traceability.
 Some records may restore in place; others may restore as a new active record
 linked to the tombstone when uniqueness or external state has moved on.
+The default for native records is restore-in-place when the original scope,
+slug or handle reservation, and parent/container relationships are still valid.
+Imported or provider-backed records, records with moved provider state, and
+records whose active uniqueness constraints now conflict should restore as a
+new linked active record or require an explicit rename/remap decision.
 
 Purge is more restrictive than deletion. Purge must honor legal hold,
 retention policy, audit requirements, export obligations, external-provider
@@ -257,6 +303,29 @@ purge and retention expiry for affected records and must itself be audited.
 Export must respect authorization, classification, redaction rules, secret
 boundaries, model/tool payload controls, and audit visibility.
 
+MVP retention should ship with default retention classes and behaviors while
+remaining customer-configurable. Defaults should exist for product records,
+revisions, audit records, authorization decisions, raw archives, model
+payloads, tool-call payloads, external sync events, run events, derived
+renders, and tombstones. Organization policy may override durations and
+behaviors by scope, resource kind, classification, provider/source, and record
+family, subject to legal hold and minimum compliance constraints.
+
+Legal holds should target any combination of organization, workspace,
+initiative, resource, actor, provider/source, classification, and record
+family. Hold resolution should use the most restrictive matching hold and must
+block purge, retention expiry, destructive redaction, and storage lifecycle
+expiry for affected records until released through an audited workflow.
+
+Export and redaction should produce a manifest that records included scopes,
+record families, classifications, redaction decisions, excluded secrets,
+payload references, digests, raw archive references, legal-hold interactions,
+requesting principal, authorization basis, operation, and generated artifacts.
+Secrets, credentials, prompts, model/tool payloads, raw archives, restricted
+artifacts, and source-code-like content should export as references, digests,
+or redacted summaries by default; full payload export requires explicit
+authorization and classification approval.
+
 The design should distinguish between product records, revisions, audit
 records, authorization decisions, raw archives, model/tool payloads, external
 sync events, run events, and derived renders because they have different
@@ -276,6 +345,11 @@ tables should include organization, scope or resource references, actor/source,
 action or record kind, operation, result/lifecycle, and event time indexes
 where applicable. They should be partition-ready but do not need physical
 partitioning before real customer volume or ingestion load proves the need.
+For MVP, all revision, audit, authorization decision, retention, legal-hold,
+export, raw archive, model/tool payload, run-event, and sync-event tables are
+partition-ready only. No table requires day-one physical partitioning unless a
+later implementation change introduces proven pre-customer volume or
+compliance requirements that justify the operational complexity.
 
 Alternatives considered:
 
@@ -320,9 +394,5 @@ implementation should proceed in this order:
 
 ## Open Questions
 
-- Which exact aggregates get bespoke revision tables versus shared typed
-  revision helper tables in the first migration batch?
-- Which low-risk reads become durable audit records by default for the first
-  customer profile beyond the governance defaults?
-- Which records require restore-in-place versus restore-as-new semantics once
-  concrete table shapes are selected?
+- Which low-risk reads beyond sensitive reads become durable audit records by
+  default for the first customer profile?

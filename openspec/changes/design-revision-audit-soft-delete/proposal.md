@@ -24,8 +24,9 @@ store.
   revisions, audit records, authorization decisions, run events, sync events,
   domain events, and proposed graph changes without duplicating payloads.
 - Define soft deletion and tombstones for mutable product records, including
-  deletion actor, reason, lifecycle state, uniqueness behavior, restore
-  eligibility, and purge constraints.
+  deletion actor, reason, lifecycle state, URL slug/handle reservation,
+  display-identifier uniqueness behavior, restore eligibility, and purge
+  constraints.
 - Define retention, legal-hold, export, redaction, and purge boundaries for
   product records, revisions, audit records, raw archives, model/tool payloads,
   and provider-derived records.

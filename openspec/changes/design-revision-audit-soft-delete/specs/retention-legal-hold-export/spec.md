@@ -12,6 +12,16 @@ classification, provider/source, and record family.
   initiative scope, classification, provider/source, record family, legal hold,
   and export obligations
 
+#### Scenario: Default retention behavior is selected
+- **WHEN** MVP retention policy is configured for product records, revisions,
+  audit records, authorization decisions, raw archives, model payloads,
+  tool-call payloads, external sync events, run events, derived renders, or
+  tombstones
+- **THEN** Office Graph MUST provide default retention classes and default
+  behaviors while allowing organization policy to customize durations and
+  behaviors by scope, resource kind, classification, provider/source, and
+  record family, subject to legal-hold and compliance constraints
+
 #### Scenario: Retention expires
 - **WHEN** a record reaches retention expiry
 - **THEN** Office Graph MUST execute a policy-controlled expiry, redaction,
@@ -27,6 +37,14 @@ lifecycle changes.
   resource, actor, provider/source, record family, or classification
 - **THEN** Office Graph MUST block purge and retention expiry for affected
   records until the hold is released according to policy
+
+#### Scenario: Multiple legal holds match
+- **WHEN** one or more legal holds match a record by organization, workspace,
+  initiative, resource, actor, provider/source, classification, or record
+  family
+- **THEN** Office Graph MUST apply the most restrictive matching hold and block
+  purge, retention expiry, destructive redaction, and storage lifecycle expiry
+  for affected records until the relevant holds are released
 
 #### Scenario: Legal hold changes
 - **WHEN** a principal creates, changes, or releases a legal hold
@@ -50,6 +68,24 @@ classification-aware, redaction-aware workflows.
 - **THEN** Office Graph MUST include redacted references, digests, or approved
   payloads according to authorization and classification policy
 
+#### Scenario: Export manifest is produced
+- **WHEN** an export includes product records, audit records, revisions, raw
+  archives, secrets, prompts, model/tool payloads, restricted artifacts, or
+  provider-derived records
+- **THEN** Office Graph MUST produce a manifest identifying included scopes,
+  record families, classifications, redaction decisions, excluded secrets,
+  payload references, digests, raw archive references, legal-hold
+  interactions, requesting principal, authorization basis, operation
+  correlation, and generated artifacts
+
+#### Scenario: Restricted payload is requested for export
+- **WHEN** exportable records reference secrets, credentials, prompts,
+  model/tool payloads, raw archives, restricted artifacts, or source-code-like
+  content
+- **THEN** Office Graph MUST export references, digests, or redacted summaries
+  by default and require explicit authorization and classification approval
+  before exporting full payloads
+
 ### Requirement: Retention Growth Planning
 Office Graph SHALL design retained record families for high-volume indexing and
 future partitioning.
@@ -68,3 +104,12 @@ future partitioning.
 - **THEN** Office Graph MUST include retention class, export or stream
   eligibility, redaction state, legal-hold interactions, and partition-ready
   time/tenant fields where applicable
+
+#### Scenario: MVP partitioning posture is selected
+- **WHEN** revision, audit, authorization decision, retention, legal-hold,
+  export, raw archive, model/tool payload, run-event, or sync-event tables are
+  modeled for MVP
+- **THEN** Office Graph MUST make those tables partition-ready with tenant and
+  time fields where applicable, but MUST NOT require day-one physical
+  partitioning unless a later implementation change proves pre-customer volume
+  or compliance requirements that justify it

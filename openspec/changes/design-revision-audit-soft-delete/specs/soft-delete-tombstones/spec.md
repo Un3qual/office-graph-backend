@@ -30,16 +30,34 @@ deleted columns.
 - **THEN** Office Graph MUST preserve a tombstone or domain-specific deleted
   state with concrete references to the deleted resource and operation
 
+#### Scenario: First tombstone shapes are modeled
+- **WHEN** graph items, work containers, conversations, messages,
+  provider-neutral imported records, or artifacts are deleted
+- **THEN** Office Graph MUST preserve tombstone or deleted-state metadata with
+  organization and scope, concrete resource reference, deletion actor/source,
+  operation correlation, deletion time, reason when available, lifecycle
+  state, restore eligibility, purge eligibility, retention class, legal-hold
+  state, redaction state, and any provider reconciliation, storage-reference,
+  digest, replacement, or restore-as-new linkage required by the record family
+
 ### Requirement: Soft-Delete-Aware Uniqueness
 Office Graph SHALL define uniqueness behavior explicitly for soft-deletable
 records.
 
-#### Scenario: User-facing identifier can be reused
-- **WHEN** a name, slug, label, or user-facing identifier may be reused after a
-  product record is deleted
+#### Scenario: Display identifier can be reused
+- **WHEN** a display name, label, or non-URL user-facing identifier may be
+  reused after a product record is deleted
 - **THEN** Office Graph MUST enforce active-record uniqueness, such as a
   partial unique index that excludes deleted rows, while preserving deleted
   history
+
+#### Scenario: URL-bearing slug is deleted
+- **WHEN** a URL-bearing slug or handle has ever identified a resource within
+  an organization and scope
+- **THEN** Office Graph MUST keep the slug or handle reserved after soft
+  deletion so a new generated slug that would collide with `foo` becomes
+  `foo-1`, then `foo-2`, and so on, and the old URL MUST NOT resolve to a
+  different new resource
 
 #### Scenario: Provider identifier is retained
 - **WHEN** a provider external identifier is stored for reconciliation
@@ -57,6 +75,14 @@ workflows.
   retention state, legal hold, uniqueness conflicts, external-provider state,
   and operation correlation before restoring in place or restoring as a new
   linked active record
+
+#### Scenario: Restore mode is selected
+- **WHEN** a native deleted record is restored and its original scope, URL slug
+  or handle reservation, and parent/container relationships remain available
+- **THEN** Office Graph SHOULD restore the record in place, while imported,
+  provider-backed, externally moved, or active-uniqueness-conflicted records
+  MUST restore as a new linked active record or require an explicit rename or
+  remap decision
 
 #### Scenario: Deleted record is purged
 - **WHEN** a principal, retention job, or legal workflow attempts to purge a

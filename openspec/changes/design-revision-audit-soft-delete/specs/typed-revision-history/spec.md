@@ -20,6 +20,16 @@ table.
 - **THEN** the revision MUST reference the owning record instead of copying the
   full payload into revision history
 
+#### Scenario: First migration revision tables are selected
+- **WHEN** the first backend migrations model graph items, rich text documents,
+  ordered placements, conversations, messages, review findings, evidence, or
+  provider-neutral imported product records
+- **THEN** Office Graph MUST give those high-value native or reconstruction-
+  sensitive aggregates bespoke typed revision tables or concrete revision
+  modules, while simpler metadata/settings changes MAY use shared typed
+  revision helper conventions with concrete foreign keys and typed changed
+  fields
+
 ### Requirement: Revision Reconstruction
 Office Graph SHALL make revision history reconstructable for product state that
 needs review, restore, audit support, or historical context.

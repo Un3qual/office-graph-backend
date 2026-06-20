@@ -19,6 +19,29 @@ and denied or escalated policy-sensitive attempts.
 - **THEN** Office Graph MUST create or be able to create a durable audit or
   authorization decision record for the attempt
 
+### Requirement: Durable Authorization Decisions
+Office Graph SHALL preserve typed authorization decision records for every
+denied, redacted, escalated, approval-gated, and sensitive-read decision.
+
+#### Scenario: Authorization decision is recorded
+- **WHEN** a principal, service account, agent, integration, webhook, or system
+  job triggers a denied, redacted, escalated, approval-gated, or sensitive-read
+  authorization decision
+- **THEN** Office Graph MUST record organization, scope, principal, delegator
+  when applicable, agent run or service account when applicable, requested
+  action, target references, decision result, authority basis, policy bundle
+  and version, matched rule or obligation references, redaction or projection
+  outcome when applicable, operation correlation, request or trace identifier,
+  source/origin, reason when available, and timestamp
+
+#### Scenario: Authorization decision links to audit evidence
+- **WHEN** an authorization decision is associated with a durable audit event,
+  redacted graph projection, approval gate, waiver, credential use, export,
+  restore, purge, or agent action
+- **THEN** the authorization decision MUST be linkable to related audit events,
+  policy bundle versions, operation correlation, and redacted projection
+  references without copying another record family's payload
+
 ### Requirement: Audit Record Shape
 Office Graph audit records SHALL identify actor behavior, authority basis,
 resource scope, policy result, and investigation context without copying full

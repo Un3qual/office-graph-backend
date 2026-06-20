@@ -33,30 +33,30 @@
 
 ## 3. Open Decisions Before Migrations
 
-- [ ] 3.1 Decide which first migration aggregates need bespoke revision tables
+- [x] 3.1 Decide which first migration aggregates need bespoke revision tables
   and which can share typed revision helper tables or conventions.
 - [x] 3.2 Decide the first audit action taxonomy and result vocabulary for
   writes, reads, denials, escalations, approvals, waivers, exports, external
   writes, and agent tool use.
-- [ ] 3.3 Decide the first authorization decision record shape and how it links
+- [x] 3.3 Decide the first authorization decision record shape and how it links
   to audit records, policy bundle versions, operation correlation, and redacted
   graph projections.
-- [ ] 3.4 Decide the first tombstone shapes for graph items, work containers,
+- [x] 3.4 Decide the first tombstone shapes for graph items, work containers,
   conversations/messages, provider-neutral imported records, and artifacts.
-- [ ] 3.5 Decide restore-in-place versus restore-as-new behavior for each first
+- [x] 3.5 Decide restore-in-place versus restore-as-new behavior for each first
   mutable aggregate class.
-- [ ] 3.6 Decide active-record uniqueness and provider-identifier retention
+- [x] 3.6 Decide active-record uniqueness and provider-identifier retention
   rules for deleted local and imported records.
-- [ ] 3.7 Decide the first retention classification fields and default retention
+- [x] 3.7 Decide the first retention classification fields and default retention
   behaviors for product records, revisions, audit records, raw archives,
   model/tool payloads, and derived renders.
-- [ ] 3.8 Decide the first legal-hold target model and how hold scope is
+- [x] 3.8 Decide the first legal-hold target model and how hold scope is
   resolved across organization, workspace, initiative, resource, actor,
   provider/source, classification, and record family.
-- [ ] 3.9 Decide the first export/redaction manifest shape for product records,
+- [x] 3.9 Decide the first export/redaction manifest shape for product records,
   audit records, revisions, raw archives, secrets, prompts, and restricted
   artifacts.
-- [ ] 3.10 Decide which revision/audit/retention tables are only
+- [x] 3.10 Decide which revision/audit/retention tables are only
   partition-ready in MVP and which, if any, need day-one partitioning.
 
 ## 4. Follow-On Planning Work

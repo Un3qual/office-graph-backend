@@ -31,11 +31,17 @@ workflow, graph, external-source, and event query shapes.
 ### Requirement: Soft-Delete-Aware Uniqueness
 Office Graph SHALL account for soft deletion when defining uniqueness rules.
 
-#### Scenario: Active record name can be reused
-- **WHEN** names, slugs, or user-facing identifiers can be reused after product
-  deletion
+#### Scenario: Active record display identifier can be reused
+- **WHEN** display names, labels, or non-URL user-facing identifiers can be
+  reused after product deletion
 - **THEN** uniqueness MUST be enforced with active-record semantics such as
   partial indexes while preserving deleted-row history
+
+#### Scenario: URL-bearing slug is reserved
+- **WHEN** a URL-bearing slug or handle has ever identified a resource within
+  an organization and scope
+- **THEN** uniqueness MUST reserve that slug or handle beyond product deletion
+  so old URLs never resolve to a different new resource
 
 #### Scenario: Provider identifier is imported
 - **WHEN** a provider external identifier is stored for reconciliation

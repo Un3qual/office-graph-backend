@@ -346,7 +346,10 @@ Default posture:
 - mutable product rows should support `deleted_at`, `deleted_by`, deletion
   reason, or a domain-specific tombstone
 - active-record uniqueness should generally use partial indexes that ignore
-  deleted rows when names/slugs can be reused
+  deleted rows when display names, labels, or non-URL identifiers can be reused
+- URL-bearing slugs and handles should remain reserved within their
+  organization and scope even after deletion so old URLs never resolve to a
+  different new resource
 - provider external identifiers should generally remain globally unique per
   organization/source/object type even if the local product row is deleted
 - append-only raw archives, audit records, decision records, and event logs are
