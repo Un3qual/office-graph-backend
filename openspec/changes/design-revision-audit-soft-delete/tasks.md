@@ -1,34 +1,34 @@
 ## 1. Review And Acceptance
 
-- [ ] 1.1 Confirm this change defines revision, audit, soft-delete,
+- [x] 1.1 Confirm this change defines revision, audit, soft-delete,
   tombstone, retention, legal-hold, restore, purge, and export design only and
   does not start Phoenix, Ash, Ecto, migration, API, frontend, Oban, SIEM, or
   storage-tier implementation.
-- [ ] 1.2 Confirm revisions, audit records, authorization decisions, domain
+- [x] 1.2 Confirm revisions, audit records, authorization decisions, domain
   events, run events, external sync events, and raw archives remain separate
   typed record families.
-- [ ] 1.3 Confirm operation correlation is a narrow command trace rather than a
+- [x] 1.3 Confirm operation correlation is a narrow command trace rather than a
   generic event payload or polymorphic target model.
-- [ ] 1.4 Confirm mutable product records use soft deletion or tombstones from
+- [x] 1.4 Confirm mutable product records use soft deletion or tombstones from
   the beginning while append-only records use retention/redaction/purge
   workflows instead of normal product deletion.
-- [ ] 1.5 Confirm retention, legal hold, export, and redaction rules are applied
+- [x] 1.5 Confirm retention, legal hold, export, and redaction rules are applied
   by organization, scope, resource kind, classification, provider/source, and
   record family.
 
 ## 2. Capability Spec Review
 
-- [ ] 2.1 Review `typed-revision-history` requirements for aggregate-aware
+- [x] 2.1 Review `typed-revision-history` requirements for aggregate-aware
   typed revisions, reconstructable state, rich text/placement references, and
   concern separation.
 - [x] 2.2 Review `audit-record-boundaries` requirements for durable audit
   triggers, denied/escalated attempts, audit record shape, sensitive payload
   references, and audit visibility.
-- [ ] 2.3 Review `operation-correlation` requirements for operation shape,
+- [x] 2.3 Review `operation-correlation` requirements for operation shape,
   correlated record references, idempotency, and causation.
-- [ ] 2.4 Review `soft-delete-tombstones` requirements for deleted lifecycle
+- [x] 2.4 Review `soft-delete-tombstones` requirements for deleted lifecycle
   state, tombstone metadata, uniqueness, restore, and purge.
-- [ ] 2.5 Review `retention-legal-hold-export` requirements for retention
+- [x] 2.5 Review `retention-legal-hold-export` requirements for retention
   policy, legal hold, export/redaction, and growth planning.
 
 ## 3. Open Decisions Before Migrations
@@ -75,7 +75,7 @@
 
 ## 5. Validation
 
-- [ ] 5.1 Run `openspec status --change design-revision-audit-soft-delete`.
-- [ ] 5.2 Run `openspec validate design-revision-audit-soft-delete --strict`.
-- [ ] 5.3 Fix any schema, delta, task-formatting, or validation issues reported
+- [x] 5.1 Run `openspec status --change design-revision-audit-soft-delete`.
+- [x] 5.2 Run `openspec validate design-revision-audit-soft-delete --strict`.
+- [x] 5.3 Fix any schema, delta, task-formatting, or validation issues reported
   by OpenSpec.
