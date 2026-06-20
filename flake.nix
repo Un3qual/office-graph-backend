@@ -41,6 +41,8 @@
             ];
 
             shellHook = ''
+              export MIX_HOME="''${MIX_HOME:-$PWD/.mix}"
+              export HEX_HOME="''${HEX_HOME:-$PWD/.hex}"
               export OPENSPEC_TELEMETRY=''${OPENSPEC_TELEMETRY:-0}
               echo "office_graph dev shell"
               echo "  Erlang:  $(erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell)"

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: office_graph_postgres
+    environment:
+      POSTGRES_USER: office_graph
+      POSTGRES_PASSWORD: office_graph
+      POSTGRES_DB: office_graph_dev
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U office_graph -d office_graph_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - office_graph_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  office_graph_postgres_data:

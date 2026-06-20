@@ -1,21 +1,21 @@
 ## 1. App Baseline
 
-- [ ] 1.1 Generate the Phoenix API application at the repository root with
+- [x] 1.1 Generate the Phoenix API application at the repository root with
   `OfficeGraph` / `OfficeGraphWeb`, Ecto/Postgres enabled, and LiveView, HTML
   views, and frontend assets disabled.
-- [ ] 1.2 Add only the backend dependencies needed for the walking skeleton:
+- [x] 1.2 Add only the backend dependencies needed for the walking skeleton:
   Phoenix API, Ecto/Postgres, Ash, Boundary, Absinthe GraphQL, JSON API
   support, test helpers, and supporting verification tooling.
-- [ ] 1.3 Configure application, repo, endpoint, runtime/test/dev database,
+- [x] 1.3 Configure application, repo, endpoint, runtime/test/dev database,
   logger, formatter, and Mix aliases from inside the project Nix shell.
-- [ ] 1.4 Add Docker Compose configuration for local development/test Postgres
+- [x] 1.4 Add Docker Compose configuration for local development/test Postgres
   with a named service, stable local connection settings, health check,
   durable named volume, and documented start/stop/reset commands.
-- [ ] 1.5 Add documented setup and verification commands that use
+- [x] 1.5 Add documented setup and verification commands that use
   `nix --extra-experimental-features 'nix-command flakes' develop --command`.
-- [ ] 1.6 Verify the clean app baseline with compile, format check, and the
+- [x] 1.6 Verify the clean app baseline with compile, format check, and the
   default test suite before adding domain behavior.
-- [ ] 1.7 Commit the generated app baseline before starting domain/resource
+- [x] 1.7 Commit the generated app baseline before starting domain/resource
   implementation.
 
 ## 2. Boundary And Context Layout
