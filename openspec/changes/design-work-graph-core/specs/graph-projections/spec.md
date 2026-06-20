@@ -9,14 +9,13 @@ scoped graph data rather than as tenants or access-granting containers.
   a graph projection
 - **THEN** the projection MUST filter every included node, edge, artifact,
   conversation, external reference, revision summary, count, and preview
-  through authorization and classification policy
+  through authorization, tenant/scope visibility, and sensitivity policy
 
 #### Scenario: Projection spans multiple scopes
 - **WHEN** a projection spans initiatives, workstreams, workspaces, teams,
   components, repositories, departments, integrations, or external sources
 - **THEN** every included item MUST remain governed by its own organization,
-  workspace, initiative/project, workstream, resource, and classification
-  scope
+  workspace, initiative, workstream, resource scope, and sensitivity labels
 
 ### Requirement: Restricted Projection Results
 Office Graph SHALL support restricted placeholders and policy-approved
@@ -73,7 +72,7 @@ for users, agents, and auditors to understand visible context.
 - **WHEN** a user sees an item, edge, restricted placeholder, redacted summary,
   or omitted branch in a projection
 - **THEN** Office Graph MUST be able to explain the inclusion, restriction, or
-  omission in terms of scope, classification, relationship type, projection
+  omission in terms of scope, sensitivity label, relationship type, projection
   query, and authorization result when policy permits disclosure
 
 #### Scenario: Agent receives projection context

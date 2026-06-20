@@ -72,6 +72,8 @@
   rules into `design-proposed-graph-changes`.
 - [ ] 4.5 Feed export, redaction, audit visibility, and projection staleness
   constraints into `design-api-realtime-and-ui-projections`.
+- [x] 4.6 Add audit JSON exception cross-link and edge tombstone/restore
+  cascade rules.
 
 ## 5. Validation
 

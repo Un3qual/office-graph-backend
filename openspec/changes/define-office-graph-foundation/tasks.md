@@ -48,10 +48,10 @@
 
 ### Plan Review Remediation
 
-- [ ] Resolve the concrete identity, authorization, credential, scope
+- [x] Resolve the concrete identity, authorization, credential, scope
   hierarchy, policy fact, sensitivity label, and external identity inventory in
   `design-identity-and-authorization-schema`.
-- [ ] Resolve authentication mechanics, session/token behavior, service
+- [x] Resolve authentication mechanics, session/token behavior, service
   account and agent credential issuance, external identity reconciliation, and
   first-org/first-admin bootstrap in
   `design-identity-and-authentication`.
@@ -59,9 +59,9 @@
   requirements so this foundation change stays product framing rather than a
   duplicate durable source for authorization, persistence, work graph, audit,
   or code organization details.
-- [ ] Narrow the first backend target to the walking skeleton captured in
+- [x] Narrow the first backend target to the walking skeleton captured in
   `openspec/project-plan.md` and the persistence/work-graph changes.
-- [ ] Capture manual intake, ingestion normalization, idempotency, replay, and
+- [x] Capture manual intake, ingestion normalization, idempotency, replay, and
   proposed graph change semantics in `design-ingestion-and-integrations` and
   `design-proposed-graph-changes` before backend code generation.
 - [ ] Mark individual open questions above complete only after the downstream
@@ -69,17 +69,17 @@
 
 ## 4. Follow-On OpenSpec Changes
 
-- [ ] Create `design-work-graph-core`.
-- [ ] Create `design-persistence-model`.
-- [ ] Create `design-revision-audit-soft-delete`.
-- [ ] Create `design-code-organization-and-boundaries`.
-- [ ] Create `design-ingestion-and-integrations`.
+- [x] Create `design-work-graph-core`.
+- [x] Create `design-persistence-model`.
+- [x] Create `design-revision-audit-soft-delete`.
+- [x] Create `design-code-organization-and-boundaries`.
+- [x] Create `design-ingestion-and-integrations`.
 - [ ] Create `design-agent-runtime`.
-- [ ] Create `design-proposed-graph-changes`.
+- [x] Create `design-proposed-graph-changes`.
 - [ ] Create `design-work-packets-and-readiness`.
 - [ ] Create `design-runs-and-verification`.
 - [ ] Create `design-api-realtime-and-ui-projections`.
-- [ ] Create `design-enterprise-governance`.
+- [x] Create `design-enterprise-governance`.
 
 ## 5. Validation
 

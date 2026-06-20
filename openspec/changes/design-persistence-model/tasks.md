@@ -137,6 +137,8 @@
   text block ordering with concrete references.
 - [x] 4.15 Add the graph identity plus typed resource same-transaction
   invariant.
+- [x] 4.16 Lock schema-facing scope language to `initiative` and cross-link
+  audit JSON details as a controlled JSON exception.
 
 ## 5. Validation
 

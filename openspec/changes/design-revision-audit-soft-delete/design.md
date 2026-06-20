@@ -272,7 +272,7 @@ Alternatives considered:
 ### 7. Treat restore and purge as policy-controlled workflows
 
 Restore is a domain action, not a blind `deleted_at = null` update. Restores
-must check authorization, scope, classification, retention state, legal hold,
+must check authorization, scope, sensitivity label, retention state, legal hold,
 uniqueness conflicts, external-provider state, and revision/audit traceability.
 Some records may restore in place; others may restore as a new active record
 linked to the tombstone when uniqueness or external state has moved on.
@@ -298,9 +298,9 @@ Alternatives considered:
 ### 8. Apply retention, legal hold, export, and redaction by record family
 
 Retention policy should apply by organization, workspace/initiative, resource
-kind, classification, provider/source, and record family. Legal hold blocks
+kind, sensitivity label, provider/source, and record family. Legal hold blocks
 purge and retention expiry for affected records and must itself be audited.
-Export must respect authorization, classification, redaction rules, secret
+Export must respect authorization, sensitivity labels, redaction rules, secret
 boundaries, model/tool payload controls, and audit visibility.
 
 MVP retention should ship with default retention classes and behaviors while
@@ -308,23 +308,23 @@ remaining customer-configurable. Defaults should exist for product records,
 revisions, audit records, authorization decisions, raw archives, model
 payloads, tool-call payloads, external sync events, run events, derived
 renders, and tombstones. Organization policy may override durations and
-behaviors by scope, resource kind, classification, provider/source, and record
+behaviors by scope, resource kind, sensitivity label, provider/source, and record
 family, subject to legal hold and minimum compliance constraints.
 
 Legal holds should target any combination of organization, workspace,
-initiative, resource, actor, provider/source, classification, and record
+initiative, resource, actor, provider/source, sensitivity label, and record
 family. Hold resolution should use the most restrictive matching hold and must
 block purge, retention expiry, destructive redaction, and storage lifecycle
 expiry for affected records until released through an audited workflow.
 
 Export and redaction should produce a manifest that records included scopes,
-record families, classifications, redaction decisions, excluded secrets,
+record families, sensitivity labels, redaction decisions, excluded secrets,
 payload references, digests, raw archive references, legal-hold interactions,
 requesting principal, authorization basis, operation, and generated artifacts.
 Secrets, credentials, prompts, model/tool payloads, raw archives, restricted
 artifacts, and source-code-like content should export as references, digests,
 or redacted summaries by default; full payload export requires explicit
-authorization and classification approval.
+authorization and sensitivity approval.
 
 The design should distinguish between product records, revisions, audit
 records, authorization decisions, raw archives, model/tool payloads, external

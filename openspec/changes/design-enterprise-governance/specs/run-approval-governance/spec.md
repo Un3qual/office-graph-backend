@@ -9,7 +9,7 @@ run authority rather than unrestricted user inheritance.
   source, integration event, scheduled policy, or user delegation
 - **THEN** the run must record its initial authority basis, triggering
   principal, agent principal, organization, starting scopes, capabilities,
-  autonomy policy, and resource classifications
+  autonomy policy, and resource sensitivity labels
 
 #### Scenario: Automatic run has no direct human starter
 - **WHEN** an agent run is started by an automatic trigger rather than a human
@@ -26,7 +26,7 @@ access outside its current authorized scope.
 - **WHEN** an agent investigating a frontend crash needs backend, devops,
   repository, deployment, feature-flag, or prior decision context
 - **THEN** the agent must request expansion with target scopes, reason,
-  requested capabilities, resource classifications, and whether access is
+  requested capabilities, resource sensitivity labels, and whether access is
   read-only, proposal-only, or write-capable
 
 #### Scenario: Expansion is evaluated
@@ -49,13 +49,13 @@ agents so safe repeated work can proceed without per-action human babysitting.
 - **WHEN** an admin, owner, or authorized agent operator configures an agent,
   workflow, or work packet for automatic execution
 - **THEN** the configuration must define allowed scopes, tools,
-  classifications, action types, runtime or budget limits, data volume limits,
+  sensitivity labels, action types, runtime or budget limits, data volume limits,
   and whether the agent is read-only, proposal-only, write-capable, or
   external-write-capable
 
 #### Scenario: Low-risk expansion is requested
 - **WHEN** an agent requests same-scope or directly related read-only context
-  with low or normal classification, no secret access, no export, no external
+  with low or normal sensitivity, no secret access, no export, no external
   write, and no policy ambiguity
 - **THEN** organization policy may auto-approve the expansion inside the
   configured autonomy envelope and record the decision when required
@@ -70,7 +70,7 @@ agents so safe repeated work can proceed without per-action human babysitting.
 
 #### Scenario: Approval fatigue is detected
 - **WHEN** users repeatedly approve equivalent context expansions for the same
-  agent, scope, classification, capability, and limits
+  agent, scope, sensitivity label, capability, and limits
 - **THEN** Office Graph should surface a policy review opportunity to create a
   narrower auto-approval rule rather than training users to approve repetitive
   prompts without reading them
@@ -92,17 +92,18 @@ context expansions.
 - **THEN** temporary run-scoped grants must expire or be revoked according to
   policy
 
-### Requirement: Approval Gates As Checks
-Office Graph SHALL model human approval requirements as governed checks with
-evidence rather than side-channel comments or status flags.
+### Requirement: Approval Gates As Governed Requirements
+Office Graph SHALL model human approval requirements as governed requirements
+that can produce evidence or satisfy verification checks, rather than
+side-channel comments or status flags.
 
 #### Scenario: Work requires final approval
 - **WHEN** a task, work packet, proposed graph change, PR merge, external
   write, deployment, waiver, sensitive data access, or cross-scope expansion
   requires human approval
-- **THEN** the system must represent the approval requirement as a check with
-  required capability, scope relationship, approver count, expiration or
-  reapproval rules, and evidence requirements
+- **THEN** the system must represent the approval gate with required
+  capability, scope relationship, approver count, expiration or reapproval
+  rules, and evidence or verification-check satisfaction requirements
 
 #### Scenario: Approval is recorded
 - **WHEN** a human approves or rejects an approval gate
@@ -125,7 +126,7 @@ existing company structure where possible.
 #### Scenario: Approval rule is evaluated
 - **WHEN** an approval rule is evaluated
 - **THEN** authorization must consider required capability, relationship,
-  scope, classification, approver count, expiration, reapproval rules, and
+  scope, sensitivity label, approver count, expiration, reapproval rules, and
   separation-of-duties constraints rather than relying on hardcoded named
   approvers
 
@@ -140,7 +141,7 @@ Office Graph SHALL support separation-of-duties rules for approval gates.
 #### Scenario: Author cannot final approve
 - **WHEN** policy states that an author, requester, agent delegator, or
   implementer cannot satisfy a final approval gate
-- **THEN** the approval check must remain unsatisfied until an eligible
+- **THEN** the approval gate must remain unsatisfied until an eligible
   principal with the required capability and scope relationship approves it
 
 #### Scenario: Team lead approval is required

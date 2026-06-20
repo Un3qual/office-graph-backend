@@ -71,7 +71,7 @@ workflows.
 
 #### Scenario: Deleted record is restored
 - **WHEN** a principal attempts to restore a deleted record
-- **THEN** Office Graph MUST check authorization, scope, classification,
+- **THEN** Office Graph MUST check authorization, scope, sensitivity label,
   retention state, legal hold, uniqueness conflicts, external-provider state,
   and operation correlation before restoring in place or restoring as a new
   linked active record
@@ -90,3 +90,25 @@ workflows.
 - **THEN** Office Graph MUST honor legal hold, retention policy, audit
   requirements, export obligations, external-provider contracts, and minimal
   tombstone or digest retention before removing durable data
+
+### Requirement: Edge Tombstones And Restore Cascade
+Office Graph SHALL define graph relationship lifecycle behavior when graph
+items or work containers are deleted or restored.
+
+#### Scenario: Graph item is deleted
+- **WHEN** a graph item is deleted or tombstoned
+- **THEN** Office Graph MUST tombstone, disable, or preserve each incident edge
+  according to relationship type so projections do not expose dangling or
+  misleading relationships
+
+#### Scenario: Graph item is restored
+- **WHEN** a graph item is restored
+- **THEN** Office Graph MUST NOT automatically restore all incident edges
+  unless the relationship type declares restore eligibility and policy approves
+  the restore
+
+#### Scenario: Parent work container is restored
+- **WHEN** a deleted parent work container is restored
+- **THEN** Office Graph MUST declare whether child graph items restore in
+  place, remain deleted, or require explicit selection before they become
+  active again

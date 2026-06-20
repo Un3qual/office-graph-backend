@@ -2,14 +2,14 @@
 
 ### Requirement: Retention Policy Application
 Office Graph SHALL apply retention rules by organization, scope, resource kind,
-classification, provider/source, and record family.
+sensitivity label, provider/source, and record family.
 
 #### Scenario: Retention state is evaluated
 - **WHEN** retention is evaluated for product records, revisions, audit
   records, authorization decisions, raw archives, model payloads, tool-call
   payloads, external sync events, run events, or derived renders
 - **THEN** Office Graph MUST consider organization policy, workspace or
-  initiative scope, classification, provider/source, record family, legal hold,
+  initiative scope, sensitivity label, provider/source, record family, legal hold,
   and export obligations
 
 #### Scenario: Default retention behavior is selected
@@ -19,7 +19,7 @@ classification, provider/source, and record family.
   tombstones
 - **THEN** Office Graph MUST provide default retention classes and default
   behaviors while allowing organization policy to customize durations and
-  behaviors by scope, resource kind, classification, provider/source, and
+  behaviors by scope, resource kind, sensitivity label, provider/source, and
   record family, subject to legal-hold and compliance constraints
 
 #### Scenario: Retention expires
@@ -34,13 +34,13 @@ lifecycle changes.
 
 #### Scenario: Legal hold applies
 - **WHEN** legal hold applies to an organization, workspace, initiative,
-  resource, actor, provider/source, record family, or classification
+  resource, actor, provider/source, record family, or sensitivity label
 - **THEN** Office Graph MUST block purge and retention expiry for affected
   records until the hold is released according to policy
 
 #### Scenario: Multiple legal holds match
 - **WHEN** one or more legal holds match a record by organization, workspace,
-  initiative, resource, actor, provider/source, classification, or record
+  initiative, resource, actor, provider/source, sensitivity label, or record
   family
 - **THEN** Office Graph MUST apply the most restrictive matching hold and block
   purge, retention expiry, destructive redaction, and storage lifecycle expiry
@@ -53,12 +53,12 @@ lifecycle changes.
 
 ### Requirement: Export And Redaction Boundaries
 Office Graph SHALL export retained data only through authorized,
-classification-aware, redaction-aware workflows.
+sensitivity-aware, redaction-aware workflows.
 
 #### Scenario: Organization export is requested
 - **WHEN** an authorized export is requested for organization, workspace,
   initiative, graph, audit, governance, integration, or model/tool data
-- **THEN** Office Graph MUST determine included scopes, classifications,
+- **THEN** Office Graph MUST determine included scopes, sensitivity labels,
   redactions, secret exclusions, payload references, legal holds, and audit
   visibility before producing export data
 
@@ -66,14 +66,14 @@ classification-aware, redaction-aware workflows.
 - **WHEN** exportable records reference secrets, credentials, prompts, source
   code, sensitive artifacts, restricted graph items, or raw payload archives
 - **THEN** Office Graph MUST include redacted references, digests, or approved
-  payloads according to authorization and classification policy
+  payloads according to authorization and sensitivity policy
 
 #### Scenario: Export manifest is produced
 - **WHEN** an export includes product records, audit records, revisions, raw
   archives, secrets, prompts, model/tool payloads, restricted artifacts, or
   provider-derived records
 - **THEN** Office Graph MUST produce a manifest identifying included scopes,
-  record families, classifications, redaction decisions, excluded secrets,
+  record families, sensitivity labels, redaction decisions, excluded secrets,
   payload references, digests, raw archive references, legal-hold
   interactions, requesting principal, authorization basis, operation
   correlation, and generated artifacts
@@ -83,7 +83,7 @@ classification-aware, redaction-aware workflows.
   model/tool payloads, raw archives, restricted artifacts, or source-code-like
   content
 - **THEN** Office Graph MUST export references, digests, or redacted summaries
-  by default and require explicit authorization and classification approval
+  by default and require explicit authorization and sensitivity approval
   before exporting full payloads
 
 ### Requirement: Retention Growth Planning

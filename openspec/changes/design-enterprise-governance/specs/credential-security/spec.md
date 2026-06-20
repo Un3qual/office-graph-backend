@@ -7,7 +7,7 @@ signing keys, and model provider keys as scoped governance resources.
 #### Scenario: Credential is registered
 - **WHEN** a credential or token is registered
 - **THEN** the system must record owner, organization, applicable scopes,
-  provider or tool, allowed capabilities, classification, lifecycle state,
+  provider or tool, allowed capabilities, sensitivity label, lifecycle state,
   rotation metadata, revocation metadata, and audit trail without exposing the
   secret value as normal product data
 
@@ -15,7 +15,7 @@ signing keys, and model provider keys as scoped governance resources.
 - **WHEN** an agent, integration, service account, system job, or human action
   needs to use a credential
 - **THEN** authorization must evaluate the credential scope, requested
-  capability, actor principal, resource classification, organization policy,
+  capability, actor principal, resource sensitivity, organization policy,
   and approval requirements
 
 ### Requirement: Secret Value Separation
@@ -84,7 +84,7 @@ access.
   change, modify a provider record, trigger a provider workflow, or call a
   write-capable provider API
 - **THEN** authorization must evaluate external-write capability, integration
-  scope, credential scope, resource classification, approval requirements,
+  scope, credential scope, resource sensitivity, approval requirements,
   related work packet policy, and related run when applicable
 
 #### Scenario: Agent can read graph context

@@ -78,6 +78,8 @@
   context into `design-api-realtime-and-ui-projections`.
 - [x] 4.10 Feed the first executable walking skeleton graph slice into
   `design-persistence-model` and the project remediation plan.
+- [x] 4.11 Lock schema-facing work-container language to `initiative` and add
+  graph relationship restore eligibility rules.
 
 ## 5. Validation
 

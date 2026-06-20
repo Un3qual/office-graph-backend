@@ -70,7 +70,7 @@ results over scoped graph data, not as tenants or access-granting containers.
 - **WHEN** a projection includes nodes, edges, artifacts, conversations,
   external references, revisions, summaries, or counts
 - **THEN** every included record MUST remain governed by its own tenant, scope,
-  classification, and authorization facts
+  sensitivity labels, and authorization facts
 
 #### Scenario: Dedicated projection read model is proposed
 - **WHEN** Office Graph introduces a persisted read model for inboxes, queues,

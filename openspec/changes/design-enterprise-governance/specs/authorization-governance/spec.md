@@ -62,7 +62,7 @@ under roles, explicit grants, agent permissions, and integration scopes.
 #### Scenario: Capability is evaluated
 - **WHEN** an actor attempts a governed action
 - **THEN** the authorization boundary must evaluate the relevant named
-  capability in addition to role, relationship, classification, and policy
+  capability in addition to role, relationship, sensitivity label, and policy
   facts
 
 #### Scenario: Initial capability set is designed
@@ -112,23 +112,25 @@ implicit graph access or ad hoc sharing.
 - **THEN** the authorization result and any durable decision record must
   identify the grant as part of the permission basis
 
-### Requirement: Resource Classification Policy
-Office Graph SHALL model resource classifications explicitly and use them in
-authorization, redaction, AI context assembly, audit, and export decisions.
+### Requirement: Visibility Scope And Sensitivity Policy
+Office Graph SHALL model visibility scope separately from resource sensitivity
+labels and use both in authorization, redaction, AI context assembly, audit,
+and export decisions.
 
-#### Scenario: Classified resource is accessed
-- **WHEN** a resource classified as restricted, secret, source code,
-  customer-sensitive, finance-sensitive, legal-sensitive, security-sensitive,
-  team-restricted, initiative-scoped, project-scoped, workspace-scoped, or
-  org-internal is accessed
-- **THEN** policy must be able to evaluate the classification without parsing
-  generic JSON metadata
+#### Scenario: Sensitive resource is accessed
+- **WHEN** a resource labeled normal, confidential, secret, source code,
+  customer-sensitive, finance-sensitive, legal-sensitive, or
+  security-sensitive is accessed
+- **THEN** policy must be able to evaluate the sensitivity label without
+  parsing generic JSON metadata
 
-#### Scenario: Classification affects graph context
+#### Scenario: Visibility scope affects graph context
 - **WHEN** a graph projection, embedded conversation, work packet, or agent
-  context package includes classified resources
-- **THEN** the system must apply classification-specific visibility,
-  redaction, audit, export, and AI data-control rules
+  context package includes resources across organization, workspace,
+  initiative, workstream, team, component, repository, service, integration,
+  external source, artifact, or resource scopes
+- **THEN** the system must apply tenant/scope visibility policy separately
+  from sensitivity-specific redaction, audit, export, and AI data-control rules
 
 ### Requirement: Explainable Authorization Decisions
 Office Graph SHALL produce authorization decisions that can explain allows,
@@ -138,7 +140,7 @@ denials, redactions, placeholders, approval requirements, and escalations.
 - **WHEN** authorization denies, redacts, placeholders, approval-gates, or
   escalates an action
 - **THEN** the decision must identify the relevant limiting factors in terms
-  of role, capability, relationship, classification, grant, organization
+  of role, capability, relationship, sensitivity label, grant, organization
   policy, inherited scope path, tool scope, integration scope, work packet
   policy, approval gate, separation-of-duties rule, or agent capability
 
@@ -181,14 +183,14 @@ sets that interpret authorization facts for a request.
 
 #### Scenario: Policy-sensitive action is evaluated
 - **WHEN** a policy-sensitive authorization decision is made for an actor,
-  action, resource, scope, classification, tool, integration, or run context
+  action, resource, scope, sensitivity label, tool, integration, or run context
 - **THEN** the decision must be able to reference the effective policy bundle
   version, bundle digest, relevant component policy versions, relevant fact
   references, result, and explanation
 
 #### Scenario: Permission fact changes
 - **WHEN** a role assignment, custom role definition, explicit grant,
-  classification, group membership, ownership link, manager relationship, or
+  sensitivity label, group membership, ownership link, manager relationship, or
   agent capability changes
 - **THEN** the change must be modeled as an authorization fact change rather
   than as a standalone policy unless it changes the rule set that interprets

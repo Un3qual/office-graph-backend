@@ -10,7 +10,7 @@ filtering, indexing, export, retention, or deletion requires it.
   owned by an immutable parent path that cannot cross organizations
 
 #### Scenario: Scope is needed for queries
-- **WHEN** workspace, initiative/project, workstream, team, component,
+- **WHEN** workspace, initiative, workstream, team, component,
   repository, integration, external source, artifact, or resource scope affects
   authorization, filtering, indexing, export, or retention
 - **THEN** the durable record MUST store or safely inherit that scope through a

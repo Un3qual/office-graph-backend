@@ -9,8 +9,8 @@ shared graph item contract.
   item, artifact, run, work packet, conversation, external reference, document
   section, or plan section is created as graph-addressable work
 - **THEN** it MUST have stable graph identity, item type, organization scope,
-  workspace scope when applicable, lifecycle state, classification, owner or
-  source, provenance, and relationship participation metadata sufficient for
+  workspace scope when applicable, lifecycle state, sensitivity label, owner
+  or source, provenance, and relationship participation metadata sufficient for
   graph traversal and scoped conversation
 
 #### Scenario: Graph item is selected

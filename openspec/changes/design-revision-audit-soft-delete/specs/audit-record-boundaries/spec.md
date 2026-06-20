@@ -80,15 +80,17 @@ revision payloads.
 #### Scenario: Audit event has action-specific metadata
 - **WHEN** an audit action needs details that vary by action type
 - **THEN** Office Graph MAY store constrained schema-versioned JSONB details
-  linked to the action key and detail schema version, but MUST NOT store
-  tenant, actor, action, result, target, operation, policy, retention, or
-  timestamp only inside those details
+  in `audit_event_details` linked to the action key and detail schema version;
+  this is an approved schema-versioned JSON exception under
+  `design-persistence-model/specs/json-storage-policy`, but Office Graph MUST
+  NOT store tenant, actor, action, result, target, operation, policy,
+  retention, or timestamp only inside those details
 
 #### Scenario: Audit record references sensitive data
 - **WHEN** an audit record relates to secrets, credentials, prompts, source
   code, restricted artifacts, model payloads, or sensitive records
 - **THEN** the audit record MUST preserve traceability through references,
-  digests, classifications, or redacted summaries without exposing payloads to
+  digests, sensitivity labels, or redacted summaries without exposing payloads to
   principals that lack permission to view them
 
 ### Requirement: Audit Action Registry
@@ -152,4 +154,4 @@ product visibility.
   sensitive artifacts, agent prompts or context, exports, legal-hold records,
   or cross-scope summaries
 - **THEN** Office Graph MUST create or be able to create durable read-audit
-  evidence according to organization policy and classification
+  evidence according to organization policy and sensitivity labels

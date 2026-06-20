@@ -77,6 +77,9 @@
 - [x] 4.8 Create `design-identity-and-authorization-schema` as the concrete
   schema inventory owner for identity, authorization scopes, policy facts,
   sensitivity labels, and credential metadata.
+- [x] 4.9 Split visibility scope from sensitivity labels and clarify that
+  approval gates are governed requirements that can produce evidence or
+  satisfy verification checks.
 
 ## 5. Validation
 

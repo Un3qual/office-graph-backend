@@ -8,7 +8,7 @@ models, and model classes may receive particular categories of data.
 - **WHEN** Office Graph prepares a model call for an agent, embedded
   conversation, review, summarization, or proposed graph change
 - **THEN** the system must evaluate organization AI provider policy against
-  resource classifications, data categories, tool context, requested model,
+  resource sensitivity labels, data categories, tool context, requested model,
   provider terms, and retention settings
 
 #### Scenario: Provider is disallowed
@@ -36,7 +36,7 @@ before it reaches agents or model providers when policy requires it.
 
 ### Requirement: Prompt And Model Provenance Controls
 Office Graph SHALL record model and prompt provenance according to
-organization retention and classification policy.
+organization retention and sensitivity policy.
 
 #### Scenario: Agent run uses a model
 - **WHEN** an agent run, embedded conversation, automatic review, or model
@@ -47,7 +47,7 @@ organization retention and classification policy.
   organization policy
 
 #### Scenario: Prompt storage is restricted
-- **WHEN** organization or classification policy restricts prompt or model
+- **WHEN** organization or sensitivity policy restricts prompt or model
   output storage
 - **THEN** the system must preserve policy-compliant metadata and provenance
   without storing disallowed raw prompt or output content
@@ -75,7 +75,7 @@ Office Graph SHALL track provider terms relevant to enterprise AI governance.
 - **WHEN** an AI provider or model provider account is configured
 - **THEN** Office Graph must be able to record no-training status, retention
   terms, regional processing constraints when available, data-use policy,
-  allowed classifications, and approval requirements
+  allowed sensitivity labels, and approval requirements
 
 #### Scenario: Provider terms change
 - **WHEN** provider terms or organization policy changes

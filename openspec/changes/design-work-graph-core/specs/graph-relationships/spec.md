@@ -88,3 +88,9 @@ changed, superseded, archived, and deleted relationships.
   or superseded
 - **THEN** relationship lifecycle behavior MUST remain defined so projections
   do not expose dangling or misleading edges
+
+#### Scenario: Related item is restored
+- **WHEN** a source or target graph item is restored after deletion
+- **THEN** incident relationships MUST remain tombstoned or disabled unless
+  the relationship type declares restore eligibility and policy approves the
+  relationship restore

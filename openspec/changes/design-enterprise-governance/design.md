@@ -130,7 +130,8 @@ Graph items should usually carry:
 
 - `organization_id`: mandatory tenant root
 - `workspace_id`: common visibility boundary
-- `initiative_id` or `project_id`: optional but common work-container boundary
+- `initiative_id`: optional but common durable work-container boundary;
+  `project` remains the customer-facing alias
 - more specific scope columns when needed, such as team, component,
   repository, service, integration, external source, graph, or artifact scope
 
@@ -207,8 +208,8 @@ Initial system roles should be simple and assignable at the appropriate scope:
 - `project_admin`: project membership, packet/review configuration, and
   project agent settings.
 - `member`: normal contributor within assigned scopes.
-- `viewer`: read-only access within assigned scopes, subject to
-  classification policy.
+- `viewer`: read-only access within assigned scopes, subject to sensitivity
+  policy.
 - `auditor`: audit/compliance visibility without normal write authority.
 - `integration_admin`: manages integration installations and credentials
   within allowed scopes.
@@ -353,20 +354,21 @@ Alternatives considered:
 - **Adding users to every scope:** Creates stale access and hides exceptional
   collaboration.
 
-### 9. Represent resource classification explicitly
+### 9. Split visibility scope from sensitivity labels
 
-Every graph item and external artifact should have an explicit classification
-or inherit one from its scope. Classification affects visibility, redaction,
-agent context assembly, export, AI provider eligibility, audit requirements,
-and external write approvals.
+Visibility is governed by tenant/scope columns, hierarchical scope paths, graph
+projection policy, and explicit grants. Sensitivity is governed by typed labels
+on resources or inherited from scopes. Office Graph should not mix values such
+as `workspace_scoped` and `secret` in one classification enum.
 
-Initial classifications should include:
+Initial visibility scopes include organization, workspace, initiative,
+workstream, team, component, repository, service, integration, external source,
+artifact, and resource scope.
 
-- `org_internal`
-- `workspace_scoped`
-- `project_scoped`
-- `team_restricted`
-- `restricted`
+Initial sensitivity labels should include:
+
+- `normal`
+- `confidential`
 - `secret`
 - `source_code`
 - `customer_sensitive`
@@ -374,8 +376,10 @@ Initial classifications should include:
 - `legal_sensitive`
 - `security_sensitive`
 
-These can be modeled as typed labels or classification records. The important
-rule is that policy can query them without parsing JSON metadata.
+Sensitivity labels affect redaction, agent context assembly, export, AI
+provider eligibility, audit requirements, and external write approvals. The
+important rule is that policy can query visibility and sensitivity without
+parsing JSON metadata.
 
 Alternatives considered:
 
@@ -394,7 +398,7 @@ delegator permission
   intersect work packet autonomy policy
   intersect tool or integration scope
   intersect organization policy
-  intersect resource classification policy
+  intersect resource sensitivity policy
 ```
 
 This explanation is product-critical. Users need to understand why an agent
@@ -403,14 +407,14 @@ redacted, or why a waiver needs approval.
 
 A policy is the versioned rule set that interprets authorization facts for a
 request. It is not a single grant, role assignment, or permission row. Role
-assignments, custom role definitions, grants, classifications, group
+assignments, custom role definitions, grants, sensitivity labels, group
 memberships, ownership links, manager relationships, and agent capabilities
 are facts. Policies say what those facts mean for a given actor, action,
-resource, scope, classification, tool, and run context.
+resource, scope, sensitivity label, tool, and run context.
 
 For a single authorization request, the effective policy is the collection of
 applicable rule versions selected from organization policy, workspace or
-project policy, classification policy, agent autonomy policy, integration
+initiative policy, sensitivity policy, agent autonomy policy, integration
 policy, approval policy, and any relevant inherited scope policy. Sensitive
 decision records should store the policy bundle version, digest, component
 policy versions, relevant fact references, result, and explanation. They
@@ -536,8 +540,8 @@ source has provider, installation/source scope, verification method, allowed
 event types, replay/idempotency policy, and trust level.
 
 Inbound webhooks create signals or sync events only through integration
-adapters and domain actions. They do not bypass tenant, scope, or
-classification policy.
+adapters and domain actions. They do not bypass tenant, scope, or sensitivity
+policy.
 
 Alternatives considered:
 
@@ -667,12 +671,13 @@ Alternatives considered:
 - **Manual grants before every expansion:** Safe but slow; use policy to
   auto-allow low-risk expansions and approval-gate higher-risk ones.
 
-### 18. Model human approval gates as governed checks
+### 18. Model human approval gates as governed requirements
 
-Human approvals should be first-class graph/check records, not side-channel
-comments. A developer may approve an agent's proposed PR fix within a PR scope,
-while merge to `main` may require a separate team lead, code owner, security
-reviewer, incident commander, manager, or release owner approval.
+Human approvals should be first-class governed requirements, not side-channel
+comments. They can produce evidence or satisfy verification checks. A developer
+may approve an agent's proposed PR fix within a PR scope, while merge to
+`main` may require a separate team lead, code owner, security reviewer,
+incident commander, manager, or release owner approval.
 
 Approval gates should define:
 
@@ -680,12 +685,13 @@ Approval gates should define:
 - required scope relationship
 - required approver count
 - separation-of-duties rule, such as "author cannot final-approve"
-- applicable resource classification
+- applicable resource sensitivity label
 - escalation path
 - expiration or reapproval rules when linked work changes
 - evidence produced by approval or rejection
 
-Approvals are checks with evidence, and waivers are governed exceptions.
+Approval gates can produce evidence or satisfy verification checks. Check
+waivers are governed exceptions against verification checks.
 Agent and human approvals should both preserve principal, authority basis,
 related run, related proposed graph change, related revisions, reason when
 available, and audit trail.
