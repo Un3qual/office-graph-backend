@@ -16,6 +16,10 @@ store.
   including reads, denied actions, escalations, approvals, waivers,
   credentials, external writes, exports, retention changes, legal hold, and
   restore/purge actions.
+- Define the audit log storage contract: typed audit event envelope,
+  relational event targets, schema-versioned action-specific details, action
+  registry, customer-facing event projection, export/streaming posture, and
+  append-only correction semantics.
 - Define operation correlation as the shared command trace that links
   revisions, audit records, authorization decisions, run events, sync events,
   domain events, and proposed graph changes without duplicating payloads.
@@ -37,8 +41,9 @@ store.
   records for meaningful product state changes without a universal JSON
   versions table.
 - `audit-record-boundaries`: Defines when durable audit records and
-  authorization decision records are required, what they identify, and how
-  audit visibility differs from normal product visibility.
+  authorization decision records are required, what they identify, how audit
+  events are shaped, how event-specific detail is versioned, and how audit
+  visibility differs from normal product visibility.
 - `operation-correlation`: Defines shared operation or command correlation
   records that revisions, audit records, run events, sync events, and proposed
   graph changes can reference.

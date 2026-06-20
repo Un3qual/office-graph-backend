@@ -21,7 +21,7 @@
 - [ ] 2.1 Review `typed-revision-history` requirements for aggregate-aware
   typed revisions, reconstructable state, rich text/placement references, and
   concern separation.
-- [ ] 2.2 Review `audit-record-boundaries` requirements for durable audit
+- [x] 2.2 Review `audit-record-boundaries` requirements for durable audit
   triggers, denied/escalated attempts, audit record shape, sensitive payload
   references, and audit visibility.
 - [ ] 2.3 Review `operation-correlation` requirements for operation shape,
@@ -35,7 +35,7 @@
 
 - [ ] 3.1 Decide which first migration aggregates need bespoke revision tables
   and which can share typed revision helper tables or conventions.
-- [ ] 3.2 Decide the first audit action taxonomy and result vocabulary for
+- [x] 3.2 Decide the first audit action taxonomy and result vocabulary for
   writes, reads, denials, escalations, approvals, waivers, exports, external
   writes, and agent tool use.
 - [ ] 3.3 Decide the first authorization decision record shape and how it links

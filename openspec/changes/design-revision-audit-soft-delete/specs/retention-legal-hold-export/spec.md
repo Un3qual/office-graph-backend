@@ -61,3 +61,10 @@ future partitioning.
 - **THEN** Office Graph MUST include tenant, scope or resource, actor or
   source, action or kind, operation, timestamp, lifecycle or retention state,
   and partition-ready fields where applicable
+
+#### Scenario: Audit log retention is planned
+- **WHEN** audit event, audit event target, audit event detail, or audit action
+  registry tables are modeled
+- **THEN** Office Graph MUST include retention class, export or stream
+  eligibility, redaction state, legal-hold interactions, and partition-ready
+  time/tenant fields where applicable

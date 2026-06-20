@@ -121,7 +121,65 @@ Alternatives considered:
 - **Audit only successful writes:** Misses denied attempts, escalations,
   sensitive reads, exports, and agent authority boundaries.
 
-### 4. Use operation correlation as the command trace
+### 4. Model audit logs as envelope, targets, and versioned details
+
+Enterprise customers expect audit logs to behave like a searchable,
+exportable, streamable event surface. Internally, Office Graph should store
+that surface as a typed relational envelope plus relational targets and
+schema-versioned details, not as one opaque JSON blob.
+
+The expected storage shape is:
+
+- `audit_events` for the typed envelope: organization, optional
+  workspace/initiative/workstream scope, action key, action category, result,
+  actor, delegator, service account or agent when applicable, operation,
+  authorization decision reference, policy bundle/version reference, request
+  or trace identifiers, origin, IP/user-agent context where allowed,
+  retention class, occurred timestamp, and append-only lifecycle state
+- `audit_event_targets` for affected targets: principal, graph item,
+  external reference, integration, credential metadata, policy bundle,
+  approval, run, artifact, or other concrete target references with target role
+  and a display/redaction snapshot
+- `audit_event_details` for schema-versioned action-specific details, using
+  constrained JSONB for non-authoritative metadata that differs by action
+- raw archive or artifact references for large, sensitive, provider, model, or
+  tool payloads
+
+Queryable, security-sensitive, and export-critical fields belong in typed
+columns or target rows. JSONB belongs only in the action-specific details layer
+and must be tied to an action key and detail schema version. Details may carry
+small structured facts such as changed setting names, previous/new enum labels,
+reason text, provider error codes, or redacted request snippets. Details must
+not become the only place to find actor, action, result, target, tenant,
+operation, policy, retention, or timestamp.
+
+Audit actions should be registered before use. An audit action registry should
+define action key, category, allowed actor kinds, allowed target kinds, result
+vocabulary, required detail schema version, default retention class, default
+visibility, export/stream eligibility, and whether successful, denied, or
+escalated attempts are durable-audit events by default.
+
+Customer-facing audit APIs and exports should project the internal records into
+a clean event document with action, actor, targets, result, occurred time,
+context, details, and operation id. This projection can look document-shaped
+for customers while the backend keeps the search and authorization surface
+typed.
+
+Audit events should be immutable from normal product code. Mistakes,
+redactions, retention expiry, legal sealing, and correction workflows should
+create correction/redaction/sealing events or lifecycle metadata rather than
+rewriting the original event payload in place.
+
+Alternatives considered:
+
+- **Single JSON audit_events table:** Flexible, but weak for tenant filtering,
+  SIEM/export guarantees, audit visibility, retention, and customer search.
+- **Fully typed table per action:** Strong constraints, but too much schema
+  churn for normal audit event evolution.
+- **Editable audit rows:** Operationally convenient, but violates audit-trail
+  expectations and makes corrections hard to trust.
+
+### 5. Use operation correlation as the command trace
 
 An operation correlation record should represent one meaningful command or
 externally observed action. It should include organization, optional
@@ -143,7 +201,7 @@ Alternatives considered:
 - **Make the operation record the event payload:** Recreates the generic event
   table problem and duplicates domain data.
 
-### 5. Use soft deletion plus tombstones for mutable product records
+### 6. Use soft deletion plus tombstones for mutable product records
 
 Mutable product records should leave normal use through a deleted/tombstoned
 lifecycle state rather than hard deletion. Records should capture deletion
@@ -170,7 +228,7 @@ Alternatives considered:
 - **One universal tombstone table for everything:** Consistent in diagrams but
   weak for domain-specific restore and uniqueness rules.
 
-### 6. Treat restore and purge as policy-controlled workflows
+### 7. Treat restore and purge as policy-controlled workflows
 
 Restore is a domain action, not a blind `deleted_at = null` update. Restores
 must check authorization, scope, classification, retention state, legal hold,
@@ -191,7 +249,7 @@ Alternatives considered:
 - **Purge deletes every trace:** Incompatible with audit, legal hold, and
   compliance obligations.
 
-### 7. Apply retention, legal hold, export, and redaction by record family
+### 8. Apply retention, legal hold, export, and redaction by record family
 
 Retention policy should apply by organization, workspace/initiative, resource
 kind, classification, provider/source, and record family. Legal hold blocks
@@ -211,7 +269,7 @@ Alternatives considered:
 - **Let storage lifecycle policies own retention alone:** Useful for blob
   expiration, but insufficient for domain authorization, export, and audit.
 
-### 8. Plan audit/revision growth without overbuilding day one
+### 9. Plan audit/revision growth without overbuilding day one
 
 Revision, audit, authorization decision, run event, sync event, and raw archive
 tables should include organization, scope or resource references, actor/source,
