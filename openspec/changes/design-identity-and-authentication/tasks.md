@@ -31,14 +31,14 @@
 - [ ] 3.2 Feed service account, webhook, integration, and agent credential
   mechanics into `design-ingestion-and-integrations` and
   `design-agent-runtime`.
-- [ ] 3.3 Feed SecretStore behaviour placement and identity context public
+- [x] 3.3 Feed SecretStore behaviour placement and identity context public
   contracts into `design-code-organization-and-boundaries`.
 - [ ] 3.4 Feed bootstrap audit and operation-correlation requirements into
   `design-revision-audit-soft-delete`.
 
 ## 4. Validation
 
-- [ ] 4.1 Run `openspec validate design-identity-and-authentication --strict`.
-- [ ] 4.2 Run `openspec validate --changes --strict`.
-- [ ] 4.3 Fix any schema, delta, task-formatting, or validation issues
+- [x] 4.1 Run `openspec validate design-identity-and-authentication --strict`.
+- [x] 4.2 Run `openspec validate --changes --strict`.
+- [x] 4.3 Fix any schema, delta, task-formatting, or validation issues
   reported by OpenSpec.

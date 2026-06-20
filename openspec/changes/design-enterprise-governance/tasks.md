@@ -58,15 +58,15 @@
 
 ## 4. Follow-On Planning Work
 
-- [ ] 4.1 Feed accepted initiative/project, workstream, tenancy, and scope
+- [x] 4.1 Feed accepted initiative/project, workstream, tenancy, and scope
   rules into `design-work-graph-core`.
-- [ ] 4.2 Feed tenant, scope, classification, and audit rules into
+- [x] 4.2 Feed tenant, scope, classification, and audit rules into
   `design-persistence-model`.
-- [ ] 4.3 Feed operation correlation, audit, decision-record, retention,
+- [x] 4.3 Feed operation correlation, audit, decision-record, retention,
   legal-hold, and soft-delete rules into `design-revision-audit-soft-delete`.
-- [ ] 4.4 Feed bounded-context and extractability requirements into
+- [x] 4.4 Feed bounded-context and extractability requirements into
   `design-code-organization-and-boundaries`.
-- [ ] 4.5 Feed SSO, SCIM, local identity lab, credential, webhook-source, and
+- [x] 4.5 Feed SSO, SCIM, local identity lab, credential, webhook-source, and
   external-write rules into `design-ingestion-and-integrations`.
 - [ ] 4.6 Feed cross-scope run authority, context expansion, temporary grants,
   agent effective permission, and AI data-control rules into

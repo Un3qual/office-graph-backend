@@ -56,20 +56,20 @@
 
 ## 4. Follow-On Planning Work
 
-- [ ] 4.1 Feed work-container, graph-item, relationship, projection,
+- [x] 4.1 Feed work-container, graph-item, relationship, projection,
   attachment, and node-conversation semantics into `design-persistence-model`.
-- [ ] 4.2 In `design-persistence-model`, define the concrete MVP inventory of
+- [x] 4.2 In `design-persistence-model`, define the concrete MVP inventory of
   provider-neutral resources, external-reference-only records,
   provider-specific extension tables, and initial Ash resources.
-- [ ] 4.3 Feed graph item, edge, projection, domain attachment, conversation,
+- [x] 4.3 Feed graph item, edge, projection, domain attachment, conversation,
   and product-level promotion semantics into `design-revision-audit-soft-delete`.
-- [ ] 4.4 Feed graph addressability, typed-resource boundaries, domain actions,
+- [x] 4.4 Feed graph addressability, typed-resource boundaries, domain actions,
   and projection/query interfaces into `design-code-organization-and-boundaries`.
 - [ ] 4.5 Feed node-conversation context assembly, context expansion needs, and
   embedded-agent mutation boundaries into `design-agent-runtime`.
-- [ ] 4.6 Feed external references, provider-neutral domain attachments, and
+- [x] 4.6 Feed external references, provider-neutral domain attachments, and
   source provenance rules into `design-ingestion-and-integrations`.
-- [ ] 4.7 Feed explicit graph-action routing and attachment-to-resource
+- [x] 4.7 Feed explicit graph-action routing and attachment-to-resource
   conversion rules into `design-proposed-graph-changes`.
 - [ ] 4.8 Feed work-container scope, addressable graph items, checks, evidence,
   and projection context into `design-work-packets-and-readiness` and

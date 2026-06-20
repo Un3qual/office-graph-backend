@@ -29,7 +29,7 @@
   planning after the implementation-readiness gate is satisfied.
 - [ ] 3.2 Feed scope hierarchy and scope move semantics into authorization,
   audit, revision, and graph projection implementation plans.
-- [ ] 3.3 Feed sensitivity label separation into the enterprise governance and
+- [x] 3.3 Feed sensitivity label separation into the enterprise governance and
   persistence cleanup tasks.
 - [ ] 3.4 Coordinate with `design-identity-and-authentication` on how login,
   sessions, external identity reconciliation, service accounts, and agents
@@ -37,8 +37,8 @@
 
 ## 4. Validation
 
-- [ ] 4.1 Run `openspec validate design-identity-and-authorization-schema
+- [x] 4.1 Run `openspec validate design-identity-and-authorization-schema
   --strict`.
-- [ ] 4.2 Run `openspec validate --changes --strict`.
-- [ ] 4.3 Fix any schema, delta, task-formatting, or validation issues
+- [x] 4.2 Run `openspec validate --changes --strict`.
+- [x] 4.3 Fix any schema, delta, task-formatting, or validation issues
   reported by OpenSpec.

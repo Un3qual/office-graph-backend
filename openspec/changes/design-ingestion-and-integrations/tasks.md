@@ -16,14 +16,14 @@
 
 ## 3. Follow-On Planning Work
 
-- [ ] 3.1 Feed adapter behaviours into `design-code-organization-and-boundaries`.
+- [x] 3.1 Feed adapter behaviours into `design-code-organization-and-boundaries`.
 - [ ] 3.2 Feed raw archive and replay storage needs into first backend walking
   skeleton planning.
-- [ ] 3.3 Feed proposed mutation routing into `design-proposed-graph-changes`.
+- [x] 3.3 Feed proposed mutation routing into `design-proposed-graph-changes`.
 - [ ] 3.4 Feed webhook/source principal requirements into future integration
   implementation plans.
 
 ## 4. Validation
 
-- [ ] 4.1 Run `openspec validate design-ingestion-and-integrations --strict`.
-- [ ] 4.2 Run `openspec validate --changes --strict`.
+- [x] 4.1 Run `openspec validate design-ingestion-and-integrations --strict`.
+- [x] 4.2 Run `openspec validate --changes --strict`.

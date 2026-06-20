@@ -61,14 +61,14 @@
 
 ## 4. Follow-On Planning Work
 
-- [ ] 4.1 Feed revision, audit, tombstone, and retention boundaries into
+- [x] 4.1 Feed revision, audit, tombstone, and retention boundaries into
   `design-code-organization-and-boundaries`.
 - [ ] 4.2 Feed operation correlation, authorization decision, audit, approval,
   and credential-use records into `design-agent-runtime` and
   `design-runs-and-verification`.
-- [ ] 4.3 Feed raw archive retention, external sync event, idempotency, and
+- [x] 4.3 Feed raw archive retention, external sync event, idempotency, and
   provider reconciliation rules into `design-ingestion-and-integrations`.
-- [ ] 4.4 Feed revision, audit, tombstone, and proposed mutation traceability
+- [x] 4.4 Feed revision, audit, tombstone, and proposed mutation traceability
   rules into `design-proposed-graph-changes`.
 - [ ] 4.5 Feed export, redaction, audit visibility, and projection staleness
   constraints into `design-api-realtime-and-ui-projections`.

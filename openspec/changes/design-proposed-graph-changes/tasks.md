@@ -15,14 +15,14 @@
 
 ## 3. Follow-On Planning Work
 
-- [ ] 3.1 Feed proposed change context placement into
+- [x] 3.1 Feed proposed change context placement into
   `design-code-organization-and-boundaries`.
 - [ ] 3.2 Feed proposed change lifecycle into future work packets, runs, and
   agent runtime changes.
-- [ ] 3.3 Feed application trace requirements into
+- [x] 3.3 Feed application trace requirements into
   `design-revision-audit-soft-delete`.
 
 ## 4. Validation
 
-- [ ] 4.1 Run `openspec validate design-proposed-graph-changes --strict`.
-- [ ] 4.2 Run `openspec validate --changes --strict`.
+- [x] 4.1 Run `openspec validate design-proposed-graph-changes --strict`.
+- [x] 4.2 Run `openspec validate --changes --strict`.

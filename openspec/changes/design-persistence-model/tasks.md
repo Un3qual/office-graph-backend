@@ -94,11 +94,11 @@
 - [x] 4.1 Create or continue `design-revision-audit-soft-delete` to finalize
   revision records, audit logs, tombstones, retention, legal hold, restore
   behavior, and how operation correlation links them without duplicating data.
-- [ ] 4.2 Create or continue `design-code-organization-and-boundaries` to map
+- [x] 4.2 Create or continue `design-code-organization-and-boundaries` to map
   graph identity, typed resources, provider-neutral records, rich text,
   ordered placement, raw archives, and high-volume SQL paths into Ash domains,
   Ecto modules, Boundary rules, and extractable library boundaries.
-- [ ] 4.3 Create or continue `design-ingestion-and-integrations` to refine
+- [x] 4.3 Create or continue `design-ingestion-and-integrations` to refine
   external sources, raw payload archives, provider adapters, idempotency,
   replay, sync state, extension packages, and provider-specific extension
   tables.
@@ -108,7 +108,7 @@
 - [ ] 4.5 Create or continue `design-runs-and-verification` to refine runs,
   run events, checks, evidence, review findings, verification state, and
   high-volume event persistence.
-- [ ] 4.6 Create or continue `design-proposed-graph-changes` to define how
+- [x] 4.6 Create or continue `design-proposed-graph-changes` to define how
   agents and humans propose typed persistence changes without bypassing graph,
   authorization, revision, and approval rules.
 - [ ] 4.7 Create or continue `design-work-packets-and-readiness` to define

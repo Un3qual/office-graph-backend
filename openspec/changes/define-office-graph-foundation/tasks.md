@@ -32,19 +32,19 @@
 ## 3. Open Questions To Resolve Before Code
 
 - [ ] Decide the first buyer, daily user, and flagship success metric.
-- [ ] Decide whether first intake is manual, GitHub, Sentry, CI, or another
+- [x] Decide whether first intake is manual, GitHub, Sentry, CI, or another
   source.
-- [ ] Decide the first schema cut for generic graph records versus typed
+- [x] Decide the first schema cut for generic graph records versus typed
   resources and extension tables.
-- [ ] Decide the initial tenancy scopes: organization, workspace, project,
+- [x] Decide the initial tenancy scopes: organization, workspace, project,
   graph, repository, or a smaller subset.
-- [ ] Decide the first role, capability, and grant vocabulary.
-- [ ] Decide which authorization decisions must be durable records in v1.
+- [x] Decide the first role, capability, and grant vocabulary.
+- [x] Decide which authorization decisions must be durable records in v1.
 - [ ] Decide the first internal agent runtime scope for code review/fix versus
   conversation/review/proposed-change workflows.
-- [ ] Decide where JSON storage is acceptable for raw payloads, model I/O, and
+- [x] Decide where JSON storage is acceptable for raw payloads, model I/O, and
   archival data.
-- [ ] Decide the revision table pattern for the first aggregates.
+- [x] Decide the revision table pattern for the first aggregates.
 
 ### Plan Review Remediation
 
