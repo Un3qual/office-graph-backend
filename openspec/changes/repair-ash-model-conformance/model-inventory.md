@@ -1,0 +1,44 @@
+# Resource Ownership Inventory
+
+| Table | Owning domain | Canonical Ash resource |
+| --- | --- | --- |
+| `organizations` | `OfficeGraph.Tenancy` | `OfficeGraph.Tenancy.Organization` |
+| `workspaces` | `OfficeGraph.Tenancy` | `OfficeGraph.Tenancy.Workspace` |
+| `initiatives` | `OfficeGraph.Tenancy` | `OfficeGraph.Tenancy.Initiative` |
+| `workstreams` | `OfficeGraph.Tenancy` | `OfficeGraph.Tenancy.Workstream` |
+| `principals` | `OfficeGraph.Identity` | `OfficeGraph.Identity.Principal` |
+| `principal_profiles` | `OfficeGraph.Identity` | `OfficeGraph.Identity.PrincipalProfile` |
+| `credentials` | `OfficeGraph.Identity` | `OfficeGraph.Identity.Credential` |
+| `sessions` | `OfficeGraph.Identity` | `OfficeGraph.Identity.Session` |
+| `capabilities` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.Capability` |
+| `roles` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.Role` |
+| `role_capabilities` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.RoleCapability` |
+| `role_assignments` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.RoleAssignment` |
+| `policy_bundles` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.PolicyBundle` |
+| `authorization_decisions` | `OfficeGraph.Authorization` | `OfficeGraph.Authorization.AuthorizationDecision` |
+| `operation_correlations` | `OfficeGraph.Operations` | `OfficeGraph.Operations.OperationCorrelation` |
+| `audit_records` | `OfficeGraph.Audit` | `OfficeGraph.Audit.AuditRecord` |
+| `revisions` | `OfficeGraph.Revisions` | `OfficeGraph.Revisions.Revision` |
+| `tombstones` | `OfficeGraph.Tombstones` | `OfficeGraph.Tombstones.Tombstone` |
+| `documents` | `OfficeGraph.Content` | `OfficeGraph.Content.Document` |
+| `document_blocks` | `OfficeGraph.Content` | `OfficeGraph.Content.DocumentBlock` |
+| `document_marks` | `OfficeGraph.Content` | `OfficeGraph.Content.DocumentMark` |
+| `document_references` | `OfficeGraph.Content` | `OfficeGraph.Content.DocumentReference` |
+| `document_revisions` | `OfficeGraph.Content` | `OfficeGraph.Content.DocumentRevision` |
+| `external_sources` | `OfficeGraph.Integrations` | `OfficeGraph.Integrations.ExternalSource` |
+| `raw_archives` | `OfficeGraph.Integrations` | `OfficeGraph.Integrations.RawArchive` |
+| `normalized_intake_events` | `OfficeGraph.Integrations` | `OfficeGraph.Integrations.NormalizedIntakeEvent` |
+| `external_references` | `OfficeGraph.ExternalRefs` | `OfficeGraph.ExternalRefs.ExternalReference` |
+| `graph_items` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.GraphItem` |
+| `graph_relationships` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.GraphRelationship` |
+| `signals` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.Signal` |
+| `tasks` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.Task` |
+| `review_findings` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.ReviewFinding` |
+| `verification_checks` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.VerificationCheck` |
+| `artifacts` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.Artifact` |
+| `evidence_items` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.EvidenceItem` |
+| `verification_results` | `OfficeGraph.WorkGraph` | `OfficeGraph.WorkGraph.VerificationResult` |
+| `work_packets` | `OfficeGraph.WorkPackets` | `OfficeGraph.WorkPackets.WorkPacket` |
+| `runs` | `OfficeGraph.Runs` | `OfficeGraph.Runs.Run` |
+| `run_events` | `OfficeGraph.Runs` | `OfficeGraph.Runs.RunEvent` |
+| `proposed_graph_changes` | `OfficeGraph.ProposedChanges` | `OfficeGraph.ProposedChanges.ProposedGraphChange` |
