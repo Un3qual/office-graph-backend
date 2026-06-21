@@ -1,0 +1,20 @@
+# Architecture Exception Ledger
+
+This ledger records the remaining approved direct Ecto mutation paths after the
+WorkGraph Ash repair. Normal walking-loop product resources should move through
+Ash resources and domain actions. Entries here are explicit exceptions that keep
+graph identity, relationship, bootstrap, traceability, and maintenance writes
+visible until a later change narrows or retires them.
+
+| File | Approved functions | Category | Reason | Follow-up |
+| --- | --- | --- | --- | --- |
+| `lib/office_graph/work_graph.ex` | `graph_transaction/1`, `insert_graph_item!/5`, `insert_relationship!/3` | Graph identity/relationships | Graph identity records and typed graph relationships must be created in the same explicit transaction as typed resource writes so graph-addressable records do not become visible without their graph identity or relationships. | Keep these as the only WorkGraph direct Ecto mutation helpers unless a future Ash-backed graph identity resource can prove the same transaction invariant. |
+| `lib/office_graph/integrations.ex` | `record_manual_intake/3`, `get_or_insert!/3` | Raw archive and replay/idempotency storage | Manual intake keeps raw archive, normalized event, source identity, and replay identity writes in the future adapter storage shape before proposed graph changes are applied. | Revisit when provider adapters are introduced and the integration storage contract is split into Ash-backed normal writes versus replay scan helpers. |
+| `lib/office_graph/operations.ex` | `start_operation/3` | Operation correlation spine | State-changing actions need a shared operation correlation record before downstream revision, audit, proposed-change, and verification writes can be linked. | Revisit when operation correlation becomes a richer domain with policy-covered Ash actions. |
+| `lib/office_graph/audit.ex` | `record!/5` | Audit append writes | Audit records are append-only side effects that explain sensitive walking-skeleton actions without becoming normal product resources. | Revisit with the audit/export change and keep this path append-only. |
+| `lib/office_graph/revisions.ex` | `record!/5` | Revision append writes | Typed revision records are append-only trace records for product state changes and should not be collapsed into each individual product resource. | Revisit with richer revision history queries and keep mutation access behind this context. |
+| `lib/office_graph/identity.ex` | `ensure_owner/1`, `ensure_session_context/3`, `get_or_insert!/3` | Local bootstrap identity | The walking skeleton needs a controlled local owner/principal/session bootstrap path before the full identity provider work exists. | Replace or narrow this when authentik/Keycloak/SCIM identity flows are implemented. |
+| `lib/office_graph/tenancy.ex` | `ensure_local_scope/1`, `get_or_insert!/3` | Local bootstrap tenancy | Development and test bootstrap needs first organization, workspace, and initiative records before product flows can run. | Replace with a setup/onboarding domain when tenant provisioning is designed. |
+| `lib/office_graph/authorization.ex` | `ensure_owner_role/2`, `get_or_insert!/3` | Local bootstrap authorization | The first owner role, capability, policy anchor, and role assignment are bootstrap prerequisites for the skeleton authorization path. | Replace with policy bundle and role-management actions when authorization administration is implemented. |
+| `lib/office_graph/proposed_changes.ex` | `create_for_manual_intake/4`, `reject!/2`, `mark_applied!/1` | Proposed-change review ledger | Proposed changes are an orchestration ledger that guards generated mutations before truth tables change. | Revisit when proposed-change review becomes a first-class Ash domain with richer validation and lifecycle policies. |
+| `lib/office_graph/content.ex` | `create_plain_document/3` | Rich-text v1 bootstrap | Skeleton body fields need normalized plain-document creation before the full content domain and editor model are Ash-backed. | Replace with Ash-backed content document actions during the content-domain implementation. |

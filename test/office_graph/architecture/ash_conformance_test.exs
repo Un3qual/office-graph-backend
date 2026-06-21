@@ -128,6 +128,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       MapSet.new(["create_for_manual_intake/4", "reject!/2", "mark_applied!/1"]),
     "lib/office_graph/content.ex" => MapSet.new(["create_plain_document/3"])
   }
+  @architecture_exception_ledger "openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md"
 
   test "work graph has an Ash domain and required Ash resources" do
     assert @ash_domain in @ash_domains,
@@ -295,6 +296,23 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert unapproved == [],
            "Found direct Repo/Ecto.Multi mutations outside approved functions:\n#{inspect(unapproved, pretty: true)}"
+  end
+
+  test "approved direct Repo mutation exceptions are documented in the architecture ledger" do
+    assert File.exists?(@architecture_exception_ledger),
+           "Expected architecture exception ledger at #{@architecture_exception_ledger}"
+
+    ledger = File.read!(@architecture_exception_ledger)
+
+    for {path, functions} <- @approved_direct_repo_mutation_functions do
+      assert ledger =~ path,
+             "#{@architecture_exception_ledger} must document #{path}"
+
+      for function <- functions do
+        assert ledger =~ function,
+               "#{@architecture_exception_ledger} must document #{path} #{function}"
+      end
+    end
   end
 
   defp direct_repo_mutations do

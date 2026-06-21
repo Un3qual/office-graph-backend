@@ -27,7 +27,7 @@ defmodule OfficeGraph.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [precommit: :test, "architecture.conformance": :test]
     ]
   end
 
@@ -72,11 +72,15 @@ defmodule OfficeGraph.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "architecture.conformance": [
+        "test test/office_graph/architecture/ash_conformance_test.exs"
+      ],
       "boundary.check": ["compile --force --warnings-as-errors"],
       verify: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
+        "architecture.conformance",
         "test"
       ],
       precommit: [
@@ -84,6 +88,7 @@ defmodule OfficeGraph.MixProject do
         "deps.unlock --unused",
         "format --check-formatted",
         "boundary.check",
+        "architecture.conformance",
         "test"
       ]
     ]
