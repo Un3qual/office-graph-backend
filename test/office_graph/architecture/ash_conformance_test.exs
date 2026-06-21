@@ -193,7 +193,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
 
   @tag :scanner_contract
-  test "direct Ecto scanner reports only the proposed-change transaction boundary" do
+  test "direct Ecto scanner reports proposed-change transaction boundaries" do
     operations =
       direct_ecto_operations()
       |> Enum.filter(&(&1.path == "lib/office_graph/proposed_changes.ex"))
@@ -201,6 +201,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert operations ==
              MapSet.new([
+               {"lib/office_graph/proposed_changes.ex", "apply_all/3", "Repo.transaction"},
                {"lib/office_graph/proposed_changes.ex", "create_for_manual_intake/4",
                 "Repo.transaction"}
              ])
