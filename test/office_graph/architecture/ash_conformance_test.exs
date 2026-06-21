@@ -15,7 +15,14 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   @approved_direct_repo_mutation_functions %{
     "lib/office_graph/work_graph.ex" =>
-      MapSet.new(["create_signal/3", "complete_verification/4", "transaction_result/5"]),
+      MapSet.new([
+        "create_signal/3",
+        "create_task/4",
+        "create_review_finding/4",
+        "create_verification_check/4",
+        "complete_verification/4",
+        "transaction_result/5"
+      ]),
     "lib/office_graph/integrations.ex" =>
       MapSet.new(["record_manual_intake/3", "get_or_insert!/3"]),
     "lib/office_graph/operations.ex" => MapSet.new(["start_operation/3"]),
@@ -79,7 +86,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   defp direct_repo_mutations do
     mutation_pattern =
-      ~r/((?:OfficeGraph\.)?Repo\.(insert!?|insert_all|update!?|update_all|delete!?|delete_all|insert_or_update!|insert_or_update|transaction)\b|Ecto\.Multi\.(insert|insert_all|update|update_all|delete|delete_all)\b)/
+      ~r/((?:OfficeGraph\.)?Repo\.(insert!?|insert_all|update!?|update_all|delete!?|delete_all|insert_or_update!|insert_or_update|transaction)\b|(?:Ecto\.)?Multi\.(insert|insert_all|update|update_all|delete|delete_all|insert_or_update!|insert_or_update)\b)/
 
     "lib/office_graph/**/*.ex"
     |> Path.wildcard()
