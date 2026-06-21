@@ -3,8 +3,8 @@
 This ledger records the remaining approved direct Ecto mutation paths after the
 WorkGraph Ash repair. Normal walking-loop product resources should move through
 Ash resources and domain actions. Entries here are explicit exceptions that keep
-graph identity, relationship, bootstrap, traceability, and maintenance writes
-visible until a later change narrows or retires them.
+graph identity, relationship, bootstrap, intake, content, proposed-change, and
+maintenance writes visible until a later change narrows or retires them.
 
 | File | Approved functions | Category | Reason | Follow-up |
 | --- | --- | --- | --- | --- |

@@ -4,6 +4,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
+  alias OfficeGraph.Audit.AuditRecord
   alias OfficeGraph.WorkGraph
 
   setup do
@@ -22,6 +23,25 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert operation.organization_id == bootstrap.organization.id
     assert operation.workspace_id == bootstrap.workspace.id
     assert operation.correlation_id
+  end
+
+  test "internal audit creates default to sensitive records", %{operation: operation} do
+    record =
+      Ash.create!(
+        AuditRecord,
+        %{
+          id: Ecto.UUID.generate(),
+          operation_id: operation.id,
+          actor_principal_id: operation.principal_id,
+          action: "audit.default",
+          resource_type: "signal",
+          resource_id: Ecto.UUID.generate()
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert record.sensitive == true
   end
 
   test "graph identity and typed signal are created atomically", %{

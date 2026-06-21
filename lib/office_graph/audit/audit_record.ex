@@ -19,7 +19,7 @@ defmodule OfficeGraph.Audit.AuditRecord do
     attribute :action, :string, allow_nil?: false, public?: true
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
-    attribute :sensitive, :boolean, allow_nil?: false, default: false, public?: true
+    attribute :sensitive, :boolean, allow_nil?: false, default: true, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
