@@ -68,6 +68,38 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert Exception.message(error) =~ "source_signal_id"
   end
 
+  test "public WorkGraph create_signal returns an error for graph item validation failure" do
+    {:ok, bootstrap} = bootstrap_scope("public-signal-validation")
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:error, %Ecto.Changeset{} = error} =
+             WorkGraph.create_signal(bootstrap.session, operation, %{
+               title: nil,
+               body: "A missing title should be returned as a validation error."
+             })
+
+    refute error.valid?
+  end
+
+  test "public WorkGraph create_task returns an error for relationship FK failure" do
+    {:ok, bootstrap} = bootstrap_scope("public-relationship-fk")
+
+    source_signal =
+      bootstrap
+      |> create_signal!("Source signal")
+      |> Map.put(:graph_item_id, Ecto.UUID.generate())
+
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, %Ecto.Changeset{} = error} =
+             WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
+               title: "Task with missing source graph item",
+               body: "The source graph item relationship should fail without raising."
+             })
+
+    refute error.valid?
+  end
+
   defp bootstrap_scope(slug) do
     Foundation.bootstrap_local_owner(
       organization_name: "Office Graph #{slug}",

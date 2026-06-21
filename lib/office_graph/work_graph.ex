@@ -439,6 +439,14 @@ defmodule OfficeGraph.WorkGraph do
     Repo.rollback(error)
   end
 
+  defp unwrap_ecto({:ok, record}) do
+    record
+  end
+
+  defp unwrap_ecto({:error, error}) do
+    Repo.rollback(error)
+  end
+
   defp insert_graph_item!(id, session_context, resource_type, resource_id, title) do
     %GraphItem{id: id}
     |> GraphItem.changeset(%{
@@ -448,7 +456,8 @@ defmodule OfficeGraph.WorkGraph do
       resource_id: resource_id,
       title: title
     })
-    |> Repo.insert!()
+    |> Repo.insert()
+    |> unwrap_ecto()
   end
 
   defp insert_relationship!(source_item_id, target_item_id, relationship_type) do
@@ -458,7 +467,8 @@ defmodule OfficeGraph.WorkGraph do
       target_item_id: target_item_id,
       relationship_type: relationship_type
     })
-    |> Repo.insert!()
+    |> Repo.insert()
+    |> unwrap_ecto()
   end
 
   defp trace!(operation, action, resource_type, resource_id) do
