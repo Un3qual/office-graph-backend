@@ -25,10 +25,12 @@ defmodule OfficeGraph.ProposedChanges do
     "create_verification_check"
   ]
 
+  def get_many(session_context, ids), do: read_scoped_changes(session_context, ids)
+
   def get_many!(_session_context, []), do: []
 
   def get_many!(session_context, ids) do
-    case read_scoped_changes(session_context, ids) do
+    case get_many(session_context, ids) do
       {:ok, records} -> records
       {:error, {:missing_proposed_change, id}} -> raise KeyError, key: id, term: ids
       {:error, error} -> raise RuntimeError, message: inspect(error)

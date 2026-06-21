@@ -46,6 +46,18 @@ defmodule OfficeGraphWeb.WalkingSkeletonController do
     })
   end
 
+  defp render_error(conn, {:error, {:missing_proposed_change, id}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: %{
+        code: "missing_proposed_change",
+        detail: "A proposed change could not be found.",
+        proposed_change_id: id
+      }
+    })
+  end
+
   defp render_error(conn, {:error, changeset}) do
     conn
     |> put_status(:unprocessable_entity)

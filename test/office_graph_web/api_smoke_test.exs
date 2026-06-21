@@ -14,6 +14,42 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert json["review_finding"]["lifecycle_state"] == "verified_complete"
       assert json["task"]["lifecycle_state"] == "verified_complete"
     end
+
+    test "JSON apply reports stale proposed-change ids without crashing", %{conn: conn} do
+      missing_id = Ecto.UUID.generate()
+
+      response =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: [missing_id]})
+        |> json_response(422)
+
+      assert response["error"]["code"] == "missing_proposed_change"
+      assert response["error"]["proposed_change_id"] == missing_id
+    end
+
+    test "GraphQL apply reports stale proposed-change ids without crashing", %{conn: conn} do
+      missing_id = Ecto.UUID.generate()
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: """
+          mutation Apply($ids: [ID!]!) {
+            applyProposedChanges(input: { ids: $ids }) {
+              task { id }
+            }
+          }
+          """,
+          variables: %{ids: [missing_id]}
+        })
+        |> json_response(200)
+
+      assert [%{"extensions" => %{"code" => "missing_proposed_change"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["proposed_change_id"] == missing_id
+      assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
   end
 
   defp run_graphql_flow(conn, replay_identity) do

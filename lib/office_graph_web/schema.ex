@@ -87,7 +87,15 @@ defmodule OfficeGraphWeb.Schema do
       arg(:input, non_null(:apply_proposed_changes_input))
 
       resolve(fn %{input: input}, _ ->
-        ApiSupport.apply_proposed_changes(input)
+        case ApiSupport.apply_proposed_changes(input) do
+          {:error, {:missing_proposed_change, id}} ->
+            {:error,
+             message: "A proposed change could not be found.",
+             extensions: %{code: "missing_proposed_change", proposed_change_id: id}}
+
+          result ->
+            result
+        end
       end)
     end
 
