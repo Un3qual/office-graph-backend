@@ -1,14 +1,36 @@
 defmodule OfficeGraph.Runs.Run do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Runs.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "runs" do
-    field :work_packet_id, :binary_id
-    field :state, :string
+  postgres do
+    table "runs"
+    repo OfficeGraph.Repo
+    migrate? false
 
-    timestamps(type: :utc_datetime_usec)
+    foreign_key_names work_packet_id: "runs_work_packet_id_fkey"
+  end
+
+  attributes do
+    uuid_primary_key :id, writable?: true
+    attribute :work_packet_id, :uuid, allow_nil?: false, public?: true
+    attribute :state, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [:id, :work_packet_id, :state]
+    end
   end
 end

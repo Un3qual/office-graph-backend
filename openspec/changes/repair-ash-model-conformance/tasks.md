@@ -30,7 +30,7 @@ as the normative 40-table inventory for the architecture conformance gate.
 - [x] 4.3 Convert Integrations and ExternalRefs resources and manual intake
   storage.
 - [x] 4.4 Convert ProposedChanges resources and state transitions.
-- [ ] 4.5 Convert WorkPackets and Runs resources.
+- [x] 4.5 Convert WorkPackets and Runs resources.
 
 ## 5. Final Conformance
 

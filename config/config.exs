@@ -20,7 +20,9 @@ config :office_graph,
     OfficeGraph.Integrations.Domain,
     OfficeGraph.ExternalRefs.Domain,
     OfficeGraph.ProposedChanges.Domain,
-    OfficeGraph.WorkGraph.Domain
+    OfficeGraph.WorkGraph.Domain,
+    OfficeGraph.WorkPackets.Domain,
+    OfficeGraph.Runs.Domain
   ],
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
