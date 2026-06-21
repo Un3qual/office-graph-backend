@@ -13,7 +13,7 @@ defmodule OfficeGraph.Content.DocumentMark do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    uuid_primary_key :id, writable?: true
     attribute :block_id, :uuid, allow_nil?: false, public?: true
     attribute :mark_type, :string, allow_nil?: false, public?: true
     attribute :attrs, :map, allow_nil?: false, default: %{}, public?: true

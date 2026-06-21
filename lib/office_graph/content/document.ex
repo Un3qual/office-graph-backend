@@ -13,7 +13,7 @@ defmodule OfficeGraph.Content.Document do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    uuid_primary_key :id, writable?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :plain_text, :string, allow_nil?: false, public?: true

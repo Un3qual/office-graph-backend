@@ -13,7 +13,7 @@ defmodule OfficeGraph.Content.DocumentReference do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    uuid_primary_key :id, writable?: true
     attribute :document_id, :uuid, allow_nil?: false, public?: true
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true
