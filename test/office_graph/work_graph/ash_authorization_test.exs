@@ -52,6 +52,22 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert Exception.message(error) =~ "source_signal_id"
   end
 
+  test "public WorkGraph create_task returns an error for a cross-scope source signal" do
+    {:ok, source_scope} = bootstrap_scope("public-linked-source")
+    {:ok, target_scope} = bootstrap_scope("public-linked-target")
+
+    source_signal = create_signal!(source_scope, "Foreign source signal")
+    {:ok, operation} = Operations.start_operation(target_scope.session, :proposed_change_apply)
+
+    assert {:error, error} =
+             WorkGraph.create_task(target_scope.session, operation, source_signal, %{
+               title: "Reject public cross-scope source",
+               body: "This task should not link to a signal from another scope."
+             })
+
+    assert Exception.message(error) =~ "source_signal_id"
+  end
+
   defp bootstrap_scope(slug) do
     Foundation.bootstrap_local_owner(
       organization_name: "Office Graph #{slug}",

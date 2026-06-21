@@ -105,11 +105,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @approved_direct_repo_mutation_functions %{
     "lib/office_graph/work_graph.ex" =>
       MapSet.new([
-        "create_signal/3",
-        "create_task/4",
-        "create_review_finding/4",
-        "create_verification_check/4",
-        "complete_verification/4",
+        "graph_transaction/1",
         "insert_graph_item!/5",
         "insert_relationship!/3"
       ]),

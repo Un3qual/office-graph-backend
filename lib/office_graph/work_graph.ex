@@ -51,7 +51,7 @@ defmodule OfficeGraph.WorkGraph do
       signal_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
-      Repo.transaction(fn ->
+      graph_transaction(fn ->
         graph_item =
           insert_graph_item!(
             graph_item_id,
@@ -62,7 +62,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         signal =
-          ash_create!(
+          ash_create(
             Signal,
             %{
               id: signal_id,
@@ -75,6 +75,7 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         %{graph_item: graph_item, signal: signal}
       end)
@@ -95,12 +96,12 @@ defmodule OfficeGraph.WorkGraph do
       task_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
-      Repo.transaction(fn ->
+      graph_transaction(fn ->
         graph_item =
           insert_graph_item!(graph_item_id, session_context, "task", task_id, attrs[:title])
 
         task =
-          ash_create!(
+          ash_create(
             Task,
             %{
               id: task_id,
@@ -114,6 +115,7 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         relationship =
           insert_relationship!(signal.graph_item_id, graph_item_id, "produced_task")
@@ -130,7 +132,7 @@ defmodule OfficeGraph.WorkGraph do
       finding_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
-      Repo.transaction(fn ->
+      graph_transaction(fn ->
         graph_item =
           insert_graph_item!(
             graph_item_id,
@@ -141,7 +143,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         review_finding =
-          ash_create!(
+          ash_create(
             ReviewFinding,
             %{
               id: finding_id,
@@ -155,6 +157,7 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         relationship =
           insert_relationship!(task.graph_item_id, graph_item_id, "has_review_finding")
@@ -176,7 +179,7 @@ defmodule OfficeGraph.WorkGraph do
       check_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
-      Repo.transaction(fn ->
+      graph_transaction(fn ->
         graph_item =
           insert_graph_item!(
             graph_item_id,
@@ -187,7 +190,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         verification_check =
-          ash_create!(
+          ash_create(
             VerificationCheck,
             %{
               id: check_id,
@@ -201,6 +204,7 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         relationship =
           insert_relationship!(
@@ -236,7 +240,7 @@ defmodule OfficeGraph.WorkGraph do
       evidence_graph_item_id = Ecto.UUID.generate()
       verification_result_id = Ecto.UUID.generate()
 
-      Repo.transaction(fn ->
+      graph_transaction(fn ->
         artifact_graph_item =
           insert_graph_item!(
             artifact_graph_item_id,
@@ -247,7 +251,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         artifact =
-          ash_create!(
+          ash_create(
             Artifact,
             %{
               id: artifact_id,
@@ -259,6 +263,7 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         evidence_graph_item =
           insert_graph_item!(
@@ -270,7 +275,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         evidence_item =
-          ash_create!(
+          ash_create(
             EvidenceItem,
             %{
               id: evidence_id,
@@ -285,9 +290,10 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         verification_result =
-          ash_create!(
+          ash_create(
             VerificationResult,
             %{
               id: verification_result_id,
@@ -300,21 +306,28 @@ defmodule OfficeGraph.WorkGraph do
             },
             session_context
           )
+          |> unwrap_ash()
 
         verification_check =
           VerificationCheck
-          |> Ash.get!(verification_check.id, actor: session_context, authorize?: true)
-          |> ash_update!(:mark_satisfied, session_context)
+          |> ash_get(verification_check.id, session_context)
+          |> unwrap_ash()
+          |> ash_update(:mark_satisfied, session_context)
+          |> unwrap_ash()
 
         review_finding =
           ReviewFinding
-          |> Ash.get!(review_finding.id, actor: session_context, authorize?: true)
-          |> ash_update!(:mark_verified_complete, session_context)
+          |> ash_get(review_finding.id, session_context)
+          |> unwrap_ash()
+          |> ash_update(:mark_verified_complete, session_context)
+          |> unwrap_ash()
 
         task =
           Task
-          |> Ash.get!(task.id, actor: session_context, authorize?: true)
-          |> ash_update!(:mark_verified_complete, session_context)
+          |> ash_get(task.id, session_context)
+          |> unwrap_ash()
+          |> ash_update(:mark_verified_complete, session_context)
+          |> unwrap_ash()
 
         %{
           artifact_graph_item: artifact_graph_item,
@@ -381,22 +394,50 @@ defmodule OfficeGraph.WorkGraph do
     {:error, changeset}
   end
 
-  defp ash_create!(resource, attrs, session_context) do
-    {record, _notifications} =
-      resource
-      |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
-      |> Ash.create!(authorize?: true, return_notifications?: true)
+  defp graph_transaction(fun) do
+    Repo.transaction(fun)
+  end
 
+  defp ash_create(resource, attrs, session_context) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
+    |> Ash.create(authorize?: true, return_notifications?: true)
+    |> unwrap_notifications()
+  end
+
+  defp ash_update(record, action, session_context) do
+    record
+    |> Ash.Changeset.for_update(action, %{}, actor: session_context)
+    |> Ash.update(authorize?: true, return_notifications?: true)
+    |> unwrap_notifications()
+  end
+
+  defp ash_get(resource, id, session_context) do
+    Ash.get(resource, id,
+      actor: session_context,
+      authorize?: true,
+      authorize_with: :error
+    )
+  end
+
+  defp unwrap_notifications({:ok, record, _notifications}) do
+    {:ok, record}
+  end
+
+  defp unwrap_notifications({:ok, record}) do
+    {:ok, record}
+  end
+
+  defp unwrap_notifications({:error, error}) do
+    {:error, error}
+  end
+
+  defp unwrap_ash({:ok, record}) do
     record
   end
 
-  defp ash_update!(record, action, session_context) do
-    {record, _notifications} =
-      record
-      |> Ash.Changeset.for_update(action, %{}, actor: session_context)
-      |> Ash.update!(authorize?: true, return_notifications?: true)
-
-    record
+  defp unwrap_ash({:error, error}) do
+    Repo.rollback(error)
   end
 
   defp insert_graph_item!(id, session_context, resource_type, resource_id, title) do
