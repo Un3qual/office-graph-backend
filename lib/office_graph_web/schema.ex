@@ -73,12 +73,16 @@ defmodule OfficeGraphWeb.Schema do
       arg(:input, non_null(:manual_intake_input))
 
       resolve(fn %{input: input}, _ ->
-        with {:ok, intake} <- ApiSupport.submit_manual_intake(input) do
-          {:ok,
-           %{
-             normalized_event: intake.normalized_event,
-             proposed_changes: intake.proposed_changes
-           }}
+        case ApiSupport.submit_manual_intake(input) do
+          {:ok, intake} ->
+            {:ok,
+             %{
+               normalized_event: intake.normalized_event,
+               proposed_changes: intake.proposed_changes
+             }}
+
+          error ->
+            graphql_error(error)
         end
       end)
     end
@@ -88,18 +92,8 @@ defmodule OfficeGraphWeb.Schema do
 
       resolve(fn %{input: input}, _ ->
         case ApiSupport.apply_proposed_changes(input) do
-          {:error, {:missing_proposed_change, id}} ->
-            {:error,
-             message: "A proposed change could not be found.",
-             extensions: %{code: "missing_proposed_change", proposed_change_id: id}}
-
-          {:error, {:invalid_proposed_change_status, id}} ->
-            {:error,
-             message: "A proposed change is no longer pending.",
-             extensions: %{code: "invalid_proposed_change_status", proposed_change_id: id}}
-
-          result ->
-            result
+          {:ok, applied} -> {:ok, applied}
+          error -> graphql_error(error)
         end
       end)
     end
@@ -108,8 +102,64 @@ defmodule OfficeGraphWeb.Schema do
       arg(:input, non_null(:complete_verification_input))
 
       resolve(fn %{input: input}, _ ->
-        ApiSupport.complete_verification(input)
+        case ApiSupport.complete_verification(input) do
+          {:ok, completed} -> {:ok, completed}
+          error -> graphql_error(error)
+        end
       end)
     end
   end
+
+  defp graphql_error({:error, :forbidden}) do
+    {:error, message: "The action is not authorized.", extensions: %{code: "forbidden"}}
+  end
+
+  defp graphql_error({:error, {:missing_proposed_change, id}}) do
+    {:error,
+     message: "A proposed change could not be found.",
+     extensions: %{code: "missing_proposed_change", proposed_change_id: id}}
+  end
+
+  defp graphql_error({:error, {:invalid_proposed_change_status, id}}) do
+    {:error,
+     message: "A proposed change is no longer pending.",
+     extensions: %{code: "invalid_proposed_change_status", proposed_change_id: id}}
+  end
+
+  defp graphql_error({:error, {:invalid_proposed_change_set, reason}}) do
+    {:error,
+     message: "The proposed change set is invalid.",
+     extensions: %{code: "invalid_proposed_change_set", reason: format_reason(reason)}}
+  end
+
+  defp graphql_error({:error, {:missing_verification_check, id}}) do
+    {:error,
+     message: "A verification check could not be found.",
+     extensions: %{code: "missing_verification_check", verification_check_id: id}}
+  end
+
+  defp graphql_error({:error, {:invalid_verification_check_status, id}}) do
+    {:error,
+     message: "A verification check is no longer required.",
+     extensions: %{code: "invalid_verification_check_status", verification_check_id: id}}
+  end
+
+  defp graphql_error({:error, {:missing_field, field}}) do
+    {:error,
+     message: "A required field is missing.",
+     extensions: %{code: "validation_failed", field: field}}
+  end
+
+  defp graphql_error({:error, {:invalid_field, field}}) do
+    {:error,
+     message: "A field has an invalid value.",
+     extensions: %{code: "validation_failed", field: field}}
+  end
+
+  defp graphql_error({:error, _error}) do
+    {:error, message: "Validation failed.", extensions: %{code: "validation_failed"}}
+  end
+
+  defp format_reason({kind, value}), do: %{kind: kind, value: value}
+  defp format_reason(reason), do: reason
 end

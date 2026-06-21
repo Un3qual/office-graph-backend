@@ -24,7 +24,12 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:operation_correlations, [:correlation_id])
+    create unique_index(:operation_correlations, [
+             :organization_id,
+             :workspace_id,
+             :correlation_id
+           ])
+
     create index(:operation_correlations, [:organization_id, :workspace_id, :action])
 
     create table(:authorization_decisions, primary_key: false) do
@@ -269,6 +274,13 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
 
     create index(:normalized_intake_events, [:source_identity, :replay_identity])
 
+    create unique_index(
+             :normalized_intake_events,
+             [:organization_id, :workspace_id, :source_identity, :replay_identity],
+             where: "outcome = 'accepted'",
+             name: :normalized_intake_events_accepted_replay_identity_index
+           )
+
     create table(:external_references, primary_key: false) do
       add :id, :binary_id, primary_key: true
 
@@ -453,6 +465,8 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
 
       timestamps(type: :utc_datetime_usec)
     end
+
+    create unique_index(:verification_results, [:verification_check_id])
 
     create table(:work_packets, primary_key: false) do
       add :id, :binary_id, primary_key: true

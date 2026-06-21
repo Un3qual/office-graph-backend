@@ -32,6 +32,8 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     create :create do
       public? false
       accept [:id, :source_item_id, :target_item_id, :relationship_type]
+
+      change OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints
     end
   end
 

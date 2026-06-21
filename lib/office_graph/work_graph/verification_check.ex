@@ -53,6 +53,7 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
     end
 
     update :mark_satisfied do
+      accept []
       change set_attribute(:lifecycle_state, "satisfied")
     end
   end

@@ -3,8 +3,7 @@ defmodule OfficeGraph.Revisions.Revision do
 
   use Ash.Resource,
     domain: OfficeGraph.Revisions.Domain,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    data_layer: AshPostgres.DataLayer
 
   postgres do
     table "revisions"

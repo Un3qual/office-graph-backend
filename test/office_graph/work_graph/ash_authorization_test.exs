@@ -9,6 +9,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
+  alias OfficeGraph.WorkGraph.EvidenceItem
   alias OfficeGraph.WorkGraph.GraphItem
   alias OfficeGraph.WorkGraph.GraphRelationship
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
@@ -251,6 +252,27 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute message =~ "must reference an existing record in the target scope"
   end
 
+  test "same-scope validation attaches missing target scope to both fields" do
+    changeset = %Ash.Changeset{
+      arguments: %{},
+      attributes: %{
+        organization_id: Ecto.UUID.generate(),
+        body_document_id: Ecto.UUID.generate()
+      }
+    }
+
+    errors =
+      changeset
+      |> ValidateSameScopeReferences.change(
+        [references: [body_document_id: Document]],
+        %{}
+      )
+      |> Map.fetch!(:errors)
+
+    assert Enum.any?(errors, &(&1.field == :organization_id))
+    assert Enum.any?(errors, &(&1.field == :workspace_id))
+  end
+
   test "graph relationships expose no public Ash actions" do
     public_action_names =
       GraphRelationship
@@ -259,6 +281,31 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     refute :create in public_action_names
     refute :read in public_action_names
+  end
+
+  test "direct graph relationship creates reject cross-scope endpoints" do
+    {:ok, actor_scope} = bootstrap_scope("relationship-actor")
+    {:ok, other_scope} = bootstrap_scope("relationship-other")
+
+    source = insert_graph_item!(actor_scope, "signal", Ecto.UUID.generate(), "Source")
+    target = insert_graph_item!(other_scope, "task", Ecto.UUID.generate(), "Target")
+
+    assert {:error, error} =
+             Ash.create(
+               GraphRelationship,
+               %{
+                 id: Ecto.UUID.generate(),
+                 source_item_id: source.id,
+                 target_item_id: target.id,
+                 relationship_type: "cross_scope"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    message = Exception.message(error)
+    assert message =~ "source_item_id"
+    assert message =~ "target_item_id"
   end
 
   test "public WorkGraph create_task returns an error for a cross-scope source signal" do
@@ -340,8 +387,55 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                }
              )
 
-    assert Exception.message(error) =~ "verification_check_id"
+    assert error == {:not_found, VerificationCheckResource, stale_verification_check.id}
     refute document_with_plain_text?(body)
+  end
+
+  test "verification completion rejects repeated completion without duplicate evidence" do
+    {:ok, bootstrap} = bootstrap_scope("repeat-completion")
+    completed = complete_verification!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+
+    assert {:error, {:invalid_verification_check_status, check_id}} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               operation,
+               completed.verification_check,
+               %{
+                 title: "Repeated completion",
+                 body: "This should not create duplicate evidence.",
+                 artifact_uri: "https://example.test/repeated-completion"
+               }
+             )
+
+    assert check_id == completed.verification_check.id
+
+    evidence_count =
+      EvidenceItem
+      |> Ash.Query.filter(verification_check_id == ^completed.verification_check.id)
+      |> Ash.count!(authorize?: false)
+
+    result_count =
+      VerificationResultResource
+      |> Ash.Query.filter(verification_check_id == ^completed.verification_check.id)
+      |> Ash.count!(authorize?: false)
+
+    assert evidence_count == 1
+    assert result_count == 1
+  end
+
+  test "state transition actions reject caller supplied attributes" do
+    {:ok, bootstrap} = bootstrap_scope("state-transition-input")
+    verification_check = create_verification_check!(bootstrap)
+
+    assert {:error, error} =
+             verification_check
+             |> Ash.Changeset.for_update(:mark_satisfied, %{title: "Mutated title"},
+               actor: bootstrap.session
+             )
+             |> Ash.update()
+
+    assert Exception.message(error) =~ "No such input `title`"
   end
 
   test "verification completion does not require skeleton read capability for internal reloads" do

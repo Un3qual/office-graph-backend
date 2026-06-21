@@ -15,17 +15,21 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
       end)
     else
       :error ->
-        Ash.Changeset.add_error(
-          changeset,
+        changeset
+        |> Ash.Changeset.add_error(
           field: :organization_id,
+          message: "target organization_id and workspace_id are required"
+        )
+        |> Ash.Changeset.add_error(
+          field: :workspace_id,
           message: "target organization_id and workspace_id are required"
         )
     end
   end
 
   defp target_scope(changeset) do
-    organization_id = Ash.Changeset.get_attribute(changeset, :organization_id)
-    workspace_id = Ash.Changeset.get_attribute(changeset, :workspace_id)
+    organization_id = Map.get(changeset.attributes || %{}, :organization_id)
+    workspace_id = Map.get(changeset.attributes || %{}, :workspace_id)
 
     if is_nil(organization_id) or is_nil(workspace_id) do
       :error
@@ -87,21 +91,24 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
     expected_resource_type = Keyword.get(reference_opts, :resource_type)
     expected_resource_id = expected_resource_id(changeset, reference_opts)
 
-    cond do
-      is_nil(expected_resource_type) and is_nil(expected_resource_id) ->
-        changeset
-
-      record.resource_type == expected_resource_type and
-          record.resource_id == expected_resource_id ->
-        changeset
-
-      true ->
-        Ash.Changeset.add_error(
-          changeset,
-          field: field,
-          message: "#{field} must reference a graph item for the target resource"
-        )
+    if identity_expectations_match?(record, expected_resource_type, expected_resource_id) do
+      changeset
+    else
+      Ash.Changeset.add_error(
+        changeset,
+        field: field,
+        message: "#{field} must reference a graph item for the target resource"
+      )
     end
+  end
+
+  defp identity_expectations_match?(record, expected_resource_type, expected_resource_id) do
+    type_matches? =
+      is_nil(expected_resource_type) or record.resource_type == expected_resource_type
+
+    id_matches? = is_nil(expected_resource_id) or record.resource_id == expected_resource_id
+
+    type_matches? and id_matches?
   end
 
   defp expected_resource_id(changeset, reference_opts) do

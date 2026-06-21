@@ -48,7 +48,12 @@ defmodule OfficeGraph.Authorization do
       role_assignment =
         get_or_create!(
           RoleAssignment,
-          [principal_id: principal.id, role_id: role.id, organization_id: tenant.organization.id],
+          [
+            principal_id: principal.id,
+            role_id: role.id,
+            organization_id: tenant.organization.id,
+            workspace_id: tenant.workspace.id
+          ],
           %{
             principal_id: principal.id,
             role_id: role.id,
@@ -77,19 +82,23 @@ defmodule OfficeGraph.Authorization do
   end
 
   def authorize(session_context, action, opts \\ []) do
-    required = Map.fetch!(@owner_capabilities, action)
+    case Map.fetch(@owner_capabilities, action) do
+      {:ok, required} ->
+        cond do
+          is_nil(session_context) ->
+            {:error, :forbidden}
 
-    cond do
-      is_nil(session_context) ->
-        {:error, :forbidden}
+          session_context.organization_id != opts[:organization_id] ->
+            {:error, :forbidden}
 
-      session_context.organization_id != opts[:organization_id] ->
-        {:error, :forbidden}
+          MapSet.member?(session_context.capabilities, required) ->
+            :ok
 
-      MapSet.member?(session_context.capabilities, required) ->
-        :ok
+          true ->
+            {:error, :forbidden}
+        end
 
-      true ->
+      :error ->
         {:error, :forbidden}
     end
   end
@@ -110,17 +119,34 @@ defmodule OfficeGraph.Authorization do
           |> Map.new()
           |> Map.put_new(:id, Ecto.UUID.generate())
 
-        {record, _notifications} =
-          Ash.create!(resource, attrs,
-            action: :create,
-            authorize?: false,
-            return_notifications?: true
-          )
+        case Ash.create(resource, attrs,
+               action: :create,
+               authorize?: false,
+               return_notifications?: true
+             ) do
+          {:ok, record, _notifications} ->
+            record
 
-        record
+          {:ok, record} ->
+            record
+
+          {:error, error} ->
+            refetch_after_create_error!(resource, lookup, error)
+        end
 
       {:ok, record} ->
         record
+
+      {:error, error} ->
+        raise error
+    end
+  end
+
+  defp refetch_after_create_error!(resource, lookup, error) do
+    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
+      {:ok, nil} -> raise error
+      {:ok, record} -> record
+      {:error, refetch_error} -> raise refetch_error
     end
   end
 end

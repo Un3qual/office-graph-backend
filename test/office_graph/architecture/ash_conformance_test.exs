@@ -92,7 +92,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       unique_role_capability: [:role_id, :capability_id]
     },
     OfficeGraph.Authorization.RoleAssignment => %{
-      unique_assignment: [:principal_id, :role_id, :organization_id]
+      unique_assignment: [:principal_id, :role_id, :organization_id, :workspace_id]
     },
     OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]},
     OfficeGraph.Content.DocumentBlock => %{unique_document_position: [:document_id, :position]},

@@ -5,6 +5,8 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.SessionContext
 
+  require Ash.Query
+
   describe "bootstrap_local_owner/1" do
     test "creates the first organization owner context idempotently" do
       attrs = [
@@ -46,6 +48,50 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                authorize?: false
              )
     end
+
+    test "creates separate owner assignments for the same owner across workspaces" do
+      owner_attrs = [
+        owner_email: "same-owner@example.test",
+        owner_name: "Same Owner"
+      ]
+
+      assert {:ok, first} =
+               Foundation.bootstrap_local_owner(
+                 owner_attrs ++
+                   [
+                     workspace_name: "Workspace One",
+                     workspace_slug: "workspace-one",
+                     initiative_name: "Initiative One",
+                     initiative_slug: "initiative-one"
+                   ]
+               )
+
+      assert {:ok, second} =
+               Foundation.bootstrap_local_owner(
+                 owner_attrs ++
+                   [
+                     workspace_name: "Workspace Two",
+                     workspace_slug: "workspace-two",
+                     initiative_name: "Initiative Two",
+                     initiative_slug: "initiative-two"
+                   ]
+               )
+
+      assert first.organization.id == second.organization.id
+      assert first.principal.id == second.principal.id
+      assert first.role_assignment.id != second.role_assignment.id
+      assert first.role_assignment.workspace_id == first.workspace.id
+      assert second.role_assignment.workspace_id == second.workspace.id
+
+      assignment_count =
+        OfficeGraph.Authorization.RoleAssignment
+        |> Ash.Query.filter(
+          principal_id == ^first.principal.id and organization_id == ^first.organization.id
+        )
+        |> Ash.count!(authorize?: false)
+
+      assert assignment_count == 2
+    end
   end
 
   describe "authorize/3" do
@@ -85,6 +131,11 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                    organization_id: bootstrap.organization.id
                  )
       end
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(bootstrap.session, :unknown_action,
+                 organization_id: bootstrap.organization.id
+               )
     end
   end
 end

@@ -49,6 +49,6 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
   end
 
   identities do
-    identity :unique_correlation_id, [:correlation_id]
+    identity :unique_correlation_id, [:organization_id, :workspace_id, :correlation_id]
   end
 end

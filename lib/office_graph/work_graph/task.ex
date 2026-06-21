@@ -52,6 +52,7 @@ defmodule OfficeGraph.WorkGraph.Task do
     end
 
     update :mark_verified_complete do
+      accept []
       change set_attribute(:lifecycle_state, "verified_complete")
     end
   end

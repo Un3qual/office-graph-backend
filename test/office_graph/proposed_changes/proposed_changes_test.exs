@@ -168,6 +168,50 @@ defmodule OfficeGraph.ProposedChangesTest do
            end)
   end
 
+  test "apply ignores unmodeled payload keys instead of atomizing them", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    [first | rest] = intake.proposed_changes
+
+    updated =
+      update_payload!(first, bootstrap.session, %{
+        "title" => "Signal with imported metadata",
+        "body" => "Imported metadata should not become atoms.",
+        "__unmodeled_import_key__" => "ignored"
+      })
+
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, _applied} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, [updated | rest])
+  end
+
+  test "applied proposed changes cannot have payloads mutated", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, _applied} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    applied = intake.proposed_changes |> hd() |> get_change!()
+
+    assert {:error, error} =
+             applied
+             |> Ash.Changeset.for_update(:set_payload, %{
+               payload: %{"title" => "Mutated", "body" => "Should be rejected"}
+             })
+             |> Ash.update(actor: bootstrap.session)
+
+    assert Exception.message(error) =~ "status"
+  end
+
   test "apply rejects stale non-pending proposed changes", %{
     bootstrap: bootstrap,
     intake: intake

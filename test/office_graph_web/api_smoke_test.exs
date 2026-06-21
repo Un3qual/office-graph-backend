@@ -15,6 +15,41 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert json["task"]["lifecycle_state"] == "verified_complete"
     end
 
+    test "JSON manual intake reports missing body without crashing", %{conn: conn} do
+      response =
+        conn
+        |> post(~p"/api/manual-intake", %{
+          source_identity: "manual:json-missing-body",
+          replay_identity: "json-missing-body"
+        })
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "body"
+
+      response =
+        conn
+        |> post(~p"/api/manual-intake", %{
+          source_identity: "manual:json-null-body",
+          replay_identity: "json-null-body",
+          body: nil
+        })
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "body"
+    end
+
+    test "JSON apply reports invalid proposed-change sets without crashing", %{conn: conn} do
+      response =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: []})
+        |> json_response(422)
+
+      assert response["error"]["code"] == "invalid_proposed_change_set"
+      assert response["error"]["reason"]["kind"] == "missing_change_type"
+    end
+
     test "JSON apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
 
@@ -50,6 +85,62 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["proposed_change_id"] in proposed_change_ids
     end
 
+    test "JSON complete reports missing verification checks without creating an operation", %{
+      conn: conn
+    } do
+      missing_id = Ecto.UUID.generate()
+
+      response =
+        conn
+        |> post(~p"/api/verification/complete", %{
+          verification_check_id: missing_id,
+          title: "Missing check",
+          body: "This check does not exist.",
+          artifact_uri: "https://example.test/missing-check"
+        })
+        |> json_response(422)
+
+      assert response["error"]["code"] == "missing_verification_check"
+      assert response["error"]["verification_check_id"] == missing_id
+    end
+
+    test "JSON complete reports repeated verification completion without duplicate evidence", %{
+      conn: conn
+    } do
+      submit =
+        json_submit(conn, %{
+          source_identity: "manual:json-repeat-complete",
+          replay_identity: "json-repeat-complete-#{System.unique_integer([:positive])}",
+          body: "Investigate repeated verification completion."
+        })
+
+      proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
+
+      applied =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+        |> json_response(200)
+
+      attrs = %{
+        verification_check_id: applied["verification_check"]["id"],
+        title: "Repeated evidence",
+        body: "Evidence should only be accepted once.",
+        artifact_uri: "https://example.test/repeated-evidence"
+      }
+
+      conn
+      |> post(~p"/api/verification/complete", attrs)
+      |> json_response(200)
+
+      response =
+        conn
+        |> post(~p"/api/verification/complete", attrs)
+        |> json_response(422)
+
+      assert response["error"]["code"] == "invalid_verification_check_status"
+      assert response["error"]["verification_check_id"] == applied["verification_check"]["id"]
+    end
+
     test "GraphQL apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
 
@@ -74,6 +165,16 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
     end
 
+    test "GraphQL apply reports invalid proposed-change sets without crashing", %{conn: conn} do
+      response = graphql_apply(conn, [])
+
+      assert [%{"extensions" => %{"code" => "invalid_proposed_change_set"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["reason"]["kind"] == "missing_change_type"
+      assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
+
     test "GraphQL apply reports already-applied proposed-change ids without crashing", %{
       conn: conn
     } do
@@ -94,6 +195,35 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert error["extensions"]["proposed_change_id"] in proposed_change_ids
       assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
+
+    test "GraphQL complete reports missing verification checks without crashing", %{conn: conn} do
+      missing_id = Ecto.UUID.generate()
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: """
+          mutation Complete($checkId: ID!) {
+            completeVerification(input: {
+              verificationCheckId: $checkId,
+              title: "Missing GraphQL check",
+              body: "This check does not exist.",
+              artifactUri: "https://example.test/graphql-missing"
+            }) {
+              verificationCheck { id }
+            }
+          }
+          """,
+          variables: %{checkId: missing_id}
+        })
+        |> json_response(200)
+
+      assert [%{"extensions" => %{"code" => "missing_verification_check"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["verification_check_id"] == missing_id
+      assert response["data"] in [nil, %{"completeVerification" => nil}]
     end
   end
 

@@ -25,6 +25,17 @@ defmodule OfficeGraph.ProposedChanges do
     "create_verification_check"
   ]
 
+  defguardp is_apply_validation_error(error)
+            when error == :forbidden or
+                   (is_tuple(error) and
+                      elem(error, 0) in [
+                        :invalid_proposed_change,
+                        :invalid_proposed_change_scope,
+                        :invalid_proposed_change_set,
+                        :invalid_proposed_change_status,
+                        :missing_proposed_change
+                      ])
+
   def get_many(session_context, ids), do: read_scoped_changes(session_context, ids)
 
   def get_many!(_session_context, []), do: []
@@ -59,6 +70,65 @@ defmodule OfficeGraph.ProposedChanges do
   end
 
   def apply_all(session_context, operation, proposed_changes) do
+    Repo.transaction(fn ->
+      case apply_all_locked(session_context, operation, proposed_changes) do
+        {:ok, applied} -> {:ok, applied}
+        {:error, error} when is_apply_validation_error(error) -> {:error, error}
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
+    |> case do
+      {:ok, {:ok, applied}} -> {:ok, applied}
+      {:ok, {:error, error}} -> {:error, error}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp read_scoped_changes(session_context, ids, opts \\ []) do
+    records =
+      ProposedGraphChange
+      |> Ash.Query.filter(id in ^ids)
+      |> maybe_lock(opts[:lock?])
+      |> Ash.read!(actor: session_context)
+
+    by_id = Map.new(records, &{&1.id, &1})
+
+    ids
+    |> Enum.map(&Map.fetch(by_id, &1))
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, record}, {:ok, acc} ->
+        {:cont, {:ok, [record | acc]}}
+
+      :error, {:ok, _acc} ->
+        {:halt, {:error, {:missing_proposed_change, find_missing_id(ids, by_id)}}}
+    end)
+    |> case do
+      {:ok, records} -> {:ok, Enum.reverse(records)}
+      error -> error
+    end
+  end
+
+  defp find_missing_id(ids, by_id), do: Enum.find(ids, &(not Map.has_key?(by_id, &1)))
+
+  defp maybe_lock(query, true), do: Ash.Query.lock(query, :for_update)
+  defp maybe_lock(query, _lock?), do: query
+
+  defp reload_for_apply(session_context, proposed_changes) do
+    proposed_changes
+    |> Enum.map(& &1.id)
+    |> then(&read_scoped_changes(session_context, &1, lock?: true))
+  end
+
+  defp validate_operation_scope(session_context, operation) do
+    if operation.organization_id == session_context.organization_id and
+         operation.workspace_id == session_context.workspace_id do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp apply_all_locked(session_context, operation, proposed_changes) do
     with :ok <-
            Authorization.authorize(session_context, :proposed_change_apply,
              organization_id: session_context.organization_id
@@ -88,46 +158,6 @@ defmodule OfficeGraph.ProposedChanges do
          review_finding: finding_bundle.review_finding,
          verification_check: check_bundle.verification_check
        }}
-    end
-  end
-
-  defp read_scoped_changes(session_context, ids) do
-    records =
-      ProposedGraphChange
-      |> Ash.Query.filter(id in ^ids)
-      |> Ash.read!(actor: session_context)
-
-    by_id = Map.new(records, &{&1.id, &1})
-
-    ids
-    |> Enum.map(&Map.fetch(by_id, &1))
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, record}, {:ok, acc} ->
-        {:cont, {:ok, [record | acc]}}
-
-      :error, {:ok, _acc} ->
-        {:halt, {:error, {:missing_proposed_change, find_missing_id(ids, by_id)}}}
-    end)
-    |> case do
-      {:ok, records} -> {:ok, Enum.reverse(records)}
-      error -> error
-    end
-  end
-
-  defp find_missing_id(ids, by_id), do: Enum.find(ids, &(not Map.has_key?(by_id, &1)))
-
-  defp reload_for_apply(session_context, proposed_changes) do
-    proposed_changes
-    |> Enum.map(& &1.id)
-    |> then(&read_scoped_changes(session_context, &1))
-  end
-
-  defp validate_operation_scope(session_context, operation) do
-    if operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
     end
   end
 
@@ -174,9 +204,6 @@ defmodule OfficeGraph.ProposedChanges do
 
       missing_type ->
         {:error, {:invalid_proposed_change_set, {:missing_change_type, missing_type}}}
-
-      length(types) != length(@required_change_types) ->
-        {:error, {:invalid_proposed_change_set, :wrong_count}}
 
       true ->
         :ok
@@ -281,6 +308,8 @@ defmodule OfficeGraph.ProposedChanges do
     do: %{title: "Verify: " <> title, body: "Evidence required for: " <> title}
 
   defp atomize_payload(payload) do
-    Map.new(payload, fn {key, value} -> {String.to_existing_atom(to_string(key)), value} end)
+    payload
+    |> Map.take(["title", "body", :title, :body])
+    |> Map.new(fn {key, value} -> {String.to_existing_atom(to_string(key)), value} end)
   end
 end

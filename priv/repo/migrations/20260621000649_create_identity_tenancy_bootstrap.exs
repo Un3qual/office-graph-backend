@@ -25,6 +25,7 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
     end
 
     create unique_index(:workspaces, [:organization_id, :slug])
+    create unique_index(:workspaces, [:id, :organization_id])
 
     create table(:initiatives, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -42,6 +43,7 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
     end
 
     create unique_index(:initiatives, [:workspace_id, :slug])
+    create unique_index(:initiatives, [:id, :workspace_id, :organization_id])
 
     create table(:workstreams, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -62,6 +64,36 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
     end
 
     create unique_index(:workstreams, [:initiative_id, :slug])
+
+    execute(
+      """
+      ALTER TABLE initiatives
+      ADD CONSTRAINT initiatives_workspace_scope_fkey
+      FOREIGN KEY (workspace_id, organization_id)
+      REFERENCES workspaces(id, organization_id)
+      """,
+      "ALTER TABLE initiatives DROP CONSTRAINT initiatives_workspace_scope_fkey"
+    )
+
+    execute(
+      """
+      ALTER TABLE workstreams
+      ADD CONSTRAINT workstreams_workspace_scope_fkey
+      FOREIGN KEY (workspace_id, organization_id)
+      REFERENCES workspaces(id, organization_id)
+      """,
+      "ALTER TABLE workstreams DROP CONSTRAINT workstreams_workspace_scope_fkey"
+    )
+
+    execute(
+      """
+      ALTER TABLE workstreams
+      ADD CONSTRAINT workstreams_initiative_scope_fkey
+      FOREIGN KEY (initiative_id, workspace_id, organization_id)
+      REFERENCES initiatives(id, workspace_id, organization_id)
+      """,
+      "ALTER TABLE workstreams DROP CONSTRAINT workstreams_initiative_scope_fkey"
+    )
 
     create table(:principals, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -121,6 +153,16 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
 
     create unique_index(:sessions, [:principal_id, :organization_id, :workspace_id, :purpose])
 
+    execute(
+      """
+      ALTER TABLE sessions
+      ADD CONSTRAINT sessions_workspace_scope_fkey
+      FOREIGN KEY (workspace_id, organization_id)
+      REFERENCES workspaces(id, organization_id)
+      """,
+      "ALTER TABLE sessions DROP CONSTRAINT sessions_workspace_scope_fkey"
+    )
+
     create table(:capabilities, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :key, :text, null: false
@@ -173,7 +215,27 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:role_assignments, [:principal_id, :role_id, :organization_id])
+    create unique_index(:role_assignments, [:principal_id, :role_id, :organization_id],
+             where: "workspace_id IS NULL",
+             name: :role_assignments_org_wide_unique_index
+           )
+
+    create unique_index(
+             :role_assignments,
+             [:principal_id, :role_id, :organization_id, :workspace_id],
+             where: "workspace_id IS NOT NULL",
+             name: :role_assignments_workspace_unique_index
+           )
+
+    execute(
+      """
+      ALTER TABLE role_assignments
+      ADD CONSTRAINT role_assignments_workspace_scope_fkey
+      FOREIGN KEY (workspace_id, organization_id)
+      REFERENCES workspaces(id, organization_id)
+      """,
+      "ALTER TABLE role_assignments DROP CONSTRAINT role_assignments_workspace_scope_fkey"
+    )
 
     create table(:policy_bundles, primary_key: false) do
       add :id, :binary_id, primary_key: true

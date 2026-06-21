@@ -32,7 +32,7 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
   end
 
   identities do
-    identity :unique_assignment, [:principal_id, :role_id, :organization_id]
+    identity :unique_assignment, [:principal_id, :role_id, :organization_id, :workspace_id]
   end
 
   policies do

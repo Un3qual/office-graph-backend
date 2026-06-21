@@ -52,7 +52,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     end
 
     update :set_payload do
+      require_atomic? false
       accept [:payload]
+      validate attribute_equals(:status, "pending")
     end
 
     update :reject do

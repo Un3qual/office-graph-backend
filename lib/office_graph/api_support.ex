@@ -22,12 +22,15 @@ defmodule OfficeGraph.ApiSupport do
   alias OfficeGraph.WorkGraph
 
   def submit_manual_intake(params) do
-    with {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+    with {:ok, source_identity} <- required_string(params, :source_identity),
+         {:ok, replay_identity} <- required_string(params, :replay_identity),
+         {:ok, body} <- required_string(params, :body),
+         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :manual_intake_submit) do
       Integrations.submit_manual_intake(bootstrap.session, operation, %{
-        source_identity: value(params, :source_identity),
-        replay_identity: value(params, :replay_identity),
-        body: value(params, :body)
+        source_identity: source_identity,
+        replay_identity: replay_identity,
+        body: body
       })
     end
   end
@@ -44,14 +47,34 @@ defmodule OfficeGraph.ApiSupport do
 
   def complete_verification(params) do
     with {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+         {:ok, verification_check_id} <- required_string(params, :verification_check_id),
+         {:ok, verification_check} <-
+           WorkGraph.get_verification_check(bootstrap.session, verification_check_id),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :evidence_link),
-         verification_check <-
-           WorkGraph.get_verification_check!(value(params, :verification_check_id)) do
+         {:ok, title} <- required_string(params, :title),
+         {:ok, body} <- required_string(params, :body) do
       Verification.complete_with_evidence(bootstrap.session, operation, verification_check, %{
-        title: value(params, :title),
-        body: value(params, :body),
+        title: title,
+        body: body,
         artifact_uri: value(params, :artifact_uri)
       })
+    end
+  end
+
+  defp required_string(params, key) do
+    case value(params, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "" do
+          {:error, {:missing_field, key}}
+        else
+          {:ok, value}
+        end
+
+      nil ->
+        {:error, {:missing_field, key}}
+
+      _other ->
+        {:error, {:invalid_field, key}}
     end
   end
 

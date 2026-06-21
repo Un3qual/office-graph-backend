@@ -19,7 +19,8 @@ defmodule OfficeGraph.Integrations do
   alias OfficeGraph.Repo
 
   def submit_manual_intake(session_context, operation, attrs) do
-    with :ok <-
+    with :ok <- validate_manual_intake_attrs(attrs),
+         :ok <-
            Authorization.authorize(session_context, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
@@ -40,10 +41,21 @@ defmodule OfficeGraph.Integrations do
     end
   end
 
-  def record_manual_intake(session_context, operation, attrs) do
+  defp record_manual_intake(session_context, operation, attrs) do
+    case insert_manual_intake(session_context, operation, attrs) do
+      {:ok, intake} ->
+        {:ok, intake}
+
+      {:error, error} ->
+        record_duplicate_after_replay_conflict(session_context, operation, attrs, error)
+    end
+  end
+
+  defp insert_manual_intake(session_context, operation, attrs, opts \\ []) do
     Repo.transaction(fn ->
       with {:ok, source} <- get_or_create_source(attrs.source_identity),
            {:ok, duplicate_of} <- accepted_duplicate(session_context, attrs),
+           duplicate_of <- required_duplicate(opts[:duplicate_retry?], duplicate_of),
            outcome = if(duplicate_of, do: "duplicate", else: "accepted"),
            {:ok, raw_archive} <-
              ash_create(RawArchive, %{
@@ -76,6 +88,22 @@ defmodule OfficeGraph.Integrations do
       end
     end)
   end
+
+  defp record_duplicate_after_replay_conflict(session_context, operation, attrs, original_error) do
+    case accepted_duplicate(session_context, attrs) do
+      {:ok, nil} ->
+        {:error, original_error}
+
+      {:ok, _duplicate_of} ->
+        insert_manual_intake(session_context, operation, attrs, duplicate_retry?: true)
+
+      {:error, _error} ->
+        {:error, original_error}
+    end
+  end
+
+  defp required_duplicate(true, nil), do: Repo.rollback(:accepted_replay_not_found)
+  defp required_duplicate(_duplicate_retry?, duplicate_of), do: duplicate_of
 
   defp content_hash(body) do
     :crypto.hash(:sha256, body)
@@ -122,6 +150,31 @@ defmodule OfficeGraph.Integrations do
       {:ok, record, _notifications} -> {:ok, record}
       {:ok, record} -> {:ok, record}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  defp validate_manual_intake_attrs(attrs) do
+    with :ok <- validate_required_string(attrs, :source_identity),
+         :ok <- validate_required_string(attrs, :replay_identity),
+         :ok <- validate_required_string(attrs, :body) do
+      :ok
+    end
+  end
+
+  defp validate_required_string(attrs, field) do
+    case Map.fetch(attrs, field) do
+      {:ok, value} when is_binary(value) ->
+        if String.trim(value) == "" do
+          {:error, {:missing_field, field}}
+        else
+          :ok
+        end
+
+      {:ok, _other} ->
+        {:error, {:invalid_field, field}}
+
+      :error ->
+        {:error, {:missing_field, field}}
     end
   end
 end

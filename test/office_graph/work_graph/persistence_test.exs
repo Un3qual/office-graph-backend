@@ -18,7 +18,9 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   alias OfficeGraph.Integrations
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
+  alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Audit.AuditRecord
+  alias OfficeGraph.Tenancy.Initiative
   alias OfficeGraph.WorkGraph
 
   setup do
@@ -37,6 +39,71 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert operation.organization_id == bootstrap.organization.id
     assert operation.workspace_id == bootstrap.workspace.id
     assert operation.correlation_id
+  end
+
+  test "operation correlation ids are unique only within a workspace scope", %{
+    bootstrap: bootstrap
+  } do
+    correlation_id = "correlation-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _operation} =
+             Operations.start_operation(bootstrap.session, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+
+    assert {:error, same_scope_error} =
+             Operations.start_operation(bootstrap.session, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+
+    assert Exception.message(same_scope_error) =~ "correlation_id"
+
+    assert {:ok, other_scope} =
+             Foundation.bootstrap_local_owner(
+               organization_name: "Correlation Other Tenant",
+               organization_slug: "correlation-other-tenant",
+               workspace_name: "Correlation Other Workspace",
+               workspace_slug: "correlation-other-workspace",
+               initiative_name: "Correlation Other Initiative",
+               initiative_slug: "correlation-other-initiative",
+               owner_email: "correlation-other-owner@office-graph.local"
+             )
+
+    assert {:ok, %OperationCorrelation{correlation_id: ^correlation_id}} =
+             Operations.start_operation(other_scope.session, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+  end
+
+  test "tenant hierarchy constraints reject mismatched workspace organization", %{
+    bootstrap: bootstrap
+  } do
+    assert {:ok, other_scope} =
+             Foundation.bootstrap_local_owner(
+               organization_name: "Hierarchy Other Tenant",
+               organization_slug: "hierarchy-other-tenant",
+               workspace_name: "Hierarchy Other Workspace",
+               workspace_slug: "hierarchy-other-workspace",
+               initiative_name: "Hierarchy Other Initiative",
+               initiative_slug: "hierarchy-other-initiative",
+               owner_email: "hierarchy-other-owner@office-graph.local"
+             )
+
+    assert {:error, error} =
+             Ash.create(
+               Initiative,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: other_scope.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 name: "Mismatched Initiative",
+                 slug: "mismatched-initiative"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert Exception.message(error) =~ "workspace"
   end
 
   test "internal audit creates default to sensitive records", %{operation: operation} do
@@ -435,15 +502,36 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
       body: "Task: Investigate flaky deploy"
     }
 
-    assert {:ok, first} = Integrations.record_manual_intake(bootstrap.session, operation, attrs)
+    assert {:ok, first} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
     assert first.duplicate? == false
     assert first.normalized_event.outcome == "accepted"
     assert first.raw_archive.content_hash
+    assert length(first.proposed_changes) == 4
 
-    assert {:ok, second} = Integrations.record_manual_intake(bootstrap.session, operation, attrs)
+    assert {:ok, second} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
     assert second.duplicate? == true
     assert second.normalized_event.outcome == "duplicate"
     assert second.normalized_event.duplicate_of_id == first.normalized_event.id
+    assert second.proposed_changes == []
+
+    assert {:error, duplicate_error} =
+             Ash.create(
+               NormalizedIntakeEvent,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 raw_archive_id: first.raw_archive.id,
+                 operation_id: operation.id,
+                 source_identity: attrs.source_identity,
+                 replay_identity: attrs.replay_identity,
+                 outcome: "accepted"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert Exception.message(duplicate_error) =~
+             "normalized_intake_events_accepted_replay_identity_index"
   end
 
   test "manual intake replay duplicates are scoped to workspace within an organization", %{

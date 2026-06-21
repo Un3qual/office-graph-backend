@@ -53,4 +53,10 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
       ]
     end
   end
+
+  identities do
+    identity :accepted_replay_key,
+             [:organization_id, :workspace_id, :source_identity, :replay_identity],
+             where: expr(outcome == "accepted")
+  end
 end
