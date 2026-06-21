@@ -7,6 +7,12 @@ defmodule OfficeGraph.WorkGraph.WalkingSkeletonTest do
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.{Audit, Revisions}
   alias OfficeGraph.Verification
+  alias OfficeGraph.WorkGraph.Resources.{
+    ReviewFinding,
+    Signal,
+    Task,
+    VerificationCheck
+  }
 
   test "manual intake progresses through proposed changes to verified completion" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -41,6 +47,10 @@ defmodule OfficeGraph.WorkGraph.WalkingSkeletonTest do
     assert applied.task.lifecycle_state == "open"
     assert applied.review_finding.lifecycle_state == "open"
     assert applied.verification_check.lifecycle_state == "required"
+    assert %Signal{} = applied.signal
+    assert %Task{} = applied.task
+    assert %ReviewFinding{} = applied.review_finding
+    assert %VerificationCheck{} = applied.verification_check
 
     {:ok, evidence_operation} = Operations.start_operation(bootstrap.session, :evidence_link)
 

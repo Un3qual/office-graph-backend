@@ -110,7 +110,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
         "create_review_finding/4",
         "create_verification_check/4",
         "complete_verification/4",
-        "transaction_result/5"
+        "insert_graph_item!/5",
+        "insert_relationship!/3"
       ]),
     "lib/office_graph/integrations.ex" =>
       MapSet.new(["record_manual_intake/3", "get_or_insert!/3"]),
