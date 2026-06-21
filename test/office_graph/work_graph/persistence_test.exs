@@ -446,7 +446,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert second.normalized_event.duplicate_of_id == first.normalized_event.id
   end
 
-  test "manual intake replay duplicates are scoped to organization and workspace", %{
+  test "manual intake replay duplicates are scoped to workspace within an organization", %{
     bootstrap: bootstrap,
     operation: operation
   } do
@@ -459,6 +459,28 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert {:ok, first} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
     assert first.normalized_event.outcome == "accepted"
     assert length(first.proposed_changes) == 4
+
+    assert {:ok, same_org_other_workspace} =
+             Foundation.bootstrap_local_owner(
+               workspace_name: "Second Workspace",
+               workspace_slug: "second-workspace",
+               initiative_name: "Second Walking Skeleton",
+               initiative_slug: "second-walking-skeleton"
+             )
+
+    {:ok, same_org_other_workspace_operation} =
+      Operations.start_operation(same_org_other_workspace.session, :manual_intake_submit)
+
+    assert {:ok, cross_workspace} =
+             Integrations.submit_manual_intake(
+               same_org_other_workspace.session,
+               same_org_other_workspace_operation,
+               attrs
+             )
+
+    assert cross_workspace.normalized_event.outcome == "accepted"
+    refute cross_workspace.normalized_event.duplicate_of_id
+    assert length(cross_workspace.proposed_changes) == 4
 
     assert {:ok, second_tenant} =
              Foundation.bootstrap_local_owner(

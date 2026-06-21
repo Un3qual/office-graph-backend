@@ -15,7 +15,7 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert json["task"]["lifecycle_state"] == "verified_complete"
     end
 
-    test "JSON apply reports stale proposed-change ids without crashing", %{conn: conn} do
+    test "JSON apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
 
       response =
@@ -27,7 +27,30 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["proposed_change_id"] == missing_id
     end
 
-    test "GraphQL apply reports stale proposed-change ids without crashing", %{conn: conn} do
+    test "JSON apply reports already-applied proposed-change ids without crashing", %{conn: conn} do
+      submit =
+        json_submit(conn, %{
+          source_identity: "manual:json-stale",
+          replay_identity: "json-stale-#{System.unique_integer([:positive])}",
+          body: "Investigate stale JSON apply and report it safely."
+        })
+
+      proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
+
+      conn
+      |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+      |> json_response(200)
+
+      response =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+        |> json_response(422)
+
+      assert response["error"]["code"] == "invalid_proposed_change_status"
+      assert response["error"]["proposed_change_id"] in proposed_change_ids
+    end
+
+    test "GraphQL apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
 
       response =
@@ -48,6 +71,28 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
                response["errors"]
 
       assert error["extensions"]["proposed_change_id"] == missing_id
+      assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
+
+    test "GraphQL apply reports already-applied proposed-change ids without crashing", %{
+      conn: conn
+    } do
+      submit =
+        graphql(conn, submit_query(), %{
+          replayIdentity: "graphql-stale-#{System.unique_integer([:positive])}"
+        })
+
+      proposed_change_ids = Enum.map(submit["proposedChanges"], & &1["id"])
+
+      first_apply = graphql_apply(conn, proposed_change_ids)
+      assert first_apply["errors"] in [nil, []]
+
+      response = graphql_apply(conn, proposed_change_ids)
+
+      assert [%{"extensions" => %{"code" => "invalid_proposed_change_status"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["proposed_change_id"] in proposed_change_ids
       assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
     end
   end
@@ -114,13 +159,11 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
   defp run_json_flow(conn, replay_identity) do
     submit =
-      conn
-      |> post(~p"/api/manual-intake", %{
+      json_submit(conn, %{
         source_identity: "manual:json",
         replay_identity: replay_identity,
         body: "Investigate flaky deploy and prove it from JSON."
       })
-      |> json_response(200)
 
     assert submit["normalized_event"]["outcome"] == "accepted"
     proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
@@ -148,6 +191,27 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       title: "JSON evidence",
       body: "JSON evidence accepted.",
       artifact_uri: "https://example.test/json"
+    })
+    |> json_response(200)
+  end
+
+  defp json_submit(conn, attrs) do
+    conn
+    |> post(~p"/api/manual-intake", attrs)
+    |> json_response(200)
+  end
+
+  defp graphql_apply(conn, proposed_change_ids) do
+    conn
+    |> post(~p"/graphql", %{
+      query: """
+      mutation Apply($ids: [ID!]!) {
+        applyProposedChanges(input: { ids: $ids }) {
+          task { id }
+        }
+      }
+      """,
+      variables: %{ids: proposed_change_ids}
     })
     |> json_response(200)
   end

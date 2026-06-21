@@ -93,6 +93,11 @@ defmodule OfficeGraphWeb.Schema do
              message: "A proposed change could not be found.",
              extensions: %{code: "missing_proposed_change", proposed_change_id: id}}
 
+          {:error, {:invalid_proposed_change_status, id}} ->
+            {:error,
+             message: "A proposed change is no longer pending.",
+             extensions: %{code: "invalid_proposed_change_status", proposed_change_id: id}}
+
           result ->
             result
         end

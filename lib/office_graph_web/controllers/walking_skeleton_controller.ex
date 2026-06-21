@@ -58,6 +58,18 @@ defmodule OfficeGraphWeb.WalkingSkeletonController do
     })
   end
 
+  defp render_error(conn, {:error, {:invalid_proposed_change_status, id}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: %{
+        code: "invalid_proposed_change_status",
+        detail: "A proposed change is no longer pending.",
+        proposed_change_id: id
+      }
+    })
+  end
+
   defp render_error(conn, {:error, changeset}) do
     conn
     |> put_status(:unprocessable_entity)
