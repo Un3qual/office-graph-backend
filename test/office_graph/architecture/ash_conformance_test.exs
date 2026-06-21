@@ -129,6 +129,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     "lib/office_graph/content.ex" => MapSet.new(["create_plain_document/3"])
   }
   @architecture_exception_ledger "openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md"
+  @implementation_summary "openspec/changes/first-backend-walking-skeleton/implementation-summary.md"
 
   test "work graph has an Ash domain and required Ash resources" do
     assert @ash_domain in @ash_domains,
@@ -312,6 +313,32 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
         assert ledger =~ function,
                "#{@architecture_exception_ledger} must document #{path} #{function}"
       end
+    end
+  end
+
+  test "implementation summary includes architecture evidence mapping" do
+    assert File.exists?(@implementation_summary),
+           "Expected implementation summary at #{@implementation_summary}"
+
+    summary = File.read!(@implementation_summary)
+
+    for required_text <- [
+          "### Architecture Evidence Matrix",
+          "| Requirement | Evidence | Gate |",
+          "Stable WorkGraph resources are Ash-backed",
+          "WorkGraph Ash actions are authorization-aware",
+          "Graph identity plus typed resource creation is atomic",
+          "Stable product mutations route through Ash or approved exceptions",
+          "Direct Ecto paths are approved and documented",
+          "Architecture gate is part of backend verification",
+          "OpenSpec remains valid and mapped to evidence",
+          "mix architecture.conformance",
+          "./bin/verify-backend",
+          "openspec validate first-backend-walking-skeleton --strict",
+          "openspec validate --changes --strict"
+        ] do
+      assert summary =~ required_text,
+             "#{@implementation_summary} must include architecture evidence mapping for #{inspect(required_text)}"
     end
   end
 
