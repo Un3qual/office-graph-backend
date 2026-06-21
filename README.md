@@ -71,3 +71,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix tes
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate first-backend-walking-skeleton --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
+
+Or run the same gate as one command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
+```

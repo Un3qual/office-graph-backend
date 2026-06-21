@@ -109,32 +109,32 @@
 
 ## 7. Verification Gates
 
-- [ ] 7.1 Add or update project verification aliases/scripts for compile,
+- [x] 7.1 Add or update project verification aliases/scripts for compile,
   format check, tests, Boundary verification, database setup/migration checks,
   and OpenSpec validation.
-- [ ] 7.2 Add an end-to-end test for
+- [x] 7.2 Add an end-to-end test for
   `manual intake signal -> task -> review finding -> required verification
   check -> evidence item -> verified completion`.
-- [ ] 7.3 Add focused tests for authorization filtering/redaction,
+- [x] 7.3 Add focused tests for authorization filtering/redaction,
   operation-correlation linkage, typed revision linkage, audit record creation,
   and proposed-change safety.
-- [ ] 7.4 Run the full backend verification gate from inside the Nix shell and
+- [x] 7.4 Run the full backend verification gate from inside the Nix shell and
   fix failures.
-- [ ] 7.5 Run `openspec validate first-backend-walking-skeleton --strict`.
-- [ ] 7.6 Run `openspec validate --changes --strict`.
+- [x] 7.5 Run `openspec validate first-backend-walking-skeleton --strict`.
+- [x] 7.6 Run `openspec validate --changes --strict`.
 
 ## 8. Handoff And Scope Guard
 
-- [ ] 8.1 Update OpenSpec task checkboxes as implementation tasks complete and
+- [x] 8.1 Update OpenSpec task checkboxes as implementation tasks complete and
   keep unrelated future tracks open.
-- [ ] 8.2 Document Docker Compose Postgres startup/reset commands,
+- [x] 8.2 Document Docker Compose Postgres startup/reset commands,
   network-backed Hex dependency setup, and repeatable development commands
   discovered during implementation.
-- [ ] 8.3 Confirm no React frontend, LiveView UI, provider webhook/API polling,
+- [x] 8.3 Confirm no React frontend, LiveView UI, provider webhook/API polling,
   full agent runtime, generic ordered-placement framework, or full rich text
   editor behavior was introduced in this change.
-- [ ] 8.4 Commit along the way at app baseline, persistence/resources, domain
+- [x] 8.4 Commit along the way at app baseline, persistence/resources, domain
   loop, API surface, and final verification checkpoints.
-- [ ] 8.5 Prepare a review summary mapping implemented code back to each
+- [x] 8.5 Prepare a review summary mapping implemented code back to each
   `first-backend-walking-skeleton` spec capability before applying or
   archiving the change.
