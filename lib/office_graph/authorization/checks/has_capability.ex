@@ -29,12 +29,16 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
   defp target_scope(context, actor) do
     subject = subject(context)
 
-    organization_id =
-      read_scope(subject, :organization_id) || scope_value(actor, :organization_id)
+    case subject do
+      %Ash.Changeset{} = changeset ->
+        changeset_scope(changeset)
 
-    workspace_id = read_scope(subject, :workspace_id) || scope_value(actor, :workspace_id)
+      %Ash.Query{} ->
+        actor_scope(actor)
 
-    {:ok, organization_id, workspace_id}
+      _subject ->
+        if read_action?(context), do: actor_scope(actor), else: {:error, :missing_target_scope}
+    end
   end
 
   defp subject(context) when is_map(context) do
@@ -48,6 +52,30 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
   end
 
   defp read_scope(_subject, _field), do: nil
+
+  defp changeset_scope(changeset) do
+    organization_id = read_scope(changeset, :organization_id)
+    workspace_id = read_scope(changeset, :workspace_id)
+
+    if is_nil(organization_id) or is_nil(workspace_id) do
+      {:error, :missing_target_scope}
+    else
+      {:ok, organization_id, workspace_id}
+    end
+  end
+
+  defp actor_scope(actor) do
+    {:ok, scope_value(actor, :organization_id), scope_value(actor, :workspace_id)}
+  end
+
+  defp read_action?(context) when is_map(context) do
+    case Map.get(context, :action) do
+      %{type: :read} -> true
+      _action -> false
+    end
+  end
+
+  defp read_action?(_context), do: false
 
   defp scope_matches?(actor, organization_id, workspace_id) do
     scope_value(actor, :organization_id) == organization_id and

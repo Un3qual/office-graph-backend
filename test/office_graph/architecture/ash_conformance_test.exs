@@ -1,6 +1,9 @@
 defmodule OfficeGraph.Architecture.AshConformanceTest do
   use ExUnit.Case, async: true
 
+  alias OfficeGraph.Authorization.Checks.HasCapability
+  alias OfficeGraph.Identity.SessionContext
+
   @ash_domain OfficeGraph.WorkGraph.Domain
 
   @required_resources [
@@ -84,9 +87,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   test "shared Ash capability check is loadable" do
-    assert Code.ensure_loaded?(OfficeGraph.Authorization.Checks.HasCapability)
+    assert Code.ensure_loaded?(HasCapability)
 
-    assert OfficeGraph.Authorization.Checks.HasCapability.describe(capability: :skeleton_read) =~
+    assert HasCapability.describe(capability: :skeleton_read) =~
              "skeleton_read"
   end
 
@@ -94,48 +97,42 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     organization_id = Ecto.UUID.generate()
     workspace_id = Ecto.UUID.generate()
 
-    actor = %{
-      principal_id: Ecto.UUID.generate(),
-      session_id: Ecto.UUID.generate(),
-      organization_id: organization_id,
-      workspace_id: workspace_id,
-      capabilities: MapSet.new(["skeleton.read"])
-    }
+    actor = session_context(organization_id, workspace_id, ["skeleton.read"])
+    changeset = scoped_changeset(organization_id, workspace_id)
 
-    changeset = %Ash.Changeset{
-      attributes: %{
-        organization_id: organization_id,
-        workspace_id: workspace_id
-      }
-    }
+    assert HasCapability.match?(actor, %{changeset: changeset}, capability: :skeleton_read)
 
-    assert OfficeGraph.Authorization.Checks.HasCapability.match?(
+    refute HasCapability.match?(actor, %{changeset: changeset}, [])
+
+    refute HasCapability.match?(nil, %{changeset: changeset}, capability: :skeleton_read)
+
+    refute HasCapability.match?(
              actor,
+             %{changeset: scoped_changeset(Ecto.UUID.generate(), workspace_id)},
+             capability: :skeleton_read
+           )
+
+    refute HasCapability.match?(
+             actor,
+             %{changeset: scoped_changeset(organization_id, Ecto.UUID.generate())},
+             capability: :skeleton_read
+           )
+
+    refute HasCapability.match?(
+             actor,
+             %{changeset: %Ash.Changeset{}},
+             capability: :skeleton_read
+           )
+
+    refute HasCapability.match?(
+             session_context(organization_id, workspace_id, []),
              %{changeset: changeset},
              capability: :skeleton_read
            )
 
-    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
+    assert HasCapability.match?(
              actor,
-             %{changeset: changeset},
-             []
-           )
-
-    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
-             nil,
-             %{changeset: changeset},
-             capability: :skeleton_read
-           )
-
-    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
-             actor,
-             %{changeset: %Ash.Changeset{attributes: %{organization_id: Ecto.UUID.generate()}}},
-             capability: :skeleton_read
-           )
-
-    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
-             actor,
-             %{changeset: %Ash.Changeset{attributes: %{workspace_id: Ecto.UUID.generate()}}},
+             %{query: %Ash.Query{}, action: %{type: :read}},
              capability: :skeleton_read
            )
   end
@@ -161,6 +158,25 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     "lib/office_graph/**/*.ex"
     |> Path.wildcard()
     |> Enum.flat_map(fn path -> scan_file_for_mutations(path, mutation_pattern) end)
+  end
+
+  defp session_context(organization_id, workspace_id, capabilities) do
+    %SessionContext{
+      principal_id: Ecto.UUID.generate(),
+      session_id: Ecto.UUID.generate(),
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(capabilities)
+    }
+  end
+
+  defp scoped_changeset(organization_id, workspace_id) do
+    %Ash.Changeset{
+      attributes: %{
+        organization_id: organization_id,
+        workspace_id: workspace_id
+      }
+    }
   end
 
   defp scan_file_for_mutations(path, mutation_pattern) do
