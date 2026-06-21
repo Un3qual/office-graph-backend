@@ -1,18 +1,41 @@
 defmodule OfficeGraph.Authorization.AuthorizationDecision do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Authorization.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "authorization_decisions" do
-    field :operation_id, :binary_id
-    field :principal_id, :binary_id
-    field :organization_id, :binary_id
-    field :action, :string
-    field :decision, :string
-    field :reason, :string
+  postgres do
+    table "authorization_decisions"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
 
-    timestamps(type: :utc_datetime_usec)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :principal_id, :uuid, allow_nil?: false, public?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :action, :string, allow_nil?: false, public?: true
+    attribute :decision, :string, allow_nil?: false, public?: true
+    attribute :reason, :string, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :operation_id, :principal_id, :organization_id, :action, :decision, :reason]
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(organization_id == ^actor(:organization_id))
+    end
   end
 end

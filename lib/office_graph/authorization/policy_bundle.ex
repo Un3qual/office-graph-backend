@@ -1,25 +1,42 @@
 defmodule OfficeGraph.Authorization.PolicyBundle do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Authorization.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "policy_bundles" do
-    field :organization_id, :binary_id
-    field :version, :integer
-    field :status, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "policy_bundles"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(policy_bundle, attrs) do
-    policy_bundle
-    |> cast(attrs, [:organization_id, :version, :status])
-    |> validate_required([:organization_id, :version, :status])
-    |> foreign_key_constraint(:organization_id)
-    |> unique_constraint([:organization_id, :version])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :version, :integer, allow_nil?: false, public?: true
+    attribute :status, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :organization_id, :version, :status]
+    end
+  end
+
+  identities do
+    identity :unique_version, [:organization_id, :version]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(organization_id == ^actor(:organization_id))
+    end
   end
 end

@@ -8,7 +8,12 @@
 import Config
 
 config :office_graph,
-  ash_domains: [OfficeGraph.WorkGraph.Domain],
+  ash_domains: [
+    OfficeGraph.Tenancy.Domain,
+    OfficeGraph.Identity.Domain,
+    OfficeGraph.Authorization.Domain,
+    OfficeGraph.WorkGraph.Domain
+  ],
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 

@@ -75,6 +75,28 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.WorkGraph.VerificationResult
   ]
 
+  @foundation_resource_identities %{
+    OfficeGraph.Tenancy.Organization => %{unique_slug: [:slug]},
+    OfficeGraph.Tenancy.Workspace => %{unique_slug: [:organization_id, :slug]},
+    OfficeGraph.Tenancy.Initiative => %{unique_slug: [:workspace_id, :slug]},
+    OfficeGraph.Tenancy.Workstream => %{unique_slug: [:initiative_id, :slug]},
+    OfficeGraph.Identity.Principal => %{email: [:email]},
+    OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
+    OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
+    OfficeGraph.Identity.Session => %{
+      unique_context: [:principal_id, :organization_id, :workspace_id, :purpose]
+    },
+    OfficeGraph.Authorization.Capability => %{key: [:key]},
+    OfficeGraph.Authorization.Role => %{unique_key: [:organization_id, :key]},
+    OfficeGraph.Authorization.RoleCapability => %{
+      unique_role_capability: [:role_id, :capability_id]
+    },
+    OfficeGraph.Authorization.RoleAssignment => %{
+      unique_assignment: [:principal_id, :role_id, :organization_id]
+    },
+    OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]}
+  }
+
   @expected_action_capabilities %{
     OfficeGraph.WorkGraph.Signal => %{
       read: {:read, :skeleton_read},
@@ -269,6 +291,36 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert errors == [],
            "Expected resources must be registered in exactly one owning Ash domain:\n#{format_errors(errors)}"
+  end
+
+  test "foundation Ash resources declare expected unique identities" do
+    errors =
+      @foundation_resource_identities
+      |> Enum.sort_by(fn {resource, _identities} -> inspect(resource) end)
+      |> Enum.flat_map(fn {resource, identities} ->
+        Enum.flat_map(identities, fn {identity_name, expected_keys} ->
+          case safe_info(fn -> Ash.Resource.Info.identity(resource, identity_name) end) do
+            {:ok, %{keys: ^expected_keys}} ->
+              []
+
+            {:ok, nil} ->
+              ["#{inspect(resource)} missing identity #{inspect(identity_name)}"]
+
+            {:ok, identity} ->
+              [
+                "#{inspect(resource)} identity #{inspect(identity_name)} expected keys #{inspect(expected_keys)}, got #{inspect(identity.keys)}"
+              ]
+
+            {:error, error} ->
+              [
+                "#{inspect(resource)} identity #{inspect(identity_name)} is not readable: #{error}"
+              ]
+          end
+        end)
+      end)
+
+    assert errors == [],
+           "Foundation Ash resources must declare database-backed identities:\n#{format_errors(errors)}"
   end
 
   test "production model code does not define manual Ecto schemas" do

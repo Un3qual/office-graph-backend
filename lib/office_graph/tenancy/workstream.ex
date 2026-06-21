@@ -1,29 +1,47 @@
 defmodule OfficeGraph.Tenancy.Workstream do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Tenancy.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "workstreams" do
-    field :name, :string
-    field :slug, :string
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :initiative_id, :binary_id
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "workstreams"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(workstream, attrs) do
-    workstream
-    |> cast(attrs, [:organization_id, :workspace_id, :initiative_id, :name, :slug])
-    |> validate_required([:organization_id, :workspace_id, :initiative_id, :name, :slug])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:initiative_id)
-    |> unique_constraint([:initiative_id, :slug])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :initiative_id, :uuid, allow_nil?: false, public?: true
+    attribute :name, :string, allow_nil?: false, public?: true
+    attribute :slug, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :organization_id, :workspace_id, :initiative_id, :name, :slug]
+    end
+  end
+
+  identities do
+    identity :unique_slug, [:initiative_id, :slug]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
   end
 end

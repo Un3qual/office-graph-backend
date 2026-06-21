@@ -1,24 +1,42 @@
 defmodule OfficeGraph.Identity.Principal do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Identity.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "principals" do
-    field :email, :string
-    field :kind, :string
-    field :status, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "principals"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(principal, attrs) do
-    principal
-    |> cast(attrs, [:email, :kind, :status])
-    |> validate_required([:email, :kind, :status])
-    |> unique_constraint(:email)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :email, :string, allow_nil?: false, public?: true
+    attribute :kind, :string, allow_nil?: false, public?: true
+    attribute :status, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :email, :kind, :status]
+    end
+  end
+
+  identities do
+    identity :email, [:email]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(id == ^actor(:principal_id))
+    end
   end
 end

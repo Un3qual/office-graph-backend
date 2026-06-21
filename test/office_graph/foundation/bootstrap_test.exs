@@ -31,6 +31,20 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       assert first.session.principal_id == first.principal.id
       assert first.session.organization_id == first.organization.id
       assert MapSet.member?(first.session.capabilities, "skeleton.read")
+
+      assert Ash.get!(OfficeGraph.Tenancy.Organization, first.organization.id, authorize?: false)
+      assert Ash.get!(OfficeGraph.Tenancy.Workspace, first.workspace.id, authorize?: false)
+      assert Ash.get!(OfficeGraph.Tenancy.Initiative, first.initiative.id, authorize?: false)
+      assert Ash.get!(OfficeGraph.Identity.Principal, first.principal.id, authorize?: false)
+      assert Ash.get!(OfficeGraph.Identity.PrincipalProfile, first.profile.id, authorize?: false)
+
+      assert Ash.get!(OfficeGraph.Authorization.RoleAssignment, first.role_assignment.id,
+               authorize?: false
+             )
+
+      assert Ash.get!(OfficeGraph.Authorization.PolicyBundle, first.policy_bundle.id,
+               authorize?: false
+             )
     end
   end
 

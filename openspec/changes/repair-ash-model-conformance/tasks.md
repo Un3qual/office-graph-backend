@@ -19,9 +19,9 @@ as the normative 40-table inventory for the architecture conformance gate.
 
 ## 3. Foundation Domains
 
-- [ ] 3.1 Convert Tenancy resources and bootstrap writes to Ash.
-- [ ] 3.2 Convert Identity resources and bootstrap writes to Ash.
-- [ ] 3.3 Convert Authorization resources and bootstrap writes to Ash.
+- [x] 3.1 Convert Tenancy resources and bootstrap writes to Ash.
+- [x] 3.2 Convert Identity resources and bootstrap writes to Ash.
+- [x] 3.3 Convert Authorization resources and bootstrap writes to Ash.
 
 ## 4. Traceability, Content, Intake, And Runtime Domains
 

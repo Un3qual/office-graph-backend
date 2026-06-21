@@ -1,23 +1,41 @@
 defmodule OfficeGraph.Tenancy.Organization do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Tenancy.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "organizations" do
-    field :name, :string
-    field :slug, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "organizations"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(organization, attrs) do
-    organization
-    |> cast(attrs, [:name, :slug])
-    |> validate_required([:name, :slug])
-    |> unique_constraint(:slug)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :name, :string, allow_nil?: false, public?: true
+    attribute :slug, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :name, :slug]
+    end
+  end
+
+  identities do
+    identity :unique_slug, [:slug]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(id == ^actor(:organization_id))
+    end
   end
 end

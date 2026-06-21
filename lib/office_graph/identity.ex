@@ -11,24 +11,24 @@ defmodule OfficeGraph.Identity do
   def ensure_owner(attrs) do
     Repo.transaction(fn ->
       principal =
-        get_or_insert!(
+        get_or_create!(
           Principal,
           [email: attrs[:owner_email]],
-          Principal.changeset(%Principal{}, %{
+          %{
             email: attrs[:owner_email],
             kind: "human",
             status: "active"
-          })
+          }
         )
 
       profile =
-        get_or_insert!(
+        get_or_create!(
           PrincipalProfile,
           [principal_id: principal.id],
-          PrincipalProfile.changeset(%PrincipalProfile{}, %{
+          %{
             principal_id: principal.id,
             display_name: attrs[:owner_name]
-          })
+          }
         )
 
       %{principal: principal, profile: profile}
@@ -38,7 +38,7 @@ defmodule OfficeGraph.Identity do
   def ensure_session_context(principal, tenant, capabilities) do
     Repo.transaction(fn ->
       session =
-        get_or_insert!(
+        get_or_create!(
           Session,
           [
             principal_id: principal.id,
@@ -46,12 +46,12 @@ defmodule OfficeGraph.Identity do
             workspace_id: tenant.workspace.id,
             purpose: "local_owner"
           ],
-          Session.changeset(%Session{}, %{
+          %{
             principal_id: principal.id,
             organization_id: tenant.organization.id,
             workspace_id: tenant.workspace.id,
             purpose: "local_owner"
-          })
+          }
         )
 
       %SessionContext{
@@ -64,7 +64,25 @@ defmodule OfficeGraph.Identity do
     end)
   end
 
-  defp get_or_insert!(schema, lookup, changeset) do
-    Repo.get_by(schema, lookup) || Repo.insert!(changeset)
+  defp get_or_create!(resource, lookup, attrs) do
+    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
+      {:ok, nil} ->
+        attrs =
+          attrs
+          |> Map.new()
+          |> Map.put_new(:id, Ecto.UUID.generate())
+
+        {record, _notifications} =
+          Ash.create!(resource, attrs,
+            action: :create,
+            authorize?: false,
+            return_notifications?: true
+          )
+
+        record
+
+      {:ok, record} ->
+        record
+    end
   end
 end

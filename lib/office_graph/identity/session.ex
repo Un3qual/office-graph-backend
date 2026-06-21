@@ -1,29 +1,48 @@
 defmodule OfficeGraph.Identity.Session do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Identity.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "sessions" do
-    field :principal_id, :binary_id
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :purpose, :string
-    field :revoked_at, :utc_datetime_usec
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "sessions"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(session, attrs) do
-    session
-    |> cast(attrs, [:principal_id, :organization_id, :workspace_id, :purpose, :revoked_at])
-    |> validate_required([:principal_id, :organization_id, :workspace_id, :purpose])
-    |> foreign_key_constraint(:principal_id)
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> unique_constraint([:principal_id, :organization_id, :workspace_id, :purpose])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :principal_id, :uuid, allow_nil?: false, public?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :purpose, :string, allow_nil?: false, public?: true
+    attribute :revoked_at, :utc_datetime_usec, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :principal_id, :organization_id, :workspace_id, :purpose, :revoked_at]
+    end
+  end
+
+  identities do
+    identity :unique_context, [:principal_id, :organization_id, :workspace_id, :purpose]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(
+                     principal_id == ^actor(:principal_id) and
+                       organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
   end
 end

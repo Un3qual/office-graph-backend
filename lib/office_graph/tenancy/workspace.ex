@@ -1,25 +1,45 @@
 defmodule OfficeGraph.Tenancy.Workspace do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Tenancy.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "workspaces" do
-    field :name, :string
-    field :slug, :string
-    field :organization_id, :binary_id
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "workspaces"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(workspace, attrs) do
-    workspace
-    |> cast(attrs, [:organization_id, :name, :slug])
-    |> validate_required([:organization_id, :name, :slug])
-    |> foreign_key_constraint(:organization_id)
-    |> unique_constraint([:organization_id, :slug])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :name, :string, allow_nil?: false, public?: true
+    attribute :slug, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :organization_id, :name, :slug]
+    end
+  end
+
+  identities do
+    identity :unique_slug, [:organization_id, :slug]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       id == ^actor(:workspace_id)
+                   )
+    end
   end
 end

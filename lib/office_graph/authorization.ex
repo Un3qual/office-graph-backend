@@ -24,48 +24,48 @@ defmodule OfficeGraph.Authorization do
         |> Enum.map(&ensure_capability!/1)
 
       role =
-        get_or_insert!(
+        get_or_create!(
           Role,
           [organization_id: tenant.organization.id, key: "owner"],
-          Role.changeset(%Role{}, %{
+          %{
             organization_id: tenant.organization.id,
             key: "owner",
             name: "Owner"
-          })
+          }
         )
 
       Enum.each(capabilities, fn capability ->
-        get_or_insert!(
+        get_or_create!(
           RoleCapability,
           [role_id: role.id, capability_id: capability.id],
-          RoleCapability.changeset(%RoleCapability{}, %{
+          %{
             role_id: role.id,
             capability_id: capability.id
-          })
+          }
         )
       end)
 
       role_assignment =
-        get_or_insert!(
+        get_or_create!(
           RoleAssignment,
           [principal_id: principal.id, role_id: role.id, organization_id: tenant.organization.id],
-          RoleAssignment.changeset(%RoleAssignment{}, %{
+          %{
             principal_id: principal.id,
             role_id: role.id,
             organization_id: tenant.organization.id,
             workspace_id: tenant.workspace.id
-          })
+          }
         )
 
       policy_bundle =
-        get_or_insert!(
+        get_or_create!(
           PolicyBundle,
           [organization_id: tenant.organization.id, version: 1],
-          PolicyBundle.changeset(%PolicyBundle{}, %{
+          %{
             organization_id: tenant.organization.id,
             version: 1,
             status: "active"
-          })
+          }
         )
 
       %{
@@ -95,14 +95,32 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp ensure_capability!(key) do
-    get_or_insert!(
+    get_or_create!(
       Capability,
       [key: key],
-      Capability.changeset(%Capability{}, %{key: key, description: key})
+      %{key: key, description: key}
     )
   end
 
-  defp get_or_insert!(schema, lookup, changeset) do
-    Repo.get_by(schema, lookup) || Repo.insert!(changeset)
+  defp get_or_create!(resource, lookup, attrs) do
+    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
+      {:ok, nil} ->
+        attrs =
+          attrs
+          |> Map.new()
+          |> Map.put_new(:id, Ecto.UUID.generate())
+
+        {record, _notifications} =
+          Ash.create!(resource, attrs,
+            action: :create,
+            authorize?: false,
+            return_notifications?: true
+          )
+
+        record
+
+      {:ok, record} ->
+        record
+    end
   end
 end

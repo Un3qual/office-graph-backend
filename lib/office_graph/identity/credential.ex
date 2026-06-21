@@ -1,25 +1,42 @@
 defmodule OfficeGraph.Identity.Credential do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Identity.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "credentials" do
-    field :principal_id, :binary_id
-    field :provider, :string
-    field :subject, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "credentials"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(credential, attrs) do
-    credential
-    |> cast(attrs, [:principal_id, :provider, :subject])
-    |> validate_required([:principal_id, :provider, :subject])
-    |> foreign_key_constraint(:principal_id)
-    |> unique_constraint([:provider, :subject])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :principal_id, :uuid, allow_nil?: false, public?: true
+    attribute :provider, :string, allow_nil?: false, public?: true
+    attribute :subject, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :principal_id, :provider, :subject]
+    end
+  end
+
+  identities do
+    identity :unique_subject, [:provider, :subject]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if expr(principal_id == ^actor(:principal_id))
+    end
   end
 end
