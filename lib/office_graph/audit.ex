@@ -3,29 +3,32 @@ defmodule OfficeGraph.Audit do
   Public boundary for audit record creation and retrieval.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: []
+  use Boundary, deps: [OfficeGraph], exports: []
 
-  import Ecto.Query
+  require Ash.Query
 
   alias OfficeGraph.Audit.AuditRecord
-  alias OfficeGraph.Repo
 
   def record!(operation, action, resource_type, resource_id, sensitive? \\ true) do
-    %AuditRecord{}
-    |> AuditRecord.changeset(%{
-      operation_id: operation.id,
-      actor_principal_id: operation.principal_id,
-      action: action,
-      resource_type: resource_type,
-      resource_id: resource_id,
-      sensitive: sensitive?
-    })
-    |> Repo.insert!()
+    Ash.create!(
+      AuditRecord,
+      %{
+        id: Ecto.UUID.generate(),
+        operation_id: operation.id,
+        actor_principal_id: operation.principal_id,
+        action: action,
+        resource_type: resource_type,
+        resource_id: resource_id,
+        sensitive: sensitive?
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 
   def count_for_operation(operation_id) do
     AuditRecord
-    |> where([record], record.operation_id == ^operation_id)
-    |> Repo.aggregate(:count)
+    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> Ash.count!(authorize?: false)
   end
 end

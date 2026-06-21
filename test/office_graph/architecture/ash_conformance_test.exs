@@ -189,7 +189,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
 
   @tag :scanner_contract
-  test "direct Ecto scanner reports read and aggregate operations" do
+  test "direct Ecto scanner reports remaining read bridge operations" do
     operations =
       direct_ecto_operations()
       |> MapSet.new(&{&1.path, &1.function, &1.operation})
@@ -197,13 +197,28 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     for expected <- [
           {"lib/office_graph/proposed_changes.ex", "get_many!/1", "Repo.all"},
           {"lib/office_graph/work_graph/changes/validate_same_scope_references.ex",
-           "fetch_unconverted_reference/2", "Repo.get"},
-          {"lib/office_graph/audit.ex", "count_for_operation/1", "Repo.aggregate"},
-          {"lib/office_graph/revisions.ex", "count_for_operation/1", "Repo.aggregate"}
+           "fetch_unconverted_reference/2", "Repo.get"}
         ] do
       assert MapSet.member?(operations, expected),
              "Expected direct Ecto scanner to report #{inspect(expected)}"
     end
+  end
+
+  @tag :scanner_contract
+  test "traceability contexts no longer use direct Ecto mutations or aggregate reads" do
+    forbidden_paths =
+      MapSet.new([
+        "lib/office_graph/operations.ex",
+        "lib/office_graph/audit.ex",
+        "lib/office_graph/revisions.ex"
+      ])
+
+    operations =
+      direct_ecto_operations()
+      |> Enum.filter(&(&1.path in forbidden_paths))
+
+    assert operations == [],
+           "Traceability contexts must create/count through Ash actions:\n#{format_direct_operations(operations)}"
   end
 
   @tag :scanner_contract
@@ -412,6 +427,15 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
                "#{inspect(resource)} #{inspect(action.name)} must validate same-scope references #{inspect(expected_references)}"
       end
     end
+  end
+
+  test "same-scope reference bridge only covers unconverted Content documents" do
+    source = File.read!("lib/office_graph/work_graph/changes/validate_same_scope_references.ex")
+
+    assert source =~ "OfficeGraph.Content.Document"
+
+    refute source =~ "OfficeGraph.Operations.OperationCorrelation",
+           "OperationCorrelation is Ash-backed and must be validated through Ash reads"
   end
 
   test "shared Ash capability check is loadable" do

@@ -25,7 +25,7 @@ as the normative 40-table inventory for the architecture conformance gate.
 
 ## 4. Traceability, Content, Intake, And Runtime Domains
 
-- [ ] 4.1 Convert Operations, Audit, Revisions, and Tombstones resources.
+- [x] 4.1 Convert Operations, Audit, Revisions, and Tombstones resources.
 - [ ] 4.2 Convert Content resources and `create_plain_document/3`.
 - [ ] 4.3 Convert Integrations and ExternalRefs resources and manual intake
   storage.

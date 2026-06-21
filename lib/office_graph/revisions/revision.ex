@@ -1,26 +1,37 @@
 defmodule OfficeGraph.Revisions.Revision do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Revisions.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "revisions" do
-    field :operation_id, :binary_id
-    field :resource_type, :string
-    field :resource_id, :binary_id
-    field :revision_type, :string
-    field :summary, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "revisions"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(revision, attrs) do
-    revision
-    |> cast(attrs, [:operation_id, :resource_type, :resource_id, :revision_type, :summary])
-    |> validate_required([:operation_id, :resource_type, :resource_id, :revision_type])
-    |> foreign_key_constraint(:operation_id)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :resource_type, :string, allow_nil?: false, public?: true
+    attribute :resource_id, :uuid, allow_nil?: false, public?: true
+    attribute :revision_type, :string, allow_nil?: false, public?: true
+    attribute :summary, :string, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [:id, :operation_id, :resource_type, :resource_id, :revision_type, :summary]
+    end
   end
 end

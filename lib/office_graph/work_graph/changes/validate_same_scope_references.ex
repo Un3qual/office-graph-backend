@@ -7,10 +7,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
 
   alias OfficeGraph.Repo
 
-  @unconverted_reference_schemas [
-    OfficeGraph.Content.Document,
-    OfficeGraph.Operations.OperationCorrelation
-  ]
+  @unconverted_reference_schemas [OfficeGraph.Content.Document]
 
   @impl true
   def change(changeset, opts, _context) do
