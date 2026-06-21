@@ -19,6 +19,7 @@ config :office_graph,
     OfficeGraph.Content.Domain,
     OfficeGraph.Integrations.Domain,
     OfficeGraph.ExternalRefs.Domain,
+    OfficeGraph.ProposedChanges.Domain,
     OfficeGraph.WorkGraph.Domain
   ],
   ecto_repos: [OfficeGraph.Repo],

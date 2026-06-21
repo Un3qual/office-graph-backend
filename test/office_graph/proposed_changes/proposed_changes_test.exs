@@ -1,13 +1,12 @@
 defmodule OfficeGraph.ProposedChangesTest do
   use OfficeGraph.DataCase, async: false
 
-  alias Ecto.Changeset
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.Repo
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -30,8 +29,7 @@ defmodule OfficeGraph.ProposedChangesTest do
     invalid =
       intake.proposed_changes
       |> hd()
-      |> Changeset.change(payload: %{"body" => "missing title"})
-      |> Repo.update!()
+      |> update_payload!(%{"body" => "missing title"})
 
     proposed_changes = [invalid | tl(intake.proposed_changes)]
     {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
@@ -40,7 +38,23 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert {:error, {:invalid_proposed_change, ^invalid_id}} =
              ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
 
-    assert Repo.get!(invalid.__struct__, invalid.id).status == "rejected"
+    assert get_change!(invalid).status == "rejected"
+  end
+
+  test "get_many! preserves caller order and raises for missing ids", %{intake: intake} do
+    ids =
+      intake.proposed_changes
+      |> Enum.map(& &1.id)
+      |> Enum.reverse()
+
+    assert ids ==
+             ids
+             |> ProposedChanges.get_many!()
+             |> Enum.map(& &1.id)
+
+    assert_raise KeyError, fn ->
+      ProposedChanges.get_many!([Ecto.UUID.generate()])
+    end
   end
 
   test "unauthorized sessions cannot apply proposed changes", %{
@@ -62,7 +76,36 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert Enum.all?(
              intake.proposed_changes,
-             &(Repo.get!(&1.__struct__, &1.id).status == "pending")
+             &(get_change!(&1).status == "pending")
            )
+  end
+
+  test "successful apply marks all supplied proposed changes applied", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, _applied} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert Enum.all?(intake.proposed_changes, fn change ->
+             change = get_change!(change)
+             change.status == "applied" and not is_nil(change.applied_at)
+           end)
+  end
+
+  defp update_payload!(change, payload) do
+    change
+    |> Ash.Changeset.for_update(:set_payload, %{payload: payload})
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp get_change!(change) do
+    Ash.get!(ProposedGraphChange, change.id, authorize?: false)
   end
 end

@@ -16,10 +16,16 @@ defmodule OfficeGraph.ProposedChanges do
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
 
-  import Ecto.Query
+  require Ash.Query
+
+  def get_many!([]), do: []
 
   def get_many!(ids) do
-    records = Repo.all(from change in ProposedGraphChange, where: change.id in ^ids)
+    records =
+      ProposedGraphChange
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.read!(authorize?: false)
+
     by_id = Map.new(records, &{&1.id, &1})
     Enum.map(ids, &Map.fetch!(by_id, &1))
   end
@@ -37,8 +43,7 @@ defmodule OfficeGraph.ProposedChanges do
 
     Repo.transaction(fn ->
       Enum.map(change_attrs, fn {change_type, payload} ->
-        %ProposedGraphChange{}
-        |> ProposedGraphChange.changeset(%{
+        ash_create!(ProposedGraphChange, %{
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
@@ -48,7 +53,6 @@ defmodule OfficeGraph.ProposedChanges do
           payload: payload,
           validation_errors: []
         })
-        |> Repo.insert!()
       end)
     end)
   end
@@ -106,9 +110,7 @@ defmodule OfficeGraph.ProposedChanges do
   defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
 
   defp reject!(change, reason) do
-    change
-    |> ProposedGraphChange.changeset(%{status: "rejected", validation_errors: [reason]})
-    |> Repo.update!()
+    ash_update!(change, :reject, %{validation_errors: [reason]})
   end
 
   defp find_change(changes, change_type) do
@@ -145,11 +147,26 @@ defmodule OfficeGraph.ProposedChanges do
     now = DateTime.utc_now()
 
     Enum.each(changes, fn change ->
-      change
-      |> ProposedGraphChange.changeset(%{status: "applied", applied_at: now})
-      |> Repo.update!()
+      ash_update!(change, :mark_applied, %{applied_at: now})
     end)
   end
+
+  defp ash_create!(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create!(authorize?: false, return_notifications?: true)
+    |> record_without_notifications()
+  end
+
+  defp ash_update!(record, action, attrs) do
+    record
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> record_without_notifications()
+  end
+
+  defp record_without_notifications({record, _notifications}), do: record
+  defp record_without_notifications(record), do: record
 
   defp first_sentence(body) do
     body
