@@ -398,17 +398,19 @@ defmodule OfficeGraph.WorkGraph do
     Repo.transaction(fun)
   end
 
+  # WorkGraph wraps Ash calls in graph transactions; request notifications so Ash
+  # does not warn about missed dispatch, then ignore them until real notifiers exist.
   defp ash_create(resource, attrs, session_context) do
     resource
     |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
-    |> Ash.create(authorize?: true)
+    |> Ash.create(authorize?: true, return_notifications?: true)
     |> unwrap_ash_result()
   end
 
   defp ash_update(record, action, session_context) do
     record
     |> Ash.Changeset.for_update(action, %{}, actor: session_context)
-    |> Ash.update(authorize?: true)
+    |> Ash.update(authorize?: true, return_notifications?: true)
     |> unwrap_ash_result()
   end
 
@@ -426,6 +428,10 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp unwrap_ash_result({:ok, record}) do
+    {:ok, record}
+  end
+
+  defp unwrap_ash_result({:ok, record, _notifications}) do
     {:ok, record}
   end
 
