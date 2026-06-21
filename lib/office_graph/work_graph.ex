@@ -45,13 +45,13 @@ defmodule OfficeGraph.WorkGraph do
     with :ok <-
            Authorization.authorize(session_context, :manual_intake_submit,
              organization_id: session_context.organization_id
-           ),
-         {:ok, document} <-
-           Content.create_plain_document(session_context, operation, attrs[:body] || "") do
+           ) do
       signal_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
       graph_transaction(fn ->
+        document = create_document!(session_context, operation, attrs[:body] || "")
+
         graph_item =
           insert_graph_item!(
             graph_item_id,
@@ -77,10 +77,10 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
-        %{graph_item: graph_item, signal: signal}
+        %{document: document, graph_item: graph_item, signal: signal}
       end)
       |> case do
-        {:ok, %{graph_item: graph_item, signal: signal}} ->
+        {:ok, %{document: document, graph_item: graph_item, signal: signal}} ->
           trace!(operation, "signal.create", "signal", signal.id)
           {:ok, %{graph_item: graph_item, signal: signal, document: document}}
 
@@ -91,296 +91,292 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   def create_task(session_context, operation, signal, attrs) do
-    with {:ok, document} <-
-           Content.create_plain_document(session_context, operation, attrs[:body] || "") do
-      task_id = Ecto.UUID.generate()
-      graph_item_id = Ecto.UUID.generate()
+    task_id = Ecto.UUID.generate()
+    graph_item_id = Ecto.UUID.generate()
 
-      graph_transaction(fn ->
-        graph_item =
-          insert_graph_item!(graph_item_id, session_context, "task", task_id, attrs[:title])
+    graph_transaction(fn ->
+      document = create_document!(session_context, operation, attrs[:body] || "")
 
-        task =
-          ash_create(
-            Task,
-            %{
-              id: task_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: graph_item_id,
-              source_signal_id: signal.id,
-              body_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "open"
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      graph_item =
+        insert_graph_item!(graph_item_id, session_context, "task", task_id, attrs[:title])
 
-        relationship =
-          insert_relationship!(signal.graph_item_id, graph_item_id, "produced_task")
+      task =
+        ash_create(
+          Task,
+          %{
+            id: task_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            graph_item_id: graph_item_id,
+            source_signal_id: signal.id,
+            body_document_id: document.id,
+            title: attrs[:title],
+            lifecycle_state: "open"
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        %{graph_item: graph_item, task: task, relationship: relationship}
-      end)
-      |> transaction_result(:task, operation, "task.create", "task")
-    end
+      relationship =
+        insert_relationship!(signal.graph_item_id, graph_item_id, "produced_task")
+
+      %{graph_item: graph_item, task: task, relationship: relationship}
+    end)
+    |> transaction_result(:task, operation, "task.create", "task")
   end
 
   def create_review_finding(session_context, operation, task, attrs) do
-    with {:ok, document} <-
-           Content.create_plain_document(session_context, operation, attrs[:body] || "") do
-      finding_id = Ecto.UUID.generate()
-      graph_item_id = Ecto.UUID.generate()
+    finding_id = Ecto.UUID.generate()
+    graph_item_id = Ecto.UUID.generate()
 
-      graph_transaction(fn ->
-        graph_item =
-          insert_graph_item!(
-            graph_item_id,
-            session_context,
-            "review_finding",
-            finding_id,
-            attrs[:title]
-          )
+    graph_transaction(fn ->
+      document = create_document!(session_context, operation, attrs[:body] || "")
 
-        review_finding =
-          ash_create(
-            ReviewFinding,
-            %{
-              id: finding_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: graph_item_id,
-              task_id: task.id,
-              body_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "open"
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      graph_item =
+        insert_graph_item!(
+          graph_item_id,
+          session_context,
+          "review_finding",
+          finding_id,
+          attrs[:title]
+        )
 
-        relationship =
-          insert_relationship!(task.graph_item_id, graph_item_id, "has_review_finding")
+      review_finding =
+        ash_create(
+          ReviewFinding,
+          %{
+            id: finding_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            graph_item_id: graph_item_id,
+            task_id: task.id,
+            body_document_id: document.id,
+            title: attrs[:title],
+            lifecycle_state: "open"
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        %{graph_item: graph_item, review_finding: review_finding, relationship: relationship}
-      end)
-      |> transaction_result(
-        :review_finding,
-        operation,
-        "review_finding.create",
-        "review_finding"
-      )
-    end
+      relationship =
+        insert_relationship!(task.graph_item_id, graph_item_id, "has_review_finding")
+
+      %{graph_item: graph_item, review_finding: review_finding, relationship: relationship}
+    end)
+    |> transaction_result(
+      :review_finding,
+      operation,
+      "review_finding.create",
+      "review_finding"
+    )
   end
 
   def create_verification_check(session_context, operation, review_finding, attrs) do
-    with {:ok, document} <-
-           Content.create_plain_document(session_context, operation, attrs[:body] || "") do
-      check_id = Ecto.UUID.generate()
-      graph_item_id = Ecto.UUID.generate()
+    check_id = Ecto.UUID.generate()
+    graph_item_id = Ecto.UUID.generate()
 
-      graph_transaction(fn ->
-        graph_item =
-          insert_graph_item!(
-            graph_item_id,
-            session_context,
-            "verification_check",
-            check_id,
-            attrs[:title]
-          )
+    graph_transaction(fn ->
+      document = create_document!(session_context, operation, attrs[:body] || "")
 
-        verification_check =
-          ash_create(
-            VerificationCheck,
-            %{
-              id: check_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: graph_item_id,
-              review_finding_id: review_finding.id,
-              description_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "required"
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      graph_item =
+        insert_graph_item!(
+          graph_item_id,
+          session_context,
+          "verification_check",
+          check_id,
+          attrs[:title]
+        )
 
-        relationship =
-          insert_relationship!(
-            review_finding.graph_item_id,
-            graph_item_id,
-            "requires_verification"
-          )
+      verification_check =
+        ash_create(
+          VerificationCheck,
+          %{
+            id: check_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            graph_item_id: graph_item_id,
+            review_finding_id: review_finding.id,
+            description_document_id: document.id,
+            title: attrs[:title],
+            lifecycle_state: "required"
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        %{
-          graph_item: graph_item,
-          verification_check: verification_check,
-          relationship: relationship
-        }
-      end)
-      |> transaction_result(
-        :verification_check,
-        operation,
-        "verification_check.create",
-        "verification_check"
-      )
-    end
+      relationship =
+        insert_relationship!(
+          review_finding.graph_item_id,
+          graph_item_id,
+          "requires_verification"
+        )
+
+      %{
+        graph_item: graph_item,
+        verification_check: verification_check,
+        relationship: relationship
+      }
+    end)
+    |> transaction_result(
+      :verification_check,
+      operation,
+      "verification_check.create",
+      "verification_check"
+    )
   end
 
   def complete_verification(session_context, operation, verification_check, attrs) do
-    with {:ok, evidence_document} <-
-           Content.create_plain_document(session_context, operation, attrs[:body] || "") do
-      review_finding = Repo.get!(ReviewFindingSchema, verification_check.review_finding_id)
-      task = Repo.get!(TaskSchema, review_finding.task_id)
+    review_finding = Repo.get!(ReviewFindingSchema, verification_check.review_finding_id)
+    task = Repo.get!(TaskSchema, review_finding.task_id)
 
-      artifact_id = Ecto.UUID.generate()
-      artifact_graph_item_id = Ecto.UUID.generate()
-      evidence_id = Ecto.UUID.generate()
-      evidence_graph_item_id = Ecto.UUID.generate()
-      verification_result_id = Ecto.UUID.generate()
+    artifact_id = Ecto.UUID.generate()
+    artifact_graph_item_id = Ecto.UUID.generate()
+    evidence_id = Ecto.UUID.generate()
+    evidence_graph_item_id = Ecto.UUID.generate()
+    verification_result_id = Ecto.UUID.generate()
 
-      graph_transaction(fn ->
-        artifact_graph_item =
-          insert_graph_item!(
-            artifact_graph_item_id,
-            session_context,
-            "artifact",
-            artifact_id,
-            attrs[:title]
-          )
+    graph_transaction(fn ->
+      evidence_document = create_document!(session_context, operation, attrs[:body] || "")
 
-        artifact =
-          ash_create(
-            Artifact,
-            %{
-              id: artifact_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: artifact_graph_item_id,
-              title: attrs[:title],
-              uri: attrs[:artifact_uri]
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      artifact_graph_item =
+        insert_graph_item!(
+          artifact_graph_item_id,
+          session_context,
+          "artifact",
+          artifact_id,
+          attrs[:title]
+        )
 
-        evidence_graph_item =
-          insert_graph_item!(
-            evidence_graph_item_id,
-            session_context,
-            "evidence_item",
-            evidence_id,
-            attrs[:title]
-          )
+      artifact =
+        ash_create(
+          Artifact,
+          %{
+            id: artifact_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            graph_item_id: artifact_graph_item_id,
+            title: attrs[:title],
+            uri: attrs[:artifact_uri]
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        evidence_item =
-          ash_create(
-            EvidenceItem,
-            %{
-              id: evidence_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: evidence_graph_item_id,
-              verification_check_id: verification_check.id,
-              artifact_id: artifact.id,
-              body_document_id: evidence_document.id,
-              title: attrs[:title],
-              state: "accepted"
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      evidence_graph_item =
+        insert_graph_item!(
+          evidence_graph_item_id,
+          session_context,
+          "evidence_item",
+          evidence_id,
+          attrs[:title]
+        )
 
-        verification_result =
-          ash_create(
-            VerificationResult,
-            %{
-              id: verification_result_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              verification_check_id: verification_check.id,
-              evidence_item_id: evidence_item.id,
-              operation_id: operation.id,
-              result: "passed"
-            },
-            session_context
-          )
-          |> unwrap_ash()
+      evidence_item =
+        ash_create(
+          EvidenceItem,
+          %{
+            id: evidence_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            graph_item_id: evidence_graph_item_id,
+            verification_check_id: verification_check.id,
+            artifact_id: artifact.id,
+            body_document_id: evidence_document.id,
+            title: attrs[:title],
+            state: "accepted"
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        verification_check =
-          VerificationCheck
-          |> ash_get(verification_check.id, session_context)
-          |> unwrap_ash()
-          |> ash_update(:mark_satisfied, session_context)
-          |> unwrap_ash()
+      verification_result =
+        ash_create(
+          VerificationResult,
+          %{
+            id: verification_result_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            verification_check_id: verification_check.id,
+            evidence_item_id: evidence_item.id,
+            operation_id: operation.id,
+            result: "passed"
+          },
+          session_context
+        )
+        |> unwrap_ash()
 
-        review_finding =
-          ReviewFinding
-          |> ash_get(review_finding.id, session_context)
-          |> unwrap_ash()
-          |> ash_update(:mark_verified_complete, session_context)
-          |> unwrap_ash()
+      verification_check =
+        VerificationCheck
+        |> ash_get_for_update(verification_check.id)
+        |> unwrap_ash()
+        |> ash_update(:mark_satisfied, session_context)
+        |> unwrap_ash()
 
-        task =
-          Task
-          |> ash_get(task.id, session_context)
-          |> unwrap_ash()
-          |> ash_update(:mark_verified_complete, session_context)
-          |> unwrap_ash()
+      review_finding =
+        ReviewFinding
+        |> ash_get_for_update(review_finding.id)
+        |> unwrap_ash()
+        |> ash_update(:mark_verified_complete, session_context)
+        |> unwrap_ash()
 
-        %{
-          artifact_graph_item: artifact_graph_item,
-          artifact: artifact,
-          evidence_graph_item: evidence_graph_item,
-          evidence_item: evidence_item,
-          verification_result: verification_result,
-          verification_check: verification_check,
-          review_finding: review_finding,
-          task: task
-        }
-      end)
-      |> case do
-        {:ok, changes} ->
-          trace!(operation, "artifact.create", "artifact", changes.artifact.id)
-          trace!(operation, "evidence_item.create", "evidence_item", changes.evidence_item.id)
+      task =
+        Task
+        |> ash_get_for_update(task.id)
+        |> unwrap_ash()
+        |> ash_update(:mark_verified_complete, session_context)
+        |> unwrap_ash()
 
-          trace!(
-            operation,
-            "verification_result.create",
-            "verification_result",
-            changes.verification_result.id
-          )
+      %{
+        artifact_graph_item: artifact_graph_item,
+        artifact: artifact,
+        evidence_graph_item: evidence_graph_item,
+        evidence_item: evidence_item,
+        verification_result: verification_result,
+        verification_check: verification_check,
+        review_finding: review_finding,
+        task: task
+      }
+    end)
+    |> case do
+      {:ok, changes} ->
+        trace!(operation, "artifact.create", "artifact", changes.artifact.id)
+        trace!(operation, "evidence_item.create", "evidence_item", changes.evidence_item.id)
 
-          trace!(
-            operation,
-            "verification_check.satisfy",
-            "verification_check",
-            changes.verification_check.id
-          )
+        trace!(
+          operation,
+          "verification_result.create",
+          "verification_result",
+          changes.verification_result.id
+        )
 
-          trace!(
-            operation,
-            "review_finding.complete",
-            "review_finding",
-            changes.review_finding.id
-          )
+        trace!(
+          operation,
+          "verification_check.satisfy",
+          "verification_check",
+          changes.verification_check.id
+        )
 
-          trace!(operation, "task.complete", "task", changes.task.id)
+        trace!(
+          operation,
+          "review_finding.complete",
+          "review_finding",
+          changes.review_finding.id
+        )
 
-          {:ok,
-           %{
-             artifact: changes.artifact,
-             evidence_item: changes.evidence_item,
-             verification_result: changes.verification_result,
-             verification_check: changes.verification_check,
-             review_finding: changes.review_finding,
-             task: changes.task
-           }}
+        trace!(operation, "task.complete", "task", changes.task.id)
 
-        {:error, changeset} ->
-          {:error, changeset}
-      end
+        {:ok,
+         %{
+           artifact: changes.artifact,
+           evidence_item: changes.evidence_item,
+           verification_result: changes.verification_result,
+           verification_check: changes.verification_check,
+           review_finding: changes.review_finding,
+           task: changes.task
+         }}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
@@ -396,6 +392,12 @@ defmodule OfficeGraph.WorkGraph do
 
   defp graph_transaction(fun) do
     Repo.transaction(fun)
+  end
+
+  defp create_document!(session_context, operation, plain_text) do
+    session_context
+    |> Content.create_plain_document(operation, plain_text)
+    |> unwrap_content()
   end
 
   # WorkGraph wraps Ash calls in graph transactions; request notifications so Ash
@@ -414,11 +416,10 @@ defmodule OfficeGraph.WorkGraph do
     |> unwrap_ash_result()
   end
 
-  defp ash_get(resource, id, session_context) do
+  defp ash_get_for_update(resource, id) do
     resource
     |> Ash.get(id,
-      actor: session_context,
-      authorize?: true,
+      authorize?: false,
       not_found_error?: true
     )
     |> case do
@@ -444,6 +445,14 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp unwrap_ash({:error, error}) do
+    Repo.rollback(error)
+  end
+
+  defp unwrap_content({:ok, document}) do
+    document
+  end
+
+  defp unwrap_content({:error, error}) do
     Repo.rollback(error)
   end
 

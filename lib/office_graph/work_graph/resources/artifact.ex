@@ -33,7 +33,8 @@ defmodule OfficeGraph.WorkGraph.Resources.Artifact do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem, resource_type: "artifact", resource_id: :id}
               ]}
     end
   end

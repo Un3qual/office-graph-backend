@@ -46,7 +46,9 @@ defmodule OfficeGraph.WorkGraph.Resources.EvidenceItem do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem,
+                   resource_type: "evidence_item", resource_id: :id},
                 verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
                 artifact_id: OfficeGraph.WorkGraph.Artifact,
                 body_document_id: OfficeGraph.Content.Document

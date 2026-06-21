@@ -4,6 +4,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Content.Document
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
+  alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.GraphItem
   alias OfficeGraph.WorkGraph.Task, as: TaskSchema
@@ -53,6 +54,62 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert Exception.message(error) =~ "source_signal_id"
   end
 
+  test "direct Ash creates reject graph item type and id mismatches" do
+    {:ok, bootstrap} = bootstrap_scope("direct-graph-item-mismatch")
+
+    signal_id = Ecto.UUID.generate()
+
+    wrong_type_graph_item =
+      insert_graph_item!(bootstrap, "task", signal_id, "Wrong type graph item")
+
+    signal_document = insert_document!(bootstrap, "Direct mismatch signal body")
+
+    assert {:error, signal_error} =
+             Ash.create(
+               SignalResource,
+               %{
+                 id: signal_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: wrong_type_graph_item.id,
+                 body_document_id: signal_document.id,
+                 title: "Reject wrong graph item type",
+                 state: "open"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(signal_error) =~ "graph_item_id"
+
+    source_signal = create_signal!(bootstrap, "Mismatch source signal")
+    task_id = Ecto.UUID.generate()
+
+    wrong_id_graph_item =
+      insert_graph_item!(bootstrap, "task", Ecto.UUID.generate(), "Wrong id graph item")
+
+    task_document = insert_document!(bootstrap, "Direct mismatch task body")
+
+    assert {:error, task_error} =
+             Ash.create(
+               TaskResource,
+               %{
+                 id: task_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: wrong_id_graph_item.id,
+                 source_signal_id: source_signal.id,
+                 body_document_id: task_document.id,
+                 title: "Reject wrong graph item resource id",
+                 lifecycle_state: "open"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(task_error) =~ "graph_item_id"
+  end
+
   test "public WorkGraph create_task returns an error for a cross-scope source signal" do
     {:ok, source_scope} = bootstrap_scope("public-linked-source")
     {:ok, target_scope} = bootstrap_scope("public-linked-target")
@@ -72,19 +129,24 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   test "public WorkGraph create_signal returns an error for graph item validation failure" do
     {:ok, bootstrap} = bootstrap_scope("public-signal-validation")
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    body = "A missing title should be returned as a validation error."
+
+    assert is_nil(Repo.get_by(Document, plain_text: body))
 
     assert {:error, %Ecto.Changeset{} = error} =
              WorkGraph.create_signal(bootstrap.session, operation, %{
                title: nil,
-               body: "A missing title should be returned as a validation error."
+               body: body
              })
 
     refute error.valid?
+    assert is_nil(Repo.get_by(Document, plain_text: body))
   end
 
   test "public WorkGraph create_task returns an error for relationship FK failure" do
     {:ok, bootstrap} = bootstrap_scope("public-relationship-fk")
     title = "Task with missing source graph item"
+    body = "The source graph item relationship should fail without raising."
 
     source_signal =
       bootstrap
@@ -92,16 +154,18 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       |> Map.put(:graph_item_id, Ecto.UUID.generate())
 
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+    assert is_nil(Repo.get_by(Document, plain_text: body))
 
     assert {:error, %Ecto.Changeset{} = error} =
              WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
                title: title,
-               body: "The source graph item relationship should fail without raising."
+               body: body
              })
 
     refute error.valid?
     assert is_nil(Repo.get_by(TaskSchema, title: title))
     assert is_nil(Repo.get_by(GraphItem, title: title))
+    assert is_nil(Repo.get_by(Document, plain_text: body))
   end
 
   test "public WorkGraph complete_verification returns an error for a stale verification check" do
@@ -109,15 +173,54 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     verification_check = create_verification_check!(bootstrap)
     stale_verification_check = %{verification_check | id: Ecto.UUID.generate()}
     {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    body = "The verification check id no longer exists."
+
+    assert is_nil(Repo.get_by(Document, plain_text: body))
 
     assert {:error, error} =
-             WorkGraph.complete_verification(bootstrap.session, operation, stale_verification_check, %{
-               title: "Stale verification evidence",
-               body: "The verification check id no longer exists.",
-               artifact_uri: "https://example.test/stale-verification"
-             })
+             WorkGraph.complete_verification(
+               bootstrap.session,
+               operation,
+               stale_verification_check,
+               %{
+                 title: "Stale verification evidence",
+                 body: body,
+                 artifact_uri: "https://example.test/stale-verification"
+               }
+             )
 
     assert Exception.message(error) =~ "verification_check_id"
+    assert is_nil(Repo.get_by(Document, plain_text: body))
+  end
+
+  test "verification completion does not require skeleton read capability for internal reloads" do
+    {:ok, bootstrap} = bootstrap_scope("verification-without-read")
+    verification_check = create_verification_check!(bootstrap)
+
+    verification_actor = %{
+      bootstrap.session
+      | capabilities: MapSet.new(["evidence.link", "verification.complete"])
+    }
+
+    {:ok, operation} = Operations.start_operation(verification_actor, :evidence_link)
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               verification_actor,
+               operation,
+               verification_check,
+               %{
+                 title: "Completion without read",
+                 body: "Evidence linked by a writer without skeleton read.",
+                 artifact_uri: "https://example.test/no-read"
+               }
+             )
+
+    assert completed.evidence_item.state == "accepted"
+    assert completed.verification_result.result == "passed"
+    assert completed.verification_check.lifecycle_state == "satisfied"
+    assert completed.review_finding.lifecycle_state == "verified_complete"
+    assert completed.task.lifecycle_state == "verified_complete"
   end
 
   defp bootstrap_scope(slug) do

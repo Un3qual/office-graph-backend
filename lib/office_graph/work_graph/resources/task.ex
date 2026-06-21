@@ -44,7 +44,8 @@ defmodule OfficeGraph.WorkGraph.Resources.Task do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem, resource_type: "task", resource_id: :id},
                 source_signal_id: OfficeGraph.WorkGraph.Signal,
                 body_document_id: OfficeGraph.Content.Document
               ]}

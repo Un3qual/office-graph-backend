@@ -10,8 +10,8 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
     with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
       opts
       |> Keyword.fetch!(:references)
-      |> Enum.reduce(changeset, fn {field, schema}, changeset ->
-        validate_reference(changeset, field, schema, organization_id, workspace_id)
+      |> Enum.reduce(changeset, fn {field, reference}, changeset ->
+        validate_reference(changeset, field, reference, organization_id, workspace_id)
       end)
     else
       :error ->
@@ -34,15 +34,17 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
     end
   end
 
-  defp validate_reference(changeset, field, schema, organization_id, workspace_id) do
+  defp validate_reference(changeset, field, reference, organization_id, workspace_id) do
+    {schema, reference_opts} = reference_spec(reference)
+
     case Ash.Changeset.get_attribute(changeset, field) do
       nil ->
         changeset
 
       id ->
         case Repo.get(schema, id) do
-          %{organization_id: ^organization_id, workspace_id: ^workspace_id} ->
-            changeset
+          %{organization_id: ^organization_id, workspace_id: ^workspace_id} = record ->
+            validate_resource_identity(record, field, reference_opts, changeset)
 
           _missing_or_cross_scope ->
             Ash.Changeset.add_error(
@@ -51,6 +53,37 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
               message: "#{field} must reference an existing record in the target scope"
             )
         end
+    end
+  end
+
+  defp reference_spec({schema, opts}) when is_list(opts), do: {schema, opts}
+  defp reference_spec(schema), do: {schema, []}
+
+  defp validate_resource_identity(record, field, reference_opts, changeset) do
+    expected_resource_type = Keyword.get(reference_opts, :resource_type)
+    expected_resource_id = expected_resource_id(changeset, reference_opts)
+
+    cond do
+      is_nil(expected_resource_type) and is_nil(expected_resource_id) ->
+        changeset
+
+      record.resource_type == expected_resource_type and
+          record.resource_id == expected_resource_id ->
+        changeset
+
+      true ->
+        Ash.Changeset.add_error(
+          changeset,
+          field: field,
+          message: "#{field} must reference a graph item for the target resource"
+        )
+    end
+  end
+
+  defp expected_resource_id(changeset, reference_opts) do
+    case Keyword.get(reference_opts, :resource_id) do
+      nil -> nil
+      field when is_atom(field) -> Ash.Changeset.get_attribute(changeset, field)
     end
   end
 end

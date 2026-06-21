@@ -55,39 +55,44 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @expected_reference_validations %{
     OfficeGraph.WorkGraph.Resources.Signal => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        graph_item_id:
+          {OfficeGraph.WorkGraph.GraphItem, resource_type: "signal", resource_id: :id},
         body_document_id: OfficeGraph.Content.Document
       ]
     },
     OfficeGraph.WorkGraph.Resources.Task => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        graph_item_id: {OfficeGraph.WorkGraph.GraphItem, resource_type: "task", resource_id: :id},
         source_signal_id: OfficeGraph.WorkGraph.Signal,
         body_document_id: OfficeGraph.Content.Document
       ]
     },
     OfficeGraph.WorkGraph.Resources.ReviewFinding => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        graph_item_id:
+          {OfficeGraph.WorkGraph.GraphItem, resource_type: "review_finding", resource_id: :id},
         task_id: OfficeGraph.WorkGraph.Task,
         body_document_id: OfficeGraph.Content.Document
       ]
     },
     OfficeGraph.WorkGraph.Resources.VerificationCheck => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        graph_item_id:
+          {OfficeGraph.WorkGraph.GraphItem, resource_type: "verification_check", resource_id: :id},
         review_finding_id: OfficeGraph.WorkGraph.ReviewFinding,
         description_document_id: OfficeGraph.Content.Document
       ]
     },
     OfficeGraph.WorkGraph.Resources.Artifact => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+        graph_item_id:
+          {OfficeGraph.WorkGraph.GraphItem, resource_type: "artifact", resource_id: :id}
       ]
     },
     OfficeGraph.WorkGraph.Resources.EvidenceItem => %{
       create: [
-        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        graph_item_id:
+          {OfficeGraph.WorkGraph.GraphItem, resource_type: "evidence_item", resource_id: :id},
         verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
         artifact_id: OfficeGraph.WorkGraph.Artifact,
         body_document_id: OfficeGraph.Content.Document

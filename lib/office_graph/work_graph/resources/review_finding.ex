@@ -44,7 +44,9 @@ defmodule OfficeGraph.WorkGraph.Resources.ReviewFinding do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem,
+                   resource_type: "review_finding", resource_id: :id},
                 task_id: OfficeGraph.WorkGraph.Task,
                 body_document_id: OfficeGraph.Content.Document
               ]}

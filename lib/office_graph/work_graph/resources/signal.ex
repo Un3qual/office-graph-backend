@@ -42,7 +42,8 @@ defmodule OfficeGraph.WorkGraph.Resources.Signal do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem, resource_type: "signal", resource_id: :id},
                 body_document_id: OfficeGraph.Content.Document
               ]}
     end

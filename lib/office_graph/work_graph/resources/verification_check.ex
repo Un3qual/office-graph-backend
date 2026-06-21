@@ -44,7 +44,9 @@ defmodule OfficeGraph.WorkGraph.Resources.VerificationCheck do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem,
+                   resource_type: "verification_check", resource_id: :id},
                 review_finding_id: OfficeGraph.WorkGraph.ReviewFinding,
                 description_document_id: OfficeGraph.Content.Document
               ]}
