@@ -6,6 +6,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.GraphItem
+  alias OfficeGraph.WorkGraph.Task, as: TaskSchema
   alias OfficeGraph.WorkGraph.Resources.Signal, as: SignalResource
   alias OfficeGraph.WorkGraph.Resources.Task, as: TaskResource
 
@@ -83,6 +84,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
   test "public WorkGraph create_task returns an error for relationship FK failure" do
     {:ok, bootstrap} = bootstrap_scope("public-relationship-fk")
+    title = "Task with missing source graph item"
 
     source_signal =
       bootstrap
@@ -93,11 +95,29 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     assert {:error, %Ecto.Changeset{} = error} =
              WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
-               title: "Task with missing source graph item",
+               title: title,
                body: "The source graph item relationship should fail without raising."
              })
 
     refute error.valid?
+    assert is_nil(Repo.get_by(TaskSchema, title: title))
+    assert is_nil(Repo.get_by(GraphItem, title: title))
+  end
+
+  test "public WorkGraph complete_verification returns an error for a stale verification check" do
+    {:ok, bootstrap} = bootstrap_scope("public-stale-verification")
+    verification_check = create_verification_check!(bootstrap)
+    stale_verification_check = %{verification_check | id: Ecto.UUID.generate()}
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+
+    assert {:error, error} =
+             WorkGraph.complete_verification(bootstrap.session, operation, stale_verification_check, %{
+               title: "Stale verification evidence",
+               body: "The verification check id no longer exists.",
+               artifact_uri: "https://example.test/stale-verification"
+             })
+
+    assert Exception.message(error) =~ "verification_check_id"
   end
 
   defp bootstrap_scope(slug) do
@@ -123,6 +143,38 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       })
 
     signal
+  end
+
+  defp create_verification_check!(bootstrap) do
+    {:ok, signal_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    {:ok, %{signal: signal}} =
+      WorkGraph.create_signal(bootstrap.session, signal_operation, %{
+        title: "Verification source",
+        body: "Source body"
+      })
+
+    {:ok, graph_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    {:ok, %{task: task}} =
+      WorkGraph.create_task(bootstrap.session, graph_operation, signal, %{
+        title: "Verification task",
+        body: "Task body"
+      })
+
+    {:ok, %{review_finding: review_finding}} =
+      WorkGraph.create_review_finding(bootstrap.session, graph_operation, task, %{
+        title: "Verification finding",
+        body: "Finding body"
+      })
+
+    {:ok, %{verification_check: verification_check}} =
+      WorkGraph.create_verification_check(bootstrap.session, graph_operation, review_finding, %{
+        title: "Verification check",
+        body: "Check body"
+      })
+
+    verification_check
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do

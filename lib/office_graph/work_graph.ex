@@ -401,33 +401,35 @@ defmodule OfficeGraph.WorkGraph do
   defp ash_create(resource, attrs, session_context) do
     resource
     |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
-    |> Ash.create(authorize?: true, return_notifications?: true)
-    |> unwrap_notifications()
+    |> Ash.create(authorize?: true)
+    |> unwrap_ash_result()
   end
 
   defp ash_update(record, action, session_context) do
     record
     |> Ash.Changeset.for_update(action, %{}, actor: session_context)
-    |> Ash.update(authorize?: true, return_notifications?: true)
-    |> unwrap_notifications()
+    |> Ash.update(authorize?: true)
+    |> unwrap_ash_result()
   end
 
   defp ash_get(resource, id, session_context) do
-    Ash.get(resource, id,
+    resource
+    |> Ash.get(id,
       actor: session_context,
-      authorize?: true
+      authorize?: true,
+      not_found_error?: true
     )
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      result -> result
+    end
   end
 
-  defp unwrap_notifications({:ok, record, _notifications}) do
+  defp unwrap_ash_result({:ok, record}) do
     {:ok, record}
   end
 
-  defp unwrap_notifications({:ok, record}) do
-    {:ok, record}
-  end
-
-  defp unwrap_notifications({:error, error}) do
+  defp unwrap_ash_result({:error, error}) do
     {:error, error}
   end
 
