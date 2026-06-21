@@ -46,12 +46,11 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
           {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = record} ->
             validate_resource_identity(record, field, reference_opts, changeset)
 
-          _missing_or_cross_scope ->
-            Ash.Changeset.add_error(
-              changeset,
-              field: field,
-              message: "#{field} must reference an existing record in the target scope"
-            )
+          {:ok, _missing_or_cross_scope} ->
+            add_missing_or_cross_scope_error(changeset, field)
+
+          {:error, error} ->
+            add_lookup_error(changeset, field, error)
         end
     end
   end
@@ -63,9 +62,26 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
     resource
     |> Ash.Query.filter(id == ^record_id)
     |> Ash.read_one(authorize?: false)
-  rescue
-    _error -> {:error, :unsupported_reference}
   end
+
+  defp add_missing_or_cross_scope_error(changeset, field) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: field,
+      message: "#{field} must reference an existing record in the target scope"
+    )
+  end
+
+  defp add_lookup_error(changeset, field, error) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: field,
+      message: "#{field} lookup failed: #{format_lookup_error(error)}"
+    )
+  end
+
+  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
+  defp format_lookup_error(error), do: inspect(error)
 
   defp validate_resource_identity(record, field, reference_opts, changeset) do
     expected_resource_type = Keyword.get(reference_opts, :resource_type)

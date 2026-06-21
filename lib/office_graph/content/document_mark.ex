@@ -10,6 +10,8 @@ defmodule OfficeGraph.Content.DocumentMark do
     table "document_marks"
     repo OfficeGraph.Repo
     migrate? false
+
+    foreign_key_names block_id: "document_marks_block_id_fkey"
   end
 
   attributes do

@@ -10,6 +10,8 @@ defmodule OfficeGraph.Content.DocumentReference do
     table "document_references"
     repo OfficeGraph.Repo
     migrate? false
+
+    foreign_key_names document_id: "document_references_document_id_fkey"
   end
 
   attributes do

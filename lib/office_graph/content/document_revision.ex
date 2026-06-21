@@ -10,6 +10,12 @@ defmodule OfficeGraph.Content.DocumentRevision do
     table "document_revisions"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_document_revision:
+                           "document_revisions_document_id_revision_number_index"
+
+    foreign_key_names document_id: "document_revisions_document_id_fkey",
+                      operation_id: "document_revisions_operation_id_fkey"
   end
 
   attributes do

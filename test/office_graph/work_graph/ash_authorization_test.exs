@@ -8,6 +8,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
   alias OfficeGraph.WorkGraph.GraphItem
   alias OfficeGraph.WorkGraph.GraphRelationship
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
@@ -220,6 +221,34 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
       assert Exception.message(error) =~ "operation_id"
     end
+  end
+
+  test "same-scope validation preserves Ash read errors separately from missing references" do
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+
+    changeset = %Ash.Changeset{
+      attributes: %{
+        organization_id: organization_id,
+        workspace_id: workspace_id,
+        body_document_id: "not-a-uuid"
+      }
+    }
+
+    error =
+      changeset
+      |> ValidateSameScopeReferences.change(
+        [references: [body_document_id: Document]],
+        %{}
+      )
+      |> Map.fetch!(:errors)
+      |> Ash.Error.to_error_class()
+
+    message = Exception.message(error)
+
+    assert message =~ "body_document_id lookup failed"
+    assert message =~ "not-a-uuid"
+    refute message =~ "must reference an existing record in the target scope"
   end
 
   test "graph relationships expose no public Ash actions" do

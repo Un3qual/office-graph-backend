@@ -203,6 +203,133 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert explicit_document.id == explicit_id
   end
 
+  test "content identity constraints surface duplicate block positions and revision numbers", %{
+    bootstrap: bootstrap,
+    operation: operation
+  } do
+    document =
+      Ash.create!(
+        Document,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          plain_text: "Document with duplicate identity attempts"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    block_attrs = %{
+      document_id: document.id,
+      position: 0,
+      block_type: "paragraph",
+      text: "Duplicate position"
+    }
+
+    revision_attrs = %{
+      document_id: document.id,
+      operation_id: operation.id,
+      revision_number: 1,
+      semantic_summary: "initial"
+    }
+
+    assert {:ok, _block} =
+             Ash.create(DocumentBlock, block_attrs, action: :create, authorize?: false)
+
+    assert {:error, block_error} =
+             Ash.create(DocumentBlock, block_attrs, action: :create, authorize?: false)
+
+    block_message = ash_error_message(block_error)
+    assert block_message =~ "document_id"
+    assert block_message =~ "has already been taken"
+    refute block_message =~ "constraint error when attempting to insert struct"
+
+    assert {:ok, _revision} =
+             Ash.create(DocumentRevision, revision_attrs, action: :create, authorize?: false)
+
+    assert {:error, revision_error} =
+             Ash.create(DocumentRevision, revision_attrs, action: :create, authorize?: false)
+
+    revision_message = ash_error_message(revision_error)
+    assert revision_message =~ "document_id"
+    assert revision_message =~ "has already been taken"
+    refute revision_message =~ "constraint error when attempting to insert struct"
+  end
+
+  test "content foreign key constraints surface invalid document and operation references", %{
+    bootstrap: bootstrap
+  } do
+    assert {:error, document_error} =
+             Ash.create(
+               DocumentBlock,
+               %{
+                 document_id: Ecto.UUID.generate(),
+                 position: 0,
+                 block_type: "paragraph",
+                 text: "Missing document"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    document_message = ash_error_message(document_error)
+    assert document_message =~ "document_id"
+    refute document_message =~ "constraint error when attempting to insert struct"
+
+    document =
+      Ash.create!(
+        Document,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          plain_text: "Document with missing operation revision"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:error, operation_error} =
+             Ash.create(
+               DocumentRevision,
+               %{
+                 document_id: document.id,
+                 operation_id: Ecto.UUID.generate(),
+                 revision_number: 1,
+                 semantic_summary: "missing operation"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    operation_message = ash_error_message(operation_error)
+    assert operation_message =~ "operation_id"
+    refute operation_message =~ "constraint error when attempting to insert struct"
+  end
+
+  test "plain document creation rolls back document and block when revision insert fails", %{
+    bootstrap: bootstrap
+  } do
+    plain_text = "Rollback document #{System.unique_integer([:positive])}"
+    missing_operation = %{id: Ecto.UUID.generate()}
+
+    assert {:error, error} =
+             Content.create_plain_document(bootstrap.session, missing_operation, plain_text)
+
+    message = ash_error_message(error)
+    assert message =~ "operation_id"
+    refute message =~ "constraint error when attempting to insert struct"
+
+    assert [] =
+             Document
+             |> Ash.Query.filter(plain_text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+
+    assert [] =
+             DocumentBlock
+             |> Ash.Query.filter(text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+  end
+
   test "manual intake stores raw archive and identifies replay duplicates", %{
     bootstrap: bootstrap,
     operation: operation
@@ -223,4 +350,12 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert second.normalized_event.outcome == "duplicate"
     assert second.normalized_event.duplicate_of_id == first.normalized_event.id
   end
+
+  defp ash_error_message(%Ash.Changeset{} = changeset) do
+    changeset.errors
+    |> Ash.Error.to_error_class()
+    |> Exception.message()
+  end
+
+  defp ash_error_message(error), do: Exception.message(error)
 end

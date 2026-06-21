@@ -47,6 +47,8 @@ defmodule OfficeGraph.Content do
   end
 
   defp ash_create(resource, attrs) do
+    # Ash returns notifications for create actions when requested; Content has no
+    # subscribers yet, so this boundary deliberately ignores them.
     resource
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(authorize?: false, return_notifications?: true)
