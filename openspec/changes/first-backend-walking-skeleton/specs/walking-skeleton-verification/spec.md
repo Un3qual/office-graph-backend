@@ -62,3 +62,14 @@ Office Graph SHALL test both API surfaces against the same domain behavior.
 - **WHEN** GraphQL and JSON API smoke tests exercise the walking-skeleton flow
 - **THEN** both surfaces MUST produce equivalent durable state, authorization
   decisions, validation outcomes, and operation correlation linkage
+
+### Requirement: Architecture Conformance Gate
+Office Graph SHALL verify that implementation architecture matches accepted
+OpenSpec design decisions, not only externally visible behavior.
+
+#### Scenario: Backend verification runs
+- **WHEN** `bin/verify-backend` runs for the walking skeleton
+- **THEN** it MUST fail if required Ash domains/resources are missing, stable
+  product mutations bypass Ash without an approved exception, the direct Ecto
+  exception ledger drifts from approved mutation paths, or the implementation
+  summary lacks requirement-to-evidence mapping

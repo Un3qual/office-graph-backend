@@ -138,3 +138,18 @@
 - [x] 8.5 Prepare a review summary mapping implemented code back to each
   `first-backend-walking-skeleton` spec capability before applying or
   archiving the change.
+
+## 9. Ash Repair And Architecture Conformance
+
+- [x] 9.1 Add failing Ash conformance tests for missing domains/resources and
+  unapproved direct Repo mutation paths.
+- [x] 9.2 Add WorkGraph Ash domain and AshPostgres resources for signal, task,
+  review finding, verification check, artifact, evidence item, and
+  verification result.
+- [x] 9.3 Route normal typed WorkGraph creation and lifecycle transitions
+  through Ash actions while preserving graph identity transaction invariants.
+- [x] 9.4 Add a shared Ash authorization check that delegates to the
+  Authorization boundary.
+- [x] 9.5 Add an architecture exception ledger for remaining direct Ecto paths.
+- [x] 9.6 Add architecture conformance to Mix aliases and `bin/verify-backend`.
+- [x] 9.7 Update implementation summary with a requirement-to-evidence matrix.

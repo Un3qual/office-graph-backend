@@ -72,3 +72,14 @@ storage shape.
 - **THEN** Office Graph MUST store a raw archive reference, normalized event
   identity, source identity, replay/idempotency key, operation correlation,
   and duplicate-handling outcome before applying durable graph changes
+
+### Requirement: Ash Resource Ownership For Stable Loop Resources
+Office Graph SHALL model stable walking-loop product records as Ash resources
+owned by the WorkGraph bounded context.
+
+#### Scenario: Stable graph-backed loop resource is implemented
+- **WHEN** signal, task, review finding, verification check, artifact, evidence
+  item, or verification result persistence is implemented
+- **THEN** the typed product record MUST have an Ash resource backed by its
+  owning Postgres table, registered in the WorkGraph Ash domain, and covered by
+  authorization-aware Ash actions
