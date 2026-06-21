@@ -52,43 +52,43 @@
 
 ## 4. Persistence And Resource Skeleton
 
-- [ ] 4.1 Create migrations/resources for operation correlation records and the
+- [x] 4.1 Create migrations/resources for operation correlation records and the
   minimal typed revision, authorization decision, audit, and tombstone records
   needed by walking-skeleton actions.
-- [ ] 4.2 Create migrations/resources for graph items and typed graph
+- [x] 4.2 Create migrations/resources for graph items and typed graph
   relationships with concrete references and atomic graph identity plus typed
   resource creation.
-- [ ] 4.3 Create migrations/resources for raw archives, external sources,
+- [x] 4.3 Create migrations/resources for raw archives, external sources,
   external references, normalized intake events, source identity,
   replay/idempotency identity, and duplicate-handling outcome.
-- [ ] 4.4 Create migrations/resources for signals, tasks, review findings,
+- [x] 4.4 Create migrations/resources for signals, tasks, review findings,
   verification checks, evidence items, artifacts, and verification results.
-- [ ] 4.5 Create skeletal migrations/resources for work packets, runs, run
+- [x] 4.5 Create skeletal migrations/resources for work packets, runs, run
   events, and proposed graph changes only to the extent needed for readiness,
   traceability, proposed mutation safety, and verification.
-- [ ] 4.6 Create the narrowed rich text v1 tables/resources for documents,
+- [x] 4.6 Create the narrowed rich text v1 tables/resources for documents,
   current blocks, basic marks/references, whole-document semantic revisions,
   and derived plain text used by skeleton body fields.
-- [ ] 4.7 Add migration/resource tests for foreign keys, unique constraints,
+- [x] 4.7 Add migration/resource tests for foreign keys, unique constraints,
   soft-delete-aware uniqueness where needed, graph identity atomicity, and
   raw archive/idempotency behavior.
 
 ## 5. Walking Skeleton Domain Actions
 
-- [ ] 5.1 Implement public domain action for manual intake submission that
+- [x] 5.1 Implement public domain action for manual intake submission that
   stores the raw archive, normalized event, source/replay identity, operation
   correlation, and duplicate-handling outcome.
-- [ ] 5.2 Implement proposed graph change creation, validation, authorization,
+- [x] 5.2 Implement proposed graph change creation, validation, authorization,
   rejection, and application paths for skeleton resources and relationships.
-- [ ] 5.3 Implement domain actions for creating and linking the manual intake
+- [x] 5.3 Implement domain actions for creating and linking the manual intake
   signal, task, review finding, required verification check, evidence item,
   artifact when needed, and verification result.
-- [ ] 5.4 Implement type-specific lifecycle transitions through verified
+- [x] 5.4 Implement type-specific lifecycle transitions through verified
   completion without using one universal graph status enum.
-- [ ] 5.5 Ensure every state-changing action receives authenticated
+- [x] 5.5 Ensure every state-changing action receives authenticated
   principal/session context, tenant/scope context, and operation correlation
   context before authorization and mutation.
-- [ ] 5.6 Add tests for successful loop progression, invalid proposed changes,
+- [x] 5.6 Add tests for successful loop progression, invalid proposed changes,
   unauthorized proposed changes, duplicate intake replay, and audit/revision
   traceability.
 
