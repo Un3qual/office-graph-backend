@@ -126,6 +126,12 @@ defmodule OfficeGraphWeb.Schema do
      extensions: %{code: "invalid_proposed_change_status", proposed_change_id: id}}
   end
 
+  defp graphql_error({:error, {:invalid_proposed_change, id}}) do
+    {:error,
+     message: "A proposed change failed validation.",
+     extensions: %{code: "invalid_proposed_change", proposed_change_id: id}}
+  end
+
   defp graphql_error({:error, {:invalid_proposed_change_set, reason}}) do
     {:error,
      message: "The proposed change set is invalid.",

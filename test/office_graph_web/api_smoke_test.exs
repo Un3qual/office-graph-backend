@@ -1,6 +1,9 @@
 defmodule OfficeGraphWeb.ApiSmokeTest do
   use OfficeGraphWeb.ConnCase, async: false
 
+  alias OfficeGraph.Foundation
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
+
   describe "GraphQL and JSON API walking skeleton" do
     test "both transports drive the same durable loop", %{conn: conn} do
       graph = run_graphql_flow(conn, "graphql-flow")
@@ -48,6 +51,16 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert response["error"]["code"] == "invalid_proposed_change_set"
       assert response["error"]["reason"]["kind"] == "missing_change_type"
+    end
+
+    test "JSON apply rejects non-array ids before querying proposed changes", %{conn: conn} do
+      response =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: "not-a-list"})
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "ids"
     end
 
     test "JSON apply reports missing proposed-change ids without crashing", %{conn: conn} do
@@ -172,6 +185,30 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
                response["errors"]
 
       assert error["extensions"]["reason"]["kind"] == "missing_change_type"
+      assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
+
+    test "GraphQL apply preserves invalid proposed-change details", %{conn: conn} do
+      submit =
+        graphql(conn, submit_query(), %{
+          replayIdentity: "graphql-invalid-change-#{System.unique_integer([:positive])}"
+        })
+
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      proposed_change_ids = Enum.map(submit["proposedChanges"], & &1["id"])
+      [invalid_id | _rest] = proposed_change_ids
+
+      ProposedGraphChange
+      |> Ash.get!(invalid_id, actor: bootstrap.session)
+      |> Ash.Changeset.for_update(:set_payload, %{payload: %{"body" => "missing title"}})
+      |> Ash.update!(actor: bootstrap.session)
+
+      response = graphql_apply(conn, proposed_change_ids)
+
+      assert [%{"extensions" => %{"code" => "invalid_proposed_change"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["proposed_change_id"] == invalid_id
       assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
     end
 

@@ -164,7 +164,8 @@ defmodule OfficeGraph.ProposedChanges do
   defp validate_change_set(session_context, proposed_changes) do
     with :ok <- validate_record_scopes(session_context, proposed_changes),
          :ok <- validate_pending(proposed_changes),
-         :ok <- validate_required_types(proposed_changes) do
+         :ok <- validate_required_types(proposed_changes),
+         :ok <- validate_single_normalized_event(proposed_changes) do
       :ok
     end
   end
@@ -207,6 +208,22 @@ defmodule OfficeGraph.ProposedChanges do
 
       true ->
         :ok
+    end
+  end
+
+  defp validate_single_normalized_event(proposed_changes) do
+    normalized_event_ids =
+      proposed_changes
+      |> Enum.map(& &1.normalized_event_id)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    case normalized_event_ids do
+      [_id] ->
+        :ok
+
+      ids ->
+        {:error, {:invalid_proposed_change_set, {:mixed_normalized_event_ids, ids}}}
     end
   end
 

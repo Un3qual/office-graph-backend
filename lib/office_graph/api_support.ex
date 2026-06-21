@@ -36,9 +36,8 @@ defmodule OfficeGraph.ApiSupport do
   end
 
   def apply_proposed_changes(params) do
-    ids = value(params, :ids) || []
-
-    with {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+    with {:ok, ids} <- optional_id_list(params, :ids),
+         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :proposed_change_apply),
          {:ok, proposed_changes} <- ProposedChanges.get_many(bootstrap.session, ids) do
       ProposedChanges.apply_all(bootstrap.session, operation, proposed_changes)
@@ -77,6 +76,25 @@ defmodule OfficeGraph.ApiSupport do
         {:error, {:invalid_field, key}}
     end
   end
+
+  defp optional_id_list(params, key) do
+    case value(params, key) do
+      nil ->
+        {:ok, []}
+
+      values when is_list(values) ->
+        if Enum.all?(values, &valid_id?/1) do
+          {:ok, values}
+        else
+          {:error, {:invalid_field, key}}
+        end
+
+      _other ->
+        {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp valid_id?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp value(params, key) do
     params[key] || params[to_string(key)]

@@ -341,6 +341,37 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute document_with_plain_text?(body)
   end
 
+  test "public WorkGraph create_signal rejects operations from another session in the same workspace" do
+    {:ok, actor_scope} = bootstrap_scope("public-signal-operation-actor")
+
+    {:ok, other_principal_same_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Office Graph public-signal-operation-actor",
+        organization_slug: "office-graph-public-signal-operation-actor",
+        workspace_name: "Workspace public-signal-operation-actor",
+        workspace_slug: "workspace-public-signal-operation-actor",
+        initiative_name: "Initiative public-signal-operation-actor",
+        initiative_slug: "initiative-public-signal-operation-actor",
+        owner_email: "other-public-signal-operation-actor@office-graph.local",
+        owner_name: "Other Owner public-signal-operation-actor"
+      )
+
+    {:ok, foreign_operation} =
+      Operations.start_operation(other_principal_same_scope.session, :manual_intake_submit)
+
+    body = "A reused operation from another session must not create graph truth."
+
+    refute document_with_plain_text?(body)
+
+    assert {:error, :forbidden} =
+             WorkGraph.create_signal(actor_scope.session, foreign_operation, %{
+               title: "Reject reused operation",
+               body: body
+             })
+
+    refute document_with_plain_text?(body)
+  end
+
   test "public WorkGraph create_task returns an error for relationship FK failure" do
     {:ok, bootstrap} = bootstrap_scope("public-relationship-fk")
     title = "Task with missing source graph item"

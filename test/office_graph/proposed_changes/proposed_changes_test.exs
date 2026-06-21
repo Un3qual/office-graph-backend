@@ -113,6 +113,24 @@ defmodule OfficeGraph.ProposedChangesTest do
            )
   end
 
+  test "apply-only sessions can create proposed signal graph truth", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    apply_only = %{bootstrap.session | capabilities: MapSet.new(["proposed_change.apply"])}
+    {:ok, apply_operation} = Operations.start_operation(apply_only, :proposed_change_apply)
+
+    assert {:ok, applied} =
+             ProposedChanges.apply_all(apply_only, apply_operation, intake.proposed_changes)
+
+    assert applied.signal.title == "Investigate flaky deploy and prove it"
+
+    assert Enum.all?(intake.proposed_changes, fn change ->
+             change = get_change!(change)
+             change.status == "applied" and not is_nil(change.applied_at)
+           end)
+  end
+
   test "apply rejects cross-scope proposed changes before graph creation", %{
     bootstrap: bootstrap,
     intake: intake
@@ -147,6 +165,33 @@ defmodule OfficeGraph.ProposedChangesTest do
              ProposedChanges.apply_all(bootstrap.session, apply_operation, missing_changes)
 
     assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
+  end
+
+  test "apply rejects complete change sets assembled from different intake events", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    second = submit_intake!("mixed-intake")
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    proposed_changes =
+      [
+        find_change(intake.proposed_changes, "create_signal"),
+        find_change(second.proposed_changes, "create_task"),
+        find_change(intake.proposed_changes, "create_review_finding"),
+        find_change(second.proposed_changes, "create_verification_check")
+      ]
+
+    expected_ids =
+      proposed_changes
+      |> Enum.map(& &1.normalized_event_id)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert {:error, {:invalid_proposed_change_set, {:mixed_normalized_event_ids, ^expected_ids}}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
+
+    assert Enum.all?(proposed_changes, &(get_change!(&1).status == "pending"))
   end
 
   test "successful apply marks all supplied proposed changes applied", %{
@@ -238,6 +283,20 @@ defmodule OfficeGraph.ProposedChangesTest do
              )
   end
 
+  defp submit_intake!(suffix) do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    {:ok, intake} =
+      Integrations.submit_manual_intake(bootstrap.session, intake_operation, %{
+        source_identity: "manual:#{suffix}",
+        replay_identity: "paste:#{suffix}-#{System.unique_integer([:positive])}",
+        body: "Investigate #{suffix} and prove it."
+      })
+
+    intake
+  end
+
   defp submit_scoped_intake!(suffix) do
     {:ok, bootstrap} =
       Foundation.bootstrap_local_owner(
@@ -270,5 +329,9 @@ defmodule OfficeGraph.ProposedChangesTest do
 
   defp get_change!(change) do
     Ash.get!(ProposedGraphChange, change.id, authorize?: false)
+  end
+
+  defp find_change(changes, change_type) do
+    Enum.find(changes, &(&1.change_type == change_type))
   end
 end

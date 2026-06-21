@@ -116,11 +116,7 @@ defmodule OfficeGraph.Integrations do
            not_found_error?: false
          ) do
       {:ok, nil} ->
-        ash_create(ExternalSource, %{
-          key: source_identity,
-          name: "Manual Intake",
-          kind: "manual"
-        })
+        insert_source_then_refetch(source_identity)
 
       {:ok, source} ->
         {:ok, source}
@@ -128,6 +124,38 @@ defmodule OfficeGraph.Integrations do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  defp insert_source_then_refetch(source_identity) do
+    now = DateTime.utc_now()
+
+    Repo.insert_all(
+      "external_sources",
+      [
+        %{
+          id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+          key: source_identity,
+          name: "Manual Intake",
+          kind: "manual",
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: :nothing,
+      conflict_target: [:key]
+    )
+
+    case fetch_source(source_identity) do
+      {:ok, nil} -> {:error, :source_not_found_after_create}
+      result -> result
+    end
+  end
+
+  defp fetch_source(source_identity) do
+    Ash.get(ExternalSource, %{key: source_identity},
+      authorize?: false,
+      not_found_error?: false
+    )
   end
 
   defp accepted_duplicate(session_context, attrs) do
@@ -143,9 +171,13 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp ash_create(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
+    Ash.create(
+      resource,
+      attrs,
+      action: :create,
+      authorize?: false,
+      return_notifications?: true
+    )
     |> case do
       {:ok, record, _notifications} -> {:ok, record}
       {:ok, record} -> {:ok, record}
