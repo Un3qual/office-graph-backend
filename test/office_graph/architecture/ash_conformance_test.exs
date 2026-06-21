@@ -8,6 +8,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
   @architecture_exception_ledger "openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md"
   @implementation_summary "openspec/changes/first-backend-walking-skeleton/implementation-summary.md"
+  @model_inventory "openspec/changes/repair-ash-model-conformance/model-inventory.md"
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
@@ -163,7 +164,50 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
-  @direct_ecto_operation_pattern ~r/\b(?<receiver>(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>transaction|insert!|insert|update!|update|delete!|delete|get_by!|get_by)(?![!?_[:alnum:]])/
+  @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
+
+  @tag :scanner_contract
+  test "direct Ecto scanner reports read and aggregate operations" do
+    operations =
+      direct_ecto_operations()
+      |> MapSet.new(&{&1.path, &1.function, &1.operation})
+
+    for expected <- [
+          {"lib/office_graph/proposed_changes.ex", "get_many!/1", "Repo.all"},
+          {"lib/office_graph/work_graph.ex", "get_verification_check!/1", "Repo.get!"},
+          {"lib/office_graph/work_graph.ex", "complete_verification/4", "Repo.get!"},
+          {"lib/office_graph/work_graph/changes/validate_same_scope_references.ex",
+           "validate_reference/5", "Repo.get"},
+          {"lib/office_graph/audit.ex", "count_for_operation/1", "Repo.aggregate"},
+          {"lib/office_graph/revisions.ex", "count_for_operation/1", "Repo.aggregate"}
+        ] do
+      assert MapSet.member?(operations, expected),
+             "Expected direct Ecto scanner to report #{inspect(expected)}"
+    end
+  end
+
+  @tag :scanner_contract
+  test "direct Ecto ledger approval requires exact path function operation tuples" do
+    entries =
+      parse_direct_ecto_ledger_entries("""
+      | File | Function | Operation |
+      | --- | --- | --- |
+      | `lib/example.ex` | `allowed/0` | `Repo.insert` |
+      | `lib/example.ex` | `{other/0, Repo.update}` | Synthetic tuple approval |
+      """)
+
+    assert ledger_approves_operation?(entries, %{
+             path: "lib/example.ex",
+             function: "allowed/0",
+             operation: "Repo.insert"
+           })
+
+    refute ledger_approves_operation?(entries, %{
+             path: "lib/example.ex",
+             function: "other/0",
+             operation: "Repo.insert"
+           })
+  end
 
   test "migration-created tables match the repo-wide Ash ownership inventory" do
     expected_tables = @expected_resources |> Map.keys() |> Enum.sort()
@@ -178,6 +222,10 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert map_size(@expected_resources) == 40
     assert duplicate_resources == []
     assert migration_tables() == expected_tables
+  end
+
+  test "repo-wide Ash ownership inventory matches the OpenSpec model inventory" do
+    assert expected_resource_inventory() == model_inventory_resources()
   end
 
   test "all expected Ash domains are registered in application config" do
@@ -369,7 +417,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert unapproved == [],
            """
            Found direct Repo/Ecto.Multi operations without explicit ledger approval.
-           Each approval must document the file, function, and exact operation string in #{@architecture_exception_ledger}.
+           Each approval must document the file, function, and exact operation as a tuple or row in #{@architecture_exception_ledger}.
 
            #{format_direct_operations(unapproved)}
            """
@@ -378,15 +426,18 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   test "direct Ecto exception ledger entries still point to current code" do
     operations = direct_ecto_operations()
 
+    current_tuples =
+      operations
+      |> MapSet.new(&{&1.path, &1.function, &1.operation})
+
     missing =
       for entry <- direct_ecto_ledger_entries(),
-          function <- entry.functions,
-          not Enum.any?(operations, &(&1.path == entry.path and &1.function == function)) do
-        "#{entry.path} #{function}"
+          not MapSet.member?(current_tuples, {entry.path, entry.function, entry.operation}) do
+        "#{entry.path} #{entry.function} #{entry.operation}"
       end
 
     assert missing == [],
-           "#{@architecture_exception_ledger} contains direct Ecto exception entries with no matching current code:\n#{format_errors(missing)}"
+           "#{@architecture_exception_ledger} contains exact direct Ecto exception tuples with no matching current code:\n#{format_errors(missing)}"
   end
 
   test "implementation summary includes architecture evidence mapping" do
@@ -432,6 +483,27 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Map.values()
     |> Enum.map(fn {domain, _resource} -> domain end)
     |> MapSet.new()
+  end
+
+  defp expected_resource_inventory do
+    @expected_resources
+    |> Enum.map(fn {table, {domain, resource}} ->
+      {table, inspect(domain), inspect(resource)}
+    end)
+    |> Enum.sort()
+  end
+
+  defp model_inventory_resources do
+    @model_inventory
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.flat_map(fn line ->
+      case Regex.run(~r/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|/, line) do
+        [_, table, domain, resource] -> [{table, domain, resource}]
+        _ -> []
+      end
+    end)
+    |> Enum.sort()
   end
 
   defp resource_conformance_errors(table, resource) do
@@ -721,17 +793,19 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   defp direct_ecto_ledger_entries do
     @architecture_exception_ledger
     |> File.read!()
+    |> parse_direct_ecto_ledger_entries()
+  end
+
+  defp parse_direct_ecto_ledger_entries(ledger) do
+    ledger
     |> String.split("\n")
     |> Enum.flat_map(fn line ->
       case Regex.run(~r/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|/, line) do
-        [_, path, functions_cell] ->
-          [
-            %{
-              path: path,
-              functions: ledger_cell_values(functions_cell),
-              operations: ledger_operation_values(line)
-            }
-          ]
+        [_, path, _functions_cell] ->
+          ledger_tuple_values(line)
+          |> Enum.map(fn {function, operation} ->
+            %{path: path, function: function, operation: operation}
+          end)
 
         _ ->
           []
@@ -742,30 +816,70 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   defp ledger_approves_operation?(entries, operation) do
     Enum.any?(entries, fn entry ->
       entry.path == operation.path and
-        MapSet.member?(entry.functions, operation.function) and
-        MapSet.member?(entry.operations, operation.operation)
+        entry.function == operation.function and
+        entry.operation == operation.operation
     end)
   end
 
-  defp ledger_cell_values(cell) do
-    cell
-    |> then(&Regex.scan(~r/`([^`]+)`/, &1, capture: :all_but_first))
-    |> List.flatten()
-    |> MapSet.new()
+  defp ledger_tuple_values(line) do
+    tuple_values =
+      ~r/`\{\s*([^`,{}]+)\s*,\s*((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`,{}]+)\s*\}`/
+      |> Regex.scan(line, capture: :all_but_first)
+      |> Enum.map(fn [function, operation] ->
+        {String.trim(function), String.trim(operation)}
+      end)
+
+    tuple_values ++ ledger_row_tuple_values(line)
   end
 
-  defp ledger_operation_values(line) do
-    @direct_ecto_operation_pattern
-    |> Regex.scan(line, capture: :all_names)
-    |> Enum.map(fn [operation, receiver] ->
-      normalize_direct_ecto_operation(receiver, operation)
-    end)
-    |> MapSet.new()
+  defp ledger_row_tuple_values(line) do
+    cells =
+      line
+      |> String.trim()
+      |> String.trim_leading("|")
+      |> String.trim_trailing("|")
+      |> String.split("|")
+      |> Enum.map(&String.trim/1)
+
+    case cells do
+      [_path_cell, function_cell, operation_cell | _rest] ->
+        with {:ok, function} <- single_backticked_value(function_cell),
+             {:ok, operation} <- single_operation_value(operation_cell) do
+          [{function, operation}]
+        else
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp single_backticked_value(cell) do
+    case Regex.scan(~r/`([^`]+)`/, cell, capture: :all_but_first) do
+      [[value]] -> {:ok, value}
+      _ -> :error
+    end
+  end
+
+  defp single_operation_value(cell) do
+    case Regex.scan(
+           ~r/`((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`]+)`/,
+           cell,
+           capture: :all_but_first
+         ) do
+      [[value]] -> {:ok, value}
+      _ -> :error
+    end
   end
 
   defp normalize_direct_ecto_operation(receiver, operation)
        when receiver in ["Multi", "Ecto.Multi"] do
     "Ecto.Multi.#{operation}"
+  end
+
+  defp normalize_direct_ecto_operation("Ecto.Adapters.SQL", operation) do
+    "Ecto.Adapters.SQL.#{operation}"
   end
 
   defp normalize_direct_ecto_operation(_receiver, operation) do
@@ -780,7 +894,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   defp function_name(line) do
-    case Regex.run(~r/^\s*defp?\s+([a-zA-Z0-9_!?]+)\((.*)\)\s+do/, line) do
+    case Regex.run(~r/^\s*defp?\s+([a-zA-Z0-9_!?]+)\((.*)\)(?:\s+when\b.*)?\s*(?:do|,)/, line) do
       [_, name, args] -> "#{name}/#{arity(args)}"
       _ -> nil
     end
