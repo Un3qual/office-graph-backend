@@ -3,6 +3,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   alias OfficeGraph.Authorization.Checks.HasCapability
   alias OfficeGraph.Identity.SessionContext
+  alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
 
   @ash_domain OfficeGraph.WorkGraph.Domain
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
@@ -48,6 +49,56 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.WorkGraph.Resources.VerificationResult => %{
       read: {:read, :skeleton_read},
       create: {:create, :verification_complete}
+    }
+  }
+
+  @expected_reference_validations %{
+    OfficeGraph.WorkGraph.Resources.Signal => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        body_document_id: OfficeGraph.Content.Document
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.Task => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        source_signal_id: OfficeGraph.WorkGraph.Signal,
+        body_document_id: OfficeGraph.Content.Document
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.ReviewFinding => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        task_id: OfficeGraph.WorkGraph.Task,
+        body_document_id: OfficeGraph.Content.Document
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.VerificationCheck => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        review_finding_id: OfficeGraph.WorkGraph.ReviewFinding,
+        description_document_id: OfficeGraph.Content.Document
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.Artifact => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.EvidenceItem => %{
+      create: [
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+        artifact_id: OfficeGraph.WorkGraph.Artifact,
+        body_document_id: OfficeGraph.Content.Document
+      ]
+    },
+    OfficeGraph.WorkGraph.Resources.VerificationResult => %{
+      create: [
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+        evidence_item_id: OfficeGraph.WorkGraph.EvidenceItem,
+        operation_id: OfficeGraph.Operations.OperationCorrelation
+      ]
     }
   }
 
@@ -123,6 +174,43 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
         assert capability_policy?(resource, action_name, action_type, capability),
                "#{inspect(resource)} #{inspect(action_name)} must authorize through #{inspect(HasCapability)} with capability #{inspect(capability)}"
+      end
+    end
+  end
+
+  test "WorkGraph Ash read actions include actor scope filter policies" do
+    for resource <- @required_resources do
+      read_actions = actions_by_type(resource, :read)
+
+      assert read_actions != [],
+             "#{inspect(resource)} must define at least one read action"
+
+      for action <- read_actions do
+        assert scope_filter_policy?(resource, action.name, :read),
+               "#{inspect(resource)} #{inspect(action.name)} must filter reads by actor organization_id and workspace_id"
+      end
+    end
+  end
+
+  test "WorkGraph Ash create actions validate same-scope references" do
+    expected_resources = @expected_reference_validations |> Map.keys() |> MapSet.new()
+
+    assert expected_resources == MapSet.new(@required_resources),
+           "Expected reference validation table must cover every required resource"
+
+    for resource <- @required_resources do
+      expected_by_action = Map.fetch!(@expected_reference_validations, resource)
+      create_actions = actions_by_type(resource, :create)
+
+      assert MapSet.new(Enum.map(create_actions, & &1.name)) ==
+               MapSet.new(Map.keys(expected_by_action)),
+             "#{inspect(resource)} must define exactly the create actions covered by the same-scope reference table"
+
+      for action <- create_actions do
+        expected_references = Map.fetch!(expected_by_action, action.name)
+
+        assert same_scope_reference_validation(action) == expected_references,
+               "#{inspect(resource)} #{inspect(action.name)} must validate same-scope references #{inspect(expected_references)}"
       end
     end
   end
@@ -222,11 +310,24 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.any?(&(&1.name == action_name and &1.type == action_type))
   end
 
+  defp actions_by_type(resource, action_type) do
+    resource
+    |> Ash.Resource.Info.actions()
+    |> Enum.filter(&(&1.type == action_type))
+  end
+
   defp capability_policy?(resource, action_name, action_type, capability) do
     resource
     |> Ash.Policy.Info.policies()
     |> Enum.filter(&policy_applies_to_action?(&1, action_name, action_type))
     |> Enum.any?(&policy_has_capability?(&1, capability))
+  end
+
+  defp scope_filter_policy?(resource, action_name, action_type) do
+    resource
+    |> Ash.Policy.Info.policies()
+    |> Enum.filter(&policy_applies_to_action?(&1, action_name, action_type))
+    |> Enum.any?(&policy_has_scope_filter?/1)
   end
 
   defp policy_applies_to_action?(
@@ -257,6 +358,60 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
       _check ->
         false
+    end)
+  end
+
+  defp policy_has_scope_filter?(%Ash.Policy.Policy{policies: checks}) do
+    Enum.any?(List.wrap(checks), fn
+      %Ash.Policy.Check{
+        check_module: Ash.Policy.Check.Expression,
+        check_opts: opts,
+        type: :authorize_if
+      } ->
+        opts
+        |> Keyword.get(:expr)
+        |> scope_filter_expression?()
+
+      _check ->
+        false
+    end)
+  end
+
+  defp scope_filter_expression?(%Ash.Query.BooleanExpression{
+         op: :and,
+         left: left,
+         right: right
+       }) do
+    [scope_actor_equality_field(left), scope_actor_equality_field(right)]
+    |> MapSet.new()
+    |> MapSet.equal?(MapSet.new([:organization_id, :workspace_id]))
+  end
+
+  defp scope_filter_expression?(_expression), do: false
+
+  defp scope_actor_equality_field(%Ash.Query.Call{
+         name: :==,
+         args: [%Ash.Query.Ref{attribute: left_field}, {:_actor, right_field}]
+       })
+       when left_field == right_field and left_field in [:organization_id, :workspace_id],
+       do: left_field
+
+  defp scope_actor_equality_field(%Ash.Query.Call{
+         name: :==,
+         args: [{:_actor, left_field}, %Ash.Query.Ref{attribute: right_field}]
+       })
+       when left_field == right_field and left_field in [:organization_id, :workspace_id],
+       do: left_field
+
+  defp scope_actor_equality_field(_expression), do: nil
+
+  defp same_scope_reference_validation(%{changes: changes}) do
+    Enum.find_value(changes, fn
+      %Ash.Resource.Change{change: {ValidateSameScopeReferences, opts}} ->
+        Keyword.fetch!(opts, :references)
+
+      _change ->
+        nil
     end)
   end
 
