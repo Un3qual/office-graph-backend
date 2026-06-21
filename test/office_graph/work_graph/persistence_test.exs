@@ -446,6 +446,54 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert second.normalized_event.duplicate_of_id == first.normalized_event.id
   end
 
+  test "manual intake replay duplicates are scoped to organization and workspace", %{
+    bootstrap: bootstrap,
+    operation: operation
+  } do
+    attrs = %{
+      source_identity: "manual:tenant-scope",
+      replay_identity: "paste:tenant-scope-1",
+      body: "Task: Verify tenant-scoped intake replay"
+    }
+
+    assert {:ok, first} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
+    assert first.normalized_event.outcome == "accepted"
+    assert length(first.proposed_changes) == 4
+
+    assert {:ok, second_tenant} =
+             Foundation.bootstrap_local_owner(
+               organization_name: "Second Tenant",
+               organization_slug: "second-tenant",
+               workspace_name: "Second Workspace",
+               workspace_slug: "second-workspace",
+               initiative_name: "Second Walking Skeleton",
+               initiative_slug: "second-walking-skeleton",
+               owner_email: "second-owner@office-graph.local",
+               owner_name: "Second Owner"
+             )
+
+    {:ok, second_tenant_operation} =
+      Operations.start_operation(second_tenant.session, :manual_intake_submit)
+
+    assert {:ok, cross_scope} =
+             Integrations.submit_manual_intake(
+               second_tenant.session,
+               second_tenant_operation,
+               attrs
+             )
+
+    assert cross_scope.normalized_event.outcome == "accepted"
+    refute cross_scope.normalized_event.duplicate_of_id
+    assert length(cross_scope.proposed_changes) == 4
+
+    assert {:ok, same_scope_duplicate} =
+             Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
+
+    assert same_scope_duplicate.normalized_event.outcome == "duplicate"
+    assert same_scope_duplicate.normalized_event.duplicate_of_id == first.normalized_event.id
+    assert same_scope_duplicate.proposed_changes == []
+  end
+
   defp ash_error_message(%Ash.Changeset{} = changeset) do
     changeset.errors
     |> Ash.Error.to_error_class()

@@ -43,7 +43,7 @@ defmodule OfficeGraph.Integrations do
   def record_manual_intake(session_context, operation, attrs) do
     Repo.transaction(fn ->
       with {:ok, source} <- get_or_create_source(attrs.source_identity),
-           {:ok, duplicate_of} <- accepted_duplicate(attrs),
+           {:ok, duplicate_of} <- accepted_duplicate(session_context, attrs),
            outcome = if(duplicate_of, do: "duplicate", else: "accepted"),
            {:ok, raw_archive} <-
              ash_create(RawArchive, %{
@@ -102,10 +102,12 @@ defmodule OfficeGraph.Integrations do
     end
   end
 
-  defp accepted_duplicate(attrs) do
+  defp accepted_duplicate(session_context, attrs) do
     NormalizedIntakeEvent
     |> Ash.Query.filter(
-      source_identity == ^attrs.source_identity and
+      organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and
+        source_identity == ^attrs.source_identity and
         replay_identity == ^attrs.replay_identity and
         outcome == "accepted"
     )
