@@ -8,6 +8,7 @@ defmodule OfficeGraph.WorkGraph do
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
       OfficeGraph.Content,
+      OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.Revisions
     ],

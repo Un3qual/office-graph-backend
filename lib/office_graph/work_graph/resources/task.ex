@@ -41,6 +41,13 @@ defmodule OfficeGraph.WorkGraph.Resources.Task do
         :title,
         :lifecycle_state
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                source_signal_id: OfficeGraph.WorkGraph.Signal,
+                body_document_id: OfficeGraph.Content.Document
+              ]}
     end
 
     update :mark_verified_complete do
@@ -51,6 +58,13 @@ defmodule OfficeGraph.WorkGraph.Resources.Task do
   policies do
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
     end
 
     policy action(:create) do

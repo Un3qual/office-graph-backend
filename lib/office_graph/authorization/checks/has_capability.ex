@@ -47,6 +47,10 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
 
   defp subject(_context), do: nil
 
+  defp read_scope(%Ash.Changeset{action_type: :update} = changeset, field) do
+    scope_value(changeset.data, field) || Map.get(changeset.attributes, field)
+  end
+
   defp read_scope(%Ash.Changeset{} = changeset, field) do
     Map.get(changeset.attributes, field) || scope_value(changeset.data, field)
   end

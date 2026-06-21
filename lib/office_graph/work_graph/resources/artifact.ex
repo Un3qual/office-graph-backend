@@ -30,12 +30,24 @@ defmodule OfficeGraph.WorkGraph.Resources.Artifact do
 
     create :create do
       accept [:id, :organization_id, :workspace_id, :graph_item_id, :title, :uri]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                graph_item_id: OfficeGraph.WorkGraph.GraphItem
+              ]}
     end
   end
 
   policies do
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
     end
 
     policy action(:create) do

@@ -43,12 +43,27 @@ defmodule OfficeGraph.WorkGraph.Resources.EvidenceItem do
         :title,
         :state
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                graph_item_id: OfficeGraph.WorkGraph.GraphItem,
+                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                artifact_id: OfficeGraph.WorkGraph.Artifact,
+                body_document_id: OfficeGraph.Content.Document
+              ]}
     end
   end
 
   policies do
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
     end
 
     policy action(:create) do

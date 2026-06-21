@@ -5,6 +5,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   alias OfficeGraph.Identity.SessionContext
 
   @ash_domain OfficeGraph.WorkGraph.Domain
+  @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
 
   @required_resources [
     OfficeGraph.WorkGraph.Resources.Signal,
@@ -15,6 +16,40 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.WorkGraph.Resources.EvidenceItem,
     OfficeGraph.WorkGraph.Resources.VerificationResult
   ]
+
+  @expected_action_capabilities %{
+    OfficeGraph.WorkGraph.Resources.Signal => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :manual_intake_submit}
+    },
+    OfficeGraph.WorkGraph.Resources.Task => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :proposed_change_apply},
+      mark_verified_complete: {:update, :verification_complete}
+    },
+    OfficeGraph.WorkGraph.Resources.ReviewFinding => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :proposed_change_apply},
+      mark_verified_complete: {:update, :verification_complete}
+    },
+    OfficeGraph.WorkGraph.Resources.VerificationCheck => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :proposed_change_apply},
+      mark_satisfied: {:update, :verification_complete}
+    },
+    OfficeGraph.WorkGraph.Resources.Artifact => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :evidence_link}
+    },
+    OfficeGraph.WorkGraph.Resources.EvidenceItem => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :evidence_link}
+    },
+    OfficeGraph.WorkGraph.Resources.VerificationResult => %{
+      read: {:read, :skeleton_read},
+      create: {:create, :verification_complete}
+    }
+  }
 
   @approved_direct_repo_mutation_functions %{
     "lib/office_graph/work_graph.ex" =>
@@ -42,6 +77,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   }
 
   test "work graph has an Ash domain and required Ash resources" do
+    assert @ash_domain in @ash_domains,
+           "#{inspect(@ash_domain)} must be registered in :office_graph, :ash_domains"
+
     assert Code.ensure_loaded?(@ash_domain),
            "#{inspect(@ash_domain)} is not loaded; define the WorkGraph Ash domain before this conformance test can pass"
 
@@ -51,6 +89,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
       assert Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer,
              "#{inspect(resource)} must use AshPostgres.DataLayer"
+
+      refute AshPostgres.DataLayer.Info.migrate?(resource),
+             "#{inspect(resource)} must set migrate? false"
     end
   end
 
@@ -73,16 +114,16 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "WorkGraph Ash domain is missing required resources: #{inspect(missing)}"
   end
 
-  test "WorkGraph Ash resources use the shared authorization check" do
+  test "WorkGraph Ash resources expose public actions with explicit capability policies" do
     for resource <- @required_resources do
-      source =
-        resource
-        |> Module.split()
-        |> Enum.map(&Macro.underscore/1)
-        |> then(&Path.join(["lib" | &1]))
-        |> Kernel.<>(".ex")
+      for {action_name, {action_type, capability}} <-
+            Map.fetch!(@expected_action_capabilities, resource) do
+        assert public_action?(resource, action_name, action_type),
+               "#{inspect(resource)} must expose public #{action_type} action #{inspect(action_name)}"
 
-      assert File.read!(source) =~ "OfficeGraph.Authorization.Checks.HasCapability"
+        assert capability_policy?(resource, action_name, action_type, capability),
+               "#{inspect(resource)} #{inspect(action_name)} must authorize through #{inspect(HasCapability)} with capability #{inspect(capability)}"
+      end
     end
   end
 
@@ -135,6 +176,21 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
              %{query: %Ash.Query{}, action: %{type: :read}},
              capability: :skeleton_read
            )
+
+    assert HasCapability.match?(
+             session_context(organization_id, workspace_id, ["verification.complete"]),
+             %{
+               changeset: %Ash.Changeset{
+                 action_type: :update,
+                 data: %{organization_id: organization_id, workspace_id: workspace_id},
+                 attributes: %{
+                   organization_id: Ecto.UUID.generate(),
+                   workspace_id: Ecto.UUID.generate()
+                 }
+               }
+             },
+             capability: :verification_complete
+           )
   end
 
   test "direct Repo mutation paths are explicitly allowlisted" do
@@ -158,6 +214,50 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     "lib/office_graph/**/*.ex"
     |> Path.wildcard()
     |> Enum.flat_map(fn path -> scan_file_for_mutations(path, mutation_pattern) end)
+  end
+
+  defp public_action?(resource, action_name, action_type) do
+    resource
+    |> Ash.Resource.Info.public_actions()
+    |> Enum.any?(&(&1.name == action_name and &1.type == action_type))
+  end
+
+  defp capability_policy?(resource, action_name, action_type, capability) do
+    resource
+    |> Ash.Policy.Info.policies()
+    |> Enum.filter(&policy_applies_to_action?(&1, action_name, action_type))
+    |> Enum.any?(&policy_has_capability?(&1, capability))
+  end
+
+  defp policy_applies_to_action?(
+         %Ash.Policy.Policy{condition: conditions},
+         action_name,
+         action_type
+       ) do
+    Enum.any?(List.wrap(conditions), fn
+      {Ash.Policy.Check.Action, opts} ->
+        action_name in Keyword.fetch!(opts, :action)
+
+      {Ash.Policy.Check.ActionType, opts} ->
+        action_type in Keyword.fetch!(opts, :type)
+
+      _condition ->
+        false
+    end)
+  end
+
+  defp policy_has_capability?(%Ash.Policy.Policy{policies: checks}, capability) do
+    Enum.any?(List.wrap(checks), fn
+      %Ash.Policy.Check{
+        check_module: HasCapability,
+        check_opts: opts,
+        type: :authorize_if
+      } ->
+        Keyword.fetch(opts, :capability) == {:ok, capability}
+
+      _check ->
+        false
+    end)
   end
 
   defp session_context(organization_id, workspace_id, capabilities) do
