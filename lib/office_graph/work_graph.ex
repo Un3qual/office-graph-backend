@@ -382,15 +382,21 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp ash_create!(resource, attrs, session_context) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
-    |> Ash.create!(authorize?: true)
+    {record, _notifications} =
+      resource
+      |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
+      |> Ash.create!(authorize?: true, return_notifications?: true)
+
+    record
   end
 
   defp ash_update!(record, action, session_context) do
+    {record, _notifications} =
+      record
+      |> Ash.Changeset.for_update(action, %{}, actor: session_context)
+      |> Ash.update!(authorize?: true, return_notifications?: true)
+
     record
-    |> Ash.Changeset.for_update(action, %{}, actor: session_context)
-    |> Ash.update!(authorize?: true)
   end
 
   defp insert_graph_item!(id, session_context, resource_type, resource_id, title) do
