@@ -415,8 +415,7 @@ defmodule OfficeGraph.WorkGraph do
   defp ash_get(resource, id, session_context) do
     Ash.get(resource, id,
       actor: session_context,
-      authorize?: true,
-      authorize_with: :error
+      authorize?: true
     )
   end
 
