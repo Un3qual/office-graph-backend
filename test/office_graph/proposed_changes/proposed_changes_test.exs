@@ -71,6 +71,25 @@ defmodule OfficeGraph.ProposedChangesTest do
     end
   end
 
+  test "direct Ash create cannot spoof proposed change lifecycle fields", %{bootstrap: bootstrap} do
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert_raise Ash.Error.Invalid, ~r/No such input `status`/, fn ->
+      ProposedGraphChange
+      |> Ash.Changeset.for_create(:create, %{
+        organization_id: bootstrap.session.organization_id,
+        workspace_id: bootstrap.session.workspace_id,
+        operation_id: intake_operation.id,
+        status: "applied",
+        change_type: "create_signal",
+        payload: %{"title" => "Spoofed lifecycle", "body" => "This must stay pending."},
+        validation_errors: ["spoofed"],
+        applied_at: DateTime.utc_now()
+      })
+      |> Ash.create!(actor: bootstrap.session)
+    end
+  end
+
   test "unauthorized sessions cannot apply proposed changes", %{
     bootstrap: bootstrap,
     intake: intake
