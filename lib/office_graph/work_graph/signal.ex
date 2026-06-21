@@ -1,45 +1,77 @@
 defmodule OfficeGraph.WorkGraph.Signal do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.WorkGraph.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "signals" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :graph_item_id, :binary_id
-    field :body_document_id, :binary_id
-    field :title, :string
-    field :state, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "signals"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(signal, attrs) do
-    signal
-    |> cast(attrs, [
-      :organization_id,
-      :workspace_id,
-      :graph_item_id,
-      :body_document_id,
-      :title,
-      :state
-    ])
-    |> validate_required([
-      :organization_id,
-      :workspace_id,
-      :graph_item_id,
-      :body_document_id,
-      :title,
-      :state
-    ])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:graph_item_id)
-    |> foreign_key_constraint(:body_document_id)
-    |> unique_constraint(:graph_item_id)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
+    attribute :body_document_id, :uuid, allow_nil?: false, public?: true
+    attribute :title, :string, allow_nil?: false, public?: true
+    attribute :state, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :graph_item_id,
+        :body_document_id,
+        :title,
+        :state
+      ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem, resource_type: "signal", resource_id: :id},
+                body_document_id: OfficeGraph.Content.Document
+              ]}
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :manual_intake_submit}
+    end
+  end
+
+  graphql do
+    type :signal
+  end
+
+  json_api do
+    type "signal"
   end
 end

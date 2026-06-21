@@ -1,45 +1,77 @@
 defmodule OfficeGraph.WorkGraph.VerificationResult do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.WorkGraph.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "verification_results" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :verification_check_id, :binary_id
-    field :evidence_item_id, :binary_id
-    field :operation_id, :binary_id
-    field :result, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "verification_results"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(result, attrs) do
-    result
-    |> cast(attrs, [
-      :organization_id,
-      :workspace_id,
-      :verification_check_id,
-      :evidence_item_id,
-      :operation_id,
-      :result
-    ])
-    |> validate_required([
-      :organization_id,
-      :workspace_id,
-      :verification_check_id,
-      :evidence_item_id,
-      :operation_id,
-      :result
-    ])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:verification_check_id)
-    |> foreign_key_constraint(:evidence_item_id)
-    |> foreign_key_constraint(:operation_id)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
+    attribute :evidence_item_id, :uuid, allow_nil?: false, public?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :result, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :verification_check_id,
+        :evidence_item_id,
+        :operation_id,
+        :result
+      ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                evidence_item_id: OfficeGraph.WorkGraph.EvidenceItem,
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :verification_complete}
+    end
+  end
+
+  graphql do
+    type :verification_result
+  end
+
+  json_api do
+    type "verification_result"
   end
 end

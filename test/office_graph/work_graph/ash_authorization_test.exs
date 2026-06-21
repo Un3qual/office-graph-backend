@@ -1,15 +1,16 @@
 defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   use OfficeGraph.DataCase, async: false
 
+  require Ash.Query
+
   alias OfficeGraph.Content.Document
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.GraphItem
-  alias OfficeGraph.WorkGraph.Task, as: TaskSchema
-  alias OfficeGraph.WorkGraph.Resources.Signal, as: SignalResource
-  alias OfficeGraph.WorkGraph.Resources.Task, as: TaskResource
+  alias OfficeGraph.WorkGraph.Signal, as: SignalResource
+  alias OfficeGraph.WorkGraph.Task, as: TaskResource
 
   test "Ash reads are filtered to the actor organization and workspace" do
     {:ok, actor_scope} = bootstrap_scope("read-actor")
@@ -133,13 +134,13 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     assert is_nil(Repo.get_by(Document, plain_text: body))
 
-    assert {:error, %Ecto.Changeset{} = error} =
+    assert {:error, error} =
              WorkGraph.create_signal(bootstrap.session, operation, %{
                title: nil,
                body: body
              })
 
-    refute error.valid?
+    assert Exception.message(error) =~ "title"
     assert is_nil(Repo.get_by(Document, plain_text: body))
   end
 
@@ -156,15 +157,15 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
     assert is_nil(Repo.get_by(Document, plain_text: body))
 
-    assert {:error, %Ecto.Changeset{} = error} =
+    assert {:error, error} =
              WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
                title: title,
                body: body
              })
 
-    refute error.valid?
-    assert is_nil(Repo.get_by(TaskSchema, title: title))
-    assert is_nil(Repo.get_by(GraphItem, title: title))
+    assert inspect(error) =~ "source_item_id"
+    refute ash_record_with_title?(TaskResource, title)
+    refute ash_record_with_title?(GraphItem, title)
     assert is_nil(Repo.get_by(Document, plain_text: body))
   end
 
@@ -281,15 +282,33 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do
-    %GraphItem{id: Ecto.UUID.generate()}
-    |> GraphItem.changeset(%{
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      resource_type: resource_type,
-      resource_id: resource_id,
-      title: title
-    })
-    |> Repo.insert!()
+    {:ok, graph_item} =
+      Ash.create(
+        GraphItem,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          resource_type: resource_type,
+          resource_id: resource_id,
+          title: title
+        },
+        actor: bootstrap.session,
+        action: :create
+      )
+
+    graph_item
+  end
+
+  defp ash_record_with_title?(resource, title) do
+    resource
+    |> Ash.Query.filter(title == ^title)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> false
+      {:ok, _record} -> true
+      {:error, _error} -> false
+    end
   end
 
   defp insert_document!(bootstrap, plain_text) do

@@ -6,12 +6,14 @@ defmodule OfficeGraph.WorkGraph.Domain do
     otp_app: :office_graph
 
   resources do
-    resource OfficeGraph.WorkGraph.Resources.Signal
-    resource OfficeGraph.WorkGraph.Resources.Task
-    resource OfficeGraph.WorkGraph.Resources.ReviewFinding
-    resource OfficeGraph.WorkGraph.Resources.VerificationCheck
-    resource OfficeGraph.WorkGraph.Resources.Artifact
-    resource OfficeGraph.WorkGraph.Resources.EvidenceItem
-    resource OfficeGraph.WorkGraph.Resources.VerificationResult
+    resource OfficeGraph.WorkGraph.GraphItem
+    resource OfficeGraph.WorkGraph.GraphRelationship
+    resource OfficeGraph.WorkGraph.Signal
+    resource OfficeGraph.WorkGraph.Task
+    resource OfficeGraph.WorkGraph.ReviewFinding
+    resource OfficeGraph.WorkGraph.VerificationCheck
+    resource OfficeGraph.WorkGraph.Artifact
+    resource OfficeGraph.WorkGraph.EvidenceItem
+    resource OfficeGraph.WorkGraph.VerificationResult
   end
 end

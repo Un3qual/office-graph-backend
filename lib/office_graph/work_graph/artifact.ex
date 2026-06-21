@@ -1,29 +1,66 @@
 defmodule OfficeGraph.WorkGraph.Artifact do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.WorkGraph.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "artifacts" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :graph_item_id, :binary_id
-    field :title, :string
-    field :uri, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "artifacts"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(artifact, attrs) do
-    artifact
-    |> cast(attrs, [:organization_id, :workspace_id, :graph_item_id, :title, :uri])
-    |> validate_required([:organization_id, :workspace_id, :graph_item_id, :title])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:graph_item_id)
-    |> unique_constraint(:graph_item_id)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
+    attribute :title, :string, allow_nil?: false, public?: true
+    attribute :uri, :string, allow_nil?: true, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [:id, :organization_id, :workspace_id, :graph_item_id, :title, :uri]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                graph_item_id:
+                  {OfficeGraph.WorkGraph.GraphItem, resource_type: "artifact", resource_id: :id}
+              ]}
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_link}
+    end
+  end
+
+  graphql do
+    type :artifact
+  end
+
+  json_api do
+    type "artifact"
   end
 end

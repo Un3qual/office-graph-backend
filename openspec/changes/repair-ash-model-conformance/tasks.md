@@ -10,12 +10,12 @@ as the normative 40-table inventory for the architecture conformance gate.
 
 ## 2. WorkGraph Convergence
 
-- [ ] 2.1 Convert canonical WorkGraph modules to Ash resources.
-- [ ] 2.2 Register graph identity, graph relationships, and typed resources in
+- [x] 2.1 Convert canonical WorkGraph modules to Ash resources.
+- [x] 2.2 Register graph identity, graph relationships, and typed resources in
   `OfficeGraph.WorkGraph.Domain`.
-- [ ] 2.3 Replace WorkGraph reads, reference validation, and tests with
+- [x] 2.3 Replace WorkGraph reads, reference validation, and tests with
   canonical Ash resource modules.
-- [ ] 2.4 Delete `OfficeGraph.WorkGraph.Resources.*` modules.
+- [x] 2.4 Delete `OfficeGraph.WorkGraph.Resources.*` modules.
 
 ## 3. Foundation Domains
 

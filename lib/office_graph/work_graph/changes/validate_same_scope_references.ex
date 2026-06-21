@@ -3,7 +3,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
 
   use Ash.Resource.Change
 
-  alias OfficeGraph.Repo
+  require Ash.Query
 
   @impl true
   def change(changeset, opts, _context) do
@@ -35,16 +35,19 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   end
 
   defp validate_reference(changeset, field, reference, organization_id, workspace_id) do
-    {schema, reference_opts} = reference_spec(reference)
+    {resource, reference_opts} = reference_spec(reference)
 
     case Ash.Changeset.get_attribute(changeset, field) do
       nil ->
         changeset
 
       id ->
-        case Repo.get(schema, id) do
-          %{organization_id: ^organization_id, workspace_id: ^workspace_id} = record ->
+        case fetch_reference(resource, id) do
+          {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = record} ->
             validate_resource_identity(record, field, reference_opts, changeset)
+
+          {:ok, :deferred_until_ash} ->
+            changeset
 
           _missing_or_cross_scope ->
             Ash.Changeset.add_error(
@@ -58,6 +61,23 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
 
   defp reference_spec({schema, opts}) when is_list(opts), do: {schema, opts}
   defp reference_spec(schema), do: {schema, []}
+
+  defp fetch_reference(resource, record_id) do
+    if ash_resource?(resource) do
+      resource
+      |> Ash.Query.filter(id == ^record_id)
+      |> Ash.read_one(authorize?: false)
+    else
+      {:ok, :deferred_until_ash}
+    end
+  end
+
+  defp ash_resource?(resource) do
+    Ash.Resource.Info.data_layer(resource)
+    true
+  rescue
+    _error -> false
+  end
 
   defp validate_resource_identity(record, field, reference_opts, changeset) do
     expected_resource_type = Keyword.get(reference_opts, :resource_type)
