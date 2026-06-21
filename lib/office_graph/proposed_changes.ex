@@ -16,6 +16,14 @@ defmodule OfficeGraph.ProposedChanges do
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
 
+  import Ecto.Query
+
+  def get_many!(ids) do
+    records = Repo.all(from change in ProposedGraphChange, where: change.id in ^ids)
+    by_id = Map.new(records, &{&1.id, &1})
+    Enum.map(ids, &Map.fetch!(by_id, &1))
+  end
+
   def create_for_manual_intake(session_context, operation, normalized_event, attrs) do
     title = first_sentence(attrs.body)
 

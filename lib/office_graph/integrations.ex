@@ -21,15 +21,20 @@ defmodule OfficeGraph.Integrations do
            Authorization.authorize(session_context, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
-         {:ok, intake} <- record_manual_intake(session_context, operation, attrs),
-         {:ok, proposed_changes} <-
-           ProposedChanges.create_for_manual_intake(
-             session_context,
-             operation,
-             intake.normalized_event,
-             attrs
-           ) do
-      {:ok, Map.put(intake, :proposed_changes, proposed_changes)}
+         {:ok, intake} <- record_manual_intake(session_context, operation, attrs) do
+      if intake.duplicate? do
+        {:ok, Map.put(intake, :proposed_changes, [])}
+      else
+        with {:ok, proposed_changes} <-
+               ProposedChanges.create_for_manual_intake(
+                 session_context,
+                 operation,
+                 intake.normalized_event,
+                 attrs
+               ) do
+          {:ok, Map.put(intake, :proposed_changes, proposed_changes)}
+        end
+      end
     end
   end
 

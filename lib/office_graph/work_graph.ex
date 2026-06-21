@@ -32,6 +32,8 @@ defmodule OfficeGraph.WorkGraph do
     VerificationResult
   }
 
+  def get_verification_check!(id), do: Repo.get!(VerificationCheck, id)
+
   def create_signal(session_context, operation, attrs) do
     with :ok <-
            Authorization.authorize(session_context, :manual_intake_submit,

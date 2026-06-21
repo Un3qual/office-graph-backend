@@ -94,17 +94,17 @@
 
 ## 6. GraphQL And JSON API Surface
 
-- [ ] 6.1 Add minimal GraphQL schema, context loading, queries, and mutations
+- [x] 6.1 Add minimal GraphQL schema, context loading, queries, and mutations
   for bootstrap/test auth context, manual intake, proposed change review and
   application, graph/loop reads, evidence linking, and verified completion.
-- [ ] 6.2 Add minimal JSON API routes/controllers or Ash JSON API resources for
+- [x] 6.2 Add minimal JSON API routes/controllers or Ash JSON API resources for
   the same walking-skeleton operations.
-- [ ] 6.3 Ensure GraphQL and JSON API entrypoints call the same public domain
+- [x] 6.3 Ensure GraphQL and JSON API entrypoints call the same public domain
   actions and do not duplicate lifecycle, authorization, or mutation logic.
-- [ ] 6.4 Implement authorization-filtered reads and structured validation,
+- [x] 6.4 Implement authorization-filtered reads and structured validation,
   authorization, idempotency, conflict, and lifecycle error responses for both
   API surfaces.
-- [ ] 6.5 Add API smoke tests proving GraphQL and JSON API produce equivalent
+- [x] 6.5 Add API smoke tests proving GraphQL and JSON API produce equivalent
   durable state and equivalent denial/conflict outcomes.
 
 ## 7. Verification Gates
