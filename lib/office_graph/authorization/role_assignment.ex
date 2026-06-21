@@ -39,7 +39,8 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
     policy action_type(:read) do
       authorize_if expr(
                      principal_id == ^actor(:principal_id) and
-                       organization_id == ^actor(:organization_id)
+                       organization_id == ^actor(:organization_id) and
+                       (is_nil(workspace_id) or workspace_id == ^actor(:workspace_id))
                    )
     end
   end

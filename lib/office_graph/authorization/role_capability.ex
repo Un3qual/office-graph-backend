@@ -22,7 +22,10 @@ defmodule OfficeGraph.Authorization.RoleCapability do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      public? false
+    end
 
     create :create do
       accept [:id, :role_id, :capability_id]
@@ -31,11 +34,5 @@ defmodule OfficeGraph.Authorization.RoleCapability do
 
   identities do
     identity :unique_role_capability, [:role_id, :capability_id]
-  end
-
-  policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
   end
 end

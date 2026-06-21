@@ -323,6 +323,24 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "Foundation Ash resources must declare database-backed identities:\n#{format_errors(errors)}"
   end
 
+  test "foundation authorization read policies do not expose cross-workspace joins" do
+    refute public_action?(OfficeGraph.Authorization.RoleCapability, :read, :read),
+           "RoleCapability join rows must not have public reads until they have a tenant-safe read policy"
+
+    role_assignment_filter = foundation_read_filter(OfficeGraph.Authorization.RoleAssignment)
+    role_assignment_filter_text = inspect(role_assignment_filter)
+
+    for required_fragment <- [
+          "principal_id == {:_actor, :principal_id}",
+          "organization_id == {:_actor, :organization_id}",
+          "is_nil(workspace_id)",
+          "workspace_id == {:_actor, :workspace_id}"
+        ] do
+      assert role_assignment_filter_text =~ required_fragment,
+             "RoleAssignment read filter must include #{required_fragment}, got #{role_assignment_filter_text}"
+    end
+  end
+
   test "production model code does not define manual Ecto schemas" do
     schemas = manual_ecto_schemas()
 
@@ -680,6 +698,30 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     resource
     |> Ash.Resource.Info.public_actions()
     |> Enum.any?(&(&1.name == action_name and &1.type == action_type))
+  end
+
+  defp foundation_read_filter(resource) do
+    resource
+    |> Ash.Policy.Info.policies()
+    |> Enum.find_value(fn
+      %Ash.Policy.Policy{policies: checks} = policy ->
+        if policy_applies_to_action?(policy, :read, :read) do
+          Enum.find_value(checks, fn
+            %Ash.Policy.Check{
+              check_module: Ash.Policy.Check.Expression,
+              check_opts: opts,
+              type: :authorize_if
+            } ->
+              Keyword.fetch!(opts, :expr)
+
+            _check ->
+              nil
+          end)
+        end
+
+      _policy ->
+        nil
+    end)
   end
 
   defp actions_by_type(resource, action_type) do
