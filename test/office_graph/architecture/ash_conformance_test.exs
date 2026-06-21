@@ -70,6 +70,76 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "WorkGraph Ash domain is missing required resources: #{inspect(missing)}"
   end
 
+  test "WorkGraph Ash resources use the shared authorization check" do
+    for resource <- @required_resources do
+      source =
+        resource
+        |> Module.split()
+        |> Enum.map(&Macro.underscore/1)
+        |> then(&Path.join(["lib" | &1]))
+        |> Kernel.<>(".ex")
+
+      assert File.read!(source) =~ "OfficeGraph.Authorization.Checks.HasCapability"
+    end
+  end
+
+  test "shared Ash capability check is loadable" do
+    assert Code.ensure_loaded?(OfficeGraph.Authorization.Checks.HasCapability)
+
+    assert OfficeGraph.Authorization.Checks.HasCapability.describe(capability: :skeleton_read) =~
+             "skeleton_read"
+  end
+
+  test "shared Ash capability check enforces explicit capability and target scope" do
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+
+    actor = %{
+      principal_id: Ecto.UUID.generate(),
+      session_id: Ecto.UUID.generate(),
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["skeleton.read"])
+    }
+
+    changeset = %Ash.Changeset{
+      attributes: %{
+        organization_id: organization_id,
+        workspace_id: workspace_id
+      }
+    }
+
+    assert OfficeGraph.Authorization.Checks.HasCapability.match?(
+             actor,
+             %{changeset: changeset},
+             capability: :skeleton_read
+           )
+
+    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
+             actor,
+             %{changeset: changeset},
+             []
+           )
+
+    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
+             nil,
+             %{changeset: changeset},
+             capability: :skeleton_read
+           )
+
+    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
+             actor,
+             %{changeset: %Ash.Changeset{attributes: %{organization_id: Ecto.UUID.generate()}}},
+             capability: :skeleton_read
+           )
+
+    refute OfficeGraph.Authorization.Checks.HasCapability.match?(
+             actor,
+             %{changeset: %Ash.Changeset{attributes: %{workspace_id: Ecto.UUID.generate()}}},
+             capability: :skeleton_read
+           )
+  end
+
   test "direct Repo mutation paths are explicitly allowlisted" do
     unapproved =
       Enum.reject(direct_repo_mutations(), fn mutation ->

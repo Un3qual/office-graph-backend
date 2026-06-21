@@ -45,6 +45,7 @@ defmodule OfficeGraph.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
       {:ash, "~> 3.29"},
+      {:simple_sat, "~> 0.1"},
       {:ash_postgres, "~> 2.10"},
       {:ash_graphql, "~> 1.9"},
       {:ash_json_api, "~> 1.6"},
