@@ -24,26 +24,19 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      public? false
+    end
 
     create :create do
+      public? false
       accept [:id, :source_item_id, :target_item_id, :relationship_type]
     end
   end
 
   identities do
     identity :unique_relationship, [:source_item_id, :target_item_id, :relationship_type]
-  end
-
-  policies do
-    policy action_type(:read) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
-    end
-
-    policy action(:create) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :proposed_change_apply}
-    end
   end
 
   graphql do

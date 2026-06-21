@@ -54,9 +54,9 @@
 | --- | --- | --- |
 | Phoenix API baseline | `lib/office_graph_web`, `config/*.exs`, `mix.exs` | `mix compile --warnings-as-errors` |
 | Boundary context layout | `lib/office_graph/*.ex`, Boundary declarations | `mix boundary.check` |
-| Stable WorkGraph resources are Ash-backed | `OfficeGraph.WorkGraph.Domain`, `OfficeGraph.WorkGraph.Resources.*` | `mix architecture.conformance` |
+| Stable WorkGraph resources are Ash-backed | `OfficeGraph.WorkGraph.Domain`, canonical `OfficeGraph.WorkGraph.*` Ash resources | `mix architecture.conformance` |
 | WorkGraph Ash actions are authorization-aware | `OfficeGraph.Authorization.Checks.HasCapability`, WorkGraph resource policies | `test/office_graph/architecture/ash_conformance_test.exs` |
-| Graph identity plus typed resource creation is atomic | `OfficeGraph.WorkGraph` transaction helpers: `graph_transaction/1`, `insert_graph_item!/5`, `insert_relationship!/3` | `test/office_graph/work_graph/persistence_test.exs` |
+| Graph identity plus typed resource creation is atomic | `OfficeGraph.WorkGraph` transaction boundary with Ash-backed graph identity, relationship, and typed resource creates | `test/office_graph/work_graph/persistence_test.exs` |
 | Stable product mutations route through Ash or approved exceptions | `OfficeGraph.WorkGraph` Ash create/update helpers, `architecture-exceptions.md` | `mix architecture.conformance` |
 | Direct Ecto paths are approved and documented | `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md` | `test/office_graph/architecture/ash_conformance_test.exs` |
 | Architecture gate is part of backend verification | `mix.exs`, `bin/verify-backend` | `./bin/verify-backend` |

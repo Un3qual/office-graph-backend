@@ -9,8 +9,11 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.GraphItem
+  alias OfficeGraph.WorkGraph.GraphRelationship
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
   alias OfficeGraph.WorkGraph.Task, as: TaskResource
+  alias OfficeGraph.WorkGraph.VerificationCheck, as: VerificationCheckResource
+  alias OfficeGraph.WorkGraph.VerificationResult, as: VerificationResultResource
 
   test "Ash reads are filtered to the actor organization and workspace" do
     {:ok, actor_scope} = bootstrap_scope("read-actor")
@@ -109,6 +112,124 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              )
 
     assert Exception.message(task_error) =~ "graph_item_id"
+  end
+
+  test "direct Ash creates reject invalid Ecto document references" do
+    {:ok, actor_scope} = bootstrap_scope("ecto-document-actor")
+    {:ok, other_scope} = bootstrap_scope("ecto-document-other")
+
+    foreign_document = insert_document!(other_scope, "Foreign document")
+
+    for {document_id, title} <- [
+          {foreign_document.id, "Reject cross-scope document"},
+          {Ecto.UUID.generate(), "Reject missing document"}
+        ] do
+      signal_id = Ecto.UUID.generate()
+      graph_item = insert_graph_item!(actor_scope, "signal", signal_id, "#{title} graph item")
+
+      assert {:error, error} =
+               Ash.create(
+                 SignalResource,
+                 %{
+                   id: signal_id,
+                   organization_id: actor_scope.organization.id,
+                   workspace_id: actor_scope.workspace.id,
+                   graph_item_id: graph_item.id,
+                   body_document_id: document_id,
+                   title: title,
+                   state: "open"
+                 },
+                 actor: actor_scope.session,
+                 action: :create
+               )
+
+      assert Exception.message(error) =~ "body_document_id"
+    end
+  end
+
+  test "direct Ash creates reject invalid Ecto description document references" do
+    {:ok, actor_scope} = bootstrap_scope("ecto-description-actor")
+    {:ok, other_scope} = bootstrap_scope("ecto-description-other")
+
+    review_finding = create_review_finding!(actor_scope)
+    foreign_document = insert_document!(other_scope, "Foreign check description")
+
+    for {document_id, title} <- [
+          {foreign_document.id, "Reject cross-scope check description"},
+          {Ecto.UUID.generate(), "Reject missing check description"}
+        ] do
+      verification_check_id = Ecto.UUID.generate()
+
+      graph_item =
+        insert_graph_item!(
+          actor_scope,
+          "verification_check",
+          verification_check_id,
+          "#{title} graph item"
+        )
+
+      assert {:error, error} =
+               Ash.create(
+                 VerificationCheckResource,
+                 %{
+                   id: verification_check_id,
+                   organization_id: actor_scope.organization.id,
+                   workspace_id: actor_scope.workspace.id,
+                   graph_item_id: graph_item.id,
+                   review_finding_id: review_finding.id,
+                   description_document_id: document_id,
+                   title: title,
+                   lifecycle_state: "required"
+                 },
+                 actor: actor_scope.session,
+                 action: :create
+               )
+
+      assert Exception.message(error) =~ "description_document_id"
+    end
+  end
+
+  test "direct Ash creates reject invalid Ecto operation references" do
+    {:ok, actor_scope} = bootstrap_scope("ecto-operation-actor")
+    {:ok, other_scope} = bootstrap_scope("ecto-operation-other")
+
+    completed = complete_verification!(actor_scope)
+
+    {:ok, foreign_operation} =
+      Operations.start_operation(other_scope.session, :verification_complete)
+
+    for {operation_id, result} <- [
+          {foreign_operation.id, "cross_scope_operation"},
+          {Ecto.UUID.generate(), "missing_operation"}
+        ] do
+      assert {:error, error} =
+               Ash.create(
+                 VerificationResultResource,
+                 %{
+                   id: Ecto.UUID.generate(),
+                   organization_id: actor_scope.organization.id,
+                   workspace_id: actor_scope.workspace.id,
+                   verification_check_id: completed.verification_check.id,
+                   evidence_item_id: completed.evidence_item.id,
+                   operation_id: operation_id,
+                   result: result
+                 },
+                 actor: actor_scope.session,
+                 action: :create
+               )
+
+      assert Exception.message(error) =~ "operation_id"
+    end
+  end
+
+  test "graph relationships expose no public Ash actions" do
+    public_action_names =
+      GraphRelationship
+      |> Ash.Resource.Info.public_actions()
+      |> Enum.map(& &1.name)
+
+    refute :create in public_action_names
+    refute :read in public_action_names
   end
 
   test "public WorkGraph create_task returns an error for a cross-scope source signal" do
@@ -250,6 +371,20 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   end
 
   defp create_verification_check!(bootstrap) do
+    review_finding = create_review_finding!(bootstrap)
+
+    {:ok, graph_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    {:ok, %{verification_check: verification_check}} =
+      WorkGraph.create_verification_check(bootstrap.session, graph_operation, review_finding, %{
+        title: "Verification check",
+        body: "Check body"
+      })
+
+    verification_check
+  end
+
+  defp create_review_finding!(bootstrap) do
     {:ok, signal_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
 
     {:ok, %{signal: signal}} =
@@ -272,13 +407,21 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
         body: "Finding body"
       })
 
-    {:ok, %{verification_check: verification_check}} =
-      WorkGraph.create_verification_check(bootstrap.session, graph_operation, review_finding, %{
-        title: "Verification check",
-        body: "Check body"
+    review_finding
+  end
+
+  defp complete_verification!(bootstrap) do
+    verification_check = create_verification_check!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+
+    {:ok, completed} =
+      Verification.complete_with_evidence(bootstrap.session, operation, verification_check, %{
+        title: "Completed evidence",
+        body: "Completed evidence body",
+        artifact_uri: "https://example.test/completed-evidence"
       })
 
-    verification_check
+    completed
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do

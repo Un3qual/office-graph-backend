@@ -174,6 +174,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     for expected <- [
           {"lib/office_graph/proposed_changes.ex", "get_many!/1", "Repo.all"},
+          {"lib/office_graph/work_graph/changes/validate_same_scope_references.ex",
+           "fetch_unconverted_reference/2", "Repo.get"},
           {"lib/office_graph/audit.ex", "count_for_operation/1", "Repo.aggregate"},
           {"lib/office_graph/revisions.ex", "count_for_operation/1", "Repo.aggregate"}
         ] do
