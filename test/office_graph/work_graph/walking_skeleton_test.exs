@@ -7,6 +7,7 @@ defmodule OfficeGraph.WorkGraph.WalkingSkeletonTest do
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.{Audit, Revisions}
   alias OfficeGraph.Verification
+
   alias OfficeGraph.WorkGraph.Resources.{
     ReviewFinding,
     Signal,
