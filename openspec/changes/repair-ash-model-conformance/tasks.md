@@ -4,9 +4,9 @@ Reference: use `openspec/changes/repair-ash-model-conformance/model-inventory.md
 as the normative 40-table inventory for the architecture conformance gate.
 
 - [ ] 1.1 Add this corrective OpenSpec change and model inventory.
-- [ ] 1.2 Replace the WorkGraph-only architecture conformance test with a
+- [x] 1.2 Replace the WorkGraph-only architecture conformance test with a
   repo-wide model ownership gate.
-- [ ] 1.3 Commit the failing conformance gate before converting models.
+- [x] 1.3 Commit the failing conformance gate before converting models.
 
 ## 2. WorkGraph Convergence
 
