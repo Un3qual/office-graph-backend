@@ -536,6 +536,19 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "#{@architecture_exception_ledger} contains exact direct Ecto exception tuples with no matching current code:\n#{format_errors(missing)}"
   end
 
+  test "direct Ecto exception ledger records required approval metadata" do
+    errors =
+      @architecture_exception_ledger
+      |> File.read!()
+      |> direct_ecto_ledger_metadata_errors()
+
+    assert errors == [],
+           """
+           #{@architecture_exception_ledger} entries must document owner, reason, allowed operation type, approving spec, and retirement condition:
+           #{format_errors(errors)}
+           """
+  end
+
   test "implementation summary includes architecture evidence mapping" do
     assert File.exists?(@implementation_summary),
            "Expected implementation summary at #{@implementation_summary}"
@@ -940,6 +953,65 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
         entry.operation == operation.operation
     end)
   end
+
+  defp direct_ecto_ledger_metadata_errors(ledger) do
+    rows = markdown_table_rows(ledger)
+    [header | data_rows] = rows
+
+    required_headers = [
+      "File",
+      "Owner",
+      "Approved functions",
+      "Allowed operation type",
+      "Approving spec",
+      "Reason",
+      "Retirement condition"
+    ]
+
+    missing_headers = required_headers -- header
+
+    row_errors =
+      data_rows
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {row, row_number} ->
+        for header_name <- required_headers,
+            blank?(table_cell(row, header, header_name)) do
+          "row #{row_number} missing #{header_name}"
+        end
+      end)
+
+    Enum.map(missing_headers, &"missing required column #{&1}") ++ row_errors
+  end
+
+  defp markdown_table_rows(markdown) do
+    markdown
+    |> String.split("\n")
+    |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "|"))
+    |> Enum.map(&markdown_table_cells/1)
+    |> Enum.reject(&markdown_separator_row?/1)
+  end
+
+  defp markdown_table_cells(line) do
+    line
+    |> String.trim()
+    |> String.trim_leading("|")
+    |> String.trim_trailing("|")
+    |> String.split("|")
+    |> Enum.map(&String.trim/1)
+  end
+
+  defp markdown_separator_row?(cells) do
+    Enum.all?(cells, &String.match?(&1, ~r/^:?-{3,}:?$/))
+  end
+
+  defp table_cell(row, header, header_name) do
+    case Enum.find_index(header, &(&1 == header_name)) do
+      nil -> ""
+      index -> Enum.at(row, index, "")
+    end
+  end
+
+  defp blank?(value), do: String.trim(to_string(value)) == ""
 
   defp ledger_tuple_values(line) do
     tuple_values =
