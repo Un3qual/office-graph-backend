@@ -18,41 +18,40 @@ defmodule OfficeGraph.ProposedChanges do
 
   require Ash.Query
 
-  def get_many!([]), do: []
+  @required_change_types [
+    "create_signal",
+    "create_task",
+    "create_review_finding",
+    "create_verification_check"
+  ]
 
-  def get_many!(ids) do
-    records =
-      ProposedGraphChange
-      |> Ash.Query.filter(id in ^ids)
-      |> Ash.read!(authorize?: false)
+  def get_many!(_session_context, []), do: []
 
-    by_id = Map.new(records, &{&1.id, &1})
-    Enum.map(ids, &Map.fetch!(by_id, &1))
+  def get_many!(session_context, ids) do
+    case read_scoped_changes(session_context, ids) do
+      {:ok, records} -> records
+      {:error, {:missing_proposed_change, id}} -> raise KeyError, key: id, term: ids
+      {:error, error} -> raise RuntimeError, message: inspect(error)
+    end
   end
 
   def create_for_manual_intake(session_context, operation, normalized_event, attrs) do
     title = first_sentence(attrs.body)
 
-    change_attrs = [
-      {"create_signal", %{title: title, body: attrs.body}},
-      {"create_task", %{title: title, body: attrs.body}},
-      {"create_review_finding", %{title: "Review: " <> title, body: attrs.body}},
-      {"create_verification_check",
-       %{title: "Verify: " <> title, body: "Evidence required for: " <> title}}
-    ]
-
     Repo.transaction(fn ->
-      Enum.map(change_attrs, fn {change_type, payload} ->
-        ash_create!(ProposedGraphChange, %{
-          organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id,
-          operation_id: operation.id,
-          normalized_event_id: normalized_event.id,
-          status: "pending",
-          change_type: change_type,
-          payload: payload,
-          validation_errors: []
-        })
+      Enum.map(@required_change_types, fn change_type ->
+        ash_create!(
+          ProposedGraphChange,
+          %{
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            operation_id: operation.id,
+            normalized_event_id: normalized_event.id,
+            change_type: change_type,
+            payload: change_payload(change_type, title, attrs.body)
+          },
+          session_context
+        )
       end)
     end)
   end
@@ -62,7 +61,10 @@ defmodule OfficeGraph.ProposedChanges do
            Authorization.authorize(session_context, :proposed_change_apply,
              organization_id: session_context.organization_id
            ),
-         :ok <- validate_all(proposed_changes),
+         :ok <- validate_operation_scope(session_context, operation),
+         {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes),
+         :ok <- validate_change_set(session_context, proposed_changes),
+         :ok <- validate_all(session_context, proposed_changes),
          {:ok, signal_bundle} <-
            find_change(proposed_changes, "create_signal")
            |> apply_signal(session_context, operation),
@@ -75,7 +77,7 @@ defmodule OfficeGraph.ProposedChanges do
          {:ok, check_bundle} <-
            find_change(proposed_changes, "create_verification_check")
            |> apply_verification_check(session_context, operation, finding_bundle.review_finding) do
-      mark_applied!(proposed_changes)
+      mark_applied!(session_context, proposed_changes)
 
       {:ok,
        %{
@@ -87,13 +89,105 @@ defmodule OfficeGraph.ProposedChanges do
     end
   end
 
-  defp validate_all(proposed_changes) do
+  defp read_scoped_changes(session_context, ids) do
+    records =
+      ProposedGraphChange
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.read!(actor: session_context)
+
+    by_id = Map.new(records, &{&1.id, &1})
+
+    ids
+    |> Enum.map(&Map.fetch(by_id, &1))
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, record}, {:ok, acc} ->
+        {:cont, {:ok, [record | acc]}}
+
+      :error, {:ok, _acc} ->
+        {:halt, {:error, {:missing_proposed_change, find_missing_id(ids, by_id)}}}
+    end)
+    |> case do
+      {:ok, records} -> {:ok, Enum.reverse(records)}
+      error -> error
+    end
+  end
+
+  defp find_missing_id(ids, by_id), do: Enum.find(ids, &(not Map.has_key?(by_id, &1)))
+
+  defp reload_for_apply(session_context, proposed_changes) do
+    proposed_changes
+    |> Enum.map(& &1.id)
+    |> then(&read_scoped_changes(session_context, &1))
+  end
+
+  defp validate_operation_scope(session_context, operation) do
+    if operation.organization_id == session_context.organization_id and
+         operation.workspace_id == session_context.workspace_id do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp validate_change_set(session_context, proposed_changes) do
+    with :ok <- validate_record_scopes(session_context, proposed_changes),
+         :ok <- validate_pending(proposed_changes),
+         :ok <- validate_required_types(proposed_changes) do
+      :ok
+    end
+  end
+
+  defp validate_record_scopes(session_context, proposed_changes) do
+    case Enum.find(proposed_changes, &(not same_scope?(session_context, &1))) do
+      nil -> :ok
+      change -> {:error, {:invalid_proposed_change_scope, change.id}}
+    end
+  end
+
+  defp same_scope?(session_context, change) do
+    change.organization_id == session_context.organization_id and
+      change.workspace_id == session_context.workspace_id
+  end
+
+  defp validate_pending(proposed_changes) do
+    case Enum.find(proposed_changes, &(&1.status != "pending")) do
+      nil -> :ok
+      change -> {:error, {:invalid_proposed_change_status, change.id}}
+    end
+  end
+
+  defp validate_required_types(proposed_changes) do
+    types = Enum.map(proposed_changes, & &1.change_type)
+    unique_types = Enum.uniq(types)
+    duplicate_type = Enum.find(unique_types, &(Enum.count(types, fn type -> type == &1 end) > 1))
+    unexpected_type = Enum.find(types, &(&1 not in @required_change_types))
+    missing_type = Enum.find(@required_change_types, &(&1 not in types))
+
+    cond do
+      duplicate_type ->
+        {:error, {:invalid_proposed_change_set, {:duplicate_change_type, duplicate_type}}}
+
+      unexpected_type ->
+        {:error, {:invalid_proposed_change_set, {:unexpected_change_type, unexpected_type}}}
+
+      missing_type ->
+        {:error, {:invalid_proposed_change_set, {:missing_change_type, missing_type}}}
+
+      length(types) != length(@required_change_types) ->
+        {:error, {:invalid_proposed_change_set, :wrong_count}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_all(session_context, proposed_changes) do
     case Enum.find(proposed_changes, &invalid?/1) do
       nil ->
         :ok
 
       change ->
-        reject!(change, "title and body are required")
+        reject!(session_context, change, "title and body are required")
         {:error, {:invalid_proposed_change, change.id}}
     end
   end
@@ -109,8 +203,8 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
 
-  defp reject!(change, reason) do
-    ash_update!(change, :reject, %{validation_errors: [reason]})
+  defp reject!(session_context, change, reason) do
+    ash_update!(change, :reject, %{validation_errors: [reason]}, session_context)
   end
 
   defp find_change(changes, change_type) do
@@ -143,25 +237,25 @@ defmodule OfficeGraph.ProposedChanges do
     )
   end
 
-  defp mark_applied!(changes) do
+  defp mark_applied!(session_context, changes) do
     now = DateTime.utc_now()
 
     Enum.each(changes, fn change ->
-      ash_update!(change, :mark_applied, %{applied_at: now})
+      ash_update!(change, :mark_applied, %{applied_at: now}, session_context)
     end)
   end
 
-  defp ash_create!(resource, attrs) do
+  defp ash_create!(resource, attrs, session_context) do
     resource
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create!(authorize?: false, return_notifications?: true)
+    |> Ash.create!(actor: session_context, return_notifications?: true)
     |> record_without_notifications()
   end
 
-  defp ash_update!(record, action, attrs) do
+  defp ash_update!(record, action, attrs, session_context) do
     record
     |> Ash.Changeset.for_update(action, attrs)
-    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> Ash.update!(actor: session_context, return_notifications?: true)
     |> record_without_notifications()
   end
 
@@ -174,6 +268,15 @@ defmodule OfficeGraph.ProposedChanges do
     |> hd()
     |> String.trim()
   end
+
+  defp change_payload("create_signal", title, body), do: %{title: title, body: body}
+  defp change_payload("create_task", title, body), do: %{title: title, body: body}
+
+  defp change_payload("create_review_finding", title, body),
+    do: %{title: "Review: " <> title, body: body}
+
+  defp change_payload("create_verification_check", title, _body),
+    do: %{title: "Verify: " <> title, body: "Evidence required for: " <> title}
 
   defp atomize_payload(payload) do
     Map.new(payload, fn {key, value} -> {String.to_existing_atom(to_string(key)), value} end)

@@ -23,7 +23,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :normalized_event_id, :uuid, public?: true
-    attribute :status, :string, allow_nil?: false, public?: true
+    attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
     attribute :payload, :map, allow_nil?: false, default: %{}, public?: true
     attribute :validation_errors, {:array, :string}, allow_nil?: false, default: [], public?: true
@@ -46,11 +46,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
         :workspace_id,
         :operation_id,
         :normalized_event_id,
-        :status,
         :change_type,
-        :payload,
-        :validation_errors,
-        :applied_at
+        :payload
       ]
     end
 
@@ -59,13 +56,53 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     end
 
     update :reject do
+      require_atomic? false
       accept [:validation_errors]
+      validate attribute_equals(:status, "pending")
       change set_attribute(:status, "rejected")
     end
 
     update :mark_applied do
+      require_atomic? false
       accept [:applied_at]
+      validate attribute_equals(:status, "pending")
       change set_attribute(:status, "applied")
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :proposed_change_apply}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :manual_intake_submit}
+    end
+
+    policy action(:set_payload) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :manual_intake_submit}
+    end
+
+    policy action(:reject) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :proposed_change_apply}
+    end
+
+    policy action(:mark_applied) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :proposed_change_apply}
     end
   end
 end

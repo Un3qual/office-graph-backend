@@ -29,7 +29,7 @@ defmodule OfficeGraph.ProposedChangesTest do
     invalid =
       intake.proposed_changes
       |> hd()
-      |> update_payload!(%{"body" => "missing title"})
+      |> update_payload!(bootstrap.session, %{"body" => "missing title"})
 
     proposed_changes = [invalid | tl(intake.proposed_changes)]
     {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
@@ -41,7 +41,10 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert get_change!(invalid).status == "rejected"
   end
 
-  test "get_many! preserves caller order and raises for missing ids", %{intake: intake} do
+  test "get_many! preserves caller order and raises for missing ids", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
     ids =
       intake.proposed_changes
       |> Enum.map(& &1.id)
@@ -49,11 +52,22 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert ids ==
              ids
-             |> ProposedChanges.get_many!()
+             |> then(&ProposedChanges.get_many!(bootstrap.session, &1))
              |> Enum.map(& &1.id)
 
     assert_raise KeyError, fn ->
-      ProposedChanges.get_many!([Ecto.UUID.generate()])
+      ProposedChanges.get_many!(bootstrap.session, [Ecto.UUID.generate()])
+    end
+  end
+
+  test "get_many! does not load proposed changes outside the caller scope", %{
+    bootstrap: bootstrap
+  } do
+    foreign = submit_scoped_intake!("foreign-proposed-load")
+    foreign_id = foreign.intake.proposed_changes |> hd() |> Map.fetch!(:id)
+
+    assert_raise KeyError, fn ->
+      ProposedChanges.get_many!(bootstrap.session, [foreign_id])
     end
   end
 
@@ -80,6 +94,42 @@ defmodule OfficeGraph.ProposedChangesTest do
            )
   end
 
+  test "apply rejects cross-scope proposed changes before graph creation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    foreign = submit_scoped_intake!("foreign-proposed-apply")
+    foreign_change = hd(foreign.intake.proposed_changes)
+    foreign_id = foreign_change.id
+    proposed_changes = [foreign_change | tl(intake.proposed_changes)]
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, {:missing_proposed_change, ^foreign_id}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
+
+    assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
+    assert get_change!(foreign_change).status == "pending"
+  end
+
+  test "apply rejects duplicate or incomplete change sets", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    [first | rest] = intake.proposed_changes
+    duplicate_type = first.change_type
+    duplicate_changes = [first, first | rest]
+    missing_changes = rest
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, {:invalid_proposed_change_set, {:duplicate_change_type, ^duplicate_type}}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, duplicate_changes)
+
+    assert {:error, {:invalid_proposed_change_set, {:missing_change_type, ^duplicate_type}}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, missing_changes)
+
+    assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
+  end
+
   test "successful apply marks all supplied proposed changes applied", %{
     bootstrap: bootstrap,
     intake: intake
@@ -99,10 +149,60 @@ defmodule OfficeGraph.ProposedChangesTest do
            end)
   end
 
-  defp update_payload!(change, payload) do
+  test "apply rejects stale non-pending proposed changes", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, _applied} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    {:ok, reapply_operation} =
+      Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    first_id = intake.proposed_changes |> hd() |> Map.fetch!(:id)
+
+    assert {:error, {:invalid_proposed_change_status, ^first_id}} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               reapply_operation,
+               intake.proposed_changes
+             )
+  end
+
+  defp submit_scoped_intake!(suffix) do
+    {:ok, bootstrap} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Office Graph #{suffix}",
+        organization_slug: "office-graph-#{suffix}",
+        workspace_name: "Workspace #{suffix}",
+        workspace_slug: "workspace-#{suffix}",
+        initiative_name: "Walking Skeleton #{suffix}",
+        initiative_slug: "walking-skeleton-#{suffix}",
+        owner_email: "owner-#{suffix}@office-graph.local"
+      )
+
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    {:ok, intake} =
+      Integrations.submit_manual_intake(bootstrap.session, intake_operation, %{
+        source_identity: "manual:#{suffix}",
+        replay_identity: "paste:#{suffix}",
+        body: "Investigate scoped #{suffix} change and prove it."
+      })
+
+    %{bootstrap: bootstrap, intake: intake}
+  end
+
+  defp update_payload!(change, session_context, payload) do
     change
     |> Ash.Changeset.for_update(:set_payload, %{payload: payload})
-    |> Ash.update!(authorize?: false)
+    |> Ash.update!(actor: session_context)
   end
 
   defp get_change!(change) do

@@ -37,7 +37,7 @@ defmodule OfficeGraph.ApiSupport do
 
     with {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :proposed_change_apply),
-         proposed_changes <- ProposedChanges.get_many!(ids) do
+         proposed_changes <- ProposedChanges.get_many!(bootstrap.session, ids) do
       ProposedChanges.apply_all(bootstrap.session, operation, proposed_changes)
     end
   end
