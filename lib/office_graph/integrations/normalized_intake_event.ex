@@ -1,50 +1,56 @@
 defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Integrations.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
+  postgres do
+    table "normalized_intake_events"
+    repo OfficeGraph.Repo
+    migrate? false
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "normalized_intake_events" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :raw_archive_id, :binary_id
-    field :operation_id, :binary_id
-    field :source_identity, :string
-    field :replay_identity, :string
-    field :outcome, :string
-    field :duplicate_of_id, :binary_id
-
-    timestamps(type: :utc_datetime_usec)
+    foreign_key_names organization_id: "normalized_intake_events_organization_id_fkey",
+                      workspace_id: "normalized_intake_events_workspace_id_fkey",
+                      raw_archive_id: "normalized_intake_events_raw_archive_id_fkey",
+                      operation_id: "normalized_intake_events_operation_id_fkey",
+                      duplicate_of_id: "normalized_intake_events_duplicate_of_id_fkey"
   end
 
-  def changeset(event, attrs) do
-    event
-    |> cast(attrs, [
-      :organization_id,
-      :workspace_id,
-      :raw_archive_id,
-      :operation_id,
-      :source_identity,
-      :replay_identity,
-      :outcome,
-      :duplicate_of_id
-    ])
-    |> validate_required([
-      :organization_id,
-      :workspace_id,
-      :raw_archive_id,
-      :operation_id,
-      :source_identity,
-      :replay_identity,
-      :outcome
-    ])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:raw_archive_id)
-    |> foreign_key_constraint(:operation_id)
-    |> foreign_key_constraint(:duplicate_of_id)
+  attributes do
+    uuid_primary_key :id, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :raw_archive_id, :uuid, allow_nil?: false, public?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :source_identity, :string, allow_nil?: false, public?: true
+    attribute :replay_identity, :string, allow_nil?: false, public?: true
+    attribute :outcome, :string, allow_nil?: false, public?: true
+    attribute :duplicate_of_id, :uuid, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :raw_archive_id,
+        :operation_id,
+        :source_identity,
+        :replay_identity,
+        :outcome,
+        :duplicate_of_id
+      ]
+    end
   end
 end

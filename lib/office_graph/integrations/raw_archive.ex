@@ -1,46 +1,53 @@
 defmodule OfficeGraph.Integrations.RawArchive do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Integrations.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
+  postgres do
+    table "raw_archives"
+    repo OfficeGraph.Repo
+    migrate? false
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "raw_archives" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :source_id, :binary_id
-    field :operation_id, :binary_id
-    field :content_hash, :string
-    field :body, :string
-    field :metadata, :map, default: %{}
-
-    timestamps(type: :utc_datetime_usec)
+    foreign_key_names organization_id: "raw_archives_organization_id_fkey",
+                      workspace_id: "raw_archives_workspace_id_fkey",
+                      source_id: "raw_archives_source_id_fkey",
+                      operation_id: "raw_archives_operation_id_fkey"
   end
 
-  def changeset(raw_archive, attrs) do
-    raw_archive
-    |> cast(attrs, [
-      :organization_id,
-      :workspace_id,
-      :source_id,
-      :operation_id,
-      :content_hash,
-      :body,
-      :metadata
-    ])
-    |> validate_required([
-      :organization_id,
-      :workspace_id,
-      :source_id,
-      :operation_id,
-      :content_hash,
-      :body
-    ])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
-    |> foreign_key_constraint(:source_id)
-    |> foreign_key_constraint(:operation_id)
+  attributes do
+    uuid_primary_key :id, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :source_id, :uuid, allow_nil?: false, public?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :content_hash, :string, allow_nil?: false, public?: true
+    attribute :body, :string, allow_nil?: false, public?: true
+    attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :source_id,
+        :operation_id,
+        :content_hash,
+        :body,
+        :metadata
+      ]
+    end
   end
 end

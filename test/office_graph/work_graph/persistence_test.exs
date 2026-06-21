@@ -14,7 +14,9 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   }
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.ExternalRefs.ExternalReference
   alias OfficeGraph.Integrations
+  alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.Audit.AuditRecord
   alias OfficeGraph.WorkGraph
@@ -304,6 +306,99 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     operation_message = ash_error_message(operation_error)
     assert operation_message =~ "operation_id"
     refute operation_message =~ "constraint error when attempting to insert struct"
+  end
+
+  test "integration and external reference identities surface duplicate conflicts" do
+    source_attrs = %{
+      key: "manual:test-#{System.unique_integer([:positive])}",
+      name: "Manual Intake",
+      kind: "manual"
+    }
+
+    assert {:ok, source} =
+             Ash.create(ExternalSource, source_attrs, action: :create, authorize?: false)
+
+    assert {:error, source_error} =
+             Ash.create(ExternalSource, source_attrs, action: :create, authorize?: false)
+
+    source_message = ash_error_message(source_error)
+    assert source_message =~ "key"
+    assert source_message =~ "has already been taken"
+    refute source_message =~ "constraint error when attempting to insert struct"
+
+    reference_attrs = %{
+      source_id: source.id,
+      external_id: "ticket:#{System.unique_integer([:positive])}",
+      resource_type: "signal",
+      resource_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, _reference} =
+             Ash.create(ExternalReference, reference_attrs, action: :create, authorize?: false)
+
+    assert {:error, reference_error} =
+             Ash.create(ExternalReference, reference_attrs, action: :create, authorize?: false)
+
+    reference_message = ash_error_message(reference_error)
+    assert reference_message =~ "source_id"
+    assert reference_message =~ "has already been taken"
+    refute reference_message =~ "constraint error when attempting to insert struct"
+  end
+
+  test "integration foreign key constraints surface invalid references", %{
+    bootstrap: bootstrap,
+    operation: operation
+  } do
+    source =
+      Ash.create!(
+        ExternalSource,
+        %{
+          key: "manual:fk-#{System.unique_integer([:positive])}",
+          name: "Manual Intake",
+          kind: "manual"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:error, raw_error} =
+             Ash.create(
+               RawArchive,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 source_id: Ecto.UUID.generate(),
+                 operation_id: operation.id,
+                 content_hash: "missing-source",
+                 body: "Missing source"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    raw_message = ash_error_message(raw_error)
+    assert raw_message =~ "source_id"
+    refute raw_message =~ "constraint error when attempting to insert struct"
+
+    assert {:error, event_error} =
+             Ash.create(
+               NormalizedIntakeEvent,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 raw_archive_id: Ecto.UUID.generate(),
+                 operation_id: operation.id,
+                 source_identity: source.key,
+                 replay_identity: "missing-raw",
+                 outcome: "accepted"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    event_message = ash_error_message(event_error)
+    assert event_message =~ "raw_archive_id"
+    refute event_message =~ "constraint error when attempting to insert struct"
   end
 
   test "plain document creation rolls back document and block when revision insert fails", %{
