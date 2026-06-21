@@ -1,5 +1,7 @@
 # Resource Ownership Inventory
 
+Derived from committed migrations; expected count: 40 tables.
+
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
 | `organizations` | `OfficeGraph.Tenancy.Domain` | `OfficeGraph.Tenancy.Organization` |

@@ -3,6 +3,8 @@
 ### Requirement: Durable Model Ash Ownership
 Every durable table implemented by Office Graph SHALL have a canonical Ash
 resource in the bounded context that owns its lifecycle.
+`openspec/changes/repair-ash-model-conformance/model-inventory.md` SHALL be
+the normative 40-table inventory used by the architecture conformance gate.
 
 #### Scenario: A migration-created table is implemented
 - **WHEN** a table exists in a committed migration for the backend
@@ -28,11 +30,12 @@ Office Graph SHALL avoid parallel model definitions for the same durable table.
   table
 
 #### Scenario: WorkGraph resources are converged
-- **WHEN** WorkGraph typed resources are Ash-backed
-- **THEN** they MUST be defined as `OfficeGraph.WorkGraph.Signal`,
+- **WHEN** WorkGraph resources are Ash-backed
+- **THEN** they MUST be defined as `OfficeGraph.WorkGraph.GraphItem`,
+  `OfficeGraph.WorkGraph.GraphRelationship`, `OfficeGraph.WorkGraph.Signal`,
   `OfficeGraph.WorkGraph.Task`, `OfficeGraph.WorkGraph.ReviewFinding`,
-  `OfficeGraph.WorkGraph.VerificationCheck`,
-  `OfficeGraph.WorkGraph.Artifact`, `OfficeGraph.WorkGraph.EvidenceItem`, and
+  `OfficeGraph.WorkGraph.VerificationCheck`, `OfficeGraph.WorkGraph.Artifact`,
+  `OfficeGraph.WorkGraph.EvidenceItem`, and
   `OfficeGraph.WorkGraph.VerificationResult` rather than parallel
   `OfficeGraph.WorkGraph.Resources.*` modules
 
@@ -43,9 +46,10 @@ domain mutations.
 #### Scenario: Direct Ecto remains useful
 - **WHEN** a context uses direct Ecto for a transaction boundary, read model,
   replay scan, bulk maintenance path, or raw SQL escape hatch
-- **THEN** that path MUST be listed in the architecture exception ledger with
-  its owner, reason, allowed operation type, approving spec, and retirement
-  condition
+- **THEN** that path MUST be listed in
+  `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
+  with its owner, reason, allowed operation type, approving spec, and
+  retirement condition
 
 #### Scenario: A normal mutation is implemented
 - **WHEN** production code creates, updates, or deletes a durable domain record
@@ -60,4 +64,6 @@ ownership specs diverge.
 - **WHEN** `mix architecture.conformance` or `./bin/verify-backend` runs
 - **THEN** it MUST verify table inventory, Ash domain registration, Ash resource
   registration, absence of table-backed Ecto schemas, absence of duplicate
-  model definitions, and direct Ecto exception ledger coverage
+  model definitions, and coverage in the existing
+  `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
+  direct Ecto exception ledger
