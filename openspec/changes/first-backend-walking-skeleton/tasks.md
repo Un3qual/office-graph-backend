@@ -35,19 +35,19 @@
 
 ## 3. Identity, Tenancy, And Bootstrap
 
-- [ ] 3.1 Create migrations/resources for organizations, workspaces,
+- [x] 3.1 Create migrations/resources for organizations, workspaces,
   initiatives, optional workstreams, principals, principal profiles, sessions
   or session references, capabilities, roles, role capabilities, role
   assignments, policy bundle/version anchors, and credential metadata.
-- [ ] 3.2 Implement local/test bootstrap for first organization, workspace,
+- [x] 3.2 Implement local/test bootstrap for first organization, workspace,
   initiative, owner principal/profile, initial role assignment, capabilities,
   policy anchor, and owner session context.
-- [ ] 3.3 Implement thin authenticated principal/session context structs and
+- [x] 3.3 Implement thin authenticated principal/session context structs and
   public verification helpers for API entrypoints and domain actions.
-- [ ] 3.4 Implement the first authorization check path for walking-skeleton
+- [x] 3.4 Implement the first authorization check path for walking-skeleton
   reads, writes, proposed-change application, evidence linking, and verified
   completion.
-- [ ] 3.5 Add tests proving bootstrap is idempotent in dev/test and that
+- [x] 3.5 Add tests proving bootstrap is idempotent in dev/test and that
   unauthorized principals cannot read or mutate skeleton records.
 
 ## 4. Persistence And Resource Skeleton
