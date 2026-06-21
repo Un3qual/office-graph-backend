@@ -71,8 +71,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       ~r/(Repo\.(insert!?|update!?|delete!?|transaction)\b|Ecto\.Multi\.(insert|update|delete)\b)/
 
     actual =
-      "lib/office_graph"
-      |> Path.wildcard("**/*.ex")
+      "lib/office_graph/**/*.ex"
+      |> Path.wildcard()
       |> Enum.filter(fn path ->
         path
         |> File.read!()
