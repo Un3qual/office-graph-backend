@@ -26,16 +26,13 @@ defmodule OfficeGraph.Authorization.AuthorizationDecision do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      public? false
+    end
 
     create :create do
       accept [:id, :operation_id, :principal_id, :organization_id, :action, :decision, :reason]
-    end
-  end
-
-  policies do
-    policy action_type(:read) do
-      authorize_if expr(organization_id == ^actor(:organization_id))
     end
   end
 end

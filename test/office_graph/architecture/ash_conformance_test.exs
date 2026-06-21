@@ -323,9 +323,12 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "Foundation Ash resources must declare database-backed identities:\n#{format_errors(errors)}"
   end
 
-  test "foundation authorization read policies do not expose cross-workspace joins" do
+  test "foundation authorization read policies do not expose cross-workspace rows" do
     refute public_action?(OfficeGraph.Authorization.RoleCapability, :read, :read),
            "RoleCapability join rows must not have public reads until they have a tenant-safe read policy"
+
+    refute public_action?(OfficeGraph.Authorization.AuthorizationDecision, :read, :read),
+           "AuthorizationDecision rows must not have public reads until operation workspace scope is Ash-backed"
 
     role_assignment_filter = foundation_read_filter(OfficeGraph.Authorization.RoleAssignment)
     role_assignment_filter_text = inspect(role_assignment_filter)
