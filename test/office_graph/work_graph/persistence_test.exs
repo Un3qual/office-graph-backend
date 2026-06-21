@@ -1,6 +1,10 @@
 defmodule OfficeGraph.WorkGraph.PersistenceTest do
   use OfficeGraph.DataCase, async: false
 
+  require Ash.Query
+
+  alias OfficeGraph.Content
+  alias OfficeGraph.Content.{DocumentBlock, DocumentRevision}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
@@ -58,6 +62,50 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert created.graph_item.resource_type == "signal"
     assert created.graph_item.resource_id == created.signal.id
     assert created.document.plain_text == "Deploy check failed twice."
+  end
+
+  test "plain document creation stores first block and initial revision through Ash", %{
+    bootstrap: bootstrap,
+    operation: operation
+  } do
+    assert {:ok, document} =
+             Content.create_plain_document(
+               bootstrap.session,
+               operation,
+               "Deploy check failed twice."
+             )
+
+    assert document.organization_id == bootstrap.organization.id
+    assert document.workspace_id == bootstrap.workspace.id
+    assert document.plain_text == "Deploy check failed twice."
+
+    assert [
+             %DocumentBlock{
+               document_id: document_id,
+               position: 0,
+               block_type: "paragraph",
+               text: "Deploy check failed twice."
+             }
+           ] =
+             DocumentBlock
+             |> Ash.Query.filter(document_id == ^document.id)
+             |> Ash.read!(authorize?: false)
+
+    assert document_id == document.id
+
+    assert [
+             %DocumentRevision{
+               document_id: ^document_id,
+               operation_id: operation_id,
+               revision_number: 1,
+               semantic_summary: "initial"
+             }
+           ] =
+             DocumentRevision
+             |> Ash.Query.filter(document_id == ^document.id)
+             |> Ash.read!(authorize?: false)
+
+    assert operation_id == operation.id
   end
 
   test "manual intake stores raw archive and identifies replay duplicates", %{

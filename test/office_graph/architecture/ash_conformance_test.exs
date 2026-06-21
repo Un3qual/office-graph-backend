@@ -75,7 +75,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.WorkGraph.VerificationResult
   ]
 
-  @foundation_resource_identities %{
+  @expected_resource_identities %{
     OfficeGraph.Tenancy.Organization => %{unique_slug: [:slug]},
     OfficeGraph.Tenancy.Workspace => %{unique_slug: [:organization_id, :slug]},
     OfficeGraph.Tenancy.Initiative => %{unique_slug: [:workspace_id, :slug]},
@@ -94,7 +94,11 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.Authorization.RoleAssignment => %{
       unique_assignment: [:principal_id, :role_id, :organization_id]
     },
-    OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]}
+    OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]},
+    OfficeGraph.Content.DocumentBlock => %{unique_document_position: [:document_id, :position]},
+    OfficeGraph.Content.DocumentRevision => %{
+      unique_document_revision: [:document_id, :revision_number]
+    }
   }
 
   @expected_action_capabilities %{
@@ -189,15 +193,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
 
   @tag :scanner_contract
-  test "direct Ecto scanner reports remaining read bridge operations" do
+  test "direct Ecto scanner reports remaining proposed-change read operations" do
     operations =
       direct_ecto_operations()
       |> MapSet.new(&{&1.path, &1.function, &1.operation})
 
     for expected <- [
-          {"lib/office_graph/proposed_changes.ex", "get_many!/1", "Repo.all"},
-          {"lib/office_graph/work_graph/changes/validate_same_scope_references.ex",
-           "fetch_unconverted_reference/2", "Repo.get"}
+          {"lib/office_graph/proposed_changes.ex", "get_many!/1", "Repo.all"}
         ] do
       assert MapSet.member?(operations, expected),
              "Expected direct Ecto scanner to report #{inspect(expected)}"
@@ -308,9 +310,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "Expected resources must be registered in exactly one owning Ash domain:\n#{format_errors(errors)}"
   end
 
-  test "foundation Ash resources declare expected unique identities" do
+  test "Ash resources declare expected unique identities" do
     errors =
-      @foundation_resource_identities
+      @expected_resource_identities
       |> Enum.sort_by(fn {resource, _identities} -> inspect(resource) end)
       |> Enum.flat_map(fn {resource, identities} ->
         Enum.flat_map(identities, fn {identity_name, expected_keys} ->
@@ -335,7 +337,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       end)
 
     assert errors == [],
-           "Foundation Ash resources must declare database-backed identities:\n#{format_errors(errors)}"
+           "Ash resources must declare database-backed identities:\n#{format_errors(errors)}"
   end
 
   test "foundation authorization read policies do not expose cross-workspace rows" do
@@ -429,13 +431,12 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
-  test "same-scope reference bridge only covers unconverted Content documents" do
+  test "same-scope reference validation uses Ash for all configured references" do
     source = File.read!("lib/office_graph/work_graph/changes/validate_same_scope_references.ex")
 
-    assert source =~ "OfficeGraph.Content.Document"
-
-    refute source =~ "OfficeGraph.Operations.OperationCorrelation",
-           "OperationCorrelation is Ash-backed and must be validated through Ash reads"
+    refute source =~ "fetch_unconverted_reference"
+    refute source =~ "Repo.get"
+    refute source =~ "@unconverted_reference_schemas"
   end
 
   test "shared Ash capability check is loadable" do

@@ -5,10 +5,6 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
 
   require Ash.Query
 
-  alias OfficeGraph.Repo
-
-  @unconverted_reference_schemas [OfficeGraph.Content.Document]
-
   @impl true
   def change(changeset, opts, _context) do
     with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
@@ -64,28 +60,11 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   defp reference_spec(schema), do: {schema, []}
 
   defp fetch_reference(resource, record_id) do
-    if ash_resource?(resource) do
-      resource
-      |> Ash.Query.filter(id == ^record_id)
-      |> Ash.read_one(authorize?: false)
-    else
-      fetch_unconverted_reference(resource, record_id)
-    end
-  end
-
-  defp fetch_unconverted_reference(schema, record_id) do
-    if schema in @unconverted_reference_schemas do
-      {:ok, Repo.get(schema, record_id)}
-    else
-      {:error, :unsupported_unconverted_reference}
-    end
-  end
-
-  defp ash_resource?(resource) do
-    Ash.Resource.Info.data_layer(resource)
-    true
+    resource
+    |> Ash.Query.filter(id == ^record_id)
+    |> Ash.read_one(authorize?: false)
   rescue
-    _error -> false
+    _error -> {:error, :unsupported_reference}
   end
 
   defp validate_resource_identity(record, field, reference_opts, changeset) do

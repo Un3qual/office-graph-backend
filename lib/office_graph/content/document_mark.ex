@@ -1,15 +1,35 @@
 defmodule OfficeGraph.Content.DocumentMark do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Content.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "document_marks" do
-    field :block_id, :binary_id
-    field :mark_type, :string
-    field :attrs, :map, default: %{}
+  postgres do
+    table "document_marks"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
 
-    timestamps(type: :utc_datetime_usec)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :block_id, :uuid, allow_nil?: false, public?: true
+    attribute :mark_type, :string, allow_nil?: false, public?: true
+    attribute :attrs, :map, allow_nil?: false, default: %{}, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [:id, :block_id, :mark_type, :attrs]
+    end
   end
 end

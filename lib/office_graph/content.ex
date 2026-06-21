@@ -5,44 +5,55 @@ defmodule OfficeGraph.Content do
 
   use Boundary, deps: [OfficeGraph.Repo], exports: []
 
-  alias Ecto.Multi
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Repo
 
   def create_plain_document(session_context, operation, plain_text) do
     document_id = Ecto.UUID.generate()
 
-    Multi.new()
-    |> Multi.insert(
-      :document,
-      Document.changeset(%Document{id: document_id}, %{
-        organization_id: session_context.organization_id,
-        workspace_id: session_context.workspace_id,
-        plain_text: plain_text
-      })
-    )
-    |> Multi.insert(
-      :block,
-      DocumentBlock.changeset(%DocumentBlock{}, %{
-        document_id: document_id,
-        position: 0,
-        block_type: "paragraph",
-        text: plain_text
-      })
-    )
-    |> Multi.insert(
-      :revision,
-      DocumentRevision.changeset(%DocumentRevision{}, %{
-        document_id: document_id,
-        operation_id: operation.id,
-        revision_number: 1,
-        semantic_summary: "initial"
-      })
-    )
-    |> Repo.transaction()
+    Repo.transaction(fn ->
+      with {:ok, document} <-
+             ash_create(Document, %{
+               id: document_id,
+               organization_id: session_context.organization_id,
+               workspace_id: session_context.workspace_id,
+               plain_text: plain_text
+             }),
+           {:ok, _block} <-
+             ash_create(DocumentBlock, %{
+               id: Ecto.UUID.generate(),
+               document_id: document_id,
+               position: 0,
+               block_type: "paragraph",
+               text: plain_text
+             }),
+           {:ok, _revision} <-
+             ash_create(DocumentRevision, %{
+               id: Ecto.UUID.generate(),
+               document_id: document_id,
+               operation_id: operation.id,
+               revision_number: 1,
+               semantic_summary: "initial"
+             }) do
+        document
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
     |> case do
-      {:ok, %{document: document}} -> {:ok, document}
-      {:error, _step, changeset, _changes} -> {:error, changeset}
+      {:ok, document} -> {:ok, document}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp ash_create(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> case do
+      {:ok, record, _notifications} -> {:ok, record}
+      {:ok, record} -> {:ok, record}
+      {:error, error} -> {:error, error}
     end
   end
 end

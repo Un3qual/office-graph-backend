@@ -1,25 +1,35 @@
 defmodule OfficeGraph.Content.Document do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Content.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "documents" do
-    field :organization_id, :binary_id
-    field :workspace_id, :binary_id
-    field :plain_text, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "documents"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(document, attrs) do
-    document
-    |> cast(attrs, [:organization_id, :workspace_id, :plain_text])
-    |> validate_required([:organization_id, :workspace_id, :plain_text])
-    |> foreign_key_constraint(:organization_id)
-    |> foreign_key_constraint(:workspace_id)
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :plain_text, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [:id, :organization_id, :workspace_id, :plain_text]
+    end
   end
 end

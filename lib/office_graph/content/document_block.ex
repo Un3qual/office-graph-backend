@@ -1,26 +1,40 @@
 defmodule OfficeGraph.Content.DocumentBlock do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ash.Resource,
+    domain: OfficeGraph.Content.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
-  import Ecto.Changeset
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-  schema "document_blocks" do
-    field :document_id, :binary_id
-    field :position, :integer
-    field :block_type, :string
-    field :text, :string
-
-    timestamps(type: :utc_datetime_usec)
+  postgres do
+    table "document_blocks"
+    repo OfficeGraph.Repo
+    migrate? false
   end
 
-  def changeset(block, attrs) do
-    block
-    |> cast(attrs, [:document_id, :position, :block_type, :text])
-    |> validate_required([:document_id, :position, :block_type, :text])
-    |> foreign_key_constraint(:document_id)
-    |> unique_constraint([:document_id, :position])
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :document_id, :uuid, allow_nil?: false, public?: true
+    attribute :position, :integer, allow_nil?: false, public?: true
+    attribute :block_type, :string, allow_nil?: false, public?: true
+    attribute :text, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? false
+    end
+
+    create :create do
+      accept [:id, :document_id, :position, :block_type, :text]
+    end
+  end
+
+  identities do
+    identity :unique_document_position, [:document_id, :position]
   end
 end

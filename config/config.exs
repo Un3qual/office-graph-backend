@@ -16,6 +16,7 @@ config :office_graph,
     OfficeGraph.Audit.Domain,
     OfficeGraph.Revisions.Domain,
     OfficeGraph.Tombstones.Domain,
+    OfficeGraph.Content.Domain,
     OfficeGraph.WorkGraph.Domain
   ],
   ecto_repos: [OfficeGraph.Repo],

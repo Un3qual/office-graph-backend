@@ -114,9 +114,9 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert Exception.message(task_error) =~ "graph_item_id"
   end
 
-  test "direct Ash creates reject invalid Ecto document references" do
-    {:ok, actor_scope} = bootstrap_scope("ecto-document-actor")
-    {:ok, other_scope} = bootstrap_scope("ecto-document-other")
+  test "direct Ash creates reject invalid Ash document references" do
+    {:ok, actor_scope} = bootstrap_scope("ash-document-actor")
+    {:ok, other_scope} = bootstrap_scope("ash-document-other")
 
     foreign_document = insert_document!(other_scope, "Foreign document")
 
@@ -147,9 +147,9 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     end
   end
 
-  test "direct Ash creates reject invalid Ecto description document references" do
-    {:ok, actor_scope} = bootstrap_scope("ecto-description-actor")
-    {:ok, other_scope} = bootstrap_scope("ecto-description-other")
+  test "direct Ash creates reject invalid Ash description document references" do
+    {:ok, actor_scope} = bootstrap_scope("ash-description-actor")
+    {:ok, other_scope} = bootstrap_scope("ash-description-other")
 
     review_finding = create_review_finding!(actor_scope)
     foreign_document = insert_document!(other_scope, "Foreign check description")
@@ -253,7 +253,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
     body = "A missing title should be returned as a validation error."
 
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
 
     assert {:error, error} =
              WorkGraph.create_signal(bootstrap.session, operation, %{
@@ -262,7 +262,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              })
 
     assert Exception.message(error) =~ "title"
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
   end
 
   test "public WorkGraph create_task returns an error for relationship FK failure" do
@@ -276,7 +276,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       |> Map.put(:graph_item_id, Ecto.UUID.generate())
 
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
 
     assert {:error, error} =
              WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
@@ -287,7 +287,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert inspect(error) =~ "source_item_id"
     refute ash_record_with_title?(TaskResource, title)
     refute ash_record_with_title?(GraphItem, title)
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
   end
 
   test "public WorkGraph complete_verification returns an error for a stale verification check" do
@@ -297,7 +297,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
     body = "The verification check id no longer exists."
 
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
 
     assert {:error, error} =
              WorkGraph.complete_verification(
@@ -312,7 +312,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              )
 
     assert Exception.message(error) =~ "verification_check_id"
-    assert is_nil(Repo.get_by(Document, plain_text: body))
+    refute document_with_plain_text?(body)
   end
 
   test "verification completion does not require skeleton read capability for internal reloads" do
@@ -455,12 +455,27 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   end
 
   defp insert_document!(bootstrap, plain_text) do
-    %Document{id: Ecto.UUID.generate()}
-    |> Document.changeset(%{
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      plain_text: plain_text
-    })
-    |> Repo.insert!()
+    Ash.create!(
+      Document,
+      %{
+        id: Ecto.UUID.generate(),
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        plain_text: plain_text
+      },
+      action: :create,
+      authorize?: false
+    )
+  end
+
+  defp document_with_plain_text?(plain_text) do
+    Document
+    |> Ash.Query.filter(plain_text == ^plain_text)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> false
+      {:ok, _document} -> true
+      {:error, _error} -> false
+    end
   end
 end
