@@ -44,11 +44,12 @@ defmodule OfficeGraph.WorkGraph.Resources.Signal do
 
   policies do
     policy action_type(:read) do
-      authorize_if OfficeGraph.Authorization.Checks.HasCapability
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end
 
     policy action(:create) do
-      authorize_if OfficeGraph.Authorization.Checks.HasCapability
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :manual_intake_submit}
     end
   end
 

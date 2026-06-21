@@ -35,11 +35,11 @@ defmodule OfficeGraph.WorkGraph.Resources.Artifact do
 
   policies do
     policy action_type(:read) do
-      authorize_if OfficeGraph.Authorization.Checks.HasCapability
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end
 
     policy action(:create) do
-      authorize_if OfficeGraph.Authorization.Checks.HasCapability
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_link}
     end
   end
 
