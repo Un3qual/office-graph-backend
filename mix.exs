@@ -7,6 +7,7 @@ defmodule OfficeGraph.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
+      compilers: [:boundary] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
@@ -70,11 +71,18 @@ defmodule OfficeGraph.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      verify: ["compile --warnings-as-errors", "format --check-formatted", "test"],
+      "boundary.check": ["compile --force --warnings-as-errors"],
+      verify: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "boundary.check",
+        "test"
+      ],
       precommit: [
         "compile --warnings-as-errors",
         "deps.unlock --unused",
         "format --check-formatted",
+        "boundary.check",
         "test"
       ]
     ]

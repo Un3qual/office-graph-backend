@@ -1,4 +1,6 @@
 defmodule OfficeGraph.Application do
+  use Boundary, top_level?: true, deps: [OfficeGraph, OfficeGraph.Repo, OfficeGraphWeb]
+
   # See https://elixir.hexdocs.pm/Application.html
   # for more information on OTP Applications
   @moduledoc false

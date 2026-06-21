@@ -20,17 +20,17 @@
 
 ## 2. Boundary And Context Layout
 
-- [ ] 2.1 Add Boundary configuration and define the initial public/private
+- [x] 2.1 Add Boundary configuration and define the initial public/private
   module rules for `OfficeGraph` and `OfficeGraphWeb`.
-- [ ] 2.2 Create public context modules needed by the walking skeleton:
+- [x] 2.2 Create public context modules needed by the walking skeleton:
   identity, tenancy, authorization, operations, audit, revisions, work
   containers, work graph, content, integrations/intake, software proving,
   proposed changes, verification, runs, work packets, and API-facing support.
-- [ ] 2.3 Place internal implementation modules under their owning context and
+- [x] 2.3 Place internal implementation modules under their owning context and
   avoid cross-context imports of private modules.
-- [ ] 2.4 Add the Boundary verification command to Mix aliases or release gate
+- [x] 2.4 Add the Boundary verification command to Mix aliases or release gate
   documentation.
-- [ ] 2.5 Add a minimal Boundary test or command check that fails on private
+- [x] 2.5 Add a minimal Boundary test or command check that fails on private
   cross-context imports.
 
 ## 3. Identity, Tenancy, And Bootstrap

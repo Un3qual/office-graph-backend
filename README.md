@@ -66,6 +66,7 @@ Run the current backend baseline gate:
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command mix compile --warnings-as-errors
 nix --extra-experimental-features 'nix-command flakes' develop --command mix format --check-formatted
+nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate first-backend-walking-skeleton --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
