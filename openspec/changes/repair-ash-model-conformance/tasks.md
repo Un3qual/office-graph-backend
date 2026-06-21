@@ -1,3 +1,5 @@
+# Repair Ash Model Conformance Tasks
+
 ## 1. OpenSpec And Gate Setup
 
 Reference: use `openspec/changes/repair-ash-model-conformance/model-inventory.md`

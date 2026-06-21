@@ -242,6 +242,12 @@ and do not bypass domain actions. They are configuration resources that must
 be interpreted through authorization-filtered projections and typed domain
 contracts.
 
+This follows the same boundary as the persistence model's form-builder and
+JSON storage guidance: definitions that affect product behavior should become
+typed configuration and value records, while JSON remains appropriate for raw
+imports, temporary unmodeled metadata, or presentation details that do not
+drive policy, verification, reporting, or agent context.
+
 Alternatives considered:
 
 - **Generic configurable fields on every graph item:** Looks flexible, but

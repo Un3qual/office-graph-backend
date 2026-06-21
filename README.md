@@ -32,6 +32,9 @@ The app connects to `localhost:55432` with:
 - development database: `office_graph_dev`
 - test database: `office_graph_test`
 
+Production runtime config enables Postgres TLS by default. Set
+`DATABASE_SSL=false` only for an explicitly trusted private database network.
+
 Stop Postgres:
 
 ```sh
@@ -67,6 +70,7 @@ Run the current backend baseline gate:
 nix --extra-experimental-features 'nix-command flakes' develop --command mix compile --warnings-as-errors
 nix --extra-experimental-features 'nix-command flakes' develop --command mix format --check-formatted
 nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
+nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate first-backend-walking-skeleton --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict

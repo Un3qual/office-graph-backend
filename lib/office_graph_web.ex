@@ -8,7 +8,6 @@ defmodule OfficeGraphWeb do
   This can be used in your application as:
 
       use OfficeGraphWeb, :controller
-      use OfficeGraphWeb, :html
 
   The definitions below will be executed for every controller,
   component, etc, so keep them short and clean, focused

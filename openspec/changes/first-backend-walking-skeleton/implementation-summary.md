@@ -1,4 +1,4 @@
-## Implementation Summary
+# Implementation Summary
 
 ### backend-app-baseline
 
@@ -33,10 +33,10 @@
 ### walking-skeleton-api-surface
 
 - Added a thin shared `OfficeGraph.ApiSupport` facade for API entrypoints.
-- Added minimal GraphQL mutations for manual intake, proposed-change apply, and
+- Minimal GraphQL mutations cover manual intake, proposed-change apply, and
   verification completion.
-- Added matching JSON routes for the same operations.
-- Added API smoke coverage proving GraphQL and JSON drive equivalent durable
+- Matching JSON routes expose the same operations.
+- API smoke coverage proves GraphQL and JSON drive equivalent durable
   state and duplicate replay behavior.
 
 ### walking-skeleton-verification

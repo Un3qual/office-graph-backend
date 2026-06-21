@@ -102,8 +102,8 @@ Office Graph should not add one generic "update any interface implementor"
 path that bypasses typed resource validation.
 
 URL-facing scoped numbers are also separate from graph identity. GitHub-style
-numbers are useful for human URLs, but they are not GraphQL IDs and they are
-not durable primary keys. If Office Graph adopts them, the storage model
+numbers are useful for human URLs, but they are neither GraphQL IDs nor
+durable primary keys. If Office Graph adopts them, the storage model
 should allocate a scoped URL token in the same transaction as resource
 creation, store scope and resource kind explicitly, and reserve the token
 after deletion so old URLs never point at a different new resource. A
