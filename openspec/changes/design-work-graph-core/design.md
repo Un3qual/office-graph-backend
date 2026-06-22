@@ -217,6 +217,45 @@ Alternatives considered:
 - **Materialize every projection as its own durable object:** Useful later for
   performance, but premature before query patterns are proven.
 
+### 6a. Treat saved views, fields, and workflows as configuration over typed graph data
+
+GitHub ProjectsV2 is a useful reference for saved project views, fields, item
+values, and workflows. It exposes project-owned views with layout, filter,
+sort, group-by, vertical group-by, and selected fields; project-owned field
+configuration as a union of field types; project item values as typed scalar
+or relationship-backed values; and workflows as named, enabled, numbered
+project configuration. Reads are polymorphic where that helps clients, while
+writes remain narrow and explicit.
+
+Office Graph should use the same principle for future product projections and
+configuration. A saved view can be a typed configuration resource over graph
+queries and projection contracts. A field configuration can describe a
+product-approved field definition or adapter-provided field, but values that
+affect policy, routing, reporting, verification, or agent context need typed
+storage. Workflow configuration can attach to initiatives, workstreams,
+projections, or workflow packs, but it should not become an arbitrary
+workflow-builder engine before dedicated requirements exist.
+
+The core graph semantics remain unchanged: saved views, field definitions, and
+workflow configuration do not create tenant boundaries, do not grant access,
+and do not bypass domain actions. They are configuration resources that must
+be interpreted through authorization-filtered projections and typed domain
+contracts.
+
+This follows the same boundary as the persistence model's form-builder and
+JSON storage guidance: definitions that affect product behavior should become
+typed configuration and value records, while JSON remains appropriate for raw
+imports, temporary unmodeled metadata, or presentation details that do not
+drive policy, verification, reporting, or agent context.
+
+Alternatives considered:
+
+- **Generic configurable fields on every graph item:** Looks flexible, but
+  risks recreating JSON properties with weak policy and revision semantics.
+- **No configurable view/field resources until the UI is built:** Keeps the
+  model smaller, but ignores an important API shape that will affect GraphQL,
+  projection, and form-like designs.
+
 ### 7. Attach domain records through typed graph participation
 
 Domain records should attach to the work graph when they need conversation,

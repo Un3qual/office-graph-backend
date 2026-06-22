@@ -92,6 +92,26 @@ store provider object type and external identifier because those point outside
 the local relational model; that exception must not be used for internal
 Office Graph resource links.
 
+GraphQL interface polymorphism should sit above this relational model rather
+than drive it. A resource may implement API interfaces such as closable,
+updatable, reactable, comment-like, approvable, or subscribable because its
+own typed resource and domain actions support those capabilities. Interface
+resolvers must derive viewer affordance fields from authorization and policy
+checks. Mutations should remain domain-specific or proposed-change-specific;
+Office Graph should not add one generic "update any interface implementor"
+path that bypasses typed resource validation.
+
+URL-facing scoped numbers are also separate from graph identity. GitHub-style
+numbers are useful for human URLs, but they are neither GraphQL IDs nor
+durable primary keys. If Office Graph adopts them, the storage model
+should allocate a scoped URL token in the same transaction as resource
+creation, store scope and resource kind explicitly, and reserve the token
+after deletion so old URLs never point at a different new resource. A
+Postgres sequence is simple and concurrent but can produce gaps; a
+transactional counter row can avoid rollback gaps but creates hot rows per
+busy scope. This design keeps scoped numbers optional while preserving room
+for either allocation strategy.
+
 Alternatives considered:
 
 - **Single generic node table with JSON properties:** Flexible, but too weak
@@ -269,12 +289,25 @@ Any JSON archive row should carry typed envelope fields such as organization,
 provider/source, received time, payload kind, payload digest, related resource
 or event, retention classification, and replay/debug state.
 
+Form-builder or survey-builder behavior is a special case of dynamic product
+configuration, not a reason to weaken the core JSON rule. External form
+payloads may remain raw archives or external references. Native Office Graph
+intake/forms, configurable fields, survey-like workflows, or approval
+questionnaires should use versioned typed definitions for forms, questions,
+options, branching/conditions, submissions, answers, and typed answer values
+once they affect product behavior. Presentation metadata or temporary imported
+configuration may use JSON only with the same envelope and promotion rules as
+other unmodeled payloads.
+
 Alternatives considered:
 
 - **No JSON at all:** Clean, but impractical for external webhook/API replay
   and model/tool-call provenance.
 - **JSON props on every graph item:** Flexible, but violates the core design
   goal and makes policy/query behavior vague.
+- **Survey/form definitions and answers as raw JSON forever:** Fast for a
+  form-builder prototype, but weak for authorization, reporting, revision,
+  branching, answer-level provenance, and agent context.
 
 ### 6. Use explicit tenant and scope columns, with strict inheritance only when safe
 

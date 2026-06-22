@@ -57,6 +57,13 @@ principal and operation context.
   context, and operation correlation context to the owning domain action before
   authorization or mutation occurs
 
+#### Scenario: Local API owner bootstrap is disabled
+- **WHEN** a JSON or GraphQL API mutation is invoked without authenticated
+  principal/session context and local API owner bootstrap is not explicitly
+  enabled
+- **THEN** Office Graph MUST reject the mutation before creating operation
+  correlation, intake, proposed-change, verification, or graph truth records
+
 ### Requirement: Adapter Paths Do Not Write Truth Tables Directly
 Office Graph SHALL keep ingestion and generated mutation paths behind domain
 actions.

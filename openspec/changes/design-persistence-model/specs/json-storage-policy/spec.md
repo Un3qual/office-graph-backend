@@ -29,3 +29,33 @@ starts carrying product behavior.
   verification
 - **THEN** a follow-on design MUST extract it into typed relational storage or
   explicitly preserve the exception with rationale and review date
+
+### Requirement: Native Form-Like Schemas Use Typed Versions
+Office Graph SHALL model native configurable intake, form, survey,
+questionnaire, approval, and field-builder behavior with versioned typed
+definitions once the data affects product behavior.
+
+#### Scenario: Native form definition affects product behavior
+- **WHEN** an Office Graph-native form, intake template, approval
+  questionnaire, configurable field set, or survey-like workflow drives
+  authorization, routing, reporting, workflow state, agent context,
+  verification, or API contract behavior
+- **THEN** the design MUST use typed relational resources for definition
+  versions, questions/fields, options, branching or condition rules,
+  submissions, answers, and typed answer values instead of treating the
+  definition and answers as opaque JSON
+
+#### Scenario: External form payload is imported
+- **WHEN** Office Graph receives a Typeform, Google Forms, Airtable,
+  spreadsheet, customer survey, or other third-party form payload before a
+  native model exists
+- **THEN** the raw payload MAY be stored as JSON in a raw archive or external
+  reference, but any extracted product behavior MUST follow the normal
+  promotion path into typed storage
+
+#### Scenario: Presentation metadata is unmodeled
+- **WHEN** form layout, theme, display hints, conditional UI text, or
+  third-party rendering metadata is not used for policy, routing, reporting,
+  workflow state, or verification
+- **THEN** it MAY remain JSON with an explicit envelope and review path until a
+  later design promotes it

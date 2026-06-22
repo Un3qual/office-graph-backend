@@ -31,6 +31,11 @@ decisions into this file or into formal OpenSpec specs.
 - Frontend stack: React from day one, though frontend work has not started yet.
 - Phoenix LiveView is forbidden for the product UI.
 - API surface: both GraphQL and JSON API are required.
+- GraphQL should use capability interfaces for shared API affordances such as
+  closable, updatable, reactable, comment-like, approvable, subscribable, and
+  projection-capable resources. These interfaces are API contracts over typed
+  resources and authorization-aware resolvers; they do not justify
+  polymorphic local storage or generic mutation paths.
 - Workflow source of truth: OpenSpec.
 - Runtime and CLI dependencies come from the project Nix flake.
 - Enterprise requirements are first-class, not later add-ons.
@@ -70,6 +75,11 @@ decisions into this file or into formal OpenSpec specs.
   columns, join tables, and extension tables first. JSON is acceptable for raw
   external payload archival or truly unmodeled edge data, and should not become
   the normal query surface.
+- If Office Graph adds configurable form, survey, intake, or field-builder
+  behavior, queryable native product data should use versioned typed
+  definitions, options, submissions, answers, and value tables. JSON may still
+  preserve raw imported form payloads, third-party snapshots, or temporary
+  unmodeled configuration with an explicit promotion path.
 - Permission data should be relational and typed. Model principals, roles,
   role assignments, capabilities, scopes, team memberships, grants, tool
   permissions, and autonomy policies explicitly rather than hiding policy state
@@ -189,6 +199,11 @@ Locked or strongly preferred technical direction:
 - Oban for durable async jobs.
 - Postgres as the durable source of truth for graph state, events, audit,
   artifacts, runs, work packets, and integration data.
+- GraphQL global IDs, durable internal primary keys, and URL-facing scoped
+  numbers or handles should stay separate. Scoped auto-incrementing URL
+  numbers are feasible but not yet locked; if adopted, they must be durable
+  URL tokens that are scoped, allocated transactionally, and never reassigned
+  to another resource after deletion.
 - Internal agent runtime as a core product capability. It should be graph-aware,
   permissioned, auditable, and connected to node-scoped conversations,
   automatic review agents, and run records.

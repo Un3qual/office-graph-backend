@@ -10,6 +10,12 @@ or applied.
   creation target, payload schema, preconditions, lifecycle transition,
   referenced resources, idempotency basis, and owning-domain constraints
 
+#### Scenario: Proposed change references normalized intake
+- **WHEN** a proposed change references a normalized intake event
+- **THEN** the referenced event MUST be the accepted canonical event for that
+  intake path, and duplicate, skipped, rejected, conflict, or otherwise
+  non-accepted events MUST NOT become proposal origins
+
 #### Scenario: Proposed change is invalid
 - **WHEN** validation fails
 - **THEN** Office Graph MUST preserve the rejected validation state and reason
