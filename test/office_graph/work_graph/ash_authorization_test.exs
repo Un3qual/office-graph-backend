@@ -17,6 +17,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
   alias OfficeGraph.WorkGraph.Task, as: TaskResource
   alias OfficeGraph.WorkGraph.VerificationCheck, as: VerificationCheckResource
+  alias OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch
   alias OfficeGraph.WorkGraph.VerificationResult, as: VerificationResultResource
 
   test "Ash reads are filtered to the actor organization and workspace" do
@@ -1089,6 +1090,15 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              )
 
     assert Exception.message(error) =~ "evidence_item_id"
+  end
+
+  test "verification evidence match lookup fails closed when evidence cannot be read" do
+    assert false ==
+             ValidateEvidenceCheckMatch.evidence_matches_check?(
+               Ecto.UUID.generate(),
+               Ecto.UUID.generate(),
+               fn _evidence_item_id -> {:error, :database_unavailable} end
+             )
   end
 
   test "verification completion does not require skeleton read capability for internal reloads" do

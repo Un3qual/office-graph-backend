@@ -27,15 +27,25 @@ defmodule OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch do
     end
   end
 
-  defp evidence_matches_check?(evidence_item_id, verification_check_id) do
-    EvidenceItem
-    |> Ash.Query.filter(id == ^evidence_item_id)
-    |> Ash.read_one(authorize?: false)
+  @doc false
+  def evidence_matches_check?(
+        evidence_item_id,
+        verification_check_id,
+        fetch_evidence_item \\ &fetch_evidence_item/1
+      ) do
+    evidence_item_id
+    |> fetch_evidence_item.()
     |> case do
       {:ok, %{verification_check_id: ^verification_check_id}} -> true
       {:ok, _missing_or_mismatch} -> false
-      {:error, _error} -> true
+      {:error, _error} -> false
     end
+  end
+
+  defp fetch_evidence_item(evidence_item_id) do
+    EvidenceItem
+    |> Ash.Query.filter(id == ^evidence_item_id)
+    |> Ash.read_one(authorize?: false)
   end
 end
 
