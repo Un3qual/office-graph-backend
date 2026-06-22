@@ -36,6 +36,7 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask do
         )
 
       {:error, _error} ->
+        # ValidateSameScopeReferences owns lookup failures; this guard only rejects closed tasks.
         changeset
     end
   end
