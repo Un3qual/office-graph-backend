@@ -94,6 +94,44 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
     end
   end
 
+  defp validate_reference(
+         changeset,
+         :normalized_event_id = field,
+         NormalizedIntakeEvent = resource,
+         organization_id,
+         workspace_id,
+         _actor
+       ) do
+    case Ash.Changeset.get_attribute(changeset, field) do
+      nil ->
+        changeset
+
+      id ->
+        case fetch_reference(resource, id) do
+          {:ok,
+           %{
+             organization_id: ^organization_id,
+             workspace_id: ^workspace_id,
+             outcome: "accepted"
+           }} ->
+            changeset
+
+          {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id}} ->
+            add_normalized_event_outcome_error(changeset)
+
+          {:ok, _missing_or_cross_scope} ->
+            add_scope_error(changeset, field)
+
+          {:error, error} ->
+            Ash.Changeset.add_error(
+              changeset,
+              field: field,
+              message: "#{field} lookup failed: #{format_lookup_error(error)}"
+            )
+        end
+    end
+  end
+
   defp validate_reference(changeset, field, resource, organization_id, workspace_id, _actor) do
     case Ash.Changeset.get_attribute(changeset, field) do
       nil ->
@@ -158,6 +196,14 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
       changeset,
       field: field,
       message: "#{field} must match proposed change scope"
+    )
+  end
+
+  defp add_normalized_event_outcome_error(changeset) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: :normalized_event_id,
+      message: "normalized_event_id must reference an accepted normalized intake event"
     )
   end
 

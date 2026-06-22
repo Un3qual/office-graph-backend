@@ -11,6 +11,7 @@ defmodule OfficeGraph.ProposedChangesTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
+  alias OfficeGraph.Repo
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -489,6 +490,65 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert Exception.message(error) =~ "change_type"
   end
 
+  test "direct Ash create rejects duplicate normalized intake events", %{bootstrap: bootstrap} do
+    suffix = System.unique_integer([:positive])
+    source_identity = "manual:duplicate-event-create-#{suffix}"
+    replay_identity = "paste:duplicate-event-create-#{suffix}"
+    body = "Investigate duplicate event create and prove it."
+
+    {:ok, first_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, %{normalized_event: %{outcome: "accepted"}}} =
+             Integrations.submit_manual_intake(bootstrap.session, first_operation, %{
+               source_identity: source_identity,
+               replay_identity: replay_identity,
+               body: body
+             })
+
+    {:ok, duplicate_operation} =
+      Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, duplicate_intake} =
+             Integrations.submit_manual_intake(bootstrap.session, duplicate_operation, %{
+               source_identity: source_identity,
+               replay_identity: replay_identity,
+               body: body
+             })
+
+    duplicate_event_id = duplicate_intake.normalized_event.id
+    assert duplicate_intake.normalized_event.outcome == "duplicate"
+    assert duplicate_intake.proposed_changes == []
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: duplicate_operation.id,
+                 normalized_event_id: duplicate_event_id,
+                 change_type: "create_signal",
+                 payload: %{
+                   "title" => "Duplicate event proposed signal",
+                   "body" => "This duplicate event proposal should be rejected."
+                 }
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "normalized_event_id"
+    assert Exception.message(error) =~ "accepted"
+
+    persisted_count =
+      ProposedGraphChange
+      |> Ash.Query.filter(normalized_event_id == ^duplicate_event_id)
+      |> Ash.count!(authorize?: false)
+
+    assert persisted_count == 0
+  end
+
   test "apply requires a proposed change apply operation", %{
     bootstrap: bootstrap,
     intake: intake
@@ -552,7 +612,7 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     proposed_changes =
       Enum.map(required_change_types(), fn change_type ->
-        create_change_for_event!(
+        insert_change_for_event!(
           bootstrap.session,
           duplicate_operation,
           duplicate_intake.normalized_event,
@@ -832,24 +892,57 @@ defmodule OfficeGraph.ProposedChangesTest do
     )
   end
 
-  defp create_change_for_event!(session_context, operation, normalized_event, change_type) do
-    Ash.create!(
-      ProposedGraphChange,
-      %{
-        organization_id: session_context.organization_id,
-        workspace_id: session_context.workspace_id,
-        operation_id: operation.id,
-        normalized_event_id: normalized_event.id,
-        change_type: change_type,
-        payload: %{
+  defp insert_change_for_event!(session_context, operation, normalized_event, change_type) do
+    id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      """
+      INSERT INTO proposed_graph_changes (
+        id,
+        organization_id,
+        workspace_id,
+        operation_id,
+        normalized_event_id,
+        status,
+        change_type,
+        payload,
+        validation_errors,
+        inserted_at,
+        updated_at
+      ) VALUES (
+        $1::uuid,
+        $2::uuid,
+        $3::uuid,
+        $4::uuid,
+        $5::uuid,
+        'pending',
+        $6,
+        $7::jsonb,
+        ARRAY[]::text[],
+        $8,
+        $8
+      )
+      """,
+      [
+        db_uuid(id),
+        db_uuid(session_context.organization_id),
+        db_uuid(session_context.workspace_id),
+        db_uuid(operation.id),
+        db_uuid(normalized_event.id),
+        change_type,
+        %{
           "title" => "Duplicate event #{change_type}",
           "body" => "Duplicate event #{change_type} body"
-        }
-      },
-      actor: session_context,
-      action: :create
+        },
+        now
+      ]
     )
+
+    Ash.get!(ProposedGraphChange, id, authorize?: false)
   end
+
+  defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 
   defp create_accepted_event_without_changes!(session_context, operation, suffix) do
     source_identity = "manual:#{suffix}-#{System.unique_integer([:positive])}"
