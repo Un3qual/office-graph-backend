@@ -36,9 +36,10 @@ defmodule OfficeGraph.WorkGraph.Signal do
         :workspace_id,
         :graph_item_id,
         :body_document_id,
-        :title,
-        :state
+        :title
       ]
+
+      change set_attribute(:state, "open")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [

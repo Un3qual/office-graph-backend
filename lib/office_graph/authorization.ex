@@ -3,10 +3,13 @@ defmodule OfficeGraph.Authorization do
   Public boundary for authorization decisions and capability checks.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: []
+  use Boundary, deps: [OfficeGraph.Identity, OfficeGraph.Repo], exports: []
 
   alias OfficeGraph.Authorization.{Capability, PolicyBundle, Role, RoleAssignment, RoleCapability}
+  alias OfficeGraph.Identity
   alias OfficeGraph.Repo
+
+  require Ash.Query
 
   @owner_capabilities %{
     skeleton_read: "skeleton.read",
@@ -81,26 +84,52 @@ defmodule OfficeGraph.Authorization do
     end)
   end
 
-  def authorize(session_context, action, opts \\ []) do
+  def authorize(session_context, action, opts \\ [])
+
+  def authorize(%{organization_id: organization_id} = session_context, action, opts) do
     case Map.fetch(@owner_capabilities, action) do
       {:ok, required} ->
-        cond do
-          is_nil(session_context) ->
-            {:error, :forbidden}
-
-          session_context.organization_id != opts[:organization_id] ->
-            {:error, :forbidden}
-
-          MapSet.member?(session_context.capabilities, required) ->
-            :ok
-
-          true ->
-            {:error, :forbidden}
+        with :ok <- Identity.validate_session_context(session_context),
+             true <- organization_id == opts[:organization_id],
+             true <- granted_capability?(session_context, required) do
+          :ok
+        else
+          _ -> {:error, :forbidden}
         end
 
       :error ->
         {:error, :forbidden}
     end
+  end
+
+  def authorize(_session_context, _action, _opts), do: {:error, :forbidden}
+
+  defp granted_capability?(session_context, required) do
+    with {:ok, %Capability{id: capability_id}} <-
+           Ash.get(Capability, %{key: required}, authorize?: false),
+         role_ids when role_ids != [] <- role_ids_for_capability(capability_id) do
+      role_assignment_exists?(session_context, role_ids)
+    else
+      _ -> false
+    end
+  end
+
+  defp role_ids_for_capability(capability_id) do
+    RoleCapability
+    |> Ash.Query.filter(capability_id == ^capability_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.role_id)
+  end
+
+  defp role_assignment_exists?(session_context, role_ids) do
+    RoleAssignment
+    |> Ash.Query.filter(
+      principal_id == ^session_context.principal_id and
+        organization_id == ^session_context.organization_id and
+        role_id in ^role_ids and
+        (is_nil(workspace_id) or workspace_id == ^session_context.workspace_id)
+    )
+    |> Ash.exists?(authorize?: false)
   end
 
   defp ensure_capability!(key) do

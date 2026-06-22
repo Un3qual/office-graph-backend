@@ -16,6 +16,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   alias OfficeGraph.Authorization.RoleAssignment
   alias OfficeGraph.Foundation
   alias OfficeGraph.ExternalRefs.ExternalReference
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
@@ -105,6 +106,104 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
                  idempotency_key == ^idempotency_key
              )
              |> Ash.count!(authorize?: false)
+  end
+
+  test "operation creation rejects session contexts with a different principal", %{
+    bootstrap: bootstrap
+  } do
+    bare_principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email:
+            "operation-principal-mismatch-#{System.unique_integer([:positive])}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    correlation_id = "operation-principal-mismatch-#{System.unique_integer([:positive])}"
+    %SessionContext{} = owner_session = bootstrap.session
+
+    forged = %SessionContext{
+      owner_session
+      | principal_id: bare_principal.id,
+        capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    assert {:error, :forbidden} =
+             Operations.start_operation(forged, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+
+    refute operation_correlation_exists?(bootstrap.organization.id, correlation_id)
+  end
+
+  test "operation creation rejects session contexts with a different workspace", %{
+    bootstrap: bootstrap
+  } do
+    assert {:ok, other_workspace_scope} =
+             Foundation.bootstrap_local_owner(
+               workspace_name: "Operation Forged Workspace",
+               workspace_slug: "operation-forged-workspace",
+               initiative_name: "Operation Forged Initiative",
+               initiative_slug: "operation-forged-initiative"
+             )
+
+    assert other_workspace_scope.organization.id == bootstrap.organization.id
+    assert other_workspace_scope.workspace.id != bootstrap.workspace.id
+
+    correlation_id = "operation-workspace-mismatch-#{System.unique_integer([:positive])}"
+    %SessionContext{} = owner_session = bootstrap.session
+
+    forged = %SessionContext{
+      owner_session
+      | workspace_id: other_workspace_scope.workspace.id,
+        capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    assert {:error, :forbidden} =
+             Operations.start_operation(forged, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+
+    refute operation_correlation_exists?(bootstrap.organization.id, correlation_id)
+  end
+
+  test "operation creation rejects revoked sessions", %{bootstrap: bootstrap} do
+    revoked_session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: bootstrap.principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "revoked_operation_test",
+          revoked_at: DateTime.utc_now()
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    correlation_id = "operation-revoked-session-#{System.unique_integer([:positive])}"
+    %SessionContext{} = owner_session = bootstrap.session
+
+    revoked_context = %SessionContext{
+      owner_session
+      | session_id: revoked_session.id,
+        capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    assert {:error, :forbidden} =
+             Operations.start_operation(revoked_context, :manual_intake_submit,
+               correlation_id: correlation_id
+             )
+
+    refute operation_correlation_exists?(bootstrap.organization.id, correlation_id)
   end
 
   test "role assignment identity treats nil workspace scope as comparable", %{
@@ -253,17 +352,9 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   test "plain document creation requires the capability matching the operation action", %{
     bootstrap: bootstrap
   } do
-    for {action, required_capability} <- [
-          {:manual_intake_submit, "manual_intake.submit"},
-          {:proposed_change_apply, "proposed_change.apply"},
-          {:verification_complete, "verification.complete"}
-        ] do
-      {:ok, operation} = Operations.start_operation(bootstrap.session, action)
-
-      unauthorized = %{
-        bootstrap.session
-        | capabilities: MapSet.delete(bootstrap.session.capabilities, required_capability)
-      }
+    for action <- [:manual_intake_submit, :proposed_change_apply, :verification_complete] do
+      unauthorized = create_ungranted_session_context!(bootstrap, "content-#{action}")
+      {:ok, operation} = Operations.start_operation(unauthorized, action)
 
       plain_text = "Unauthorized #{action} document #{System.unique_integer([:positive])}"
 
@@ -802,4 +893,47 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   end
 
   defp ash_error_message(error), do: Exception.message(error)
+
+  defp operation_correlation_exists?(organization_id, correlation_id) do
+    OperationCorrelation
+    |> Ash.Query.filter(organization_id == ^organization_id and correlation_id == ^correlation_id)
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp create_ungranted_session_context!(bootstrap, purpose) do
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email: "#{purpose}-#{System.unique_integer([:positive])}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: purpose
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new()
+    }
+  end
 end

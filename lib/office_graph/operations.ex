@@ -3,10 +3,11 @@ defmodule OfficeGraph.Operations do
   Public boundary for operation correlation and mutation context.
   """
 
-  use Boundary, deps: [OfficeGraph], exports: []
+  use Boundary, deps: [OfficeGraph.Identity], exports: []
 
   require Ash.Query
 
+  alias OfficeGraph.Identity
   alias OfficeGraph.Operations.OperationCorrelation
 
   @actions %{
@@ -22,15 +23,17 @@ defmodule OfficeGraph.Operations do
     correlation_id = Keyword.get_lazy(attrs, :correlation_id, &Ecto.UUID.generate/0)
     idempotency_key = attrs[:idempotency_key]
 
-    case existing_operation(session_context, action_name, idempotency_key) do
-      {:ok, nil} ->
-        create_operation(session_context, action_name, correlation_id, idempotency_key, attrs)
+    with :ok <- Identity.validate_session_context(session_context) do
+      case existing_operation(session_context, action_name, idempotency_key) do
+        {:ok, nil} ->
+          create_operation(session_context, action_name, correlation_id, idempotency_key, attrs)
 
-      {:ok, operation} ->
-        {:ok, operation}
+        {:ok, operation} ->
+          {:ok, operation}
 
-      {:error, error} ->
-        {:error, error}
+        {:error, error} ->
+          {:error, error}
+      end
     end
   end
 

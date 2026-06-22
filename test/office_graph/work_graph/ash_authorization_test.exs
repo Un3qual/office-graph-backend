@@ -80,8 +80,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                  workspace_id: bootstrap.workspace.id,
                  graph_item_id: wrong_type_graph_item.id,
                  body_document_id: signal_document.id,
-                 title: "Reject wrong graph item type",
-                 state: "open"
+                 title: "Reject wrong graph item type"
                },
                actor: bootstrap.session,
                action: :create
@@ -138,8 +137,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                    workspace_id: actor_scope.workspace.id,
                    graph_item_id: graph_item.id,
                    body_document_id: document_id,
-                   title: title,
-                   state: "open"
+                   title: title
                  },
                  actor: actor_scope.session,
                  action: :create
@@ -351,6 +349,55 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     review_finding = create_review_finding!(bootstrap, task)
     verification_check = create_verification_check!(bootstrap, review_finding)
     artifact = insert_artifact!(bootstrap, "Lifecycle evidence artifact")
+
+    signal_id = Ecto.UUID.generate()
+
+    signal_graph_item =
+      insert_graph_item!(bootstrap, "signal", signal_id, "Spoofed signal graph item")
+
+    signal_document = insert_document!(bootstrap, "Spoofed signal body")
+
+    assert {:error, signal_error} =
+             Ash.create(
+               SignalResource,
+               %{
+                 id: signal_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: signal_graph_item.id,
+                 body_document_id: signal_document.id,
+                 title: "Spoofed signal",
+                 state: "closed"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(signal_error) =~ "No such input `state`"
+
+    defaulted_signal_id = Ecto.UUID.generate()
+
+    defaulted_signal_graph_item =
+      insert_graph_item!(bootstrap, "signal", defaulted_signal_id, "Defaulted signal graph item")
+
+    defaulted_signal_document = insert_document!(bootstrap, "Defaulted signal body")
+
+    assert {:ok, defaulted_signal} =
+             Ash.create(
+               SignalResource,
+               %{
+                 id: defaulted_signal_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: defaulted_signal_graph_item.id,
+                 body_document_id: defaulted_signal_document.id,
+                 title: "Defaulted signal"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert defaulted_signal.state == "open"
 
     task_id = Ecto.UUID.generate()
     task_graph_item = insert_graph_item!(bootstrap, "task", task_id, "Spoofed task graph item")
@@ -761,7 +808,10 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   test "public WorkGraph verification completion requires verification complete capability" do
     {:ok, bootstrap} = bootstrap_scope("completion-capability")
     verification_check = create_verification_check!(bootstrap)
-    evidence_only = %{bootstrap.session | capabilities: MapSet.new(["evidence.link"])}
+
+    evidence_only =
+      create_limited_session_context!(bootstrap, "completion-capability", ["evidence.link"])
+
     {:ok, operation} = Operations.start_operation(evidence_only, :verification_complete)
     body = "Direct completion must require verification completion capability."
 
@@ -1045,10 +1095,11 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     {:ok, bootstrap} = bootstrap_scope("verification-without-read")
     verification_check = create_verification_check!(bootstrap)
 
-    verification_actor = %{
-      bootstrap.session
-      | capabilities: MapSet.new(["evidence.link", "verification.complete"])
-    }
+    verification_actor =
+      create_limited_session_context!(bootstrap, "verification-without-read", [
+        "evidence.link",
+        "verification.complete"
+      ])
 
     {:ok, operation} = Operations.start_operation(verification_actor, :verification_complete)
 
@@ -1082,6 +1133,108 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       owner_email: "owner-#{slug}@office-graph.local",
       owner_name: "Owner #{slug}"
     )
+  end
+
+  defp create_limited_session_context!(bootstrap, purpose, capability_keys) do
+    suffix = System.unique_integer([:positive])
+
+    principal =
+      Ash.create!(
+        OfficeGraph.Identity.Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email: "#{purpose}-#{suffix}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        OfficeGraph.Identity.Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: purpose
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    role =
+      Ash.create!(
+        OfficeGraph.Authorization.Role,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          key: "#{purpose}-#{suffix}",
+          name: purpose
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      OfficeGraph.Authorization.RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: principal.id,
+        role_id: role.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    for key <- capability_keys do
+      capability = ensure_capability!(key)
+
+      Ash.create!(
+        OfficeGraph.Authorization.RoleCapability,
+        %{
+          id: Ecto.UUID.generate(),
+          role_id: role.id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+    end
+
+    %OfficeGraph.Identity.SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new(capability_keys)
+    }
+  end
+
+  defp ensure_capability!(key) do
+    case Ash.get(OfficeGraph.Authorization.Capability, %{key: key},
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok, nil} ->
+        Ash.create!(
+          OfficeGraph.Authorization.Capability,
+          %{
+            id: Ecto.UUID.generate(),
+            key: key,
+            description: key
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      {:ok, capability} ->
+        capability
+    end
   end
 
   defp create_signal!(bootstrap, title) do

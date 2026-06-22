@@ -138,6 +138,9 @@ defmodule OfficeGraph.Integrations do
       {:ok, _duplicate_of} ->
         insert_manual_intake(session_context, operation, attrs, duplicate_retry?: true)
 
+      {:error, {:manual_intake_replay_conflict, _accepted_id} = conflict} ->
+        {:error, conflict}
+
       {:error, _error} ->
         {:error, original_error}
     end

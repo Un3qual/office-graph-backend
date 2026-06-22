@@ -217,6 +217,92 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "concurrent replay content conflicts from unique fallback return the accepted event id" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    source_identity = "manual:replay-conflict-race-#{suffix}"
+    replay_identity = "paste:replay-conflict-race-#{suffix}"
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    blocked_body = "Task: blocked replay conflict loser #{suffix}"
+    accepted_body = "Task: accepted replay conflict winner #{suffix}"
+    lock_key = :erlang.phash2(source_identity, 2_000_000_000)
+
+    try do
+      result =
+        with_unboxed_connection(fn ->
+          insert_minimal_session_scope!(
+            organization_id,
+            workspace_id,
+            principal_id,
+            session_id,
+            suffix
+          )
+
+          {:ok, operation} =
+            Operations.start_operation(session_context, :manual_intake_submit,
+              correlation_id: "replay-conflict-blocked-loser-#{suffix}"
+            )
+
+          source_id = insert_external_source!(source_identity)
+          install_raw_archive_body_wait!(blocked_body, lock_key)
+          Repo.query!("SELECT pg_advisory_lock(97001, $1)", [lock_key])
+
+          task =
+            Task.async(fn ->
+              with_unboxed_connection(fn ->
+                capture_submit(session_context, operation, %{
+                  source_identity: source_identity,
+                  replay_identity: replay_identity,
+                  body: blocked_body
+                })
+              end)
+            end)
+
+          wait_for_blocked_raw_archive!(lock_key)
+
+          accepted =
+            insert_accepted_intake_event_for_source!(
+              session_context,
+              operation,
+              source_id,
+              source_identity,
+              replay_identity,
+              accepted_body
+            )
+
+          Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
+
+          {Task.await(task, 10_000), accepted}
+        end)
+
+      {loser_result, accepted} = result
+      accepted_event_id = accepted.id
+
+      assert {:error, {:manual_intake_replay_conflict, ^accepted_event_id}} = loser_result
+
+      assert with_unboxed_connection(fn ->
+               accepted_event_count(organization_id, source_identity, replay_identity)
+             end) == 1
+    after
+      with_unboxed_connection(fn ->
+        Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
+        drop_raw_archive_body_wait!()
+        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+      end)
+    end
+  end
+
   test "local tenancy bootstrap is idempotent under first-scope races" do
     suffix = System.unique_integer([:positive])
     organization_slug = "tenant-race-#{suffix}"
@@ -600,6 +686,83 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
         now
       ]
     )
+
+    grant_owner_capabilities!(organization_id, workspace_id, principal_id, suffix)
+  end
+
+  defp grant_owner_capabilities!(organization_id, workspace_id, principal_id, suffix) do
+    now = DateTime.utc_now()
+    role_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO roles (id, organization_id, key, name, inserted_at, updated_at)
+      VALUES ($1::uuid, $2::uuid, $3, 'Race Owner', $4, $4)
+      """,
+      [db_uuid(role_id), db_uuid(organization_id), "race-owner-#{suffix}", now]
+    )
+
+    role_assignment_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO role_assignments (
+        id,
+        principal_id,
+        role_id,
+        organization_id,
+        workspace_id,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $6)
+      """,
+      [
+        db_uuid(role_assignment_id),
+        db_uuid(principal_id),
+        db_uuid(role_id),
+        db_uuid(organization_id),
+        db_uuid(workspace_id),
+        now
+      ]
+    )
+
+    for key <- [
+          "skeleton.read",
+          "manual_intake.submit",
+          "proposed_change.apply",
+          "evidence.link",
+          "verification.complete"
+        ] do
+      capability_id = ensure_capability!(key)
+
+      Repo.query!(
+        """
+        INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $4)
+        ON CONFLICT (role_id, capability_id) DO NOTHING
+        """,
+        [db_uuid(Ecto.UUID.generate()), db_uuid(role_id), db_uuid(capability_id), now]
+      )
+    end
+  end
+
+  defp ensure_capability!(key) do
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      """
+      INSERT INTO capabilities (id, key, description, inserted_at, updated_at)
+      VALUES ($1::uuid, $2, $2, $3, $3)
+      ON CONFLICT (key) DO NOTHING
+      """,
+      [db_uuid(Ecto.UUID.generate()), key, now]
+    )
+
+    %{rows: [[capability_id]]} =
+      Repo.query!("SELECT id FROM capabilities WHERE key = $1", [key])
+
+    capability_id
   end
 
   defp insert_additional_session_in_scope!(
@@ -861,6 +1024,98 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     }
   end
 
+  defp insert_external_source!(source_identity) do
+    source_id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      """
+      INSERT INTO external_sources (id, key, name, kind, inserted_at, updated_at)
+      VALUES ($1::uuid, $2, 'Manual Intake', 'manual', $3, $3)
+      """,
+      [db_uuid(source_id), source_identity, now]
+    )
+
+    source_id
+  end
+
+  defp insert_accepted_intake_event_for_source!(
+         session_context,
+         operation,
+         source_id,
+         source_identity,
+         replay_identity,
+         body
+       ) do
+    now = DateTime.utc_now()
+    raw_archive_id = Ecto.UUID.generate()
+    normalized_event_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO raw_archives (
+        id,
+        organization_id,
+        workspace_id,
+        source_id,
+        operation_id,
+        content_hash,
+        body,
+        metadata,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, '{}'::jsonb, $8, $8)
+      """,
+      [
+        db_uuid(raw_archive_id),
+        db_uuid(session_context.organization_id),
+        db_uuid(session_context.workspace_id),
+        db_uuid(source_id),
+        db_uuid(operation.id),
+        content_hash(body),
+        body,
+        now
+      ]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO normalized_intake_events (
+        id,
+        organization_id,
+        workspace_id,
+        raw_archive_id,
+        operation_id,
+        source_identity,
+        replay_identity,
+        outcome,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'accepted', $8, $8)
+      """,
+      [
+        db_uuid(normalized_event_id),
+        db_uuid(session_context.organization_id),
+        db_uuid(session_context.workspace_id),
+        db_uuid(raw_archive_id),
+        db_uuid(operation.id),
+        source_identity,
+        replay_identity,
+        now
+      ]
+    )
+
+    %{
+      id: normalized_event_id,
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id,
+      operation_id: operation.id,
+      outcome: "accepted"
+    }
+  end
+
   defp content_hash(body) do
     :crypto.hash(:sha256, body)
     |> Base.encode16(case: :lower)
@@ -959,6 +1214,65 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_race_barrier()")
+  end
+
+  defp install_raw_archive_body_wait!(body, lock_key) do
+    %{rows: [[quoted_body]]} = Repo.query!("SELECT quote_literal($1)", [body])
+
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_raw_archive_body_wait ON raw_archives")
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_raw_archive_body_wait()
+    RETURNS trigger AS $$
+    BEGIN
+      IF NEW.body = TG_ARGV[0] THEN
+        PERFORM pg_advisory_lock(97001, TG_ARGV[1]::integer);
+        PERFORM pg_advisory_unlock(97001, TG_ARGV[1]::integer);
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_raw_archive_body_wait
+    BEFORE INSERT ON raw_archives
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_raw_archive_body_wait(#{quoted_body}, '#{lock_key}')
+    """)
+  end
+
+  defp wait_for_blocked_raw_archive!(lock_key, attempts \\ 200)
+
+  defp wait_for_blocked_raw_archive!(_lock_key, 0), do: flunk("raw archive insert did not block")
+
+  defp wait_for_blocked_raw_archive!(lock_key, attempts) do
+    %{rows: [[waiting_count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND classid = 97001
+          AND objid = $1
+          AND granted = false
+        """,
+        [lock_key]
+      )
+
+    if waiting_count > 0 do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_blocked_raw_archive!(lock_key, attempts - 1)
+    end
+  end
+
+  defp drop_raw_archive_body_wait! do
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_raw_archive_body_wait ON raw_archives")
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
   end
 
   defp install_tenancy_insert_barrier! do
@@ -1253,6 +1567,22 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       db_uuid(organization_id)
     ])
 
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (SELECT id FROM roles WHERE organization_id = $1::uuid)
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!("DELETE FROM role_assignments WHERE organization_id = $1::uuid", [
+      db_uuid(organization_id)
+    ])
+
+    Repo.query!("DELETE FROM roles WHERE organization_id = $1::uuid", [
+      db_uuid(organization_id)
+    ])
+
     Repo.query!("DELETE FROM sessions WHERE organization_id = $1::uuid", [
       db_uuid(organization_id)
     ])
@@ -1379,5 +1709,6 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     cleanup_owner_principal!(owner_email)
   end
 
+  defp db_uuid(<<_::128>> = uuid), do: uuid
   defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 end

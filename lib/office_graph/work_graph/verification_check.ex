@@ -9,18 +9,21 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding do
 
   @impl true
   def change(changeset, _opts, _context) do
-    case Ash.Changeset.get_attribute(changeset, :review_finding_id) do
-      nil ->
-        changeset
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      case Ash.Changeset.get_attribute(changeset, :review_finding_id) do
+        nil ->
+          changeset
 
-      review_finding_id ->
-        validate_open_review_finding(changeset, review_finding_id)
-    end
+        review_finding_id ->
+          validate_open_review_finding(changeset, review_finding_id)
+      end
+    end)
   end
 
   defp validate_open_review_finding(changeset, review_finding_id) do
     ReviewFinding
     |> Ash.Query.filter(id == ^review_finding_id)
+    |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, %{lifecycle_state: "open"}} ->

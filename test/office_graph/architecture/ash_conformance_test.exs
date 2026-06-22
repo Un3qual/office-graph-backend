@@ -1,7 +1,8 @@
 defmodule OfficeGraph.Architecture.AshConformanceTest do
-  use ExUnit.Case, async: true
+  use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.Authorization.Checks.HasCapability
+  alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
 
@@ -459,6 +460,17 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert source =~ "lock_verification_checks_for_findings!("
   end
 
+  test "direct child create validations lock parents before accepting" do
+    review_finding_source = File.read!("lib/office_graph/work_graph/review_finding.ex")
+    verification_check_source = File.read!("lib/office_graph/work_graph/verification_check.ex")
+
+    assert review_finding_source =~ "Ash.Changeset.before_action"
+    assert review_finding_source =~ "Ash.Query.lock(:for_update)"
+
+    assert verification_check_source =~ "Ash.Changeset.before_action"
+    assert verification_check_source =~ "Ash.Query.lock(:for_update)"
+  end
+
   test "shared Ash capability check is loadable" do
     assert Code.ensure_loaded?(HasCapability)
 
@@ -467,10 +479,11 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   test "shared Ash capability check enforces explicit capability and target scope" do
-    organization_id = Ecto.UUID.generate()
-    workspace_id = Ecto.UUID.generate()
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    organization_id = bootstrap.organization.id
+    workspace_id = bootstrap.workspace.id
 
-    actor = session_context(organization_id, workspace_id, ["skeleton.read"])
+    actor = bootstrap.session
     changeset = scoped_changeset(organization_id, workspace_id)
 
     assert HasCapability.match?(actor, %{changeset: changeset}, capability: :skeleton_read)
@@ -503,6 +516,12 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
              capability: :skeleton_read
            )
 
+    refute HasCapability.match?(
+             session_context(organization_id, workspace_id, ["skeleton.read"]),
+             %{changeset: changeset},
+             capability: :skeleton_read
+           )
+
     assert HasCapability.match?(
              actor,
              %{query: %Ash.Query{}, action: %{type: :read}},
@@ -510,7 +529,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            )
 
     assert HasCapability.match?(
-             session_context(organization_id, workspace_id, ["verification.complete"]),
+             actor,
              %{
                changeset: %Ash.Changeset{
                  action_type: :update,

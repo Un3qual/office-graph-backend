@@ -8,6 +8,8 @@ defmodule OfficeGraph.Identity do
   alias OfficeGraph.Identity.{Principal, PrincipalProfile, Session, SessionContext}
   alias OfficeGraph.Repo
 
+  require Ash.Query
+
   def ensure_owner(attrs) do
     Repo.transaction(fn ->
       principal =
@@ -63,6 +65,36 @@ defmodule OfficeGraph.Identity do
       }
     end)
   end
+
+  def validate_session_context(%SessionContext{} = session_context) do
+    Session
+    |> Ash.Query.filter(id == ^session_context.session_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok,
+       %Session{
+         principal_id: principal_id,
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         revoked_at: nil
+       }} ->
+        if principal_id == session_context.principal_id and
+             organization_id == session_context.organization_id and
+             workspace_id == session_context.workspace_id do
+          :ok
+        else
+          {:error, :forbidden}
+        end
+
+      {:ok, _missing_or_revoked} ->
+        {:error, :forbidden}
+
+      {:error, _error} ->
+        {:error, :forbidden}
+    end
+  end
+
+  def validate_session_context(_session_context), do: {:error, :forbidden}
 
   defp get_or_create!(resource, lookup, attrs) do
     case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do

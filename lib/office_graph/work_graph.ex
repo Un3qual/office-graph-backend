@@ -76,8 +76,7 @@ defmodule OfficeGraph.WorkGraph do
               workspace_id: session_context.workspace_id,
               graph_item_id: graph_item_id,
               body_document_id: document.id,
-              title: attrs[:title],
-              state: "open"
+              title: attrs[:title]
             },
             session_context
           )

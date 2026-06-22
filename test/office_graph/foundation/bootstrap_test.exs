@@ -137,5 +137,49 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                  organization_id: bootstrap.organization.id
                )
     end
+
+    test "rejects forged capability hints without role grants" do
+      assert {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+      bare_principal =
+        Ash.create!(
+          OfficeGraph.Identity.Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: "bare-policy-#{System.unique_integer([:positive])}@office-graph.local",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      bare_session =
+        Ash.create!(
+          OfficeGraph.Identity.Session,
+          %{
+            id: Ecto.UUID.generate(),
+            principal_id: bare_principal.id,
+            organization_id: bootstrap.organization.id,
+            workspace_id: bootstrap.workspace.id,
+            purpose: "forged_capability_test"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      forged = %SessionContext{
+        principal_id: bare_principal.id,
+        session_id: bare_session.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        capabilities: MapSet.new(["manual_intake.submit"])
+      }
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(forged, :manual_intake_submit,
+                 organization_id: bootstrap.organization.id
+               )
+    end
   end
 end
