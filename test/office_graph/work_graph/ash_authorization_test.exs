@@ -215,7 +215,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                    operation_id: operation_id,
                    result: result
                  },
-                 actor: actor_scope.session,
+                 authorize?: false,
                  action: :create
                )
 
@@ -594,6 +594,67 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute check_relationship.source_item_id == other_finding.graph_item_id
   end
 
+  test "public WorkGraph create_verification_check rejects completed review findings" do
+    {:ok, bootstrap} = bootstrap_scope("completed-finding-check")
+    completed = complete_verification!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, {:invalid_review_finding_status, finding_id}} =
+             WorkGraph.create_verification_check(
+               bootstrap.session,
+               operation,
+               completed.review_finding,
+               %{
+                 title: "Late verification check",
+                 body: "Completed findings must not receive new required checks."
+               }
+             )
+
+    assert finding_id == completed.review_finding.id
+
+    check_count =
+      VerificationCheckResource
+      |> Ash.Query.filter(review_finding_id == ^completed.review_finding.id)
+      |> Ash.count!(authorize?: false)
+
+    assert check_count == 1
+  end
+
+  test "direct Ash verification check create rejects completed review findings" do
+    {:ok, bootstrap} = bootstrap_scope("direct-completed-finding-check")
+    completed = complete_verification!(bootstrap)
+    check_id = Ecto.UUID.generate()
+
+    graph_item =
+      insert_graph_item!(
+        bootstrap,
+        "verification_check",
+        check_id,
+        "Late verification check graph item"
+      )
+
+    document = insert_document!(bootstrap, "Late verification check description")
+
+    assert {:error, error} =
+             Ash.create(
+               VerificationCheckResource,
+               %{
+                 id: check_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: graph_item.id,
+                 review_finding_id: completed.review_finding.id,
+                 description_document_id: document.id,
+                 title: "Late verification check"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "review_finding_id"
+    assert Exception.message(error) =~ "open review finding"
+  end
+
   test "public WorkGraph complete_verification returns an error for a stale verification check" do
     {:ok, bootstrap} = bootstrap_scope("public-stale-verification")
     verification_check = create_verification_check!(bootstrap)
@@ -840,6 +901,48 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              |> Map.fetch!(:lifecycle_state)
   end
 
+  test "verification result creation is internal to completion flow" do
+    {:ok, bootstrap} = bootstrap_scope("result-create-internal")
+    chain = create_verification_chain!(bootstrap)
+    artifact = insert_artifact!(bootstrap, "Direct result artifact")
+    evidence = insert_evidence_item!(bootstrap, chain.verification_check, artifact)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:error, error} =
+             Ash.create(
+               VerificationResultResource,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 verification_check_id: chain.verification_check.id,
+                 evidence_item_id: evidence.id,
+                 operation_id: operation.id,
+                 result: "passed"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ ~r/forbidden/i
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               operation,
+               chain.verification_check,
+               %{
+                 title: "Official completion evidence",
+                 body: "The official flow remains the path that creates results.",
+                 artifact_uri: "https://example.test/official-result-create"
+               }
+             )
+
+    assert completed.verification_result.result == "passed"
+    assert completed.verification_check.lifecycle_state == "satisfied"
+    assert completed.review_finding.lifecycle_state == "verified_complete"
+  end
+
   test "verification results require evidence from the same check" do
     {:ok, bootstrap} = bootstrap_scope("result-evidence-check-match")
     unmatched_chain = create_verification_chain!(bootstrap)
@@ -858,7 +961,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                  operation_id: operation.id,
                  result: "passed"
                },
-               actor: bootstrap.session,
+               authorize?: false,
                action: :create
              )
 
@@ -1043,6 +1146,31 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
         graph_item_id: graph_item.id,
         title: title,
         uri: "https://example.test/#{artifact_id}"
+      },
+      action: :create,
+      actor: bootstrap.session
+    )
+  end
+
+  defp insert_evidence_item!(bootstrap, verification_check, artifact) do
+    evidence_id = Ecto.UUID.generate()
+
+    graph_item =
+      insert_graph_item!(bootstrap, "evidence_item", evidence_id, "Direct evidence graph item")
+
+    document = insert_document!(bootstrap, "Direct evidence body")
+
+    Ash.create!(
+      EvidenceItem,
+      %{
+        id: evidence_id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        graph_item_id: graph_item.id,
+        verification_check_id: verification_check.id,
+        artifact_id: artifact.id,
+        body_document_id: document.id,
+        title: "Direct evidence"
       },
       action: :create,
       actor: bootstrap.session

@@ -127,8 +127,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       create: {:create, :evidence_link}
     },
     OfficeGraph.WorkGraph.VerificationResult => %{
-      read: {:read, :skeleton_read},
-      create: {:create, :verification_complete}
+      read: {:read, :skeleton_read}
     }
   }
 
@@ -435,6 +434,14 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     refute source =~ "fetch_unconverted_reference"
     refute source =~ "Repo.get"
     refute source =~ "@unconverted_reference_schemas"
+  end
+
+  test "verification completion centralizes parent-before-child lock acquisition" do
+    source = File.read!("lib/office_graph/work_graph.ex")
+
+    assert source =~ "lock_completion_graph!(session_context, verification_check.id)"
+    assert source =~ "lock_review_findings_for_task!("
+    assert source =~ "lock_verification_checks_for_findings!("
   end
 
   test "shared Ash capability check is loadable" do

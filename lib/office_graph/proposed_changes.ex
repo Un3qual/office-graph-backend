@@ -12,6 +12,7 @@ defmodule OfficeGraph.ProposedChanges do
     exports: []
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.Integrations.NormalizedIntakeEvent
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
@@ -178,7 +179,8 @@ defmodule OfficeGraph.ProposedChanges do
     with :ok <- validate_record_scopes(session_context, proposed_changes),
          :ok <- validate_pending(proposed_changes),
          :ok <- validate_required_types(proposed_changes),
-         :ok <- validate_single_normalized_event(proposed_changes) do
+         :ok <- validate_single_normalized_event(proposed_changes),
+         :ok <- validate_accepted_normalized_event(session_context, proposed_changes) do
       :ok
     end
   end
@@ -241,6 +243,35 @@ defmodule OfficeGraph.ProposedChanges do
       true ->
         ids = normalized_event_ids
         {:error, {:invalid_proposed_change_set, {:mixed_normalized_event_ids, ids}}}
+    end
+  end
+
+  defp validate_accepted_normalized_event(session_context, proposed_changes) do
+    normalized_event_id = proposed_changes |> hd() |> Map.fetch!(:normalized_event_id)
+    organization_id = session_context.organization_id
+    workspace_id = session_context.workspace_id
+
+    NormalizedIntakeEvent
+    |> Ash.Query.filter(id == ^normalized_event_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok,
+       %{
+         organization_id: ^organization_id,
+         workspace_id: ^workspace_id,
+         outcome: "accepted"
+       }} ->
+        :ok
+
+      {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id}} ->
+        {:error,
+         {:invalid_proposed_change_set, {:normalized_event_not_accepted, normalized_event_id}}}
+
+      {:ok, _missing_or_cross_scope} ->
+        {:error, {:invalid_proposed_change_scope, normalized_event_id}}
+
+      {:error, error} ->
+        {:error, {:invalid_proposed_change_set, {:normalized_event_lookup_failed, error}}}
     end
   end
 

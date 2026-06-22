@@ -219,6 +219,35 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert operation_id == operation.id
   end
 
+  test "plain document creation rejects operation correlations from another context", %{
+    bootstrap: bootstrap
+  } do
+    {:ok, other_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Office Graph foreign document operation",
+        organization_slug: "office-graph-foreign-document-operation",
+        workspace_name: "Workspace foreign document operation",
+        workspace_slug: "workspace-foreign-document-operation",
+        initiative_name: "Initiative foreign document operation",
+        initiative_slug: "initiative-foreign-document-operation",
+        owner_email: "foreign-document-operation@office-graph.local",
+        owner_name: "Foreign Document Operation"
+      )
+
+    {:ok, foreign_operation} =
+      Operations.start_operation(other_scope.session, :manual_intake_submit)
+
+    plain_text = "Foreign operation document #{System.unique_integer([:positive])}"
+
+    assert {:error, :forbidden} =
+             Content.create_plain_document(bootstrap.session, foreign_operation, plain_text)
+
+    assert [] =
+             Document
+             |> Ash.Query.filter(plain_text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+  end
+
   test "content resources autogenerate ids for direct Ash creates", %{
     bootstrap: bootstrap,
     operation: operation
@@ -503,10 +532,11 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   end
 
   test "plain document creation rolls back document and block when revision insert fails", %{
-    bootstrap: bootstrap
+    bootstrap: bootstrap,
+    operation: operation
   } do
     plain_text = "Rollback document #{System.unique_integer([:positive])}"
-    missing_operation = %{id: Ecto.UUID.generate()}
+    missing_operation = %{operation | id: Ecto.UUID.generate()}
 
     assert {:error, error} =
              Content.create_plain_document(bootstrap.session, missing_operation, plain_text)

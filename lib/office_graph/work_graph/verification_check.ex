@@ -1,3 +1,46 @@
+defmodule OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.WorkGraph.ReviewFinding
+
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    case Ash.Changeset.get_attribute(changeset, :review_finding_id) do
+      nil ->
+        changeset
+
+      review_finding_id ->
+        validate_open_review_finding(changeset, review_finding_id)
+    end
+  end
+
+  defp validate_open_review_finding(changeset, review_finding_id) do
+    ReviewFinding
+    |> Ash.Query.filter(id == ^review_finding_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{lifecycle_state: "open"}} ->
+        changeset
+
+      {:ok, nil} ->
+        changeset
+
+      {:ok, _completed_or_closed} ->
+        Ash.Changeset.add_error(changeset,
+          field: :review_finding_id,
+          message: "must reference an open review finding"
+        )
+
+      {:error, _error} ->
+        changeset
+    end
+  end
+end
+
 defmodule OfficeGraph.WorkGraph.VerificationCheck do
   @moduledoc false
 
@@ -51,6 +94,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
                 review_finding_id: OfficeGraph.WorkGraph.ReviewFinding,
                 description_document_id: OfficeGraph.Content.Document
               ]}
+
+      change OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding
     end
 
     update :mark_satisfied do

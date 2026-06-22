@@ -71,6 +71,8 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,
@@ -106,11 +108,6 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
                      organization_id == ^actor(:organization_id) and
                        workspace_id == ^actor(:workspace_id)
                    )
-    end
-
-    policy action(:create) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :verification_complete}
     end
   end
 

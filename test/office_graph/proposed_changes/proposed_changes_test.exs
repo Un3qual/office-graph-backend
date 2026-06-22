@@ -228,6 +228,55 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert Enum.all?(proposed_changes, &(get_change!(&1).status == "pending"))
   end
 
+  test "apply rejects complete change sets traced to duplicate intake events", %{
+    bootstrap: bootstrap
+  } do
+    suffix = System.unique_integer([:positive])
+    source_identity = "manual:duplicate-event-apply-#{suffix}"
+    replay_identity = "paste:duplicate-event-apply-#{suffix}"
+
+    {:ok, first_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, %{normalized_event: %{outcome: "accepted"}}} =
+             Integrations.submit_manual_intake(bootstrap.session, first_operation, %{
+               source_identity: source_identity,
+               replay_identity: replay_identity,
+               body: "Investigate duplicate event apply and prove it."
+             })
+
+    {:ok, duplicate_operation} =
+      Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, duplicate_intake} =
+             Integrations.submit_manual_intake(bootstrap.session, duplicate_operation, %{
+               source_identity: source_identity,
+               replay_identity: replay_identity,
+               body: "Investigate duplicate event apply and prove it."
+             })
+
+    assert duplicate_intake.normalized_event.outcome == "duplicate"
+    assert duplicate_intake.proposed_changes == []
+
+    proposed_changes =
+      Enum.map(required_change_types(), fn change_type ->
+        create_change_for_event!(
+          bootstrap.session,
+          duplicate_operation,
+          duplicate_intake.normalized_event,
+          change_type
+        )
+      end)
+
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+    duplicate_event_id = duplicate_intake.normalized_event.id
+
+    assert {:error,
+            {:invalid_proposed_change_set, {:normalized_event_not_accepted, ^duplicate_event_id}}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
+
+    assert Enum.all?(proposed_changes, &(get_change!(&1).status == "pending"))
+  end
+
   test "apply rejects cross-scope proposed changes before graph creation", %{
     bootstrap: bootstrap,
     intake: intake
@@ -452,6 +501,25 @@ defmodule OfficeGraph.ProposedChangesTest do
         payload: %{
           "title" => "Untraced #{change_type}",
           "body" => "Untraced #{change_type} body"
+        }
+      },
+      actor: session_context,
+      action: :create
+    )
+  end
+
+  defp create_change_for_event!(session_context, operation, normalized_event, change_type) do
+    Ash.create!(
+      ProposedGraphChange,
+      %{
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
+        operation_id: operation.id,
+        normalized_event_id: normalized_event.id,
+        change_type: change_type,
+        payload: %{
+          "title" => "Duplicate event #{change_type}",
+          "body" => "Duplicate event #{change_type} body"
         }
       },
       actor: session_context,

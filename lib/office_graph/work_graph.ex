@@ -207,6 +207,14 @@ defmodule OfficeGraph.WorkGraph do
       graph_item_id = Ecto.UUID.generate()
 
       graph_transaction(fn ->
+        review_finding =
+          ReviewFinding
+          |> ash_get_for_update(review_finding.id)
+          |> unwrap_ash()
+
+        validate_scope!(session_context, review_finding)
+        validate_open_review_finding!(review_finding)
+
         document = create_document!(session_context, operation, attrs[:body] || "")
 
         graph_item =
@@ -234,11 +242,9 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
-        review_finding_graph_item_id = persisted_graph_item_id!(ReviewFinding, review_finding.id)
-
         relationship =
           create_relationship!(
-            review_finding_graph_item_id,
+            review_finding.graph_item_id,
             graph_item_id,
             "requires_verification",
             session_context
@@ -276,26 +282,14 @@ defmodule OfficeGraph.WorkGraph do
       verification_result_id = Ecto.UUID.generate()
 
       graph_transaction(fn ->
-        verification_check =
-          VerificationCheck
-          |> ash_get_for_update(verification_check.id)
-          |> unwrap_ash()
-
-        validate_scope!(session_context, verification_check)
+        {verification_check, review_finding, task, task_review_findings, task_verification_checks} =
+          lock_completion_graph!(session_context, verification_check.id)
 
         if verification_check.lifecycle_state != "required" do
           Repo.rollback({:invalid_verification_check_status, verification_check.id})
         end
 
-        review_finding =
-          ReviewFinding
-          |> ash_get_for_update(verification_check.review_finding_id)
-          |> unwrap_ash()
-
-        task =
-          Task
-          |> ash_get_for_update(review_finding.task_id)
-          |> unwrap_ash()
+        validate_open_review_finding!(review_finding)
 
         evidence_document = create_document!(session_context, operation, attrs[:body] || "")
 
@@ -366,7 +360,7 @@ defmodule OfficeGraph.WorkGraph do
           )
 
         verification_result =
-          ash_create(
+          ash_create_internal(
             VerificationResult,
             %{
               id: verification_result_id,
@@ -376,8 +370,7 @@ defmodule OfficeGraph.WorkGraph do
               evidence_item_id: evidence_item.id,
               operation_id: operation.id,
               result: "passed"
-            },
-            session_context
+            }
           )
           |> unwrap_ash()
 
@@ -387,7 +380,13 @@ defmodule OfficeGraph.WorkGraph do
           |> unwrap_ash()
 
         {review_finding, task, completed_review_finding?, completed_task?} =
-          maybe_complete_parent_work!(review_finding, task)
+          maybe_complete_parent_work!(
+            review_finding,
+            task,
+            task_review_findings,
+            task_verification_checks,
+            verification_check.id
+          )
 
         trace!(operation, "artifact.create", "artifact", artifact.id)
         trace!(operation, "evidence_item.create", "evidence_item", evidence_item.id)
@@ -493,6 +492,16 @@ defmodule OfficeGraph.WorkGraph do
     |> unwrap_ash_result()
   end
 
+  defp ash_get(resource, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      result -> result
+    end
+  end
+
   defp ash_get_for_update(resource, id) do
     resource
     |> Ash.Query.filter(id == ^id)
@@ -569,6 +578,12 @@ defmodule OfficeGraph.WorkGraph do
     end
   end
 
+  defp validate_open_review_finding!(%{lifecycle_state: "open"}), do: :ok
+
+  defp validate_open_review_finding!(review_finding) do
+    Repo.rollback({:invalid_review_finding_status, review_finding.id})
+  end
+
   defp authorize_signal_create(session_context, operation) do
     case operation.action do
       @manual_intake_action ->
@@ -621,8 +636,80 @@ defmodule OfficeGraph.WorkGraph do
     |> Map.fetch!(:graph_item_id)
   end
 
-  defp maybe_complete_parent_work!(review_finding, task) do
-    if required_verification_checks_remaining?(review_finding.id) do
+  defp lock_completion_graph!(session_context, verification_check_id) do
+    verification_check_hint =
+      VerificationCheck
+      |> ash_get(verification_check_id)
+      |> unwrap_ash()
+
+    validate_scope!(session_context, verification_check_hint)
+
+    review_finding_hint =
+      ReviewFinding
+      |> ash_get(verification_check_hint.review_finding_id)
+      |> unwrap_ash()
+
+    validate_scope!(session_context, review_finding_hint)
+
+    task =
+      Task
+      |> ash_get_for_update(review_finding_hint.task_id)
+      |> unwrap_ash()
+
+    validate_scope!(session_context, task)
+
+    review_findings = lock_review_findings_for_task!(task.id)
+
+    review_finding =
+      Enum.find(review_findings, &(&1.id == review_finding_hint.id)) ||
+        Repo.rollback({:not_found, ReviewFinding, review_finding_hint.id})
+
+    validate_scope!(session_context, review_finding)
+
+    verification_checks =
+      review_findings
+      |> Enum.map(& &1.id)
+      |> lock_verification_checks_for_findings!()
+
+    verification_check =
+      Enum.find(verification_checks, &(&1.id == verification_check_hint.id)) ||
+        Repo.rollback({:not_found, VerificationCheck, verification_check_hint.id})
+
+    validate_scope!(session_context, verification_check)
+
+    {verification_check, review_finding, task, review_findings, verification_checks}
+  end
+
+  defp lock_review_findings_for_task!(task_id) do
+    ReviewFinding
+    |> Ash.Query.filter(task_id == ^task_id)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp lock_verification_checks_for_findings!([]), do: []
+
+  defp lock_verification_checks_for_findings!(review_finding_ids) do
+    VerificationCheck
+    |> Ash.Query.filter(review_finding_id in ^review_finding_ids)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp maybe_complete_parent_work!(
+         review_finding,
+         task,
+         task_review_findings,
+         task_verification_checks,
+         satisfied_check_id
+       ) do
+    if required_verification_checks_remaining?(
+         review_finding.id,
+         task_verification_checks,
+         satisfied_check_id
+       ) do
       {review_finding, task, false, false}
     else
       review_finding =
@@ -630,7 +717,7 @@ defmodule OfficeGraph.WorkGraph do
         |> ash_update_internal(:mark_verified_complete)
         |> unwrap_ash()
 
-      if review_findings_remaining?(task.id) do
+      if review_findings_remaining?(task.id, task_review_findings, review_finding.id) do
         {review_finding, task, true, false}
       else
         task =
@@ -643,26 +730,22 @@ defmodule OfficeGraph.WorkGraph do
     end
   end
 
-  defp required_verification_checks_remaining?(review_finding_id) do
-    count =
-      VerificationCheck
-      |> Ash.Query.filter(
-        review_finding_id == ^review_finding_id and lifecycle_state == "required"
-      )
-      |> Ash.Query.lock(:for_update)
-      |> Ash.count!(authorize?: false)
-
-    count > 0
+  defp required_verification_checks_remaining?(
+         review_finding_id,
+         task_verification_checks,
+         satisfied_check_id
+       ) do
+    Enum.any?(task_verification_checks, fn check ->
+      check.review_finding_id == review_finding_id and check.id != satisfied_check_id and
+        check.lifecycle_state == "required"
+    end)
   end
 
-  defp review_findings_remaining?(task_id) do
-    count =
-      ReviewFinding
-      |> Ash.Query.filter(task_id == ^task_id and lifecycle_state != "verified_complete")
-      |> Ash.Query.lock(:for_update)
-      |> Ash.count!(authorize?: false)
-
-    count > 0
+  defp review_findings_remaining?(task_id, task_review_findings, completed_review_finding_id) do
+    Enum.any?(task_review_findings, fn finding ->
+      finding.task_id == task_id and finding.id != completed_review_finding_id and
+        finding.lifecycle_state != "verified_complete"
+    end)
   end
 
   defp trace!(operation, action, resource_type, resource_id) do
