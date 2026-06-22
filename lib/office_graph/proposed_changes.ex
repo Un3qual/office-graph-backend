@@ -25,10 +25,13 @@ defmodule OfficeGraph.ProposedChanges do
     "create_verification_check"
   ]
 
+  @apply_operation_action "proposed_change.apply"
+
   defguardp is_apply_validation_error(error)
             when error == :forbidden or
                    (is_tuple(error) and
                       elem(error, 0) in [
+                        :invalid_apply_operation,
                         :invalid_proposed_change,
                         :invalid_proposed_change_scope,
                         :invalid_proposed_change_set,
@@ -119,12 +122,22 @@ defmodule OfficeGraph.ProposedChanges do
     |> then(&read_scoped_changes(session_context, &1, lock?: true))
   end
 
-  defp validate_operation_scope(session_context, operation) do
-    if operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
+  defp validate_apply_operation(session_context, operation) do
+    cond do
+      not is_map(session_context) or not is_map(operation) ->
+        {:error, :forbidden}
+
+      operation.principal_id != session_context.principal_id or
+        operation.session_id != session_context.session_id or
+        operation.organization_id != session_context.organization_id or
+          operation.workspace_id != session_context.workspace_id ->
+        {:error, :forbidden}
+
+      operation.action != @apply_operation_action ->
+        {:error, {:invalid_apply_operation, operation.id}}
+
+      true ->
+        :ok
     end
   end
 
@@ -133,7 +146,7 @@ defmodule OfficeGraph.ProposedChanges do
            Authorization.authorize(session_context, :proposed_change_apply,
              organization_id: session_context.organization_id
            ),
-         :ok <- validate_operation_scope(session_context, operation),
+         :ok <- validate_apply_operation(session_context, operation),
          {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes),
          :ok <- validate_change_set(session_context, proposed_changes),
          :ok <- validate_all(session_context, proposed_changes),

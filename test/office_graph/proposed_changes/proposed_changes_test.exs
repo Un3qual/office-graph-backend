@@ -90,6 +90,46 @@ defmodule OfficeGraph.ProposedChangesTest do
     end
   end
 
+  test "direct Ash create rejects operation trace outside the proposed change scope", %{
+    bootstrap: bootstrap
+  } do
+    foreign = submit_scoped_intake!("foreign-operation-trace")
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(:create, %{
+               organization_id: bootstrap.session.organization_id,
+               workspace_id: bootstrap.session.workspace_id,
+               operation_id: foreign.intake.normalized_event.operation_id,
+               change_type: "create_signal",
+               payload: %{"title" => "Spoofed operation", "body" => "Wrong operation scope."}
+             })
+             |> Ash.create(actor: bootstrap.session)
+
+    assert Exception.message(error) =~ "operation_id must match proposed change scope"
+  end
+
+  test "direct Ash create rejects normalized event trace outside the proposed change scope", %{
+    bootstrap: bootstrap
+  } do
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    foreign = submit_scoped_intake!("foreign-event-trace")
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(:create, %{
+               organization_id: bootstrap.session.organization_id,
+               workspace_id: bootstrap.session.workspace_id,
+               operation_id: intake_operation.id,
+               normalized_event_id: foreign.intake.normalized_event.id,
+               change_type: "create_signal",
+               payload: %{"title" => "Spoofed event", "body" => "Wrong event scope."}
+             })
+             |> Ash.create(actor: bootstrap.session)
+
+    assert Exception.message(error) =~ "normalized_event_id must match proposed change scope"
+  end
+
   test "unauthorized sessions cannot apply proposed changes", %{
     bootstrap: bootstrap,
     intake: intake
@@ -129,6 +169,23 @@ defmodule OfficeGraph.ProposedChangesTest do
              change = get_change!(change)
              change.status == "applied" and not is_nil(change.applied_at)
            end)
+  end
+
+  test "apply requires a proposed change apply operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, manual_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    operation_id = manual_operation.id
+
+    assert {:error, {:invalid_apply_operation, ^operation_id}} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               manual_operation,
+               intake.proposed_changes
+             )
+
+    assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
   end
 
   test "apply rejects cross-scope proposed changes before graph creation", %{

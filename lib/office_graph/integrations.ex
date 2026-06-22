@@ -18,26 +18,17 @@ defmodule OfficeGraph.Integrations do
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Repo
 
+  @manual_intake_action "manual_intake.submit"
+
   def submit_manual_intake(session_context, operation, attrs) do
     with :ok <- validate_manual_intake_attrs(attrs),
+         :ok <- validate_manual_intake_operation(session_context, operation),
          :ok <-
            Authorization.authorize(session_context, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
          {:ok, intake} <- record_manual_intake(session_context, operation, attrs) do
-      if intake.duplicate? do
-        {:ok, Map.put(intake, :proposed_changes, [])}
-      else
-        with {:ok, proposed_changes} <-
-               ProposedChanges.create_for_manual_intake(
-                 session_context,
-                 operation,
-                 intake.normalized_event,
-                 attrs
-               ) do
-          {:ok, Map.put(intake, :proposed_changes, proposed_changes)}
-        end
-      end
+      {:ok, intake}
     end
   end
 
@@ -77,16 +68,66 @@ defmodule OfficeGraph.Integrations do
                replay_identity: attrs.replay_identity,
                outcome: outcome,
                duplicate_of_id: duplicate_of && duplicate_of.id
-             }) do
-        %{
-          raw_archive: raw_archive,
-          normalized_event: normalized_event,
-          duplicate?: outcome == "duplicate"
-        }
+             }),
+           {:ok, intake} <-
+             record_manual_intake_proposed_changes(
+               session_context,
+               operation,
+               attrs,
+               raw_archive,
+               normalized_event,
+               outcome
+             ) do
+        intake
       else
         {:error, error} -> Repo.rollback(error)
       end
     end)
+  end
+
+  defp record_manual_intake_proposed_changes(
+         _session_context,
+         _operation,
+         _attrs,
+         raw_archive,
+         normalized_event,
+         "duplicate"
+       ) do
+    {:ok,
+     %{
+       raw_archive: raw_archive,
+       normalized_event: normalized_event,
+       duplicate?: true,
+       proposed_changes: []
+     }}
+  end
+
+  defp record_manual_intake_proposed_changes(
+         session_context,
+         operation,
+         attrs,
+         raw_archive,
+         normalized_event,
+         "accepted"
+       ) do
+    case ProposedChanges.create_for_manual_intake(
+           session_context,
+           operation,
+           normalized_event,
+           attrs
+         ) do
+      {:ok, proposed_changes} ->
+        {:ok,
+         %{
+           raw_archive: raw_archive,
+           normalized_event: normalized_event,
+           duplicate?: false,
+           proposed_changes: proposed_changes
+         }}
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   defp record_duplicate_after_replay_conflict(session_context, operation, attrs, original_error) do
@@ -208,5 +249,30 @@ defmodule OfficeGraph.Integrations do
       :error ->
         {:error, {:missing_field, field}}
     end
+  end
+
+  defp validate_manual_intake_operation(
+         session_context,
+         %{
+           principal_id: principal_id,
+           session_id: session_id,
+           organization_id: organization_id,
+           workspace_id: workspace_id,
+           action: @manual_intake_action
+         }
+       )
+       when is_map(session_context) do
+    if principal_id == session_context.principal_id and
+         session_id == session_context.session_id and
+         organization_id == session_context.organization_id and
+         workspace_id == session_context.workspace_id do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp validate_manual_intake_operation(_session_context, _operation) do
+    {:error, :forbidden}
   end
 end

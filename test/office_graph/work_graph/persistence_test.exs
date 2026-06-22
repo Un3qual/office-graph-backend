@@ -13,6 +13,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     DocumentRevision
   }
 
+  alias OfficeGraph.Authorization.RoleAssignment
   alias OfficeGraph.Foundation
   alias OfficeGraph.ExternalRefs.ExternalReference
   alias OfficeGraph.Integrations
@@ -60,19 +61,52 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
 
     assert {:ok, other_scope} =
              Foundation.bootstrap_local_owner(
-               organization_name: "Correlation Other Tenant",
-               organization_slug: "correlation-other-tenant",
                workspace_name: "Correlation Other Workspace",
                workspace_slug: "correlation-other-workspace",
                initiative_name: "Correlation Other Initiative",
-               initiative_slug: "correlation-other-initiative",
-               owner_email: "correlation-other-owner@office-graph.local"
+               initiative_slug: "correlation-other-initiative"
              )
+
+    assert other_scope.organization.id == bootstrap.organization.id
+    assert other_scope.workspace.id != bootstrap.workspace.id
 
     assert {:ok, %OperationCorrelation{correlation_id: ^correlation_id}} =
              Operations.start_operation(other_scope.session, :manual_intake_submit,
                correlation_id: correlation_id
              )
+  end
+
+  test "role assignment identity treats nil workspace scope as comparable", %{
+    bootstrap: bootstrap
+  } do
+    org_wide_assignment =
+      Ash.create!(
+        RoleAssignment,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: bootstrap.principal.id,
+          role_id: bootstrap.role_assignment.role_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: nil
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:ok, %{id: org_wide_assignment_id}} =
+             Ash.get(
+               RoleAssignment,
+               %{
+                 principal_id: org_wide_assignment.principal_id,
+                 role_id: org_wide_assignment.role_id,
+                 organization_id: org_wide_assignment.organization_id,
+                 workspace_id: nil
+               },
+               authorize?: false,
+               not_found_error?: false
+             )
+
+    assert org_wide_assignment_id == org_wide_assignment.id
   end
 
   test "tenant hierarchy constraints reject mismatched workspace organization", %{

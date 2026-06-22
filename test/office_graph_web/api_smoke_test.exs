@@ -2,7 +2,10 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
+
+  require Ash.Query
 
   describe "GraphQL and JSON API walking skeleton" do
     test "both transports drive the same durable loop", %{conn: conn} do
@@ -44,6 +47,8 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
     end
 
     test "JSON apply reports invalid proposed-change sets without crashing", %{conn: conn} do
+      before_apply_operations = operation_count("proposed_change.apply")
+
       response =
         conn
         |> post(~p"/api/proposed-changes/apply", %{ids: []})
@@ -51,6 +56,7 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert response["error"]["code"] == "invalid_proposed_change_set"
       assert response["error"]["reason"]["kind"] == "missing_change_type"
+      assert operation_count("proposed_change.apply") == before_apply_operations
     end
 
     test "JSON apply rejects non-array ids before querying proposed changes", %{conn: conn} do
@@ -63,8 +69,24 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["field"] == "ids"
     end
 
+    test "JSON apply rejects malformed proposed-change ids before querying proposed changes", %{
+      conn: conn
+    } do
+      before_apply_operations = operation_count("proposed_change.apply")
+
+      response =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: ["not-a-uuid"]})
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "ids"
+      assert operation_count("proposed_change.apply") == before_apply_operations
+    end
+
     test "JSON apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
+      before_apply_operations = operation_count("proposed_change.apply")
 
       response =
         conn
@@ -73,6 +95,7 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert response["error"]["code"] == "missing_proposed_change"
       assert response["error"]["proposed_change_id"] == missing_id
+      assert operation_count("proposed_change.apply") == before_apply_operations
     end
 
     test "JSON apply reports already-applied proposed-change ids without crashing", %{conn: conn} do
@@ -102,6 +125,7 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       conn: conn
     } do
       missing_id = Ecto.UUID.generate()
+      before_complete_operations = operation_count("verification.complete")
 
       response =
         conn
@@ -115,6 +139,40 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert response["error"]["code"] == "missing_verification_check"
       assert response["error"]["verification_check_id"] == missing_id
+      assert operation_count("verification.complete") == before_complete_operations
+    end
+
+    test "JSON complete validates evidence fields before creating an operation", %{conn: conn} do
+      submit =
+        json_submit(conn, %{
+          source_identity: "manual:json-missing-evidence-body",
+          replay_identity: "json-missing-evidence-body-#{System.unique_integer([:positive])}",
+          body: "Investigate missing evidence body validation."
+        })
+
+      proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
+
+      applied =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+        |> json_response(200)
+
+      before_evidence_operations = operation_count("evidence.link")
+      before_complete_operations = operation_count("verification.complete")
+
+      response =
+        conn
+        |> post(~p"/api/verification/complete", %{
+          verification_check_id: applied["verification_check"]["id"],
+          title: "Missing evidence body",
+          artifact_uri: "https://example.test/missing-evidence-body"
+        })
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "body"
+      assert operation_count("evidence.link") == before_evidence_operations
+      assert operation_count("verification.complete") == before_complete_operations
     end
 
     test "JSON complete reports repeated verification completion without duplicate evidence", %{
@@ -154,6 +212,37 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["verification_check_id"] == applied["verification_check"]["id"]
     end
 
+    test "JSON complete records a verification completion operation", %{conn: conn} do
+      submit =
+        json_submit(conn, %{
+          source_identity: "manual:json-complete-operation",
+          replay_identity: "json-complete-operation-#{System.unique_integer([:positive])}",
+          body: "Investigate verification operation correlation."
+        })
+
+      proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
+
+      applied =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+        |> json_response(200)
+
+      before_evidence_operations = operation_count("evidence.link")
+      before_complete_operations = operation_count("verification.complete")
+
+      conn
+      |> post(~p"/api/verification/complete", %{
+        verification_check_id: applied["verification_check"]["id"],
+        title: "Completion operation",
+        body: "Verification completion should be the operation command.",
+        artifact_uri: "https://example.test/completion-operation"
+      })
+      |> json_response(200)
+
+      assert operation_count("evidence.link") == before_evidence_operations
+      assert operation_count("verification.complete") == before_complete_operations + 1
+    end
+
     test "GraphQL apply reports missing proposed-change ids without crashing", %{conn: conn} do
       missing_id = Ecto.UUID.generate()
 
@@ -176,6 +265,18 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
       assert error["extensions"]["proposed_change_id"] == missing_id
       assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+    end
+
+    test "GraphQL apply rejects malformed proposed-change ids without crashing", %{conn: conn} do
+      before_apply_operations = operation_count("proposed_change.apply")
+
+      response = graphql_apply(conn, ["not-a-uuid"])
+
+      assert [%{"extensions" => %{"code" => "validation_failed", "field" => "ids"}}] =
+               response["errors"]
+
+      assert response["data"] in [nil, %{"applyProposedChanges" => nil}]
+      assert operation_count("proposed_change.apply") == before_apply_operations
     end
 
     test "GraphQL apply reports invalid proposed-change sets without crashing", %{conn: conn} do
@@ -391,5 +492,11 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
 
     assert response["errors"] in [nil, []]
     response["data"] |> Map.values() |> hd()
+  end
+
+  defp operation_count(action) do
+    OperationCorrelation
+    |> Ash.Query.filter(action == ^action)
+    |> Ash.count!(authorize?: false)
   end
 end

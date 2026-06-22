@@ -37,26 +37,44 @@ defmodule OfficeGraph.ApiSupport do
 
   def apply_proposed_changes(params) do
     with {:ok, ids} <- optional_id_list(params, :ids),
+         :ok <- validate_apply_id_set(ids),
          {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
-         {:ok, operation} <- Operations.start_operation(bootstrap.session, :proposed_change_apply),
-         {:ok, proposed_changes} <- ProposedChanges.get_many(bootstrap.session, ids) do
+         {:ok, proposed_changes} <- ProposedChanges.get_many(bootstrap.session, ids),
+         {:ok, operation} <- Operations.start_operation(bootstrap.session, :proposed_change_apply) do
       ProposedChanges.apply_all(bootstrap.session, operation, proposed_changes)
     end
   end
 
   def complete_verification(params) do
-    with {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
-         {:ok, verification_check_id} <- required_string(params, :verification_check_id),
+    with {:ok, verification_check_id} <- required_id(params, :verification_check_id),
+         {:ok, title} <- required_string(params, :title),
+         {:ok, body} <- required_string(params, :body),
+         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
          {:ok, verification_check} <-
            WorkGraph.get_verification_check(bootstrap.session, verification_check_id),
-         {:ok, operation} <- Operations.start_operation(bootstrap.session, :evidence_link),
-         {:ok, title} <- required_string(params, :title),
-         {:ok, body} <- required_string(params, :body) do
+         {:ok, operation} <- Operations.start_operation(bootstrap.session, :verification_complete) do
       Verification.complete_with_evidence(bootstrap.session, operation, verification_check, %{
         title: title,
         body: body,
         artifact_uri: value(params, :artifact_uri)
       })
+    end
+  end
+
+  defp required_id(params, key) do
+    case value(params, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "" do
+          {:error, {:missing_field, key}}
+        else
+          cast_id(value, key)
+        end
+
+      nil ->
+        {:error, {:missing_field, key}}
+
+      _other ->
+        {:error, {:invalid_field, key}}
     end
   end
 
@@ -77,24 +95,46 @@ defmodule OfficeGraph.ApiSupport do
     end
   end
 
+  defp validate_apply_id_set([]) do
+    {:error, {:invalid_proposed_change_set, {:missing_change_type, "create_signal"}}}
+  end
+
+  defp validate_apply_id_set(_ids), do: :ok
+
   defp optional_id_list(params, key) do
     case value(params, key) do
       nil ->
         {:ok, []}
 
       values when is_list(values) ->
-        if Enum.all?(values, &valid_id?/1) do
-          {:ok, values}
-        else
-          {:error, {:invalid_field, key}}
-        end
+        cast_id_list(values, key)
 
       _other ->
         {:error, {:invalid_field, key}}
     end
   end
 
-  defp valid_id?(value), do: is_binary(value) and String.trim(value) != ""
+  defp cast_id_list(values, key) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, ids} ->
+      case cast_id(value, key) do
+        {:ok, id} -> {:cont, {:ok, [id | ids]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, Enum.reverse(ids)}
+      error -> error
+    end
+  end
+
+  defp cast_id(value, key) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp cast_id(_value, key), do: {:error, {:invalid_field, key}}
 
   defp value(params, key) do
     params[key] || params[to_string(key)]

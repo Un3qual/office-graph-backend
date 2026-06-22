@@ -1,3 +1,90 @@
+defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.Integrations.NormalizedIntakeEvent
+  alias OfficeGraph.Operations.OperationCorrelation
+
+  require Ash.Query
+
+  @trace_references [
+    operation_id: OperationCorrelation,
+    normalized_event_id: NormalizedIntakeEvent
+  ]
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
+      Enum.reduce(@trace_references, changeset, fn {field, resource}, changeset ->
+        validate_reference(changeset, field, resource, organization_id, workspace_id)
+      end)
+    else
+      :error ->
+        changeset
+        |> Ash.Changeset.add_error(
+          field: :organization_id,
+          message: "proposed change scope is required for trace references"
+        )
+        |> Ash.Changeset.add_error(
+          field: :workspace_id,
+          message: "proposed change scope is required for trace references"
+        )
+    end
+  end
+
+  defp target_scope(changeset) do
+    organization_id = Ash.Changeset.get_attribute(changeset, :organization_id)
+    workspace_id = Ash.Changeset.get_attribute(changeset, :workspace_id)
+
+    if is_nil(organization_id) or is_nil(workspace_id) do
+      :error
+    else
+      {:ok, organization_id, workspace_id}
+    end
+  end
+
+  defp validate_reference(changeset, field, resource, organization_id, workspace_id) do
+    case Ash.Changeset.get_attribute(changeset, field) do
+      nil ->
+        changeset
+
+      id ->
+        case fetch_reference(resource, id) do
+          {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id}} ->
+            changeset
+
+          {:ok, _missing_or_cross_scope} ->
+            add_scope_error(changeset, field)
+
+          {:error, error} ->
+            Ash.Changeset.add_error(
+              changeset,
+              field: field,
+              message: "#{field} lookup failed: #{format_lookup_error(error)}"
+            )
+        end
+    end
+  end
+
+  defp fetch_reference(resource, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp add_scope_error(changeset, field) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: field,
+      message: "#{field} must match proposed change scope"
+    )
+  end
+
+  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
+  defp format_lookup_error(error), do: inspect(error)
+end
+
 defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   @moduledoc false
 
@@ -49,6 +136,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
         :change_type,
         :payload
       ]
+
+      change OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope
     end
 
     update :set_payload do
