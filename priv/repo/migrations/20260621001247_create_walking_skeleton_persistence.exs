@@ -528,5 +528,10 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
     end
 
     create index(:proposed_graph_changes, [:organization_id, :workspace_id, :status])
+
+    create unique_index(:proposed_graph_changes, [:normalized_event_id, :change_type],
+             name: :proposed_graph_changes_event_type_index,
+             where: "normalized_event_id IS NOT NULL"
+           )
   end
 end

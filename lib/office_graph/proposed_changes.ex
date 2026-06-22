@@ -27,6 +27,7 @@ defmodule OfficeGraph.ProposedChanges do
   ]
 
   @apply_operation_action "proposed_change.apply"
+  @manual_intake_action "manual_intake.submit"
 
   defguardp is_apply_validation_error(error)
             when error == :forbidden or
@@ -55,22 +56,37 @@ defmodule OfficeGraph.ProposedChanges do
   def create_for_manual_intake(session_context, operation, normalized_event, attrs) do
     title = first_sentence(attrs.body)
 
-    Repo.transaction(fn ->
-      Enum.map(@required_change_types, fn change_type ->
-        ash_create!(
-          ProposedGraphChange,
-          %{
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            operation_id: operation.id,
-            normalized_event_id: normalized_event.id,
-            change_type: change_type,
-            payload: change_payload(change_type, title, attrs.body)
-          },
-          session_context
-        )
+    with :ok <-
+           validate_manual_intake_creation_context(session_context, operation, normalized_event) do
+      Repo.transaction(fn ->
+        case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
+          [] ->
+            Enum.map(@required_change_types, fn change_type ->
+              ash_create!(
+                ProposedGraphChange,
+                %{
+                  organization_id: session_context.organization_id,
+                  workspace_id: session_context.workspace_id,
+                  operation_id: operation.id,
+                  normalized_event_id: normalized_event.id,
+                  change_type: change_type,
+                  payload: change_payload(change_type, title, attrs.body)
+                },
+                session_context
+              )
+            end)
+
+          existing ->
+            case existing_required_set(existing) do
+              {:ok, proposed_changes} ->
+                proposed_changes
+
+              {:error, error} ->
+                Repo.rollback(error)
+            end
+        end
       end)
-    end)
+    end
   end
 
   def apply_all(session_context, operation, proposed_changes) do
@@ -117,6 +133,26 @@ defmodule OfficeGraph.ProposedChanges do
   defp maybe_lock(query, true), do: Ash.Query.lock(query, :for_update)
   defp maybe_lock(query, _lock?), do: query
 
+  defp read_existing_for_normalized_event(normalized_event_id, opts) do
+    ProposedGraphChange
+    |> Ash.Query.filter(normalized_event_id == ^normalized_event_id)
+    |> maybe_lock(opts[:lock?])
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp existing_required_set(proposed_changes) do
+    types = Enum.map(proposed_changes, & &1.change_type)
+    by_type = Map.new(proposed_changes, &{&1.change_type, &1})
+
+    if length(proposed_changes) == length(@required_change_types) and
+         Enum.sort(types) == Enum.sort(@required_change_types) and
+         map_size(by_type) == length(@required_change_types) do
+      {:ok, Enum.map(@required_change_types, &Map.fetch!(by_type, &1))}
+    else
+      {:error, {:invalid_proposed_change_set, :existing_normalized_event_changes}}
+    end
+  end
+
   defp reload_for_apply(session_context, proposed_changes) do
     proposed_changes
     |> Enum.map(& &1.id)
@@ -136,6 +172,33 @@ defmodule OfficeGraph.ProposedChanges do
 
       operation.action != @apply_operation_action ->
         {:error, {:invalid_apply_operation, operation.id}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_manual_intake_creation_context(session_context, operation, normalized_event) do
+    cond do
+      not is_map(session_context) or not is_map(operation) or not is_map(normalized_event) ->
+        {:error, :forbidden}
+
+      operation.principal_id != session_context.principal_id or
+        operation.session_id != session_context.session_id or
+        operation.organization_id != session_context.organization_id or
+          operation.workspace_id != session_context.workspace_id ->
+        {:error, :forbidden}
+
+      operation.action != @manual_intake_action ->
+        {:error, {:invalid_manual_intake_operation, operation.id}}
+
+      normalized_event.organization_id != session_context.organization_id or
+          normalized_event.workspace_id != session_context.workspace_id ->
+        {:error, {:invalid_proposed_change_scope, normalized_event.id}}
+
+      normalized_event.outcome != "accepted" ->
+        {:error,
+         {:invalid_proposed_change_set, {:normalized_event_not_accepted, normalized_event.id}}}
 
       true ->
         :ok
@@ -341,8 +404,8 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp ash_create!(resource, attrs, session_context) do
     resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create!(actor: session_context, return_notifications?: true)
+    |> Ash.Changeset.for_create(:create, attrs, actor: session_context)
+    |> Ash.create!(return_notifications?: true)
     |> record_without_notifications()
   end
 

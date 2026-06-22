@@ -98,6 +98,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.Content.DocumentBlock => %{unique_document_position: [:document_id, :position]},
     OfficeGraph.Content.DocumentRevision => %{
       unique_document_revision: [:document_id, :revision_number]
+    },
+    OfficeGraph.ProposedChanges.ProposedGraphChange => %{
+      unique_normalized_event_change_type: [:normalized_event_id, :change_type]
     }
   }
 

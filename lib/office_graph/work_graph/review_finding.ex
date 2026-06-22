@@ -1,3 +1,46 @@
+defmodule OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.WorkGraph.Task
+
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    case Ash.Changeset.get_attribute(changeset, :task_id) do
+      nil ->
+        changeset
+
+      task_id ->
+        validate_open_task(changeset, task_id)
+    end
+  end
+
+  defp validate_open_task(changeset, task_id) do
+    Task
+    |> Ash.Query.filter(id == ^task_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{lifecycle_state: "open"}} ->
+        changeset
+
+      {:ok, nil} ->
+        changeset
+
+      {:ok, _completed_or_closed} ->
+        Ash.Changeset.add_error(changeset,
+          field: :task_id,
+          message: "must reference an open task"
+        )
+
+      {:error, _error} ->
+        changeset
+    end
+  end
+end
+
 defmodule OfficeGraph.WorkGraph.ReviewFinding do
   @moduledoc false
 
@@ -51,6 +94,8 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
                 task_id: OfficeGraph.WorkGraph.Task,
                 body_document_id: OfficeGraph.Content.Document
               ]}
+
+      change OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask
     end
 
     update :mark_verified_complete do

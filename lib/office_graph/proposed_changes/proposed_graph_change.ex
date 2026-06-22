@@ -8,16 +8,20 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
 
   require Ash.Query
 
+  @manual_intake_action "manual_intake.submit"
+
   @trace_references [
     operation_id: OperationCorrelation,
     normalized_event_id: NormalizedIntakeEvent
   ]
 
   @impl true
-  def change(changeset, _opts, _context) do
+  def change(changeset, _opts, context) do
+    actor = Map.get(context, :actor)
+
     with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
       Enum.reduce(@trace_references, changeset, fn {field, resource}, changeset ->
-        validate_reference(changeset, field, resource, organization_id, workspace_id)
+        validate_reference(changeset, field, resource, organization_id, workspace_id, actor)
       end)
     else
       :error ->
@@ -44,7 +48,51 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
     end
   end
 
-  defp validate_reference(changeset, field, resource, organization_id, workspace_id) do
+  defp validate_reference(
+         changeset,
+         :operation_id = field,
+         OperationCorrelation = resource,
+         organization_id,
+         workspace_id,
+         actor
+       ) do
+    case Ash.Changeset.get_attribute(changeset, field) do
+      nil ->
+        changeset
+
+      id ->
+        case fetch_reference(resource, id) do
+          {:ok,
+           %{
+             organization_id: ^organization_id,
+             workspace_id: ^workspace_id,
+             principal_id: principal_id,
+             session_id: session_id,
+             action: @manual_intake_action
+           }} ->
+            if same_actor?(actor, principal_id, session_id) do
+              changeset
+            else
+              add_operation_context_error(changeset)
+            end
+
+          {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id}} ->
+            add_operation_context_error(changeset)
+
+          {:ok, _missing_or_cross_scope} ->
+            add_scope_error(changeset, field)
+
+          {:error, error} ->
+            Ash.Changeset.add_error(
+              changeset,
+              field: field,
+              message: "#{field} lookup failed: #{format_lookup_error(error)}"
+            )
+        end
+    end
+  end
+
+  defp validate_reference(changeset, field, resource, organization_id, workspace_id, _actor) do
     case Ash.Changeset.get_attribute(changeset, field) do
       nil ->
         changeset
@@ -81,8 +129,67 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
     )
   end
 
+  defp add_operation_context_error(changeset) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: :operation_id,
+      message: "operation_id must reference the current manual intake operation"
+    )
+  end
+
+  defp same_actor?(actor, principal_id, session_id) when is_map(actor) do
+    actor.principal_id == principal_id and actor.session_id == session_id
+  end
+
+  defp same_actor?(_actor, _principal_id, _session_id), do: false
+
   defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
   defp format_lookup_error(error), do: inspect(error)
+end
+
+defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.ValidateUniqueNormalizedEventChangeType do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
+
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    normalized_event_id = Ash.Changeset.get_attribute(changeset, :normalized_event_id)
+    change_type = Ash.Changeset.get_attribute(changeset, :change_type)
+
+    if is_nil(normalized_event_id) or is_nil(change_type) do
+      changeset
+    else
+      validate_unique_event_change_type(changeset, normalized_event_id, change_type)
+    end
+  end
+
+  defp validate_unique_event_change_type(changeset, normalized_event_id, change_type) do
+    ProposedGraphChange
+    |> Ash.Query.filter(
+      normalized_event_id == ^normalized_event_id and change_type == ^change_type
+    )
+    |> Ash.exists?(authorize?: false)
+    |> case do
+      true ->
+        changeset
+        |> Ash.Changeset.add_error(
+          field: :normalized_event_id,
+          message: "normalized_event_id and change_type must be unique"
+        )
+        |> Ash.Changeset.add_error(
+          field: :change_type,
+          message: "normalized_event_id and change_type must be unique"
+        )
+
+      false ->
+        changeset
+    end
+  end
 end
 
 defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
@@ -98,10 +205,18 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     repo OfficeGraph.Repo
     migrate? false
 
+    identity_index_names unique_normalized_event_change_type:
+                           "proposed_graph_changes_event_type_index"
+
     foreign_key_names organization_id: "proposed_graph_changes_organization_id_fkey",
                       workspace_id: "proposed_graph_changes_workspace_id_fkey",
                       operation_id: "proposed_graph_changes_operation_id_fkey",
                       normalized_event_id: "proposed_graph_changes_normalized_event_id_fkey"
+  end
+
+  identities do
+    identity :unique_normalized_event_change_type, [:normalized_event_id, :change_type],
+      where: expr(not is_nil(normalized_event_id))
   end
 
   attributes do
@@ -138,6 +253,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       ]
 
       change OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope
+
+      change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidateUniqueNormalizedEventChangeType
     end
 
     update :set_payload do

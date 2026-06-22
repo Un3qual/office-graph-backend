@@ -150,6 +150,14 @@ defmodule OfficeGraph.WorkGraph do
       graph_item_id = Ecto.UUID.generate()
 
       graph_transaction(fn ->
+        task =
+          Task
+          |> ash_get_for_update(task.id)
+          |> unwrap_ash()
+
+        validate_scope!(session_context, task)
+        validate_open_task!(task)
+
         document = create_document!(session_context, operation, attrs[:body] || "")
 
         graph_item =
@@ -177,11 +185,9 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
-        task_graph_item_id = persisted_graph_item_id!(Task, task.id)
-
         relationship =
           create_relationship!(
-            task_graph_item_id,
+            task.graph_item_id,
             graph_item_id,
             "has_review_finding",
             session_context
@@ -274,7 +280,11 @@ defmodule OfficeGraph.WorkGraph do
 
   def complete_verification(session_context, operation, verification_check, attrs) do
     with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @verification_complete_action) do
+         :ok <- validate_operation_action(operation, @verification_complete_action),
+         :ok <-
+           Authorization.authorize(session_context, :verification_complete,
+             organization_id: session_context.organization_id
+           ) do
       artifact_id = Ecto.UUID.generate()
       artifact_graph_item_id = Ecto.UUID.generate()
       evidence_id = Ecto.UUID.generate()
@@ -576,6 +586,12 @@ defmodule OfficeGraph.WorkGraph do
       ^expected_action -> :ok
       _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
     end
+  end
+
+  defp validate_open_task!(%{lifecycle_state: "open"}), do: :ok
+
+  defp validate_open_task!(task) do
+    Repo.rollback({:invalid_task_status, task.id})
   end
 
   defp validate_open_review_finding!(%{lifecycle_state: "open"}), do: :ok

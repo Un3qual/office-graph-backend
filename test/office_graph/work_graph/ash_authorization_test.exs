@@ -620,6 +620,27 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert check_count == 1
   end
 
+  test "public WorkGraph create_review_finding rejects completed tasks" do
+    {:ok, bootstrap} = bootstrap_scope("completed-task-finding")
+    completed = complete_verification!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, {:invalid_task_status, task_id}} =
+             WorkGraph.create_review_finding(bootstrap.session, operation, completed.task, %{
+               title: "Late review finding",
+               body: "Completed tasks must not receive new review findings."
+             })
+
+    assert task_id == completed.task.id
+
+    finding_count =
+      ReviewFindingResource
+      |> Ash.Query.filter(task_id == ^completed.task.id)
+      |> Ash.count!(authorize?: false)
+
+    assert finding_count == 1
+  end
+
   test "direct Ash verification check create rejects completed review findings" do
     {:ok, bootstrap} = bootstrap_scope("direct-completed-finding-check")
     completed = complete_verification!(bootstrap)
@@ -653,6 +674,41 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     assert Exception.message(error) =~ "review_finding_id"
     assert Exception.message(error) =~ "open review finding"
+  end
+
+  test "direct Ash review finding create rejects completed tasks" do
+    {:ok, bootstrap} = bootstrap_scope("direct-completed-task-finding")
+    completed = complete_verification!(bootstrap)
+    finding_id = Ecto.UUID.generate()
+
+    graph_item =
+      insert_graph_item!(
+        bootstrap,
+        "review_finding",
+        finding_id,
+        "Late review finding graph item"
+      )
+
+    document = insert_document!(bootstrap, "Late review finding body")
+
+    assert {:error, error} =
+             Ash.create(
+               ReviewFindingResource,
+               %{
+                 id: finding_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: graph_item.id,
+                 task_id: completed.task.id,
+                 body_document_id: document.id,
+                 title: "Late review finding"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "task_id"
+    assert Exception.message(error) =~ "open task"
   end
 
   test "public WorkGraph complete_verification returns an error for a stale verification check" do
@@ -698,6 +754,23 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                  artifact_uri: "https://example.test/reject-evidence-link-operation"
                }
              )
+
+    refute document_with_plain_text?(body)
+  end
+
+  test "public WorkGraph verification completion requires verification complete capability" do
+    {:ok, bootstrap} = bootstrap_scope("completion-capability")
+    verification_check = create_verification_check!(bootstrap)
+    evidence_only = %{bootstrap.session | capabilities: MapSet.new(["evidence.link"])}
+    {:ok, operation} = Operations.start_operation(evidence_only, :verification_complete)
+    body = "Direct completion must require verification completion capability."
+
+    assert {:error, :forbidden} =
+             WorkGraph.complete_verification(evidence_only, operation, verification_check, %{
+               title: "Reject unauthorized completion",
+               body: body,
+               artifact_uri: "https://example.test/reject-completion-capability"
+             })
 
     refute document_with_plain_text?(body)
   end

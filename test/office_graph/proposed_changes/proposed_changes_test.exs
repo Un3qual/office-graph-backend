@@ -1,6 +1,8 @@
 defmodule OfficeGraph.ProposedChangesTest do
   use OfficeGraph.DataCase, async: false
 
+  require Ash.Query
+
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.Integrations
@@ -76,17 +78,21 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert_raise Ash.Error.Invalid, ~r/No such input `status`/, fn ->
       ProposedGraphChange
-      |> Ash.Changeset.for_create(:create, %{
-        organization_id: bootstrap.session.organization_id,
-        workspace_id: bootstrap.session.workspace_id,
-        operation_id: intake_operation.id,
-        status: "applied",
-        change_type: "create_signal",
-        payload: %{"title" => "Spoofed lifecycle", "body" => "This must stay pending."},
-        validation_errors: ["spoofed"],
-        applied_at: DateTime.utc_now()
-      })
-      |> Ash.create!(actor: bootstrap.session)
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: intake_operation.id,
+          status: "applied",
+          change_type: "create_signal",
+          payload: %{"title" => "Spoofed lifecycle", "body" => "This must stay pending."},
+          validation_errors: ["spoofed"],
+          applied_at: DateTime.utc_now()
+        },
+        actor: bootstrap.session
+      )
+      |> Ash.create!()
     end
   end
 
@@ -97,16 +103,81 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert {:error, error} =
              ProposedGraphChange
-             |> Ash.Changeset.for_create(:create, %{
-               organization_id: bootstrap.session.organization_id,
-               workspace_id: bootstrap.session.workspace_id,
-               operation_id: foreign.intake.normalized_event.operation_id,
-               change_type: "create_signal",
-               payload: %{"title" => "Spoofed operation", "body" => "Wrong operation scope."}
-             })
-             |> Ash.create(actor: bootstrap.session)
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: foreign.intake.normalized_event.operation_id,
+                 change_type: "create_signal",
+                 payload: %{"title" => "Spoofed operation", "body" => "Wrong operation scope."}
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
 
     assert Exception.message(error) =~ "operation_id must match proposed change scope"
+  end
+
+  test "direct Ash create rejects operation traces from another same-scope actor", %{
+    bootstrap: bootstrap
+  } do
+    {:ok, other_same_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: bootstrap.organization.name,
+        organization_slug: bootstrap.organization.slug,
+        workspace_name: bootstrap.workspace.name,
+        workspace_slug: bootstrap.workspace.slug,
+        initiative_name: "Operation trace same scope",
+        initiative_slug: "operation-trace-same-scope",
+        owner_email: "other-operation-trace@office-graph.local",
+        owner_name: "Other Operation Trace"
+      )
+
+    {:ok, foreign_operation} =
+      Operations.start_operation(other_same_scope.session, :manual_intake_submit)
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: foreign_operation.id,
+                 change_type: "create_signal",
+                 payload: %{"title" => "Spoofed operation", "body" => "Wrong actor trace."}
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "operation_id"
+    assert Exception.message(error) =~ "current manual intake operation"
+  end
+
+  test "direct Ash create rejects non-manual-intake operation traces", %{
+    bootstrap: bootstrap
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: apply_operation.id,
+                 change_type: "create_signal",
+                 payload: %{"title" => "Spoofed operation", "body" => "Wrong action trace."}
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "operation_id"
+    assert Exception.message(error) =~ "current manual intake operation"
   end
 
   test "direct Ash create rejects normalized event trace outside the proposed change scope", %{
@@ -117,15 +188,19 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert {:error, error} =
              ProposedGraphChange
-             |> Ash.Changeset.for_create(:create, %{
-               organization_id: bootstrap.session.organization_id,
-               workspace_id: bootstrap.session.workspace_id,
-               operation_id: intake_operation.id,
-               normalized_event_id: foreign.intake.normalized_event.id,
-               change_type: "create_signal",
-               payload: %{"title" => "Spoofed event", "body" => "Wrong event scope."}
-             })
-             |> Ash.create(actor: bootstrap.session)
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: intake_operation.id,
+                 normalized_event_id: foreign.intake.normalized_event.id,
+                 change_type: "create_signal",
+                 payload: %{"title" => "Spoofed event", "body" => "Wrong event scope."}
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
 
     assert Exception.message(error) =~ "normalized_event_id must match proposed change scope"
   end
@@ -194,6 +269,63 @@ defmodule OfficeGraph.ProposedChangesTest do
              )
 
     assert applied.signal.title == "Investigate deploy health and prove it"
+  end
+
+  test "manual intake proposed change creation is idempotent per accepted event", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, intake_operation} =
+      Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, repeated} =
+             ProposedChanges.create_for_manual_intake(
+               bootstrap.session,
+               intake_operation,
+               intake.normalized_event,
+               %{
+                 body: "Investigate flaky deploy and prove it."
+               }
+             )
+
+    assert Enum.map(repeated, & &1.id) |> Enum.sort() ==
+             Enum.map(intake.proposed_changes, & &1.id) |> Enum.sort()
+
+    persisted_count =
+      ProposedGraphChange
+      |> Ash.Query.filter(normalized_event_id == ^intake.normalized_event.id)
+      |> Ash.count!(authorize?: false)
+
+    assert persisted_count == length(required_change_types())
+  end
+
+  test "direct Ash create rejects duplicate normalized event change types", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    existing = find_change(intake.proposed_changes, "create_signal")
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: existing.operation_id,
+                 normalized_event_id: intake.normalized_event.id,
+                 change_type: existing.change_type,
+                 payload: %{
+                   "title" => "Duplicate proposed signal",
+                   "body" => "This duplicate should be rejected."
+                 }
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "normalized_event_id"
+    assert Exception.message(error) =~ "change_type"
   end
 
   test "apply requires a proposed change apply operation", %{
