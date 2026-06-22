@@ -426,5 +426,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :proposed_change_apply}
     end
+
+    policy action(:mark_applied) do
+      forbid_if always()
+    end
   end
 end

@@ -471,6 +471,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert verification_check_source =~ "Ash.Query.lock(:for_update)"
   end
 
+  test "proposed change applied transition is explicitly internal only" do
+    source = File.read!("lib/office_graph/proposed_changes/proposed_graph_change.ex")
+
+    assert source =~ "policy action(:mark_applied)"
+    assert source =~ "forbid_if always()"
+  end
+
   test "shared Ash capability check is loadable" do
     assert Code.ensure_loaded?(HasCapability)
 
