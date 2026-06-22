@@ -8,6 +8,12 @@ defmodule OfficeGraph.Content do
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Repo
 
+  @document_operation_actions [
+    "manual_intake.submit",
+    "proposed_change.apply",
+    "verification.complete"
+  ]
+
   def create_plain_document(session_context, operation, plain_text) do
     with :ok <- validate_operation_context(session_context, operation) do
       document_id = Ecto.UUID.generate()
@@ -50,13 +56,18 @@ defmodule OfficeGraph.Content do
 
   defp validate_operation_context(session_context, operation)
        when is_map(session_context) and is_map(operation) do
-    if operation.principal_id == session_context.principal_id and
-         operation.session_id == session_context.session_id and
-         operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
+    cond do
+      operation.principal_id != session_context.principal_id or
+        operation.session_id != session_context.session_id or
+        operation.organization_id != session_context.organization_id or
+          operation.workspace_id != session_context.workspace_id ->
+        {:error, :forbidden}
+
+      operation.action not in @document_operation_actions ->
+        {:error, {:invalid_content_operation, operation.id}}
+
+      true ->
+        :ok
     end
   end
 

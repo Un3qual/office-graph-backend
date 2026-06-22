@@ -3,6 +3,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias OfficeGraph.Identity.SessionContext
+  alias OfficeGraph.ProposedChanges
   alias OfficeGraph.{Integrations, Operations, Repo}
 
   test "manual intake retries recover proposed changes after proposed-change creation fails" do
@@ -216,6 +217,83 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "manual intake proposed change creation is idempotent under absent-set races" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    source_identity = "manual:proposed-change-race-#{suffix}"
+    replay_identity = "paste:proposed-change-race-#{suffix}"
+    body = "Task: verify concurrent proposed change creation #{suffix}"
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    try do
+      {operation, normalized_event} =
+        with_unboxed_connection(fn ->
+          insert_minimal_session_scope!(
+            organization_id,
+            workspace_id,
+            principal_id,
+            session_id,
+            suffix
+          )
+
+          {:ok, operation} =
+            Operations.start_operation(session_context, :manual_intake_submit,
+              correlation_id: "proposed-change-race-#{suffix}"
+            )
+
+          normalized_event =
+            insert_accepted_intake_event_without_proposed_changes!(
+              session_context,
+              operation,
+              source_identity,
+              replay_identity,
+              body
+            )
+
+          install_proposed_change_insert_barrier!(normalized_event.id)
+
+          {operation, normalized_event}
+        end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              capture_create_for_manual_intake(
+                session_context,
+                operation,
+                normalized_event,
+                body
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert length(first) == 4
+      assert length(second) == 4
+      assert Enum.map(first, & &1.id) |> Enum.sort() == Enum.map(second, & &1.id) |> Enum.sort()
+      assert with_unboxed_connection(fn -> proposed_change_count(normalized_event.id) end) == 4
+    after
+      with_unboxed_connection(fn ->
+        drop_proposed_change_insert_barrier!()
+        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+      end)
+    end
+  end
+
   defp submit_manual_intake(session_context, source_identity, replay_identity) do
     with {:ok, operation} <-
            Operations.start_operation(session_context, :manual_intake_submit,
@@ -351,6 +429,16 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     :exit, reason -> {:error, reason}
   end
 
+  defp capture_create_for_manual_intake(session_context, operation, normalized_event, body) do
+    ProposedChanges.create_for_manual_intake(session_context, operation, normalized_event, %{
+      body: body
+    })
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
   defp accepted_event_count(organization_id, source_identity, replay_identity) do
     %{rows: [[count]]} =
       Repo.query!(
@@ -390,6 +478,110 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     raw_archive_count + normalized_event_count + proposed_change_count
   end
 
+  defp proposed_change_count(normalized_event_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM proposed_graph_changes
+        WHERE normalized_event_id = $1::uuid
+        """,
+        [db_uuid(normalized_event_id)]
+      )
+
+    count
+  end
+
+  defp insert_accepted_intake_event_without_proposed_changes!(
+         session_context,
+         operation,
+         source_identity,
+         replay_identity,
+         body
+       ) do
+    now = DateTime.utc_now()
+    source_id = Ecto.UUID.generate()
+    raw_archive_id = Ecto.UUID.generate()
+    normalized_event_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO external_sources (id, key, name, kind, inserted_at, updated_at)
+      VALUES ($1::uuid, $2, 'Manual Intake', 'manual', $3, $3)
+      """,
+      [db_uuid(source_id), source_identity, now]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO raw_archives (
+        id,
+        organization_id,
+        workspace_id,
+        source_id,
+        operation_id,
+        content_hash,
+        body,
+        metadata,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, '{}'::jsonb, $8, $8)
+      """,
+      [
+        db_uuid(raw_archive_id),
+        db_uuid(session_context.organization_id),
+        db_uuid(session_context.workspace_id),
+        db_uuid(source_id),
+        db_uuid(operation.id),
+        content_hash(body),
+        body,
+        now
+      ]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO normalized_intake_events (
+        id,
+        organization_id,
+        workspace_id,
+        raw_archive_id,
+        operation_id,
+        source_identity,
+        replay_identity,
+        outcome,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'accepted', $8, $8)
+      """,
+      [
+        db_uuid(normalized_event_id),
+        db_uuid(session_context.organization_id),
+        db_uuid(session_context.workspace_id),
+        db_uuid(raw_archive_id),
+        db_uuid(operation.id),
+        source_identity,
+        replay_identity,
+        now
+      ]
+    )
+
+    %{
+      id: normalized_event_id,
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id,
+      operation_id: operation.id,
+      outcome: "accepted"
+    }
+  end
+
+  defp content_hash(body) do
+    :crypto.hash(:sha256, body)
+    |> Base.encode16(case: :lower)
+  end
+
   defp install_proposed_change_failure_trigger!(body) do
     %{rows: [[quoted_body]]} = Repo.query!("SELECT quote_literal($1)", [body])
 
@@ -426,6 +618,61 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_failure()")
+  end
+
+  defp install_proposed_change_insert_barrier!(normalized_event_id) do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_race_barrier ON proposed_graph_changes"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_race_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_proposed_change_race_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      event_hash integer := hashtext(NEW.normalized_event_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.normalized_event_id = TG_ARGV[0]::uuid AND NEW.change_type = 'create_signal' THEN
+        IF pg_try_advisory_lock(92001, event_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(92002, event_hash) THEN
+              PERFORM pg_advisory_unlock(92002, event_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(92001, event_hash);
+        ELSE
+          PERFORM pg_advisory_lock(92002, event_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(92002, event_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_proposed_change_race_barrier
+    BEFORE INSERT ON proposed_graph_changes
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_proposed_change_race_barrier('#{normalized_event_id}')
+    """)
+  end
+
+  defp drop_proposed_change_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_race_barrier ON proposed_graph_changes"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_race_barrier()")
   end
 
   defp install_source_insert_barrier! do

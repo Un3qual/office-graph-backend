@@ -100,7 +100,10 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       unique_document_revision: [:document_id, :revision_number]
     },
     OfficeGraph.ProposedChanges.ProposedGraphChange => %{
-      unique_normalized_event_change_type: [:normalized_event_id, :change_type]
+      unique_normalized_event_change_type: %{
+        keys: [:normalized_event_id, :change_type],
+        where: "not is_nil(normalized_event_id)"
+      }
     }
   }
 
@@ -317,16 +320,11 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       |> Enum.flat_map(fn {resource, identities} ->
         Enum.flat_map(identities, fn {identity_name, expected_keys} ->
           case safe_info(fn -> Ash.Resource.Info.identity(resource, identity_name) end) do
-            {:ok, %{keys: ^expected_keys}} ->
-              []
-
             {:ok, nil} ->
               ["#{inspect(resource)} missing identity #{inspect(identity_name)}"]
 
             {:ok, identity} ->
-              [
-                "#{inspect(resource)} identity #{inspect(identity_name)} expected keys #{inspect(expected_keys)}, got #{inspect(identity.keys)}"
-              ]
+              identity_conformance_errors(resource, identity_name, expected_keys, identity)
 
             {:error, error} ->
               [
@@ -679,6 +677,52 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     kind, reason ->
       {:error, "#{kind}: #{inspect(reason)}"}
   end
+
+  defp identity_conformance_errors(resource, identity_name, expectation, identity) do
+    expectation = normalize_identity_expectation(expectation)
+
+    []
+    |> maybe_add_identity_key_error(resource, identity_name, expectation.keys, identity.keys)
+    |> maybe_add_identity_where_error(
+      resource,
+      identity_name,
+      expectation.where,
+      identity_where(identity)
+    )
+  end
+
+  defp normalize_identity_expectation(keys) when is_list(keys), do: %{keys: keys, where: nil}
+
+  defp normalize_identity_expectation(expectation) when is_map(expectation) do
+    Map.put_new(expectation, :where, nil)
+  end
+
+  defp maybe_add_identity_key_error(errors, _resource, _identity_name, keys, keys), do: errors
+
+  defp maybe_add_identity_key_error(errors, resource, identity_name, expected_keys, actual_keys) do
+    [
+      "#{inspect(resource)} identity #{inspect(identity_name)} expected keys #{inspect(expected_keys)}, got #{inspect(actual_keys)}"
+      | errors
+    ]
+  end
+
+  defp maybe_add_identity_where_error(errors, _resource, _identity_name, where, where), do: errors
+
+  defp maybe_add_identity_where_error(
+         errors,
+         resource,
+         identity_name,
+         expected_where,
+         actual_where
+       ) do
+    [
+      "#{inspect(resource)} identity #{inspect(identity_name)} expected where #{inspect(expected_where)}, got #{inspect(actual_where)}"
+      | errors
+    ]
+  end
+
+  defp identity_where(%{where: nil}), do: nil
+  defp identity_where(%{where: where}), do: inspect(where)
 
   defp registered_domains_for(resource) do
     @ash_domains

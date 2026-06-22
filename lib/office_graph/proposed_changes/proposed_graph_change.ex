@@ -20,9 +20,11 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
     actor = Map.get(context, :actor)
 
     with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
-      Enum.reduce(@trace_references, changeset, fn {field, resource}, changeset ->
+      @trace_references
+      |> Enum.reduce(changeset, fn {field, resource}, changeset ->
         validate_reference(changeset, field, resource, organization_id, workspace_id, actor)
       end)
+      |> validate_normalized_event_operation()
     else
       :error ->
         changeset
@@ -115,6 +117,36 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
     end
   end
 
+  defp validate_normalized_event_operation(%{valid?: false} = changeset), do: changeset
+
+  defp validate_normalized_event_operation(changeset) do
+    operation_id = Ash.Changeset.get_attribute(changeset, :operation_id)
+    normalized_event_id = Ash.Changeset.get_attribute(changeset, :normalized_event_id)
+
+    if is_nil(operation_id) or is_nil(normalized_event_id) do
+      changeset
+    else
+      validate_normalized_event_operation(changeset, operation_id, normalized_event_id)
+    end
+  end
+
+  defp validate_normalized_event_operation(changeset, operation_id, normalized_event_id) do
+    case fetch_reference(NormalizedIntakeEvent, normalized_event_id) do
+      {:ok, %{operation_id: ^operation_id}} ->
+        changeset
+
+      {:ok, _event} ->
+        add_event_operation_error(changeset)
+
+      {:error, error} ->
+        Ash.Changeset.add_error(
+          changeset,
+          field: :normalized_event_id,
+          message: "normalized_event_id lookup failed: #{format_lookup_error(error)}"
+        )
+    end
+  end
+
   defp fetch_reference(resource, id) do
     resource
     |> Ash.Query.filter(id == ^id)
@@ -134,6 +166,14 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
       changeset,
       field: :operation_id,
       message: "operation_id must reference the current manual intake operation"
+    )
+  end
+
+  defp add_event_operation_error(changeset) do
+    Ash.Changeset.add_error(
+      changeset,
+      field: :normalized_event_id,
+      message: "normalized_event_id must reference an event produced by operation_id"
     )
   end
 

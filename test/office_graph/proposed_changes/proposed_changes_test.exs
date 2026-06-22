@@ -6,6 +6,7 @@ defmodule OfficeGraph.ProposedChangesTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.Integrations
+  alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
@@ -21,7 +22,7 @@ defmodule OfficeGraph.ProposedChangesTest do
         body: "Investigate flaky deploy and prove it."
       })
 
-    %{bootstrap: bootstrap, intake: intake}
+    %{bootstrap: bootstrap, intake: intake, intake_operation: intake_operation}
   end
 
   test "invalid proposed changes are rejected without applying graph truth", %{
@@ -205,6 +206,62 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert Exception.message(error) =~ "normalized_event_id must match proposed change scope"
   end
 
+  test "direct Ash create rejects normalized events from a different manual intake operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, other_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    other_event =
+      create_accepted_event_without_changes!(
+        bootstrap.session,
+        other_operation,
+        "mismatched-event-operation"
+      )
+
+    assert {:error, error} =
+             ProposedGraphChange
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: intake.normalized_event.operation_id,
+                 normalized_event_id: other_event.id,
+                 change_type: "create_signal",
+                 payload: %{
+                   "title" => "Spoofed event operation",
+                   "body" => "The event must belong to the operation trace."
+                 }
+               },
+               actor: bootstrap.session
+             )
+             |> Ash.create()
+
+    message = Exception.message(error)
+    assert message =~ "normalized_event_id"
+    assert message =~ "operation_id"
+  end
+
+  test "manual intake proposed change creation rejects events from a different operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, other_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    event_id = intake.normalized_event.id
+
+    assert {:error,
+            {:invalid_proposed_change_set, {:normalized_event_operation_mismatch, ^event_id}}} =
+             ProposedChanges.create_for_manual_intake(
+               bootstrap.session,
+               other_operation,
+               intake.normalized_event,
+               %{
+                 body: "Investigate mismatched operation reuse and prove it."
+               }
+             )
+  end
+
   test "unauthorized sessions cannot apply proposed changes", %{
     bootstrap: bootstrap,
     intake: intake
@@ -273,11 +330,9 @@ defmodule OfficeGraph.ProposedChangesTest do
 
   test "manual intake proposed change creation is idempotent per accepted event", %{
     bootstrap: bootstrap,
-    intake: intake
+    intake: intake,
+    intake_operation: intake_operation
   } do
-    {:ok, intake_operation} =
-      Operations.start_operation(bootstrap.session, :manual_intake_submit)
-
     assert {:ok, repeated} =
              ProposedChanges.create_for_manual_intake(
                bootstrap.session,
@@ -657,6 +712,60 @@ defmodule OfficeGraph.ProposedChangesTest do
       actor: session_context,
       action: :create
     )
+  end
+
+  defp create_accepted_event_without_changes!(session_context, operation, suffix) do
+    source_identity = "manual:#{suffix}-#{System.unique_integer([:positive])}"
+    replay_identity = "paste:#{suffix}"
+    body = "Investigate #{suffix} and prove it."
+
+    source =
+      Ash.create!(
+        ExternalSource,
+        %{
+          key: source_identity,
+          name: "Manual Intake",
+          kind: "manual"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    raw_archive =
+      Ash.create!(
+        RawArchive,
+        %{
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          source_id: source.id,
+          operation_id: operation.id,
+          content_hash: content_hash(body),
+          body: body,
+          metadata: %{}
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      NormalizedIntakeEvent,
+      %{
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
+        raw_archive_id: raw_archive.id,
+        operation_id: operation.id,
+        source_identity: source_identity,
+        replay_identity: replay_identity,
+        outcome: "accepted"
+      },
+      action: :create,
+      authorize?: false
+    )
+  end
+
+  defp content_hash(body) do
+    :crypto.hash(:sha256, body)
+    |> Base.encode16(case: :lower)
   end
 
   defp required_change_types do

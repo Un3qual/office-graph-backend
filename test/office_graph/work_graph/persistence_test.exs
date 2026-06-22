@@ -248,6 +248,35 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
              |> Ash.read!(authorize?: false)
   end
 
+  test "plain document creation rejects non-document-producing operations", %{
+    bootstrap: bootstrap
+  } do
+    for action <- [:skeleton_read, :evidence_link] do
+      {:ok, operation} = Operations.start_operation(bootstrap.session, action)
+      plain_text = "Rejected #{action} document #{System.unique_integer([:positive])}"
+
+      assert {:error, {:invalid_content_operation, operation_id}} =
+               Content.create_plain_document(bootstrap.session, operation, plain_text)
+
+      assert operation_id == operation.id
+
+      assert [] =
+               Document
+               |> Ash.Query.filter(plain_text == ^plain_text)
+               |> Ash.read!(authorize?: false)
+
+      assert [] =
+               DocumentBlock
+               |> Ash.Query.filter(text == ^plain_text)
+               |> Ash.read!(authorize?: false)
+
+      assert [] =
+               DocumentRevision
+               |> Ash.Query.filter(operation_id == ^operation.id)
+               |> Ash.read!(authorize?: false)
+    end
+  end
+
   test "content resources autogenerate ids for direct Ash creates", %{
     bootstrap: bootstrap,
     operation: operation

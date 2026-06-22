@@ -12,7 +12,6 @@ defmodule OfficeGraph.ProposedChanges do
     exports: []
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.Integrations.NormalizedIntakeEvent
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
@@ -28,6 +27,7 @@ defmodule OfficeGraph.ProposedChanges do
 
   @apply_operation_action "proposed_change.apply"
   @manual_intake_action "manual_intake.submit"
+  @normalized_intake_event Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
 
   defguardp is_apply_validation_error(error)
             when error == :forbidden or
@@ -59,6 +59,8 @@ defmodule OfficeGraph.ProposedChanges do
     with :ok <-
            validate_manual_intake_creation_context(session_context, operation, normalized_event) do
       Repo.transaction(fn ->
+        normalized_event = lock_normalized_event!(session_context, operation, normalized_event)
+
         case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
           [] ->
             Enum.map(@required_change_types, fn change_type ->
@@ -200,8 +202,33 @@ defmodule OfficeGraph.ProposedChanges do
         {:error,
          {:invalid_proposed_change_set, {:normalized_event_not_accepted, normalized_event.id}}}
 
+      normalized_event.operation_id != operation.id ->
+        {:error,
+         {:invalid_proposed_change_set,
+          {:normalized_event_operation_mismatch, normalized_event.id}}}
+
       true ->
         :ok
+    end
+  end
+
+  defp lock_normalized_event!(session_context, operation, normalized_event) do
+    @normalized_intake_event
+    |> Ash.Query.filter(id == ^normalized_event.id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{__struct__: @normalized_intake_event} = locked_event} ->
+        case validate_manual_intake_creation_context(session_context, operation, locked_event) do
+          :ok -> locked_event
+          {:error, error} -> Repo.rollback(error)
+        end
+
+      {:ok, nil} ->
+        Repo.rollback({:missing_normalized_event, normalized_event.id})
+
+      {:error, error} ->
+        Repo.rollback({:normalized_event_lock_failed, error})
     end
   end
 
@@ -314,7 +341,7 @@ defmodule OfficeGraph.ProposedChanges do
     organization_id = session_context.organization_id
     workspace_id = session_context.workspace_id
 
-    NormalizedIntakeEvent
+    @normalized_intake_event
     |> Ash.Query.filter(id == ^normalized_event_id)
     |> Ash.read_one(authorize?: false)
     |> case do
