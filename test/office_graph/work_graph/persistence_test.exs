@@ -250,6 +250,43 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert operation_id == operation.id
   end
 
+  test "plain document creation requires the capability matching the operation action", %{
+    bootstrap: bootstrap
+  } do
+    for {action, required_capability} <- [
+          {:manual_intake_submit, "manual_intake.submit"},
+          {:proposed_change_apply, "proposed_change.apply"},
+          {:verification_complete, "verification.complete"}
+        ] do
+      {:ok, operation} = Operations.start_operation(bootstrap.session, action)
+
+      unauthorized = %{
+        bootstrap.session
+        | capabilities: MapSet.delete(bootstrap.session.capabilities, required_capability)
+      }
+
+      plain_text = "Unauthorized #{action} document #{System.unique_integer([:positive])}"
+
+      assert {:error, :forbidden} =
+               Content.create_plain_document(unauthorized, operation, plain_text)
+
+      assert [] =
+               Document
+               |> Ash.Query.filter(plain_text == ^plain_text)
+               |> Ash.read!(authorize?: false)
+
+      assert [] =
+               DocumentBlock
+               |> Ash.Query.filter(text == ^plain_text)
+               |> Ash.read!(authorize?: false)
+
+      assert [] =
+               DocumentRevision
+               |> Ash.Query.filter(operation_id == ^operation.id)
+               |> Ash.read!(authorize?: false)
+    end
+  end
+
   test "plain document creation rejects operation correlations from another context", %{
     bootstrap: bootstrap
   } do

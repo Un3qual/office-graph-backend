@@ -82,6 +82,18 @@ defmodule OfficeGraphWeb.WalkingSkeletonController do
     })
   end
 
+  defp render_error(conn, {:error, {:manual_intake_replay_conflict, accepted_id}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: %{
+        code: "manual_intake_replay_conflict",
+        detail: "Manual intake replay identity conflicts with an accepted event.",
+        accepted_id: accepted_id
+      }
+    })
+  end
+
   defp render_error(conn, {:error, {:missing_verification_check, id}}) do
     conn
     |> put_status(:unprocessable_entity)

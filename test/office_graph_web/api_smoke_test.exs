@@ -46,6 +46,28 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["field"] == "body"
     end
 
+    test "JSON manual intake reports replay conflicts with accepted event details", %{conn: conn} do
+      attrs = %{
+        source_identity: "manual:json-replay-conflict",
+        replay_identity: "json-replay-conflict-#{System.unique_integer([:positive])}",
+        body: "Investigate stable replay conflict content."
+      }
+
+      first = json_submit(conn, attrs)
+      accepted_id = first["normalized_event"]["id"]
+
+      response =
+        conn
+        |> post(~p"/api/manual-intake", %{
+          attrs
+          | body: "Investigate conflicting replay conflict content."
+        })
+        |> json_response(409)
+
+      assert response["error"]["code"] == "manual_intake_replay_conflict"
+      assert response["error"]["accepted_id"] == accepted_id
+    end
+
     test "JSON API rejects unauthenticated owner bootstrap when local API bootstrap is disabled",
          %{
            conn: conn
@@ -225,6 +247,75 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["field"] == "body"
       assert operation_count("evidence.link") == before_evidence_operations
       assert operation_count("verification.complete") == before_complete_operations
+    end
+
+    test "JSON complete rejects malformed artifact URIs before creating an operation", %{
+      conn: conn
+    } do
+      submit =
+        json_submit(conn, %{
+          source_identity: "manual:json-malformed-artifact-uri",
+          replay_identity: "json-malformed-artifact-uri-#{System.unique_integer([:positive])}",
+          body: "Investigate malformed artifact URI validation."
+        })
+
+      proposed_change_ids = Enum.map(submit["proposed_changes"], & &1["id"])
+
+      applied =
+        conn
+        |> post(~p"/api/proposed-changes/apply", %{ids: proposed_change_ids})
+        |> json_response(200)
+
+      before_complete_operations = operation_count("verification.complete")
+
+      response =
+        conn
+        |> post(~p"/api/verification/complete", %{
+          verification_check_id: applied["verification_check"]["id"],
+          title: "Malformed artifact URI",
+          body: "Malformed artifact URI should fail before operation creation.",
+          artifact_uri: %{"href" => "https://example.test/malformed-artifact-uri"}
+        })
+        |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      assert response["error"]["field"] == "artifact_uri"
+      assert operation_count("verification.complete") == before_complete_operations
+    end
+
+    test "GraphQL manual intake reports replay conflicts with accepted event details", %{
+      conn: conn
+    } do
+      replay_identity = "graphql-replay-conflict-#{System.unique_integer([:positive])}"
+      first = graphql(conn, submit_query(), %{replayIdentity: replay_identity})
+      accepted_id = first["normalizedEvent"]["id"]
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: """
+          mutation Submit($replayIdentity: String!, $body: String!) {
+            submitManualIntake(input: {
+              sourceIdentity: "manual:graphql",
+              replayIdentity: $replayIdentity,
+              body: $body
+            }) {
+              normalizedEvent { id outcome }
+            }
+          }
+          """,
+          variables: %{
+            replayIdentity: replay_identity,
+            body: "Investigate conflicting GraphQL replay conflict content."
+          }
+        })
+        |> json_response(200)
+
+      assert [%{"extensions" => %{"code" => "manual_intake_replay_conflict"}} = error] =
+               response["errors"]
+
+      assert error["extensions"]["accepted_id"] == accepted_id
+      assert response["data"] in [nil, %{"submitManualIntake" => nil}]
     end
 
     test "JSON complete reports repeated verification completion without duplicate evidence", %{
@@ -470,7 +561,7 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
         replayIdentity: $replayIdentity,
         body: "Investigate flaky deploy and prove it from GraphQL."
       }) {
-        normalizedEvent { outcome }
+        normalizedEvent { id outcome }
         proposedChanges { id changeType status }
       }
     }

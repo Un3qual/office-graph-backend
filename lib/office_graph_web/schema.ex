@@ -138,6 +138,12 @@ defmodule OfficeGraphWeb.Schema do
      extensions: %{code: "invalid_proposed_change_set", reason: format_reason(reason)}}
   end
 
+  defp graphql_error({:error, {:manual_intake_replay_conflict, accepted_id}}) do
+    {:error,
+     message: "Manual intake replay identity conflicts with an accepted event.",
+     extensions: %{code: "manual_intake_replay_conflict", accepted_id: accepted_id}}
+  end
+
   defp graphql_error({:error, {:missing_verification_check, id}}) do
     {:error,
      message: "A verification check could not be found.",

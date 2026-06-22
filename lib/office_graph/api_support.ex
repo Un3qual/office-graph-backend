@@ -49,6 +49,7 @@ defmodule OfficeGraph.ApiSupport do
     with {:ok, verification_check_id} <- required_id(params, :verification_check_id),
          {:ok, title} <- required_string(params, :title),
          {:ok, body} <- required_string(params, :body),
+         {:ok, artifact_uri} <- optional_string(params, :artifact_uri),
          {:ok, bootstrap} <- bootstrap_local_api_owner(),
          {:ok, verification_check} <-
            WorkGraph.get_verification_check(bootstrap.session, verification_check_id),
@@ -56,7 +57,7 @@ defmodule OfficeGraph.ApiSupport do
       Verification.complete_with_evidence(bootstrap.session, operation, verification_check, %{
         title: title,
         body: body,
-        artifact_uri: value(params, :artifact_uri)
+        artifact_uri: artifact_uri
       })
     end
   end
@@ -103,6 +104,14 @@ defmodule OfficeGraph.ApiSupport do
     end
   end
 
+  defp optional_string(params, key) do
+    case value(params, key) do
+      value when is_binary(value) -> {:ok, value}
+      nil -> {:ok, nil}
+      _other -> {:error, {:invalid_field, key}}
+    end
+  end
+
   defp validate_apply_id_set([]) do
     {:error, {:invalid_proposed_change_set, {:missing_change_type, "create_signal"}}}
   end
@@ -145,6 +154,10 @@ defmodule OfficeGraph.ApiSupport do
   defp cast_id(_value, key), do: {:error, {:invalid_field, key}}
 
   defp value(params, key) do
-    params[key] || params[to_string(key)]
+    cond do
+      Map.has_key?(params, key) -> params[key]
+      Map.has_key?(params, to_string(key)) -> params[to_string(key)]
+      true -> nil
+    end
   end
 end

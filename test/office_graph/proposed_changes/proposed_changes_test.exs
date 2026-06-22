@@ -44,6 +44,28 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert get_change!(invalid).status == "rejected"
   end
 
+  test "non-string proposed change payload fields are invalid instead of crashing", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    invalid =
+      intake.proposed_changes
+      |> hd()
+      |> update_payload!(bootstrap.session, %{
+        "title" => %{"bad" => "shape"},
+        "body" => "A valid body should not rescue a malformed title."
+      })
+
+    proposed_changes = [invalid | tl(intake.proposed_changes)]
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+    invalid_id = invalid.id
+
+    assert {:error, {:invalid_proposed_change, ^invalid_id}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
+
+    assert get_change!(invalid).status == "rejected"
+  end
+
   test "get_many! preserves caller order and raises for missing ids", %{
     bootstrap: bootstrap,
     intake: intake
@@ -155,6 +177,39 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert Exception.message(error) =~ "operation_id"
     assert Exception.message(error) =~ "current manual intake operation"
+  end
+
+  test "direct Ash payload updates reject another same-scope intake actor", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, other_same_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: bootstrap.organization.name,
+        organization_slug: bootstrap.organization.slug,
+        workspace_name: bootstrap.workspace.name,
+        workspace_slug: bootstrap.workspace.slug,
+        initiative_name: "Payload Update Actor",
+        initiative_slug: "payload-update-actor",
+        owner_email: "other-payload-update@office-graph.local",
+        owner_name: "Other Payload Update"
+      )
+
+    change = hd(intake.proposed_changes)
+    original_payload = change.payload
+
+    assert {:error, error} =
+             change
+             |> Ash.Changeset.for_update(:set_payload, %{
+               payload: %{
+                 "title" => "Foreign payload edit",
+                 "body" => "Another intake actor must not rewrite this proposed change."
+               }
+             })
+             |> Ash.update(actor: other_same_scope.session)
+
+    assert Exception.message(error) =~ ~r/forbidden/i
+    assert get_change!(change).payload == original_payload
   end
 
   test "direct Ash create rejects non-manual-intake operation traces", %{

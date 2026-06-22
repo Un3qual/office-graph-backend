@@ -3,19 +3,22 @@ defmodule OfficeGraph.Content do
   Public boundary for portable content and rich text persistence.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: []
+  use Boundary, deps: [OfficeGraph.Authorization, OfficeGraph.Repo], exports: []
 
+  alias OfficeGraph.Authorization
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Repo
 
-  @document_operation_actions [
-    "manual_intake.submit",
-    "proposed_change.apply",
-    "verification.complete"
-  ]
+  @document_operation_capabilities %{
+    "manual_intake.submit" => :manual_intake_submit,
+    "proposed_change.apply" => :proposed_change_apply,
+    "verification.complete" => :verification_complete
+  }
+  @document_operation_actions Map.keys(@document_operation_capabilities)
 
   def create_plain_document(session_context, operation, plain_text) do
-    with :ok <- validate_operation_context(session_context, operation) do
+    with :ok <- validate_operation_context(session_context, operation),
+         :ok <- authorize_operation_capability(session_context, operation) do
       document_id = Ecto.UUID.generate()
 
       Repo.transaction(fn ->
@@ -72,6 +75,18 @@ defmodule OfficeGraph.Content do
   end
 
   defp validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
+
+  defp authorize_operation_capability(session_context, operation) do
+    case Map.fetch(@document_operation_capabilities, operation.action) do
+      {:ok, capability} ->
+        Authorization.authorize(session_context, capability,
+          organization_id: session_context.organization_id
+        )
+
+      :error ->
+        {:error, {:invalid_content_operation, operation.id}}
+    end
+  end
 
   defp ash_create(resource, attrs) do
     # Ash returns notifications for create actions when requested; Content has no

@@ -385,7 +385,8 @@ defmodule OfficeGraph.ProposedChanges do
     Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
   end
 
-  defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: true
 
   defp reject!(session_context, change, reason) do
     ash_update!(change, :reject, %{validation_errors: [reason]}, session_context)
