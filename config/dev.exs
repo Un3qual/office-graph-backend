@@ -1,5 +1,7 @@
 import Config
 
+config :office_graph, allow_local_api_owner_bootstrap: true
+
 # Configure your database
 config :office_graph, OfficeGraph.Repo,
   username: "office_graph",

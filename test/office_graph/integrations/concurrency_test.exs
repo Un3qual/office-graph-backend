@@ -4,7 +4,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.{Integrations, Operations, Repo, Tenancy}
+  alias OfficeGraph.{Foundation, Integrations, Operations, Repo, Tenancy}
 
   test "manual intake retries recover proposed changes after proposed-change creation fails" do
     suffix = System.unique_integer([:positive])
@@ -265,6 +265,55 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "local owner bootstrap is idempotent under identity and authorization races" do
+    suffix = System.unique_integer([:positive])
+
+    attrs = [
+      organization_name: "Owner Race #{suffix}",
+      organization_slug: "owner-race-#{suffix}",
+      workspace_name: "Owner Race Workspace #{suffix}",
+      workspace_slug: "owner-race-workspace-#{suffix}",
+      initiative_name: "Owner Race Initiative #{suffix}",
+      initiative_slug: "owner-race-initiative-#{suffix}",
+      owner_email: "owner-race-#{suffix}@office-graph.local",
+      owner_name: "Owner Race #{suffix}"
+    ]
+
+    try do
+      with_unboxed_connection(fn ->
+        install_owner_bootstrap_insert_barriers!(attrs[:owner_email], attrs[:organization_slug])
+      end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              capture_bootstrap_local_owner(attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.principal.id == second.principal.id
+      assert first.profile.id == second.profile.id
+      assert first.session.session_id == second.session.session_id
+      assert first.role_assignment.id == second.role_assignment.id
+      assert first.policy_bundle.id == second.policy_bundle.id
+
+      assert {1, 1, 1, 1, 1} =
+               with_unboxed_connection(fn ->
+                 owner_bootstrap_counts(attrs[:organization_slug], attrs[:owner_email])
+               end)
+    after
+      with_unboxed_connection(fn ->
+        cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
+        drop_owner_bootstrap_insert_barriers!()
+      end)
+    end
+  end
+
   test "operation idempotency keys are race safe" do
     suffix = System.unique_integer([:positive])
     organization_id = Ecto.UUID.generate()
@@ -318,6 +367,73 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       with_unboxed_connection(fn ->
         drop_operation_insert_barrier!()
         cleanup_committed_scope!(organization_id, principal_id, [])
+      end)
+    end
+  end
+
+  test "operation idempotency keys do not reuse another caller's operation" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    other_principal_id = Ecto.UUID.generate()
+    other_session_id = Ecto.UUID.generate()
+    idempotency_key = "operation-caller-scope-#{suffix}"
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    other_session_context = %SessionContext{
+      principal_id: other_principal_id,
+      session_id: other_session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    try do
+      with_unboxed_connection(fn ->
+        insert_minimal_session_scope!(
+          organization_id,
+          workspace_id,
+          principal_id,
+          session_id,
+          suffix
+        )
+
+        insert_additional_session_in_scope!(
+          organization_id,
+          workspace_id,
+          other_principal_id,
+          other_session_id,
+          suffix
+        )
+
+        assert {:ok, first} =
+                 Operations.start_operation(session_context, :manual_intake_submit,
+                   idempotency_key: idempotency_key
+                 )
+
+        assert {:ok, second} =
+                 Operations.start_operation(other_session_context, :manual_intake_submit,
+                   idempotency_key: idempotency_key
+                 )
+
+        assert first.id != second.id
+        assert first.principal_id == principal_id
+        assert second.principal_id == other_principal_id
+
+        assert 2 == operation_idempotency_count(organization_id, idempotency_key)
+      end)
+    after
+      with_unboxed_connection(fn ->
+        cleanup_committed_scope!(organization_id, [principal_id, other_principal_id], [])
       end)
     end
   end
@@ -552,6 +668,14 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     :exit, reason -> {:error, reason}
   end
 
+  defp capture_bootstrap_local_owner(attrs) do
+    Foundation.bootstrap_local_owner(attrs)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
   defp accepted_event_count(organization_id, source_identity, replay_identity) do
     %{rows: [[count]]} =
       Repo.query!(
@@ -618,6 +742,38 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       )
 
     count
+  end
+
+  defp owner_bootstrap_counts(organization_slug, owner_email) do
+    %{rows: [[principal_count, profile_count, session_count, assignment_count, policy_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*)
+           FROM principals
+           WHERE email = $1),
+          (SELECT count(*)
+           FROM principal_profiles pp
+           JOIN principals p ON p.id = pp.principal_id
+           WHERE p.email = $1),
+          (SELECT count(*)
+           FROM sessions s
+           JOIN principals p ON p.id = s.principal_id
+           WHERE p.email = $1
+             AND s.purpose = 'local_owner'),
+          (SELECT count(*)
+           FROM role_assignments ra
+           JOIN principals p ON p.id = ra.principal_id
+           WHERE p.email = $1),
+          (SELECT count(*)
+           FROM policy_bundles pb
+           JOIN organizations o ON o.id = pb.organization_id
+           WHERE o.slug = $2)
+        """,
+        [owner_email, organization_slug]
+      )
+
+    {principal_count, profile_count, session_count, assignment_count, policy_count}
   end
 
   defp insert_accepted_intake_event_without_proposed_changes!(
@@ -911,6 +1067,126 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_operation_race_barrier()")
   end
 
+  defp install_owner_bootstrap_insert_barriers!(owner_email, organization_slug) do
+    %{rows: [[quoted_owner_email]]} = Repo.query!("SELECT quote_literal($1)", [owner_email])
+
+    %{rows: [[quoted_organization_slug]]} =
+      Repo.query!("SELECT quote_literal($1)", [organization_slug])
+
+    drop_owner_bootstrap_insert_barriers!()
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_identity_race_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      identity_hash integer := hashtext(NEW.email);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.email = TG_ARGV[0] THEN
+        IF pg_try_advisory_lock(95001, identity_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(95002, identity_hash) THEN
+              PERFORM pg_advisory_unlock(95002, identity_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(95001, identity_hash);
+        ELSE
+          PERFORM pg_advisory_lock(95002, identity_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(95002, identity_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_identity_race_barrier
+    BEFORE INSERT ON principals
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_identity_race_barrier(#{quoted_owner_email})
+    """)
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_authorization_race_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      role_hash integer := hashtext(NEW.organization_id::text || ':' || NEW.key);
+      started_at timestamp := clock_timestamp();
+      organization_slug text;
+    BEGIN
+      SELECT slug INTO organization_slug
+      FROM organizations
+      WHERE id = NEW.organization_id;
+
+      IF NEW.key = 'owner' AND organization_slug = TG_ARGV[0] THEN
+        IF pg_try_advisory_lock(95003, role_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(95004, role_hash) THEN
+              PERFORM pg_advisory_unlock(95004, role_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(95003, role_hash);
+        ELSE
+          PERFORM pg_advisory_lock(95004, role_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(95004, role_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_authorization_race_barrier
+    BEFORE INSERT ON roles
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_authorization_race_barrier(#{quoted_organization_slug})
+    """)
+  end
+
+  defp drop_owner_bootstrap_insert_barriers! do
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_identity_race_barrier ON principals")
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_identity_race_barrier()")
+
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_authorization_race_barrier ON roles")
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_authorization_race_barrier()")
+  end
+
+  defp cleanup_owner_principal!(owner_email) do
+    Repo.query!(
+      """
+      DELETE FROM principal_profiles
+      WHERE principal_id IN (SELECT id FROM principals WHERE email = $1)
+      """,
+      [owner_email]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM principals
+      WHERE email = $1
+      """,
+      [owner_email]
+    )
+  end
+
   defp install_source_insert_barrier! do
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_source_race_barrier ON external_sources"
@@ -1028,6 +1304,51 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   defp cleanup_tenancy_scope!(organization_slug) do
     Repo.query!(
       """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (
+        SELECT r.id
+        FROM roles r
+        JOIN organizations o ON o.id = r.organization_id
+        WHERE o.slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM role_assignments
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM policy_bundles
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM roles
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM sessions
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
       DELETE FROM workstreams
       WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
       """,
@@ -1051,6 +1372,11 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DELETE FROM organizations WHERE slug = $1", [organization_slug])
+  end
+
+  defp cleanup_bootstrap_scope!(organization_slug, owner_email) do
+    cleanup_tenancy_scope!(organization_slug)
+    cleanup_owner_principal!(owner_email)
   end
 
   defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)

@@ -41,6 +41,8 @@ defmodule OfficeGraph.Operations do
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id and
+        principal_id == ^session_context.principal_id and
+        session_id == ^session_context.session_id and
         action == ^action_name and
         idempotency_key == ^idempotency_key
     )

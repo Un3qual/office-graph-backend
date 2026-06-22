@@ -24,6 +24,7 @@ config :office_graph,
     OfficeGraph.WorkPackets.Domain,
     OfficeGraph.Runs.Domain
   ],
+  allow_local_api_owner_bootstrap: false,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 

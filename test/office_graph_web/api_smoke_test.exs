@@ -46,6 +46,58 @@ defmodule OfficeGraphWeb.ApiSmokeTest do
       assert response["error"]["field"] == "body"
     end
 
+    test "JSON API rejects unauthenticated owner bootstrap when local API bootstrap is disabled",
+         %{
+           conn: conn
+         } do
+      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
+      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+
+      try do
+        before_manual_intake_operations = operation_count("manual_intake.submit")
+
+        response =
+          conn
+          |> post(~p"/api/manual-intake", %{
+            source_identity: "manual:json-bootstrap-disabled",
+            replay_identity: "json-bootstrap-disabled",
+            body: "This should not create an owner through API bootstrap."
+          })
+          |> json_response(403)
+
+        assert response["error"]["code"] == "forbidden"
+        assert operation_count("manual_intake.submit") == before_manual_intake_operations
+      after
+        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
+      end
+    end
+
+    test "GraphQL rejects unauthenticated owner bootstrap when local API bootstrap is disabled",
+         %{
+           conn: conn
+         } do
+      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
+      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+
+      try do
+        before_manual_intake_operations = operation_count("manual_intake.submit")
+
+        response =
+          conn
+          |> post(~p"/graphql", %{
+            query: submit_query(),
+            variables: %{replayIdentity: "graphql-bootstrap-disabled"}
+          })
+          |> json_response(200)
+
+        assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
+        assert response["data"] in [nil, %{"submitManualIntake" => nil}]
+        assert operation_count("manual_intake.submit") == before_manual_intake_operations
+      after
+        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
+      end
+    end
+
     test "JSON apply reports invalid proposed-change sets without crashing", %{conn: conn} do
       before_apply_operations = operation_count("proposed_change.apply")
 

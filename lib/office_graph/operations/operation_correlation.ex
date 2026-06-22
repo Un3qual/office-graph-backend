@@ -54,7 +54,14 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
     identity :unique_correlation_id, [:organization_id, :workspace_id, :correlation_id]
 
     identity :unique_idempotency_key,
-             [:organization_id, :workspace_id, :action, :idempotency_key],
+             [
+               :organization_id,
+               :workspace_id,
+               :principal_id,
+               :session_id,
+               :action,
+               :idempotency_key
+             ],
              where: expr(not is_nil(idempotency_key))
   end
 end

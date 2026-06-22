@@ -1,5 +1,7 @@
 import Config
 
+config :office_graph, allow_local_api_owner_bootstrap: true
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

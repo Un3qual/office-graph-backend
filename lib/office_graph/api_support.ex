@@ -25,7 +25,7 @@ defmodule OfficeGraph.ApiSupport do
     with {:ok, source_identity} <- required_string(params, :source_identity),
          {:ok, replay_identity} <- required_string(params, :replay_identity),
          {:ok, body} <- required_string(params, :body),
-         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+         {:ok, bootstrap} <- bootstrap_local_api_owner(),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :manual_intake_submit) do
       Integrations.submit_manual_intake(bootstrap.session, operation, %{
         source_identity: source_identity,
@@ -38,7 +38,7 @@ defmodule OfficeGraph.ApiSupport do
   def apply_proposed_changes(params) do
     with {:ok, ids} <- optional_id_list(params, :ids),
          :ok <- validate_apply_id_set(ids),
-         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+         {:ok, bootstrap} <- bootstrap_local_api_owner(),
          {:ok, proposed_changes} <- ProposedChanges.get_many(bootstrap.session, ids),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :proposed_change_apply) do
       ProposedChanges.apply_all(bootstrap.session, operation, proposed_changes)
@@ -49,7 +49,7 @@ defmodule OfficeGraph.ApiSupport do
     with {:ok, verification_check_id} <- required_id(params, :verification_check_id),
          {:ok, title} <- required_string(params, :title),
          {:ok, body} <- required_string(params, :body),
-         {:ok, bootstrap} <- Foundation.bootstrap_local_owner([]),
+         {:ok, bootstrap} <- bootstrap_local_api_owner(),
          {:ok, verification_check} <-
            WorkGraph.get_verification_check(bootstrap.session, verification_check_id),
          {:ok, operation} <- Operations.start_operation(bootstrap.session, :verification_complete) do
@@ -58,6 +58,14 @@ defmodule OfficeGraph.ApiSupport do
         body: body,
         artifact_uri: value(params, :artifact_uri)
       })
+    end
+  end
+
+  defp bootstrap_local_api_owner do
+    if Application.get_env(:office_graph, :allow_local_api_owner_bootstrap, false) do
+      Foundation.bootstrap_local_owner([])
+    else
+      {:error, :forbidden}
     end
   end
 

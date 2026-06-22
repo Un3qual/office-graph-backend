@@ -98,7 +98,14 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.Operations.OperationCorrelation => %{
       unique_correlation_id: [:organization_id, :workspace_id, :correlation_id],
       unique_idempotency_key: %{
-        keys: [:organization_id, :workspace_id, :action, :idempotency_key],
+        keys: [
+          :organization_id,
+          :workspace_id,
+          :principal_id,
+          :session_id,
+          :action,
+          :idempotency_key
+        ],
         where: "not is_nil(idempotency_key)"
       }
     },
