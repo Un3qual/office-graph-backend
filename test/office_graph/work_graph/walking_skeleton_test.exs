@@ -53,7 +53,8 @@ defmodule OfficeGraph.WorkGraph.WalkingSkeletonTest do
     assert %ReviewFinding{} = applied.review_finding
     assert %VerificationCheck{} = applied.verification_check
 
-    {:ok, evidence_operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    {:ok, evidence_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete)
 
     assert {:ok, completed} =
              Verification.complete_with_evidence(

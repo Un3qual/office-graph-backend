@@ -36,6 +36,7 @@ defmodule OfficeGraph.WorkGraph do
 
   @manual_intake_action "manual_intake.submit"
   @proposed_change_apply_action "proposed_change.apply"
+  @verification_complete_action "verification.complete"
 
   def get_verification_check(session_context, id) do
     VerificationCheck
@@ -97,7 +98,8 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   def create_task(session_context, operation, signal, attrs) do
-    with :ok <- validate_operation_context(session_context, operation) do
+    with :ok <- validate_operation_context(session_context, operation),
+         :ok <- validate_operation_action(operation, @proposed_change_apply_action) do
       task_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
@@ -124,9 +126,11 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
+        source_signal_graph_item_id = persisted_graph_item_id!(Signal, signal.id)
+
         relationship =
           create_relationship!(
-            signal.graph_item_id,
+            source_signal_graph_item_id,
             graph_item_id,
             "produced_task",
             session_context
@@ -141,7 +145,8 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   def create_review_finding(session_context, operation, task, attrs) do
-    with :ok <- validate_operation_context(session_context, operation) do
+    with :ok <- validate_operation_context(session_context, operation),
+         :ok <- validate_operation_action(operation, @proposed_change_apply_action) do
       finding_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
@@ -174,9 +179,11 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
+        task_graph_item_id = persisted_graph_item_id!(Task, task.id)
+
         relationship =
           create_relationship!(
-            task.graph_item_id,
+            task_graph_item_id,
             graph_item_id,
             "has_review_finding",
             session_context
@@ -196,7 +203,8 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   def create_verification_check(session_context, operation, review_finding, attrs) do
-    with :ok <- validate_operation_context(session_context, operation) do
+    with :ok <- validate_operation_context(session_context, operation),
+         :ok <- validate_operation_action(operation, @proposed_change_apply_action) do
       check_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
@@ -229,9 +237,11 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
+        review_finding_graph_item_id = persisted_graph_item_id!(ReviewFinding, review_finding.id)
+
         relationship =
           create_relationship!(
-            review_finding.graph_item_id,
+            review_finding_graph_item_id,
             graph_item_id,
             "requires_verification",
             session_context
@@ -261,9 +271,7 @@ defmodule OfficeGraph.WorkGraph do
 
   def complete_verification(session_context, operation, verification_check, attrs) do
     with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_scope(session_context, verification_check),
-         {:ok, review_finding} <- ash_get(ReviewFinding, verification_check.review_finding_id),
-         {:ok, task} <- ash_get(Task, review_finding.task_id) do
+         :ok <- validate_operation_action(operation, @verification_complete_action) do
       artifact_id = Ecto.UUID.generate()
       artifact_graph_item_id = Ecto.UUID.generate()
       evidence_id = Ecto.UUID.generate()
@@ -276,9 +284,21 @@ defmodule OfficeGraph.WorkGraph do
           |> ash_get_for_update(verification_check.id)
           |> unwrap_ash()
 
+        validate_scope!(session_context, verification_check)
+
         if verification_check.lifecycle_state != "required" do
           Repo.rollback({:invalid_verification_check_status, verification_check.id})
         end
+
+        review_finding =
+          ReviewFinding
+          |> ash_get_for_update(verification_check.review_finding_id)
+          |> unwrap_ash()
+
+        task =
+          Task
+          |> ash_get_for_update(review_finding.task_id)
+          |> unwrap_ash()
 
         evidence_document = create_document!(session_context, operation, attrs[:body] || "")
 
@@ -333,6 +353,22 @@ defmodule OfficeGraph.WorkGraph do
           )
           |> unwrap_ash()
 
+        check_evidence_relationship =
+          create_relationship!(
+            verification_check.graph_item_id,
+            evidence_graph_item_id,
+            "has_evidence",
+            session_context
+          )
+
+        evidence_artifact_relationship =
+          create_relationship!(
+            evidence_graph_item_id,
+            artifact_graph_item_id,
+            "references_artifact",
+            session_context
+          )
+
         verification_result =
           ash_create(
             VerificationResult,
@@ -354,19 +390,8 @@ defmodule OfficeGraph.WorkGraph do
           |> ash_update(:mark_satisfied, session_context)
           |> unwrap_ash()
 
-        review_finding =
-          ReviewFinding
-          |> ash_get_for_update(review_finding.id)
-          |> unwrap_ash()
-          |> ash_update(:mark_verified_complete, session_context)
-          |> unwrap_ash()
-
-        task =
-          Task
-          |> ash_get_for_update(task.id)
-          |> unwrap_ash()
-          |> ash_update(:mark_verified_complete, session_context)
-          |> unwrap_ash()
+        {review_finding, task, completed_parent_work?} =
+          maybe_complete_parent_work!(review_finding, task, session_context)
 
         trace!(operation, "artifact.create", "artifact", artifact.id)
         trace!(operation, "evidence_item.create", "evidence_item", evidence_item.id)
@@ -385,20 +410,24 @@ defmodule OfficeGraph.WorkGraph do
           verification_check.id
         )
 
-        trace!(
-          operation,
-          "review_finding.complete",
-          "review_finding",
-          review_finding.id
-        )
+        if completed_parent_work? do
+          trace!(
+            operation,
+            "review_finding.complete",
+            "review_finding",
+            review_finding.id
+          )
 
-        trace!(operation, "task.complete", "task", task.id)
+          trace!(operation, "task.complete", "task", task.id)
+        end
 
         %{
           artifact_graph_item: artifact_graph_item,
           artifact: artifact,
           evidence_graph_item: evidence_graph_item,
           evidence_item: evidence_item,
+          check_evidence_relationship: check_evidence_relationship,
+          evidence_artifact_relationship: evidence_artifact_relationship,
           verification_result: verification_result,
           verification_check: verification_check,
           review_finding: review_finding,
@@ -477,18 +506,6 @@ defmodule OfficeGraph.WorkGraph do
     end
   end
 
-  defp ash_get(resource, id) do
-    resource
-    |> Ash.get(id,
-      authorize?: false,
-      not_found_error?: true
-    )
-    |> case do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
-      result -> result
-    end
-  end
-
   defp unwrap_ash_result({:ok, record}) do
     {:ok, record}
   end
@@ -526,6 +543,13 @@ defmodule OfficeGraph.WorkGraph do
     end
   end
 
+  defp validate_scope!(session_context, record) do
+    case validate_scope(session_context, record) do
+      :ok -> :ok
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
   defp validate_operation_context(session_context, operation)
        when is_map(session_context) and is_map(operation) do
     if operation.principal_id == session_context.principal_id and
@@ -539,6 +563,13 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
+
+  defp validate_operation_action(operation, expected_action) do
+    case operation.action do
+      ^expected_action -> :ok
+      _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
+    end
+  end
 
   defp authorize_signal_create(session_context, operation) do
     case operation.action do
@@ -584,6 +615,43 @@ defmodule OfficeGraph.WorkGraph do
       }
     )
     |> unwrap_ash()
+  end
+
+  defp persisted_graph_item_id!(resource, id) do
+    resource
+    |> ash_get_for_update(id)
+    |> unwrap_ash()
+    |> Map.fetch!(:graph_item_id)
+  end
+
+  defp maybe_complete_parent_work!(review_finding, task, session_context) do
+    if required_verification_checks_remaining?(review_finding.id) do
+      {review_finding, task, false}
+    else
+      review_finding =
+        review_finding
+        |> ash_update(:mark_verified_complete, session_context)
+        |> unwrap_ash()
+
+      task =
+        task
+        |> ash_update(:mark_verified_complete, session_context)
+        |> unwrap_ash()
+
+      {review_finding, task, true}
+    end
+  end
+
+  defp required_verification_checks_remaining?(review_finding_id) do
+    count =
+      VerificationCheck
+      |> Ash.Query.filter(
+        review_finding_id == ^review_finding_id and lifecycle_state == "required"
+      )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.count!(authorize?: false)
+
+    count > 0
   end
 
   defp trace!(operation, action, resource_type, resource_id) do

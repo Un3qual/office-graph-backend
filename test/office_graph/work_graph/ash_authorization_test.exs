@@ -12,6 +12,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.WorkGraph.EvidenceItem
   alias OfficeGraph.WorkGraph.GraphItem
   alias OfficeGraph.WorkGraph.GraphRelationship
+  alias OfficeGraph.WorkGraph.ReviewFinding, as: ReviewFindingResource
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
   alias OfficeGraph.WorkGraph.Task, as: TaskResource
   alias OfficeGraph.WorkGraph.VerificationCheck, as: VerificationCheckResource
@@ -372,36 +373,102 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute document_with_plain_text?(body)
   end
 
-  test "public WorkGraph create_task returns an error for relationship FK failure" do
-    {:ok, bootstrap} = bootstrap_scope("public-relationship-fk")
-    title = "Task with missing source graph item"
-    body = "The source graph item relationship should fail without raising."
+  test "public WorkGraph linked creates require proposed-change apply operations" do
+    {:ok, bootstrap} = bootstrap_scope("linked-create-operation-action")
+    signal = create_signal!(bootstrap, "Operation action source")
+    {:ok, manual_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    manual_operation_id = manual_operation.id
 
-    source_signal =
-      bootstrap
-      |> create_signal!("Source signal")
-      |> Map.put(:graph_item_id, Ecto.UUID.generate())
-
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
-    refute document_with_plain_text?(body)
-
-    assert {:error, error} =
-             WorkGraph.create_task(bootstrap.session, operation, source_signal, %{
-               title: title,
-               body: body
+    assert {:error, {:invalid_operation_action, ^manual_operation_id, "proposed_change.apply"}} =
+             WorkGraph.create_task(bootstrap.session, manual_operation, signal, %{
+               title: "Reject non-apply task",
+               body: "Task graph writes must be tied to an apply operation."
              })
 
-    assert inspect(error) =~ "source_item_id"
-    refute ash_record_with_title?(TaskResource, title)
-    refute ash_record_with_title?(GraphItem, title)
-    refute document_with_plain_text?(body)
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    {:ok, %{task: task}} =
+      WorkGraph.create_task(bootstrap.session, apply_operation, signal, %{
+        title: "Apply task",
+        body: "Task body"
+      })
+
+    assert {:error, {:invalid_operation_action, ^manual_operation_id, "proposed_change.apply"}} =
+             WorkGraph.create_review_finding(bootstrap.session, manual_operation, task, %{
+               title: "Reject non-apply finding",
+               body: "Finding graph writes must be tied to an apply operation."
+             })
+
+    {:ok, %{review_finding: review_finding}} =
+      WorkGraph.create_review_finding(bootstrap.session, apply_operation, task, %{
+        title: "Apply finding",
+        body: "Finding body"
+      })
+
+    assert {:error, {:invalid_operation_action, ^manual_operation_id, "proposed_change.apply"}} =
+             WorkGraph.create_verification_check(
+               bootstrap.session,
+               manual_operation,
+               review_finding,
+               %{
+                 title: "Reject non-apply check",
+                 body: "Check graph writes must be tied to an apply operation."
+               }
+             )
+  end
+
+  test "public WorkGraph linked creates build edges from persisted parents" do
+    {:ok, bootstrap} = bootstrap_scope("persisted-parent-edges")
+    signal = create_signal!(bootstrap, "Persisted parent signal")
+    other_signal = create_signal!(bootstrap, "Other parent signal")
+    tampered_signal = %{signal | graph_item_id: other_signal.graph_item_id}
+
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, %{task: task, relationship: task_relationship}} =
+             WorkGraph.create_task(bootstrap.session, operation, tampered_signal, %{
+               title: "Persisted parent task",
+               body: "Task should point at the persisted signal graph item."
+             })
+
+    assert task_relationship.source_item_id == signal.graph_item_id
+    refute task_relationship.source_item_id == other_signal.graph_item_id
+
+    other_task = create_task!(bootstrap, other_signal, "Other parent task")
+    tampered_task = %{task | graph_item_id: other_task.graph_item_id}
+
+    assert {:ok, %{review_finding: review_finding, relationship: finding_relationship}} =
+             WorkGraph.create_review_finding(bootstrap.session, operation, tampered_task, %{
+               title: "Persisted parent finding",
+               body: "Finding should point at the persisted task graph item."
+             })
+
+    assert finding_relationship.source_item_id == task.graph_item_id
+    refute finding_relationship.source_item_id == other_task.graph_item_id
+
+    other_finding = create_review_finding!(bootstrap, other_task)
+    tampered_finding = %{review_finding | graph_item_id: other_finding.graph_item_id}
+
+    assert {:ok, %{relationship: check_relationship}} =
+             WorkGraph.create_verification_check(
+               bootstrap.session,
+               operation,
+               tampered_finding,
+               %{
+                 title: "Persisted parent check",
+                 body: "Check should point at the persisted finding graph item."
+               }
+             )
+
+    assert check_relationship.source_item_id == review_finding.graph_item_id
+    refute check_relationship.source_item_id == other_finding.graph_item_id
   end
 
   test "public WorkGraph complete_verification returns an error for a stale verification check" do
     {:ok, bootstrap} = bootstrap_scope("public-stale-verification")
     verification_check = create_verification_check!(bootstrap)
     stale_verification_check = %{verification_check | id: Ecto.UUID.generate()}
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
     body = "The verification check id no longer exists."
 
     refute document_with_plain_text?(body)
@@ -422,10 +489,131 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute document_with_plain_text?(body)
   end
 
+  test "verification completion requires a verification-complete operation" do
+    {:ok, bootstrap} = bootstrap_scope("completion-operation-action")
+    verification_check = create_verification_check!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    operation_id = operation.id
+    body = "Completion must reject evidence-link operation context."
+
+    assert {:error, {:invalid_operation_action, ^operation_id, "verification.complete"}} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               operation,
+               verification_check,
+               %{
+                 title: "Reject evidence-link operation",
+                 body: body,
+                 artifact_uri: "https://example.test/reject-evidence-link-operation"
+               }
+             )
+
+    refute document_with_plain_text?(body)
+  end
+
+  test "verification completion reloads the check before deriving parent state" do
+    {:ok, bootstrap} = bootstrap_scope("completion-parent-reload")
+    chain = create_verification_chain!(bootstrap)
+    other_chain = create_verification_chain!(bootstrap)
+
+    tampered_check = %{
+      chain.verification_check
+      | review_finding_id: other_chain.review_finding.id
+    }
+
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(bootstrap.session, operation, tampered_check, %{
+               title: "Parent reload evidence",
+               body: "Completion must use the persisted check parent.",
+               artifact_uri: "https://example.test/parent-reload"
+             })
+
+    assert completed.review_finding.id == chain.review_finding.id
+    assert completed.task.id == chain.task.id
+
+    assert "open" ==
+             ReviewFindingResource
+             |> Ash.get!(other_chain.review_finding.id, authorize?: false)
+             |> Map.fetch!(:lifecycle_state)
+
+    assert "open" ==
+             TaskResource
+             |> Ash.get!(other_chain.task.id, authorize?: false)
+             |> Map.fetch!(:lifecycle_state)
+  end
+
+  test "verification completion keeps parents open until all checks pass" do
+    {:ok, bootstrap} = bootstrap_scope("completion-all-checks")
+    chain = create_verification_chain!(bootstrap)
+    second_check = create_verification_check!(bootstrap, chain.review_finding)
+
+    {:ok, first_operation} = Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:ok, first_completion} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               first_operation,
+               chain.verification_check,
+               %{
+                 title: "First check evidence",
+                 body: "One required check remains open.",
+                 artifact_uri: "https://example.test/first-check"
+               }
+             )
+
+    assert first_completion.verification_check.lifecycle_state == "satisfied"
+    assert first_completion.review_finding.lifecycle_state == "open"
+    assert first_completion.task.lifecycle_state == "open"
+
+    assert "open" ==
+             ReviewFindingResource
+             |> Ash.get!(chain.review_finding.id, authorize?: false)
+             |> Map.fetch!(:lifecycle_state)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:ok, second_completion} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               second_operation,
+               second_check,
+               %{
+                 title: "Second check evidence",
+                 body: "All required checks are now satisfied.",
+                 artifact_uri: "https://example.test/second-check"
+               }
+             )
+
+    assert second_completion.verification_check.lifecycle_state == "satisfied"
+    assert second_completion.review_finding.lifecycle_state == "verified_complete"
+    assert second_completion.task.lifecycle_state == "verified_complete"
+  end
+
+  test "verification completion links evidence and artifact graph items" do
+    {:ok, bootstrap} = bootstrap_scope("completion-evidence-relationships")
+
+    completed = complete_verification!(bootstrap)
+
+    assert relationship_exists?(
+             completed.verification_check.graph_item_id,
+             completed.evidence_item.graph_item_id,
+             "has_evidence"
+           )
+
+    assert relationship_exists?(
+             completed.evidence_item.graph_item_id,
+             completed.artifact.graph_item_id,
+             "references_artifact"
+           )
+  end
+
   test "verification completion rejects repeated completion without duplicate evidence" do
     {:ok, bootstrap} = bootstrap_scope("repeat-completion")
     completed = complete_verification!(bootstrap)
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
 
     assert {:error, {:invalid_verification_check_status, check_id}} =
              Verification.complete_with_evidence(
@@ -478,7 +666,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       | capabilities: MapSet.new(["evidence.link", "verification.complete"])
     }
 
-    {:ok, operation} = Operations.start_operation(verification_actor, :evidence_link)
+    {:ok, operation} = Operations.start_operation(verification_actor, :verification_complete)
 
     assert {:ok, completed} =
              Verification.complete_with_evidence(
@@ -526,7 +714,10 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
   defp create_verification_check!(bootstrap) do
     review_finding = create_review_finding!(bootstrap)
+    create_verification_check!(bootstrap, review_finding)
+  end
 
+  defp create_verification_check!(bootstrap, review_finding) do
     {:ok, graph_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
     {:ok, %{verification_check: verification_check}} =
@@ -547,13 +738,24 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
         body: "Source body"
       })
 
+    task = create_task!(bootstrap, signal)
+    create_review_finding!(bootstrap, task)
+  end
+
+  defp create_task!(bootstrap, signal, title \\ "Verification task") do
     {:ok, graph_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
     {:ok, %{task: task}} =
       WorkGraph.create_task(bootstrap.session, graph_operation, signal, %{
-        title: "Verification task",
+        title: title,
         body: "Task body"
       })
+
+    task
+  end
+
+  defp create_review_finding!(bootstrap, task) do
+    {:ok, graph_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
     {:ok, %{review_finding: review_finding}} =
       WorkGraph.create_review_finding(bootstrap.session, graph_operation, task, %{
@@ -564,9 +766,23 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     review_finding
   end
 
+  defp create_verification_chain!(bootstrap) do
+    signal = create_signal!(bootstrap, "Verification source")
+    task = create_task!(bootstrap, signal)
+    review_finding = create_review_finding!(bootstrap, task)
+    verification_check = create_verification_check!(bootstrap, review_finding)
+
+    %{
+      signal: signal,
+      task: task,
+      review_finding: review_finding,
+      verification_check: verification_check
+    }
+  end
+
   defp complete_verification!(bootstrap) do
     verification_check = create_verification_check!(bootstrap)
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :evidence_link)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
 
     {:ok, completed} =
       Verification.complete_with_evidence(bootstrap.session, operation, verification_check, %{
@@ -576,6 +792,15 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       })
 
     completed
+  end
+
+  defp relationship_exists?(source_item_id, target_item_id, relationship_type) do
+    GraphRelationship
+    |> Ash.Query.filter(
+      source_item_id == ^source_item_id and target_item_id == ^target_item_id and
+        relationship_type == ^relationship_type
+    )
+    |> Ash.exists?(authorize?: false)
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do
@@ -595,17 +820,6 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       )
 
     graph_item
-  end
-
-  defp ash_record_with_title?(resource, title) do
-    resource
-    |> Ash.Query.filter(title == ^title)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> false
-      {:ok, _record} -> true
-      {:error, _error} -> false
-    end
   end
 
   defp insert_document!(bootstrap, plain_text) do
