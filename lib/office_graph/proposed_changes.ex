@@ -253,7 +253,7 @@ defmodule OfficeGraph.ProposedChanges do
          {:ok, check_bundle} <-
            find_change(proposed_changes, "create_verification_check")
            |> apply_verification_check(session_context, operation, finding_bundle.review_finding) do
-      mark_applied!(proposed_changes)
+      mark_applied!(proposed_changes, operation)
 
       {:ok,
        %{
@@ -422,11 +422,14 @@ defmodule OfficeGraph.ProposedChanges do
     )
   end
 
-  defp mark_applied!(changes) do
+  defp mark_applied!(changes, operation) do
     now = DateTime.utc_now()
 
     Enum.each(changes, fn change ->
-      ash_update_internal!(change, :mark_applied, %{applied_at: now})
+      ash_update_internal!(change, :mark_applied, %{
+        applied_at: now,
+        applied_operation_id: operation.id
+      })
     end)
   end
 

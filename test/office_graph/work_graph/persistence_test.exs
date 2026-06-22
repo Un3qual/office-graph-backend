@@ -290,9 +290,10 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   end
 
   test "graph identity and typed signal are created atomically", %{
-    bootstrap: bootstrap,
-    operation: operation
+    bootstrap: bootstrap
   } do
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
     assert {:ok, created} =
              WorkGraph.create_signal(bootstrap.session, operation, %{
                title: "Investigate flaky deploy",

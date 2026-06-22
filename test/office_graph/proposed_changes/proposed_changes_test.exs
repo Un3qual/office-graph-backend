@@ -608,7 +608,8 @@ defmodule OfficeGraph.ProposedChangesTest do
 
   test "successful apply marks all supplied proposed changes applied", %{
     bootstrap: bootstrap,
-    intake: intake
+    intake: intake,
+    intake_operation: intake_operation
   } do
     {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
@@ -621,7 +622,10 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert Enum.all?(intake.proposed_changes, fn change ->
              change = get_change!(change)
-             change.status == "applied" and not is_nil(change.applied_at)
+
+             change.status == "applied" and not is_nil(change.applied_at) and
+               change.operation_id == intake_operation.id and
+               Map.get(change, :applied_operation_id) == apply_operation.id
            end)
   end
 
@@ -667,6 +671,33 @@ defmodule OfficeGraph.ProposedChangesTest do
              |> Ash.update(actor: bootstrap.session)
 
     assert Exception.message(error) =~ "status"
+  end
+
+  test "stale pending proposed changes cannot mutate payload after apply", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    stale_pending = hd(intake.proposed_changes)
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, _applied} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    original_payload = get_change!(stale_pending).payload
+
+    assert {:error, error} =
+             stale_pending
+             |> Ash.Changeset.for_update(:set_payload, %{
+               payload: %{"title" => "Mutated", "body" => "Should be rejected"}
+             })
+             |> Ash.update(actor: bootstrap.session)
+
+    assert Exception.message(error) =~ "status"
+    assert get_change!(stale_pending).payload == original_payload
   end
 
   test "direct Ash update cannot mark proposed changes applied", %{

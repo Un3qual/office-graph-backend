@@ -64,9 +64,6 @@ defmodule OfficeGraph.WorkGraph.Signal do
 
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :manual_intake_submit}
-
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :proposed_change_apply}
     end
   end

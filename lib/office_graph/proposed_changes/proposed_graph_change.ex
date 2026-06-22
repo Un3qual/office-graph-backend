@@ -232,6 +232,52 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.ValidateUniqueNormaliz
   end
 end
 
+defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
+
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      case changeset.data do
+        %{id: id} when is_binary(id) ->
+          validate_current_status(changeset, id)
+
+        _data ->
+          changeset
+      end
+    end)
+  end
+
+  defp validate_current_status(changeset, id) do
+    ProposedGraphChange
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{status: "pending"}} ->
+        changeset
+
+      {:ok, _non_pending_or_missing} ->
+        Ash.Changeset.add_error(changeset,
+          field: :status,
+          message: "must be pending"
+        )
+
+      {:error, error} ->
+        Ash.Changeset.add_error(changeset,
+          field: :status,
+          message: "status lookup failed: #{inspect(error)}"
+        )
+    end
+  end
+end
+
 defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.OriginatingOperationActor do
   @moduledoc false
 
@@ -327,6 +373,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     foreign_key_names organization_id: "proposed_graph_changes_organization_id_fkey",
                       workspace_id: "proposed_graph_changes_workspace_id_fkey",
                       operation_id: "proposed_graph_changes_operation_id_fkey",
+                      applied_operation_id: "proposed_graph_changes_applied_operation_id_fkey",
                       normalized_event_id: "proposed_graph_changes_normalized_event_id_fkey"
   end
 
@@ -340,6 +387,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :applied_operation_id, :uuid, public?: true
     attribute :normalized_event_id, :uuid, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
@@ -377,19 +425,22 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       require_atomic? false
       accept [:payload]
       validate attribute_equals(:status, "pending")
+      change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
     end
 
     update :reject do
       require_atomic? false
       accept [:validation_errors]
       validate attribute_equals(:status, "pending")
+      change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
       change set_attribute(:status, "rejected")
     end
 
     update :mark_applied do
       require_atomic? false
-      accept [:applied_at]
+      accept [:applied_at, :applied_operation_id]
       validate attribute_equals(:status, "pending")
+      change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
       change set_attribute(:status, "applied")
     end
   end

@@ -505,7 +505,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
   test "public WorkGraph create_signal returns an error for graph item validation failure" do
     {:ok, bootstrap} = bootstrap_scope("public-signal-validation")
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
     body = "A missing title should be returned as a validation error."
 
     refute document_with_plain_text?(body)
@@ -536,7 +536,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       )
 
     {:ok, foreign_operation} =
-      Operations.start_operation(other_principal_same_scope.session, :manual_intake_submit)
+      Operations.start_operation(other_principal_same_scope.session, :proposed_change_apply)
 
     body = "A reused operation from another session must not create graph truth."
 
@@ -545,6 +545,23 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert {:error, :forbidden} =
              WorkGraph.create_signal(actor_scope.session, foreign_operation, %{
                title: "Reject reused operation",
+               body: body
+             })
+
+    refute document_with_plain_text?(body)
+  end
+
+  test "public WorkGraph create_signal rejects manual intake operations" do
+    {:ok, bootstrap} = bootstrap_scope("public-signal-manual-intake-operation")
+    {:ok, manual_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    manual_operation_id = manual_operation.id
+    body = "Manual intake must create proposals, not graph truth."
+
+    refute document_with_plain_text?(body)
+
+    assert {:error, {:invalid_operation_action, ^manual_operation_id, "proposed_change.apply"}} =
+             WorkGraph.create_signal(bootstrap.session, manual_operation, %{
+               title: "Reject manual signal",
                body: body
              })
 
@@ -1248,7 +1265,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   end
 
   defp create_signal!(bootstrap, title) do
-    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
     {:ok, %{signal: signal}} =
       WorkGraph.create_signal(bootstrap.session, operation, %{
@@ -1277,7 +1294,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   end
 
   defp create_review_finding!(bootstrap) do
-    {:ok, signal_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    {:ok, signal_operation} =
+      Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
     {:ok, %{signal: signal}} =
       WorkGraph.create_signal(bootstrap.session, signal_operation, %{

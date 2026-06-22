@@ -34,7 +34,6 @@ defmodule OfficeGraph.WorkGraph do
     VerificationResult
   }
 
-  @manual_intake_action "manual_intake.submit"
   @proposed_change_apply_action "proposed_change.apply"
   @verification_complete_action "verification.complete"
 
@@ -51,6 +50,7 @@ defmodule OfficeGraph.WorkGraph do
 
   def create_signal(session_context, operation, attrs) do
     with :ok <- validate_operation_context(session_context, operation),
+         :ok <- validate_operation_action(operation, @proposed_change_apply_action),
          :ok <- authorize_signal_create(session_context, operation) do
       signal_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
@@ -600,20 +600,9 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp authorize_signal_create(session_context, operation) do
-    case operation.action do
-      @manual_intake_action ->
-        Authorization.authorize_operation(session_context, operation, :manual_intake_submit,
-          organization_id: session_context.organization_id
-        )
-
-      @proposed_change_apply_action ->
-        Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
-          organization_id: session_context.organization_id
-        )
-
-      _action ->
-        {:error, :forbidden}
-    end
+    Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
+      organization_id: session_context.organization_id
+    )
   end
 
   defp create_graph_item!(id, session_context, resource_type, resource_id, title) do

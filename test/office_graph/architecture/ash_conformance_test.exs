@@ -125,7 +125,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @expected_action_capabilities %{
     OfficeGraph.WorkGraph.Signal => %{
       read: {:read, :skeleton_read},
-      create: {:create, :manual_intake_submit}
+      create: {:create, :proposed_change_apply}
     },
     OfficeGraph.WorkGraph.Task => %{
       read: {:read, :skeleton_read},

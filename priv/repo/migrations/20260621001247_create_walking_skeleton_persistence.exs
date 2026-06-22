@@ -529,6 +529,9 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
       add :operation_id,
           references(:operation_correlations, type: :binary_id, on_delete: :restrict), null: false
 
+      add :applied_operation_id,
+          references(:operation_correlations, type: :binary_id, on_delete: :restrict)
+
       add :normalized_event_id,
           references(:normalized_intake_events, type: :binary_id, on_delete: :restrict)
 
