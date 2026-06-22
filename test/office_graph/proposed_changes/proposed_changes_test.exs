@@ -171,6 +171,31 @@ defmodule OfficeGraph.ProposedChangesTest do
            end)
   end
 
+  test "manual intake titles use the first nonblank body segment", %{bootstrap: bootstrap} do
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    {:ok, intake} =
+      Integrations.submit_manual_intake(bootstrap.session, intake_operation, %{
+        source_identity: "manual:leading-newline",
+        replay_identity: "paste:leading-newline",
+        body: "\nInvestigate deploy health and prove it."
+      })
+
+    assert find_change(intake.proposed_changes, "create_signal").payload["title"] ==
+             "Investigate deploy health and prove it"
+
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, applied} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert applied.signal.title == "Investigate deploy health and prove it"
+  end
+
   test "apply requires a proposed change apply operation", %{
     bootstrap: bootstrap,
     intake: intake
@@ -186,6 +211,21 @@ defmodule OfficeGraph.ProposedChangesTest do
              )
 
     assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
+  end
+
+  test "apply rejects complete change sets without an intake trace", %{bootstrap: bootstrap} do
+    {:ok, intake_operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    proposed_changes =
+      Enum.map(required_change_types(), fn change_type ->
+        create_untraced_change!(bootstrap.session, intake_operation, change_type)
+      end)
+
+    assert {:error, {:invalid_proposed_change_set, :missing_normalized_event_id}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
+
+    assert Enum.all?(proposed_changes, &(get_change!(&1).status == "pending"))
   end
 
   test "apply rejects cross-scope proposed changes before graph creation", %{
@@ -314,6 +354,23 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert Exception.message(error) =~ "status"
   end
 
+  test "direct Ash update cannot mark proposed changes applied", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    change = hd(intake.proposed_changes)
+
+    assert {:error, error} =
+             change
+             |> Ash.Changeset.for_update(:mark_applied, %{applied_at: DateTime.utc_now()},
+               actor: bootstrap.session
+             )
+             |> Ash.update()
+
+    assert Exception.message(error) =~ ~r/forbidden/i
+    assert get_change!(change).status == "pending"
+  end
+
   test "apply rejects stale non-pending proposed changes", %{
     bootstrap: bootstrap,
     intake: intake
@@ -382,6 +439,33 @@ defmodule OfficeGraph.ProposedChangesTest do
     change
     |> Ash.Changeset.for_update(:set_payload, %{payload: payload})
     |> Ash.update!(actor: session_context)
+  end
+
+  defp create_untraced_change!(session_context, operation, change_type) do
+    Ash.create!(
+      ProposedGraphChange,
+      %{
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
+        operation_id: operation.id,
+        change_type: change_type,
+        payload: %{
+          "title" => "Untraced #{change_type}",
+          "body" => "Untraced #{change_type} body"
+        }
+      },
+      actor: session_context,
+      action: :create
+    )
+  end
+
+  defp required_change_types do
+    [
+      "create_signal",
+      "create_task",
+      "create_review_finding",
+      "create_verification_check"
+    ]
   end
 
   defp get_change!(change) do

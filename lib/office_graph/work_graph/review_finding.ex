@@ -38,9 +38,10 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
         :graph_item_id,
         :task_id,
         :body_document_id,
-        :title,
-        :lifecycle_state
+        :title
       ]
+
+      change set_attribute(:lifecycle_state, "open")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
@@ -53,6 +54,7 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
     end
 
     update :mark_verified_complete do
+      public? false
       accept []
       change set_attribute(:lifecycle_state, "verified_complete")
     end
@@ -73,11 +75,6 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :proposed_change_apply}
-    end
-
-    policy action(:mark_verified_complete) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :verification_complete}
     end
   end
 

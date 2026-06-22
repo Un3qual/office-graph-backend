@@ -119,8 +119,7 @@ defmodule OfficeGraph.WorkGraph do
               graph_item_id: graph_item_id,
               source_signal_id: signal.id,
               body_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "open"
+              title: attrs[:title]
             },
             session_context
           )
@@ -172,8 +171,7 @@ defmodule OfficeGraph.WorkGraph do
               graph_item_id: graph_item_id,
               task_id: task.id,
               body_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "open"
+              title: attrs[:title]
             },
             session_context
           )
@@ -230,8 +228,7 @@ defmodule OfficeGraph.WorkGraph do
               graph_item_id: graph_item_id,
               review_finding_id: review_finding.id,
               description_document_id: document.id,
-              title: attrs[:title],
-              lifecycle_state: "required"
+              title: attrs[:title]
             },
             session_context
           )
@@ -346,8 +343,7 @@ defmodule OfficeGraph.WorkGraph do
               verification_check_id: verification_check.id,
               artifact_id: artifact.id,
               body_document_id: evidence_document.id,
-              title: attrs[:title],
-              state: "accepted"
+              title: attrs[:title]
             },
             session_context
           )
@@ -387,11 +383,11 @@ defmodule OfficeGraph.WorkGraph do
 
         verification_check =
           verification_check
-          |> ash_update(:mark_satisfied, session_context)
+          |> ash_update_internal(:mark_satisfied)
           |> unwrap_ash()
 
-        {review_finding, task, completed_parent_work?} =
-          maybe_complete_parent_work!(review_finding, task, session_context)
+        {review_finding, task, completed_review_finding?, completed_task?} =
+          maybe_complete_parent_work!(review_finding, task)
 
         trace!(operation, "artifact.create", "artifact", artifact.id)
         trace!(operation, "evidence_item.create", "evidence_item", evidence_item.id)
@@ -410,14 +406,16 @@ defmodule OfficeGraph.WorkGraph do
           verification_check.id
         )
 
-        if completed_parent_work? do
+        if completed_review_finding? do
           trace!(
             operation,
             "review_finding.complete",
             "review_finding",
             review_finding.id
           )
+        end
 
+        if completed_task? do
           trace!(operation, "task.complete", "task", task.id)
         end
 
@@ -488,10 +486,10 @@ defmodule OfficeGraph.WorkGraph do
     |> unwrap_ash_result()
   end
 
-  defp ash_update(record, action, session_context) do
+  defp ash_update_internal(record, action) do
     record
-    |> Ash.Changeset.for_update(action, %{}, actor: session_context)
-    |> Ash.update(authorize?: true, return_notifications?: true)
+    |> Ash.Changeset.for_update(action, %{})
+    |> Ash.update(authorize?: false, return_notifications?: true)
     |> unwrap_ash_result()
   end
 
@@ -589,7 +587,7 @@ defmodule OfficeGraph.WorkGraph do
   end
 
   defp create_graph_item!(id, session_context, resource_type, resource_id, title) do
-    ash_create(
+    ash_create_internal(
       GraphItem,
       %{
         id: id,
@@ -598,8 +596,7 @@ defmodule OfficeGraph.WorkGraph do
         resource_type: resource_type,
         resource_id: resource_id,
         title: title
-      },
-      session_context
+      }
     )
     |> unwrap_ash()
   end
@@ -624,21 +621,25 @@ defmodule OfficeGraph.WorkGraph do
     |> Map.fetch!(:graph_item_id)
   end
 
-  defp maybe_complete_parent_work!(review_finding, task, session_context) do
+  defp maybe_complete_parent_work!(review_finding, task) do
     if required_verification_checks_remaining?(review_finding.id) do
-      {review_finding, task, false}
+      {review_finding, task, false, false}
     else
       review_finding =
         review_finding
-        |> ash_update(:mark_verified_complete, session_context)
+        |> ash_update_internal(:mark_verified_complete)
         |> unwrap_ash()
 
-      task =
-        task
-        |> ash_update(:mark_verified_complete, session_context)
-        |> unwrap_ash()
+      if review_findings_remaining?(task.id) do
+        {review_finding, task, true, false}
+      else
+        task =
+          task
+          |> ash_update_internal(:mark_verified_complete)
+          |> unwrap_ash()
 
-      {review_finding, task, true}
+        {review_finding, task, true, true}
+      end
     end
   end
 
@@ -648,6 +649,16 @@ defmodule OfficeGraph.WorkGraph do
       |> Ash.Query.filter(
         review_finding_id == ^review_finding_id and lifecycle_state == "required"
       )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.count!(authorize?: false)
+
+    count > 0
+  end
+
+  defp review_findings_remaining?(task_id) do
+    count =
+      ReviewFinding
+      |> Ash.Query.filter(task_id == ^task_id and lifecycle_state != "verified_complete")
       |> Ash.Query.lock(:for_update)
       |> Ash.count!(authorize?: false)
 

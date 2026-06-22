@@ -1,3 +1,44 @@
+defmodule OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias OfficeGraph.WorkGraph.EvidenceItem
+
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    verification_check_id = Ash.Changeset.get_attribute(changeset, :verification_check_id)
+    evidence_item_id = Ash.Changeset.get_attribute(changeset, :evidence_item_id)
+
+    cond do
+      is_nil(verification_check_id) or is_nil(evidence_item_id) ->
+        changeset
+
+      evidence_matches_check?(evidence_item_id, verification_check_id) ->
+        changeset
+
+      true ->
+        Ash.Changeset.add_error(changeset,
+          field: :evidence_item_id,
+          message: "must belong to verification_check_id"
+        )
+    end
+  end
+
+  defp evidence_matches_check?(evidence_item_id, verification_check_id) do
+    EvidenceItem
+    |> Ash.Query.filter(id == ^evidence_item_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{verification_check_id: ^verification_check_id}} -> true
+      {:ok, _missing_or_mismatch} -> false
+      {:error, _error} -> true
+    end
+  end
+end
+
 defmodule OfficeGraph.WorkGraph.VerificationResult do
   @moduledoc false
 
@@ -46,6 +87,8 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
                 evidence_item_id: OfficeGraph.WorkGraph.EvidenceItem,
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
+
+      change OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch
     end
   end
 

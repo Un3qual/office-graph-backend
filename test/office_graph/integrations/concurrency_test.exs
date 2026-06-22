@@ -13,7 +13,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     session_id = Ecto.UUID.generate()
     source_identity = "manual:atomicity-#{suffix}"
     replay_identity = "paste:atomicity-#{suffix}"
-    body = "Task: trigger proposed change failure #{suffix}"
+    body = "Task: trigger proposed change failure #{suffix} with 'quote' and $$tag$$"
 
     session_context = %SessionContext{
       principal_id: principal_id,
@@ -391,7 +391,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   end
 
   defp install_proposed_change_failure_trigger!(body) do
-    escaped_body = String.replace(body, "'", "''")
+    %{rows: [[quoted_body]]} = Repo.query!("SELECT quote_literal($1)", [body])
 
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_failure ON proposed_graph_changes"
@@ -403,7 +403,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     CREATE FUNCTION office_graph_test_proposed_change_failure()
     RETURNS trigger AS $$
     BEGIN
-      IF NEW.payload->>'body' = '#{escaped_body}' THEN
+      IF NEW.payload->>'body' = TG_ARGV[0] THEN
         RAISE EXCEPTION 'forced proposed graph change failure for manual intake atomicity';
       END IF;
 
@@ -416,7 +416,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     CREATE TRIGGER office_graph_test_proposed_change_failure
     BEFORE INSERT ON proposed_graph_changes
     FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_proposed_change_failure()
+    EXECUTE FUNCTION office_graph_test_proposed_change_failure(#{quoted_body})
     """)
   end
 

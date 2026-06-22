@@ -9,6 +9,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
+  alias OfficeGraph.WorkGraph.Artifact
   alias OfficeGraph.WorkGraph.EvidenceItem
   alias OfficeGraph.WorkGraph.GraphItem
   alias OfficeGraph.WorkGraph.GraphRelationship
@@ -51,8 +52,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                  graph_item_id: graph_item.id,
                  source_signal_id: other_signal.id,
                  body_document_id: document.id,
-                 title: "Reject cross-scope source",
-                 lifecycle_state: "open"
+                 title: "Reject cross-scope source"
                },
                actor: actor_scope.session,
                action: :create
@@ -107,8 +107,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                  graph_item_id: wrong_id_graph_item.id,
                  source_signal_id: source_signal.id,
                  body_document_id: task_document.id,
-                 title: "Reject wrong graph item resource id",
-                 lifecycle_state: "open"
+                 title: "Reject wrong graph item resource id"
                },
                actor: bootstrap.session,
                action: :create
@@ -181,8 +180,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                    graph_item_id: graph_item.id,
                    review_finding_id: review_finding.id,
                    description_document_id: document_id,
-                   title: title,
-                   lifecycle_state: "required"
+                   title: title
                  },
                  actor: actor_scope.session,
                  action: :create
@@ -284,6 +282,27 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     refute :read in public_action_names
   end
 
+  test "graph item create is internal to typed WorkGraph flows" do
+    {:ok, bootstrap} = bootstrap_scope("graph-item-internal-create")
+
+    assert {:error, error} =
+             Ash.create(
+               GraphItem,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 resource_type: "task",
+                 resource_id: Ecto.UUID.generate(),
+                 title: "Dangling graph item"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ ~r/forbidden/i
+  end
+
   test "direct graph relationship creates reject cross-scope endpoints" do
     {:ok, actor_scope} = bootstrap_scope("relationship-actor")
     {:ok, other_scope} = bootstrap_scope("relationship-other")
@@ -323,6 +342,117 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              })
 
     assert Exception.message(error) =~ "source_signal_id"
+  end
+
+  test "direct typed creates reject caller supplied lifecycle states" do
+    {:ok, bootstrap} = bootstrap_scope("direct-create-lifecycle")
+    source_signal = create_signal!(bootstrap, "Lifecycle source signal")
+    task = create_task!(bootstrap, source_signal)
+    review_finding = create_review_finding!(bootstrap, task)
+    verification_check = create_verification_check!(bootstrap, review_finding)
+    artifact = insert_artifact!(bootstrap, "Lifecycle evidence artifact")
+
+    task_id = Ecto.UUID.generate()
+    task_graph_item = insert_graph_item!(bootstrap, "task", task_id, "Spoofed task graph item")
+    task_document = insert_document!(bootstrap, "Spoofed task body")
+
+    assert {:error, task_error} =
+             Ash.create(
+               TaskResource,
+               %{
+                 id: task_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: task_graph_item.id,
+                 source_signal_id: source_signal.id,
+                 body_document_id: task_document.id,
+                 title: "Spoofed task",
+                 lifecycle_state: "verified_complete"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(task_error) =~ "No such input `lifecycle_state`"
+
+    finding_id = Ecto.UUID.generate()
+
+    finding_graph_item =
+      insert_graph_item!(bootstrap, "review_finding", finding_id, "Spoofed finding graph item")
+
+    finding_document = insert_document!(bootstrap, "Spoofed finding body")
+
+    assert {:error, finding_error} =
+             Ash.create(
+               ReviewFindingResource,
+               %{
+                 id: finding_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: finding_graph_item.id,
+                 task_id: task.id,
+                 body_document_id: finding_document.id,
+                 title: "Spoofed finding",
+                 lifecycle_state: "verified_complete"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(finding_error) =~ "No such input `lifecycle_state`"
+
+    check_id = Ecto.UUID.generate()
+
+    check_graph_item =
+      insert_graph_item!(bootstrap, "verification_check", check_id, "Spoofed check graph item")
+
+    check_document = insert_document!(bootstrap, "Spoofed check body")
+
+    assert {:error, check_error} =
+             Ash.create(
+               VerificationCheckResource,
+               %{
+                 id: check_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: check_graph_item.id,
+                 review_finding_id: review_finding.id,
+                 description_document_id: check_document.id,
+                 title: "Spoofed check",
+                 lifecycle_state: "satisfied"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(check_error) =~ "No such input `lifecycle_state`"
+
+    evidence_id = Ecto.UUID.generate()
+
+    evidence_graph_item =
+      insert_graph_item!(bootstrap, "evidence_item", evidence_id, "Spoofed evidence graph item")
+
+    evidence_document = insert_document!(bootstrap, "Spoofed evidence body")
+
+    assert {:error, evidence_error} =
+             Ash.create(
+               EvidenceItem,
+               %{
+                 id: evidence_id,
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 graph_item_id: evidence_graph_item.id,
+                 verification_check_id: verification_check.id,
+                 artifact_id: artifact.id,
+                 body_document_id: evidence_document.id,
+                 title: "Spoofed evidence",
+                 state: "accepted"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(evidence_error) =~ "No such input `state`"
   end
 
   test "public WorkGraph create_signal returns an error for graph item validation failure" do
@@ -592,6 +722,56 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert second_completion.task.lifecycle_state == "verified_complete"
   end
 
+  test "verification completion keeps task open until all findings complete" do
+    {:ok, bootstrap} = bootstrap_scope("completion-all-findings")
+    signal = create_signal!(bootstrap, "Multi-finding source")
+    task = create_task!(bootstrap, signal)
+    first_finding = create_review_finding!(bootstrap, task)
+    second_finding = create_review_finding!(bootstrap, task)
+    first_check = create_verification_check!(bootstrap, first_finding)
+    second_check = create_verification_check!(bootstrap, second_finding)
+
+    {:ok, first_operation} = Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:ok, first_completion} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               first_operation,
+               first_check,
+               %{
+                 title: "First finding evidence",
+                 body: "Another finding remains open on the same task.",
+                 artifact_uri: "https://example.test/first-finding"
+               }
+             )
+
+    assert first_completion.review_finding.lifecycle_state == "verified_complete"
+    assert first_completion.task.lifecycle_state == "open"
+
+    assert "open" ==
+             TaskResource
+             |> Ash.get!(task.id, authorize?: false)
+             |> Map.fetch!(:lifecycle_state)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:ok, second_completion} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               second_operation,
+               second_check,
+               %{
+                 title: "Second finding evidence",
+                 body: "All findings are now complete.",
+                 artifact_uri: "https://example.test/second-finding"
+               }
+             )
+
+    assert second_completion.review_finding.lifecycle_state == "verified_complete"
+    assert second_completion.task.lifecycle_state == "verified_complete"
+  end
+
   test "verification completion links evidence and artifact graph items" do
     {:ok, bootstrap} = bootstrap_scope("completion-evidence-relationships")
 
@@ -643,18 +823,46 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert result_count == 1
   end
 
-  test "state transition actions reject caller supplied attributes" do
-    {:ok, bootstrap} = bootstrap_scope("state-transition-input")
+  test "verification check satisfaction is internal to completion flow" do
+    {:ok, bootstrap} = bootstrap_scope("state-transition-internal")
     verification_check = create_verification_check!(bootstrap)
 
     assert {:error, error} =
              verification_check
-             |> Ash.Changeset.for_update(:mark_satisfied, %{title: "Mutated title"},
-               actor: bootstrap.session
-             )
+             |> Ash.Changeset.for_update(:mark_satisfied, %{}, actor: bootstrap.session)
              |> Ash.update()
 
-    assert Exception.message(error) =~ "No such input `title`"
+    assert Exception.message(error) =~ ~r/forbidden/i
+
+    assert "required" ==
+             VerificationCheckResource
+             |> Ash.get!(verification_check.id, authorize?: false)
+             |> Map.fetch!(:lifecycle_state)
+  end
+
+  test "verification results require evidence from the same check" do
+    {:ok, bootstrap} = bootstrap_scope("result-evidence-check-match")
+    unmatched_chain = create_verification_chain!(bootstrap)
+    completed = complete_verification!(bootstrap)
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:error, error} =
+             Ash.create(
+               VerificationResultResource,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 verification_check_id: unmatched_chain.verification_check.id,
+                 evidence_item_id: completed.evidence_item.id,
+                 operation_id: operation.id,
+                 result: "passed"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "evidence_item_id"
   end
 
   test "verification completion does not require skeleton read capability for internal reloads" do
@@ -815,11 +1023,30 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
           resource_id: resource_id,
           title: title
         },
-        actor: bootstrap.session,
-        action: :create
+        action: :create,
+        authorize?: false
       )
 
     graph_item
+  end
+
+  defp insert_artifact!(bootstrap, title) do
+    artifact_id = Ecto.UUID.generate()
+    graph_item = insert_graph_item!(bootstrap, "artifact", artifact_id, "#{title} graph item")
+
+    Ash.create!(
+      Artifact,
+      %{
+        id: artifact_id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        graph_item_id: graph_item.id,
+        title: title,
+        uri: "https://example.test/#{artifact_id}"
+      },
+      action: :create,
+      actor: bootstrap.session
+    )
   end
 
   defp insert_document!(bootstrap, plain_text) do

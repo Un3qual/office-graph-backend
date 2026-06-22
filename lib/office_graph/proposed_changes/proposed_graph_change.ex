@@ -190,10 +190,5 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :proposed_change_apply}
     end
-
-    policy action(:mark_applied) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :proposed_change_apply}
-    end
   end
 end

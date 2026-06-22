@@ -48,16 +48,6 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
                        workspace_id == ^actor(:workspace_id)
                    )
     end
-
-    policy action(:create) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :manual_intake_submit}
-
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :proposed_change_apply}
-
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_link}
-    end
   end
 
   graphql do

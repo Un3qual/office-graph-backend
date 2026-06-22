@@ -40,9 +40,10 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
         :verification_check_id,
         :artifact_id,
         :body_document_id,
-        :title,
-        :state
+        :title
       ]
+
+      change set_attribute(:state, "accepted")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [

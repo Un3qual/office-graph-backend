@@ -162,7 +162,7 @@ defmodule OfficeGraph.ProposedChanges do
          {:ok, check_bundle} <-
            find_change(proposed_changes, "create_verification_check")
            |> apply_verification_check(session_context, operation, finding_bundle.review_finding) do
-      mark_applied!(session_context, proposed_changes)
+      mark_applied!(proposed_changes)
 
       {:ok,
        %{
@@ -231,11 +231,15 @@ defmodule OfficeGraph.ProposedChanges do
       |> Enum.uniq()
       |> Enum.sort()
 
-    case normalized_event_ids do
-      [_id] ->
+    cond do
+      nil in normalized_event_ids ->
+        {:error, {:invalid_proposed_change_set, :missing_normalized_event_id}}
+
+      match?([_id], normalized_event_ids) ->
         :ok
 
-      ids ->
+      true ->
+        ids = normalized_event_ids
         {:error, {:invalid_proposed_change_set, {:mixed_normalized_event_ids, ids}}}
     end
   end
@@ -296,11 +300,11 @@ defmodule OfficeGraph.ProposedChanges do
     )
   end
 
-  defp mark_applied!(session_context, changes) do
+  defp mark_applied!(changes) do
     now = DateTime.utc_now()
 
     Enum.each(changes, fn change ->
-      ash_update!(change, :mark_applied, %{applied_at: now}, session_context)
+      ash_update_internal!(change, :mark_applied, %{applied_at: now})
     end)
   end
 
@@ -318,14 +322,25 @@ defmodule OfficeGraph.ProposedChanges do
     |> record_without_notifications()
   end
 
+  defp ash_update_internal!(record, action, attrs) do
+    record
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> record_without_notifications()
+  end
+
   defp record_without_notifications({record, _notifications}), do: record
   defp record_without_notifications(record), do: record
 
   defp first_sentence(body) do
     body
-    |> String.split(~r/[.\n]/, parts: 2)
-    |> hd()
-    |> String.trim()
+    |> String.split(~r/[.\n]/)
+    |> Enum.map(&String.trim/1)
+    |> Enum.find(&(not blank?(&1)))
+    |> case do
+      nil -> ""
+      title -> title
+    end
   end
 
   defp change_payload("create_signal", title, body), do: %{title: title, body: body}

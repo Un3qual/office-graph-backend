@@ -108,18 +108,15 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     },
     OfficeGraph.WorkGraph.Task => %{
       read: {:read, :skeleton_read},
-      create: {:create, :proposed_change_apply},
-      mark_verified_complete: {:update, :verification_complete}
+      create: {:create, :proposed_change_apply}
     },
     OfficeGraph.WorkGraph.ReviewFinding => %{
       read: {:read, :skeleton_read},
-      create: {:create, :proposed_change_apply},
-      mark_verified_complete: {:update, :verification_complete}
+      create: {:create, :proposed_change_apply}
     },
     OfficeGraph.WorkGraph.VerificationCheck => %{
       read: {:read, :skeleton_read},
-      create: {:create, :proposed_change_apply},
-      mark_satisfied: {:update, :verification_complete}
+      create: {:create, :proposed_change_apply}
     },
     OfficeGraph.WorkGraph.Artifact => %{
       read: {:read, :skeleton_read},
