@@ -68,20 +68,7 @@ defmodule OfficeGraph.Tenancy do
           |> Map.new()
           |> Map.put_new(:id, Ecto.UUID.generate())
 
-        case Ash.create(resource, attrs,
-               action: :create,
-               authorize?: false,
-               return_notifications?: true
-             ) do
-          {:ok, record, _notifications} ->
-            record
-
-          {:ok, record} ->
-            record
-
-          {:error, error} ->
-            refetch_after_create_error!(resource, lookup, error)
-        end
+        insert_then_fetch!(resource, lookup, attrs)
 
       {:ok, record} ->
         record
@@ -91,11 +78,46 @@ defmodule OfficeGraph.Tenancy do
     end
   end
 
-  defp refetch_after_create_error!(resource, lookup, error) do
+  defp insert_then_fetch!(resource, lookup, attrs) do
+    {table, conflict_target, uuid_fields} = insert_contract!(resource)
+    now = DateTime.utc_now()
+
+    insert_attrs =
+      attrs
+      |> Map.put(:inserted_at, now)
+      |> Map.put(:updated_at, now)
+      |> dump_uuid_fields(uuid_fields)
+
+    Repo.insert_all(table, [insert_attrs],
+      on_conflict: :nothing,
+      conflict_target: conflict_target
+    )
+
     case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
-      {:ok, nil} -> raise error
+      {:ok, nil} -> raise "#{inspect(resource)} not found after create"
       {:ok, record} -> record
-      {:error, refetch_error} -> raise refetch_error
+      {:error, error} -> raise error
     end
+  end
+
+  defp insert_contract!(Organization), do: {"organizations", [:slug], [:id]}
+
+  defp insert_contract!(Workspace) do
+    {"workspaces", [:organization_id, :slug], [:id, :organization_id]}
+  end
+
+  defp insert_contract!(Initiative) do
+    {"initiatives", [:workspace_id, :slug], [:id, :organization_id, :workspace_id]}
+  end
+
+  defp insert_contract!(Workstream) do
+    {"workstreams", [:initiative_id, :slug],
+     [:id, :organization_id, :workspace_id, :initiative_id]}
+  end
+
+  defp dump_uuid_fields(attrs, fields) do
+    Enum.reduce(fields, attrs, fn field, acc ->
+      Map.update!(acc, field, &Ecto.UUID.dump!/1)
+    end)
   end
 end

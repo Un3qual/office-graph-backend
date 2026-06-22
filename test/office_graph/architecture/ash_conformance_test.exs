@@ -95,6 +95,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       unique_assignment: [:principal_id, :role_id, :organization_id, :workspace_id]
     },
     OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]},
+    OfficeGraph.Operations.OperationCorrelation => %{
+      unique_correlation_id: [:organization_id, :workspace_id, :correlation_id],
+      unique_idempotency_key: %{
+        keys: [:organization_id, :workspace_id, :action, :idempotency_key],
+        where: "not is_nil(idempotency_key)"
+      }
+    },
     OfficeGraph.Content.DocumentBlock => %{unique_document_position: [:document_id, :position]},
     OfficeGraph.Content.DocumentRevision => %{
       unique_document_revision: [:document_id, :revision_number]

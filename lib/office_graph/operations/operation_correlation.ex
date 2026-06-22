@@ -10,6 +10,8 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
     table "operation_correlations"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_idempotency_key: "operation_correlations_idempotency_key_index"
   end
 
   attributes do
@@ -50,5 +52,9 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
 
   identities do
     identity :unique_correlation_id, [:organization_id, :workspace_id, :correlation_id]
+
+    identity :unique_idempotency_key,
+             [:organization_id, :workspace_id, :action, :idempotency_key],
+             where: expr(not is_nil(idempotency_key))
   end
 end

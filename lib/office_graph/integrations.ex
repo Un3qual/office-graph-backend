@@ -209,6 +209,27 @@ defmodule OfficeGraph.Integrations do
         outcome == "accepted"
     )
     |> Ash.read_one(authorize?: false)
+    |> then(&verify_duplicate_content(&1, attrs))
+  end
+
+  defp verify_duplicate_content({:ok, nil}, _attrs), do: {:ok, nil}
+
+  defp verify_duplicate_content({:ok, duplicate}, attrs) do
+    case Ash.get(RawArchive, duplicate.raw_archive_id, authorize?: false) do
+      {:ok, %{content_hash: hash}} ->
+        if hash == content_hash(attrs.body) do
+          {:ok, duplicate}
+        else
+          {:error, {:manual_intake_replay_conflict, duplicate.id}}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp verify_duplicate_content({:error, error}, _attrs) do
+    {:error, error}
   end
 
   defp ash_create(resource, attrs) do

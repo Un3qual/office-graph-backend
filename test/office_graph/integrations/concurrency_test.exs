@@ -4,7 +4,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.{Integrations, Operations, Repo}
+  alias OfficeGraph.{Integrations, Operations, Repo, Tenancy}
 
   test "manual intake retries recover proposed changes after proposed-change creation fails" do
     suffix = System.unique_integer([:positive])
@@ -213,6 +213,111 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       with_unboxed_connection(fn ->
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
         drop_source_insert_barrier!()
+      end)
+    end
+  end
+
+  test "local tenancy bootstrap is idempotent under first-scope races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "tenant-race-#{suffix}"
+    workspace_slug = "tenant-race-workspace-#{suffix}"
+    initiative_slug = "tenant-race-initiative-#{suffix}"
+
+    attrs = [
+      organization_name: "Tenant Race #{suffix}",
+      organization_slug: organization_slug,
+      workspace_name: "Tenant Race Workspace #{suffix}",
+      workspace_slug: workspace_slug,
+      initiative_name: "Tenant Race Initiative #{suffix}",
+      initiative_slug: initiative_slug
+    ]
+
+    try do
+      with_unboxed_connection(fn ->
+        install_tenancy_insert_barrier!()
+      end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              capture_ensure_local_scope(attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.organization.id == second.organization.id
+      assert first.workspace.id == second.workspace.id
+      assert first.initiative.id == second.initiative.id
+
+      assert {1, 1, 1, 1} =
+               with_unboxed_connection(fn ->
+                 tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        cleanup_tenancy_scope!(organization_slug)
+        drop_tenancy_insert_barrier!()
+      end)
+    end
+  end
+
+  test "operation idempotency keys are race safe" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    idempotency_key = "operation-race-#{suffix}"
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    try do
+      with_unboxed_connection(fn ->
+        insert_minimal_session_scope!(
+          organization_id,
+          workspace_id,
+          principal_id,
+          session_id,
+          suffix
+        )
+
+        install_operation_insert_barrier!()
+      end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Operations.start_operation(session_context, :manual_intake_submit,
+                idempotency_key: idempotency_key
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.id == second.id
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 operation_idempotency_count(organization_id, idempotency_key)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_operation_insert_barrier!()
+        cleanup_committed_scope!(organization_id, principal_id, [])
       end)
     end
   end
@@ -439,6 +544,14 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     :exit, reason -> {:error, reason}
   end
 
+  defp capture_ensure_local_scope(attrs) do
+    Tenancy.ensure_local_scope(attrs)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
   defp accepted_event_count(organization_id, source_identity, replay_identity) do
     %{rows: [[count]]} =
       Repo.query!(
@@ -487,6 +600,21 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
         WHERE normalized_event_id = $1::uuid
         """,
         [db_uuid(normalized_event_id)]
+      )
+
+    count
+  end
+
+  defp operation_idempotency_count(organization_id, idempotency_key) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM operation_correlations
+        WHERE organization_id = $1::uuid
+          AND idempotency_key = $2
+        """,
+        [db_uuid(organization_id), idempotency_key]
       )
 
     count
@@ -621,6 +749,8 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   end
 
   defp install_proposed_change_insert_barrier!(normalized_event_id) do
+    %{rows: [[quoted_id]]} = Repo.query!("SELECT quote_literal($1)", [normalized_event_id])
+
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_race_barrier ON proposed_graph_changes"
     )
@@ -663,7 +793,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     CREATE TRIGGER office_graph_test_proposed_change_race_barrier
     BEFORE INSERT ON proposed_graph_changes
     FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_proposed_change_race_barrier('#{normalized_event_id}')
+    EXECUTE FUNCTION office_graph_test_proposed_change_race_barrier(#{quoted_id})
     """)
   end
 
@@ -673,6 +803,112 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_race_barrier()")
+  end
+
+  defp install_tenancy_insert_barrier! do
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_tenancy_race_barrier ON organizations")
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_tenancy_race_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_tenancy_race_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      tenant_hash integer := hashtext(NEW.slug);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.slug LIKE 'tenant-race-%' THEN
+        IF pg_try_advisory_lock(93001, tenant_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(93002, tenant_hash) THEN
+              PERFORM pg_advisory_unlock(93002, tenant_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(93001, tenant_hash);
+        ELSE
+          PERFORM pg_advisory_lock(93002, tenant_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(93002, tenant_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_tenancy_race_barrier
+    BEFORE INSERT ON organizations
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_tenancy_race_barrier()
+    """)
+  end
+
+  defp drop_tenancy_insert_barrier! do
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_tenancy_race_barrier ON organizations")
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_tenancy_race_barrier()")
+  end
+
+  defp install_operation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_operation_race_barrier ON operation_correlations"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_operation_race_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_operation_race_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.idempotency_key);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.idempotency_key LIKE 'operation-race-%' THEN
+        IF pg_try_advisory_lock(94001, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(94002, operation_hash) THEN
+              PERFORM pg_advisory_unlock(94002, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(94001, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(94002, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(94002, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_operation_race_barrier
+    BEFORE INSERT ON operation_correlations
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_operation_race_barrier()
+    """)
+  end
+
+  defp drop_operation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_operation_race_barrier ON operation_correlations"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_operation_race_barrier()")
   end
 
   defp install_source_insert_barrier! do
@@ -762,6 +998,59 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_source_race_barrier()")
+  end
+
+  defp tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug) do
+    %{rows: [[organization_count, workspace_count, initiative_count, workstream_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM organizations WHERE slug = $1),
+          (SELECT count(*)
+           FROM workspaces
+           WHERE slug = $2
+             AND organization_id IN (SELECT id FROM organizations WHERE slug = $1)),
+          (SELECT count(*)
+           FROM initiatives
+           WHERE slug = $3
+             AND organization_id IN (SELECT id FROM organizations WHERE slug = $1)),
+          (SELECT count(*)
+           FROM workstreams
+           WHERE slug = 'default'
+             AND organization_id IN (SELECT id FROM organizations WHERE slug = $1))
+        """,
+        [organization_slug, workspace_slug, initiative_slug]
+      )
+
+    {organization_count, workspace_count, initiative_count, workstream_count}
+  end
+
+  defp cleanup_tenancy_scope!(organization_slug) do
+    Repo.query!(
+      """
+      DELETE FROM workstreams
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM initiatives
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM workspaces
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!("DELETE FROM organizations WHERE slug = $1", [organization_slug])
   end
 
   defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)

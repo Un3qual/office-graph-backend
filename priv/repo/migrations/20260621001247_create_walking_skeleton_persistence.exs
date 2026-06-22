@@ -30,6 +30,13 @@ defmodule OfficeGraph.Repo.Migrations.CreateWalkingSkeletonPersistence do
              :correlation_id
            ])
 
+    create unique_index(
+             :operation_correlations,
+             [:organization_id, :workspace_id, :action, :idempotency_key],
+             where: "idempotency_key IS NOT NULL",
+             name: :operation_correlations_idempotency_key_index
+           )
+
     create index(:operation_correlations, [:organization_id, :workspace_id, :action])
 
     create table(:authorization_decisions, primary_key: false) do

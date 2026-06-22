@@ -76,6 +76,37 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
              )
   end
 
+  test "operation idempotency keys reuse the existing operation within an action scope", %{
+    bootstrap: bootstrap
+  } do
+    idempotency_key = "manual-intake:#{System.unique_integer([:positive])}"
+
+    assert {:ok, first} =
+             Operations.start_operation(bootstrap.session, :manual_intake_submit,
+               correlation_id: "first-#{idempotency_key}",
+               idempotency_key: idempotency_key
+             )
+
+    assert {:ok, second} =
+             Operations.start_operation(bootstrap.session, :manual_intake_submit,
+               correlation_id: "retry-#{idempotency_key}",
+               idempotency_key: idempotency_key
+             )
+
+    assert second.id == first.id
+    assert second.correlation_id == first.correlation_id
+
+    assert 1 ==
+             OperationCorrelation
+             |> Ash.Query.filter(
+               organization_id == ^bootstrap.organization.id and
+                 workspace_id == ^bootstrap.workspace.id and
+                 action == "manual_intake.submit" and
+                 idempotency_key == ^idempotency_key
+             )
+             |> Ash.count!(authorize?: false)
+  end
+
   test "role assignment identity treats nil workspace scope as comparable", %{
     bootstrap: bootstrap
   } do
@@ -625,6 +656,36 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
 
     assert Exception.message(duplicate_error) =~
              "normalized_intake_events_accepted_replay_identity_index"
+  end
+
+  test "manual intake rejects same replay identity with changed content", %{
+    bootstrap: bootstrap,
+    operation: operation
+  } do
+    attrs = %{
+      source_identity: "manual:changed-content",
+      replay_identity: "paste:changed-content",
+      body: "Task: Investigate stable replay content"
+    }
+
+    assert {:ok, first} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
+    assert first.normalized_event.outcome == "accepted"
+
+    conflicting_attrs = %{attrs | body: "Task: Investigate conflicting replay content"}
+    accepted_event_id = first.normalized_event.id
+
+    assert {:error, {:manual_intake_replay_conflict, ^accepted_event_id}} =
+             Integrations.submit_manual_intake(bootstrap.session, operation, conflicting_attrs)
+
+    assert 1 ==
+             NormalizedIntakeEvent
+             |> Ash.Query.filter(
+               organization_id == ^bootstrap.organization.id and
+                 workspace_id == ^bootstrap.workspace.id and
+                 source_identity == ^attrs.source_identity and
+                 replay_identity == ^attrs.replay_identity
+             )
+             |> Ash.count!(authorize?: false)
   end
 
   test "manual intake replay duplicates are scoped to workspace within an organization", %{
