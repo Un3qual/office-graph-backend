@@ -1,8 +1,7 @@
 defmodule OfficeGraph.Foundation.BootstrapTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Authorization
-  alias OfficeGraph.Foundation
+  alias OfficeGraph.{Authorization, Foundation, Identity, Operations, Repo}
   alias OfficeGraph.Identity.SessionContext
 
   require Ash.Query
@@ -91,6 +90,20 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
         |> Ash.count!(authorize?: false)
 
       assert assignment_count == 2
+    end
+
+    test "rerun after revoking local owner session returns a usable replacement session" do
+      attrs = unique_bootstrap_attrs("revoked-local-owner")
+
+      assert {:ok, first} = Foundation.bootstrap_local_owner(attrs)
+      revoke_session!(first.session.session_id)
+
+      assert {:ok, second} = Foundation.bootstrap_local_owner(attrs)
+
+      assert second.session.session_id != first.session.session_id
+      assert {:error, :forbidden} = Identity.validate_session_context(first.session)
+      assert :ok = Identity.validate_session_context(second.session)
+      assert {:ok, _operation} = Operations.start_operation(second.session, :manual_intake_submit)
     end
   end
 
@@ -181,5 +194,118 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                  organization_id: bootstrap.organization.id
                )
     end
+
+    test "rejects role assignments whose role belongs to another organization" do
+      assert {:ok, bootstrap} =
+               Foundation.bootstrap_local_owner(unique_bootstrap_attrs("local-role"))
+
+      assert {:ok, foreign} =
+               Foundation.bootstrap_local_owner(unique_bootstrap_attrs("foreign-role"))
+
+      bare_principal =
+        Ash.create!(
+          OfficeGraph.Identity.Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: "cross-role-#{System.unique_integer([:positive])}@office-graph.local",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      bare_session =
+        Ash.create!(
+          OfficeGraph.Identity.Session,
+          %{
+            id: Ecto.UUID.generate(),
+            principal_id: bare_principal.id,
+            organization_id: bootstrap.organization.id,
+            workspace_id: bootstrap.workspace.id,
+            purpose: "cross_org_role_test"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      Ash.create!(
+        OfficeGraph.Authorization.RoleAssignment,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: bare_principal.id,
+          role_id: foreign.role_assignment.role_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      cross_org_context = %SessionContext{
+        principal_id: bare_principal.id,
+        session_id: bare_session.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        capabilities: MapSet.new(["manual_intake.submit"])
+      }
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(cross_org_context, :manual_intake_submit,
+                 organization_id: bootstrap.organization.id
+               )
+    end
+
+    test "rejects sessions whose principal is inactive" do
+      assert {:ok, bootstrap} =
+               Foundation.bootstrap_local_owner(unique_bootstrap_attrs("inactive-principal"))
+
+      deactivate_principal!(bootstrap.principal.id)
+
+      assert {:error, :forbidden} = Identity.validate_session_context(bootstrap.session)
+
+      assert {:error, :forbidden} =
+               Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(bootstrap.session, :manual_intake_submit,
+                 organization_id: bootstrap.organization.id
+               )
+    end
   end
+
+  defp unique_bootstrap_attrs(label) do
+    suffix = "#{label}-#{System.unique_integer([:positive])}"
+
+    [
+      organization_name: "Office Graph #{suffix}",
+      organization_slug: suffix,
+      workspace_name: "Workspace #{suffix}",
+      workspace_slug: suffix,
+      initiative_name: "Initiative #{suffix}",
+      initiative_slug: suffix,
+      owner_email: "#{suffix}@example.test",
+      owner_name: "Owner #{suffix}"
+    ]
+  end
+
+  defp revoke_session!(session_id) do
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      "UPDATE sessions SET revoked_at = $1, updated_at = $1 WHERE id = $2",
+      [now, db_uuid(session_id)]
+    )
+  end
+
+  defp deactivate_principal!(principal_id) do
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      "UPDATE principals SET status = 'inactive', updated_at = $1 WHERE id = $2",
+      [now, db_uuid(principal_id)]
+    )
+  end
+
+  defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 end

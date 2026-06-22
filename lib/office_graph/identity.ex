@@ -80,7 +80,8 @@ defmodule OfficeGraph.Identity do
        }} ->
         if principal_id == session_context.principal_id and
              organization_id == session_context.organization_id and
-             workspace_id == session_context.workspace_id do
+             workspace_id == session_context.workspace_id and
+             active_principal?(principal_id) do
           :ok
         else
           {:error, :forbidden}
@@ -96,8 +97,15 @@ defmodule OfficeGraph.Identity do
 
   def validate_session_context(_session_context), do: {:error, :forbidden}
 
+  defp active_principal?(principal_id) do
+    case Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false) do
+      {:ok, %Principal{status: "active"}} -> true
+      _other -> false
+    end
+  end
+
   defp get_or_create!(resource, lookup, attrs) do
-    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
+    case fetch_existing(resource, lookup) do
       {:ok, nil} ->
         attrs =
           attrs
@@ -112,6 +120,24 @@ defmodule OfficeGraph.Identity do
       {:error, error} ->
         raise error
     end
+  end
+
+  defp fetch_existing(Session, lookup) do
+    lookup = Map.new(lookup)
+
+    Session
+    |> Ash.Query.filter(
+      principal_id == ^lookup.principal_id and
+        organization_id == ^lookup.organization_id and
+        workspace_id == ^lookup.workspace_id and
+        purpose == ^lookup.purpose and
+        is_nil(revoked_at)
+    )
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp fetch_existing(resource, lookup) do
+    Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false)
   end
 
   defp insert_then_fetch!(resource, lookup, attrs) do
@@ -129,7 +155,7 @@ defmodule OfficeGraph.Identity do
       conflict_target: conflict_target
     )
 
-    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
+    case fetch_existing(resource, lookup) do
       {:ok, nil} -> raise "#{inspect(resource)} not found after create"
       {:ok, record} -> record
       {:error, refetch_error} -> raise refetch_error
@@ -143,7 +169,9 @@ defmodule OfficeGraph.Identity do
   end
 
   defp insert_contract!(Session) do
-    {"sessions", [:principal_id, :organization_id, :workspace_id, :purpose],
+    {"sessions",
+     {:unsafe_fragment,
+      "(principal_id, organization_id, workspace_id, purpose) WHERE revoked_at IS NULL"},
      [:id, :principal_id, :organization_id, :workspace_id]}
   end
 

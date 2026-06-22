@@ -33,7 +33,8 @@ defmodule OfficeGraph.Identity.Session do
   end
 
   identities do
-    identity :unique_context, [:principal_id, :organization_id, :workspace_id, :purpose]
+    identity :unique_context, [:principal_id, :organization_id, :workspace_id, :purpose],
+      where: expr(is_nil(revoked_at))
   end
 
   policies do

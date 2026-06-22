@@ -151,7 +151,9 @@ defmodule OfficeGraph.Repo.Migrations.CreateIdentityTenancyBootstrap do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:sessions, [:principal_id, :organization_id, :workspace_id, :purpose])
+    create unique_index(:sessions, [:principal_id, :organization_id, :workspace_id, :purpose],
+             where: "revoked_at IS NULL"
+           )
 
     execute(
       """

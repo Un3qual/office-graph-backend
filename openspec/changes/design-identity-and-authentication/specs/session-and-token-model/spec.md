@@ -17,6 +17,7 @@ authorization fact stores.
 - **THEN** Office Graph MUST re-evaluate authorization against current policy
   facts, scopes, grants, sensitivity labels, credential metadata, and effective
   policy bundle versions rather than trusting stale session claims
+- **AND** the authenticated principal MUST still be active at validation time
 
 ### Requirement: Session Lifecycle Audit Events
 Office Graph SHALL emit audit-relevant authentication events for sensitive
@@ -34,3 +35,9 @@ session and token lifecycle actions.
   revoked
 - **THEN** future use MUST fail closed and policy-sensitive revocation context
   MUST be auditable
+
+#### Scenario: Replacement session is issued
+- **WHEN** a new session is issued for a principal, tenant scope, and purpose
+  whose previous session was revoked
+- **THEN** the revoked session MUST remain unusable and Office Graph MUST allow
+  only one active session for that principal, tenant scope, and purpose

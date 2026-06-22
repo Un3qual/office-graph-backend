@@ -201,18 +201,31 @@ defmodule OfficeGraph.Authorization do
   defp granted_capability?(session_context, required) do
     with {:ok, %Capability{id: capability_id}} <-
            Ash.get(Capability, %{key: required}, authorize?: false),
-         role_ids when role_ids != [] <- role_ids_for_capability(capability_id) do
+         role_ids when role_ids != [] <-
+           role_ids_for_capability(capability_id, session_context.organization_id) do
       role_assignment_exists?(session_context, role_ids)
     else
       _ -> false
     end
   end
 
-  defp role_ids_for_capability(capability_id) do
-    RoleCapability
-    |> Ash.Query.filter(capability_id == ^capability_id)
-    |> Ash.read!(authorize?: false)
-    |> Enum.map(& &1.role_id)
+  defp role_ids_for_capability(capability_id, organization_id) do
+    role_ids =
+      RoleCapability
+      |> Ash.Query.filter(capability_id == ^capability_id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.role_id)
+
+    case role_ids do
+      [] ->
+        []
+
+      role_ids ->
+        Role
+        |> Ash.Query.filter(id in ^role_ids and organization_id == ^organization_id)
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(& &1.id)
+    end
   end
 
   defp role_assignment_exists?(session_context, role_ids) do

@@ -85,7 +85,10 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
     OfficeGraph.Identity.Session => %{
-      unique_context: [:principal_id, :organization_id, :workspace_id, :purpose]
+      unique_context: %{
+        keys: [:principal_id, :organization_id, :workspace_id, :purpose],
+        where: "is_nil(revoked_at)"
+      }
     },
     OfficeGraph.Authorization.Capability => %{key: [:key]},
     OfficeGraph.Authorization.Role => %{unique_key: [:organization_id, :key]},

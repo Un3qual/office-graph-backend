@@ -15,6 +15,8 @@ assignments, and grants as typed authorization facts.
 - **THEN** the role assignment MUST record target principal, role, assigned
   scope, descendant inheritance mode, actor, reason when available, lifecycle
   state, and operation correlation
+- **AND** authorization MUST treat the assigned role as effective only within
+  the role's owning organization
 
 #### Scenario: Explicit grant is created
 - **WHEN** exceptional access is granted
