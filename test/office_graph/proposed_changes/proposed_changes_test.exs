@@ -364,6 +364,33 @@ defmodule OfficeGraph.ProposedChangesTest do
     assert decision.reason == "missing_capability"
   end
 
+  test "operation session mismatches deny without recording authorization decisions", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    unauthorized = create_session_without_roles!(bootstrap)
+
+    {:ok, foreign_apply_operation} =
+      Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:error, :forbidden} =
+             ProposedChanges.apply_all(
+               unauthorized,
+               foreign_apply_operation,
+               intake.proposed_changes
+             )
+
+    assert Enum.all?(
+             intake.proposed_changes,
+             &(get_change!(&1).status == "pending")
+           )
+
+    assert 0 ==
+             AuthorizationDecision
+             |> Ash.Query.filter(operation_id == ^foreign_apply_operation.id)
+             |> Ash.count!(authorize?: false)
+  end
+
   test "apply-only sessions can create proposed signal graph truth", %{
     bootstrap: bootstrap,
     intake: intake

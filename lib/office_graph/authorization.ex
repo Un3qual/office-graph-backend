@@ -130,6 +130,11 @@ defmodule OfficeGraph.Authorization do
           result
         end
 
+      {false, _result} ->
+        # Mismatched operations are refused before audit persistence so a forged
+        # request cannot attach decisions to an operation it does not own.
+        result
+
       _other ->
         result
     end
