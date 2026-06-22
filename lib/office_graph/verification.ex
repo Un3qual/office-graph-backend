@@ -15,11 +15,11 @@ defmodule OfficeGraph.Verification do
 
   def complete_with_evidence(session_context, operation, verification_check, attrs) do
     with :ok <-
-           Authorization.authorize(session_context, :evidence_link,
+           Authorization.authorize_operation(session_context, operation, :evidence_link,
              organization_id: verification_check.organization_id
            ),
          :ok <-
-           Authorization.authorize(session_context, :verification_complete,
+           Authorization.authorize_operation(session_context, operation, :verification_complete,
              organization_id: verification_check.organization_id
            ) do
       WorkGraph.complete_verification(session_context, operation, verification_check, attrs)

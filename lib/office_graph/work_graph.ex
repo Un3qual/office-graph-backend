@@ -281,7 +281,7 @@ defmodule OfficeGraph.WorkGraph do
     with :ok <- validate_operation_context(session_context, operation),
          :ok <- validate_operation_action(operation, @verification_complete_action),
          :ok <-
-           Authorization.authorize(session_context, :verification_complete,
+           Authorization.authorize_operation(session_context, operation, :verification_complete,
              organization_id: session_context.organization_id
            ) do
       artifact_id = Ecto.UUID.generate()
@@ -602,12 +602,12 @@ defmodule OfficeGraph.WorkGraph do
   defp authorize_signal_create(session_context, operation) do
     case operation.action do
       @manual_intake_action ->
-        Authorization.authorize(session_context, :manual_intake_submit,
+        Authorization.authorize_operation(session_context, operation, :manual_intake_submit,
           organization_id: session_context.organization_id
         )
 
       @proposed_change_apply_action ->
-        Authorization.authorize(session_context, :proposed_change_apply,
+        Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
           organization_id: session_context.organization_id
         )
 

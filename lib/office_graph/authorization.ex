@@ -5,7 +5,15 @@ defmodule OfficeGraph.Authorization do
 
   use Boundary, deps: [OfficeGraph.Identity, OfficeGraph.Repo], exports: []
 
-  alias OfficeGraph.Authorization.{Capability, PolicyBundle, Role, RoleAssignment, RoleCapability}
+  alias OfficeGraph.Authorization.{
+    AuthorizationDecision,
+    Capability,
+    PolicyBundle,
+    Role,
+    RoleAssignment,
+    RoleCapability
+  }
+
   alias OfficeGraph.Identity
   alias OfficeGraph.Repo
 
@@ -87,22 +95,103 @@ defmodule OfficeGraph.Authorization do
   def authorize(session_context, action, opts \\ [])
 
   def authorize(%{organization_id: organization_id} = session_context, action, opts) do
-    case Map.fetch(@owner_capabilities, action) do
-      {:ok, required} ->
-        with :ok <- Identity.validate_session_context(session_context),
-             true <- organization_id == opts[:organization_id],
-             true <- granted_capability?(session_context, required) do
-          :ok
-        else
-          _ -> {:error, :forbidden}
-        end
+    {result, _decision_attrs} =
+      evaluate_authorization(session_context, organization_id, action, opts)
 
-      :error ->
-        {:error, :forbidden}
-    end
+    result
   end
 
   def authorize(_session_context, _action, _opts), do: {:error, :forbidden}
+
+  def authorize_operation(session_context, operation, action, opts \\ [])
+
+  def authorize_operation(
+        %{organization_id: organization_id} = session_context,
+        operation,
+        action,
+        opts
+      )
+      when is_map(operation) do
+    {authorization_result, {action_name, _decision, reason}} =
+      evaluate_authorization(session_context, organization_id, action, opts)
+
+    operation_matches? = operation_matches_session?(operation, session_context)
+
+    result =
+      if operation_matches? do
+        authorization_result
+      else
+        {:error, :forbidden}
+      end
+
+    case {operation_matches?, result} do
+      {true, {:error, :forbidden}} ->
+        with :ok <- record_decision(session_context, operation, action_name, "deny", reason) do
+          result
+        end
+
+      _other ->
+        result
+    end
+  end
+
+  def authorize_operation(_session_context, _operation, _action, _opts), do: {:error, :forbidden}
+
+  defp evaluate_authorization(session_context, organization_id, action, opts) do
+    case Map.fetch(@owner_capabilities, action) do
+      {:ok, required} ->
+        cond do
+          Identity.validate_session_context(session_context) != :ok ->
+            deny(required, "invalid_session")
+
+          organization_id != opts[:organization_id] ->
+            deny(required, "scope_mismatch")
+
+          not granted_capability?(session_context, required) ->
+            deny(required, "missing_capability")
+
+          true ->
+            {:ok, {required, "allow", nil}}
+        end
+
+      :error ->
+        deny(recorded_action_name(action), "unknown_action")
+    end
+  end
+
+  defp deny(action, reason), do: {{:error, :forbidden}, {action, "deny", reason}}
+
+  defp record_decision(session_context, operation, action, decision, reason) do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      operation_id: Map.fetch!(operation, :id),
+      principal_id: session_context.principal_id,
+      organization_id: session_context.organization_id,
+      action: action,
+      decision: decision,
+      reason: reason
+    }
+
+    AuthorizationDecision
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> case do
+      {:ok, _decision, _notifications} -> :ok
+      {:ok, _decision} -> :ok
+      {:error, error} -> {:error, {:authorization_decision_failed, error}}
+    end
+  end
+
+  defp operation_matches_session?(operation, session_context) do
+    Map.get(operation, :principal_id) == session_context.principal_id and
+      Map.get(operation, :session_id) == session_context.session_id and
+      Map.get(operation, :organization_id) == session_context.organization_id and
+      Map.get(operation, :workspace_id) == session_context.workspace_id
+  end
+
+  defp recorded_action_name(action) when is_atom(action), do: Atom.to_string(action)
+  defp recorded_action_name(action) when is_binary(action), do: action
+  defp recorded_action_name(action), do: inspect(action)
 
   defp granted_capability?(session_context, required) do
     with {:ok, %Capability{id: capability_id}} <-

@@ -4,7 +4,8 @@ defmodule OfficeGraph.ProposedChangesTest do
   require Ash.Query
 
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Identity.SessionContext
+  alias OfficeGraph.Authorization.AuthorizationDecision
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
@@ -338,6 +339,29 @@ defmodule OfficeGraph.ProposedChangesTest do
              intake.proposed_changes,
              &(get_change!(&1).status == "pending")
            )
+  end
+
+  test "denied proposed change application records an authorization decision", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    unauthorized = create_session_without_roles!(bootstrap)
+    {:ok, apply_operation} = Operations.start_operation(unauthorized, :proposed_change_apply)
+
+    assert {:error, :forbidden} =
+             ProposedChanges.apply_all(unauthorized, apply_operation, intake.proposed_changes)
+
+    decision =
+      AuthorizationDecision
+      |> Ash.Query.filter(
+        operation_id == ^apply_operation.id and action == "proposed_change.apply"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert decision.principal_id == unauthorized.principal_id
+    assert decision.organization_id == unauthorized.organization_id
+    assert decision.decision == "deny"
+    assert decision.reason == "missing_capability"
   end
 
   test "apply-only sessions can create proposed signal graph truth", %{
@@ -830,6 +854,44 @@ defmodule OfficeGraph.ProposedChangesTest do
       "create_review_finding",
       "create_verification_check"
     ]
+  end
+
+  defp create_session_without_roles!(bootstrap) do
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email:
+            "proposed-change-denied-#{System.unique_integer([:positive])}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "proposed_change_denied"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new()
+    }
   end
 
   defp get_change!(change) do

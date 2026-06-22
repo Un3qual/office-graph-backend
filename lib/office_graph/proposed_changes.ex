@@ -234,7 +234,7 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp apply_all_locked(session_context, operation, proposed_changes) do
     with :ok <-
-           Authorization.authorize(session_context, :proposed_change_apply,
+           Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
              organization_id: session_context.organization_id
            ),
          :ok <- validate_apply_operation(session_context, operation),

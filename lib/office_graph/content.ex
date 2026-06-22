@@ -79,7 +79,7 @@ defmodule OfficeGraph.Content do
   defp authorize_operation_capability(session_context, operation) do
     case Map.fetch(@document_operation_capabilities, operation.action) do
       {:ok, capability} ->
-        Authorization.authorize(session_context, capability,
+        Authorization.authorize_operation(session_context, operation, capability,
           organization_id: session_context.organization_id
         )
 

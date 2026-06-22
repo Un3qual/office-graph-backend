@@ -24,7 +24,7 @@ defmodule OfficeGraph.Integrations do
     with :ok <- validate_manual_intake_attrs(attrs),
          :ok <- validate_manual_intake_operation(session_context, operation),
          :ok <-
-           Authorization.authorize(session_context, :manual_intake_submit,
+           Authorization.authorize_operation(session_context, operation, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
          {:ok, intake} <- record_manual_intake(session_context, operation, attrs) do
