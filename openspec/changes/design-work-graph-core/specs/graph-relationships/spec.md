@@ -35,6 +35,26 @@ execution, review, verification, provenance, and external context.
   traversal and projection while allowing typed specialization where accepted
   by the domain model
 
+### Requirement: MVP Relationship Vocabulary
+Office Graph SHALL keep the MVP relationship vocabulary narrow enough to prove
+the walking skeleton and first customer-facing projections.
+
+#### Scenario: MVP edge type is selected
+- **WHEN** the MVP relationship vocabulary is implemented
+- **THEN** it MUST include `contained_in`, `decomposes_to`, `depends_on`,
+  `blocked_by`, `generated_from`, `requires_check`, `satisfied_by`,
+  `evidenced_by`, `review_finding_for`, `discussed_in`,
+  `references_external`, and `affects_scope` edge types with explicit source
+  and target rules
+
+#### Scenario: Follow-up edge type is requested during MVP
+- **WHEN** duplicate, merge, split, supersession, approval, waiver,
+  provider-specific review traversal, rich run provenance, saved-view, or
+  workflow-configuration relationships are requested before the first graph
+  loop proves the MVP vocabulary
+- **THEN** the design MUST defer them to the first follow-up release unless an
+  accepted change proves they are required for the walking skeleton
+
 ### Requirement: Edges Do Not Grant Access
 Office Graph SHALL NOT treat graph relationships as automatic access grants.
 

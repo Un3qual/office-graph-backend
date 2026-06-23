@@ -39,9 +39,10 @@ surfaces instead of an arbitrary full graph canvas.
 
 #### Scenario: MVP projection families are selected
 - **WHEN** the first product projections are designed
-- **THEN** they MUST consider inbox, question queue, focused node
-  neighborhood, blocker view, dependency view, workstream board, work packet
-  context, review surface, and evidence chain projections
+- **THEN** they MUST include inbox, focused node neighborhood, review surface,
+  evidence chain, and blocker view projections before adding dedicated
+  question queue, dependency view, workstream board, work packet context, or
+  arbitrary graph canvas projections
 
 #### Scenario: Arbitrary graph canvas is requested
 - **WHEN** a full arbitrary graph canvas is requested before focused
@@ -56,7 +57,9 @@ families derived from type-specific lifecycle state.
 #### Scenario: Mixed item projection is rendered
 - **WHEN** a projection displays mixed item types such as tasks, questions,
   checks, evidence, runs, work packets, artifacts, and conversations
-- **THEN** it MAY group or filter by normalized status families while
+- **THEN** it MAY group or filter by normalized status families such as `new`,
+  `open`, `needs_review`, `in_progress`, `waiting`, `blocked`, `done`,
+  `verified`, `failed`, `superseded`, `archived`, and `deleted` while
   preserving each item's type-specific lifecycle state in details
 
 #### Scenario: Status family conflicts with item lifecycle

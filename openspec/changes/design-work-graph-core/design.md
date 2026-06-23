@@ -371,16 +371,102 @@ changes should consume these semantics in this order:
    `design-api-realtime-and-ui-projections` refine their respective areas
    without redefining the core graph semantics.
 
-## Open Questions
+## Resolved MVP Questions
 
-- Which exact edge types belong in MVP versus the first follow-up release?
-- Should document and plan sections be first-class core graph item types in
-  MVP, or should they start as domain attachments that can become graph items
-  when individually addressed?
-- Which initial projections are required for the first customer-facing MVP:
-  inbox, question queue, work packet context, focused node view, blocker view,
-  workstream board, evidence chain, or review surface?
-- Which graph item types require dedicated Ash resources immediately, which
-  external concepts remain external references, and which provider-neutral
-  resources belong in the MVP first schema cut? This inventory is deferred to
-  `design-persistence-model`.
+### MVP edge vocabulary
+
+The MVP edge vocabulary should support the walking skeleton and first customer
+review surfaces without modeling every future graph relation. The first edge
+types are:
+
+- `contained_in`: graph item -> workspace, initiative, or workstream. Scope
+  fields remain authoritative; this edge supports traversal and projections.
+- `decomposes_to`: parent work item -> child task, check, finding, or other
+  work item.
+- `depends_on`: dependent item -> prerequisite item.
+- `blocked_by`: blocked item -> blocking item.
+- `generated_from`: graph item, proposed change, or evidence item -> signal,
+  raw payload, integration event, conversation contribution, or run output.
+- `requires_check`: task, review finding, requirement, or decision -> check.
+- `satisfied_by`: requirement, check, task, or finding -> evidence item or
+  verification result.
+- `evidenced_by`: task, finding, decision, check, or run output -> evidence
+  item.
+- `review_finding_for`: review finding -> reviewed task, artifact, external
+  reference, pull request, document section, or affected graph item.
+- `discussed_in`: graph item -> conversation.
+- `references_external`: Office Graph item or domain resource -> external
+  reference.
+- `affects_scope`: graph item -> team, component, repository, service,
+  campaign, finance account, design system, workstream, or other related
+  scope/resource.
+
+The first follow-up release should add merge/split/supersession and duplicate
+relations, richer approval or waiver relations, provider-specific review
+thread/comment traversal, richer run provenance such as observed-in and
+produced-by specializations, and saved-view/workflow configuration relations
+after their owning designs settle.
+
+### Document and plan sections
+
+Document and plan sections are not mandatory first-class graph items for every
+document block in MVP. Office Graph-authored documents should use shared rich
+text persistence, and external documents should start as external references
+plus artifacts. A document or plan section becomes graph-addressable only when
+the product or a domain action individually addresses it for conversation,
+task linkage, requirement/decision/check/evidence linkage, provenance, review,
+or agent context.
+
+This keeps the graph from being flooded by structural text blocks while still
+allowing precise node-scoped work when a section becomes meaningful.
+
+### MVP projection set
+
+The first customer-facing projection set should be:
+
+- `inbox`: assigned, mentioned, requested, or waiting-on-me graph items across
+  authorized scopes.
+- `focused_node_view`: the selected item, allowed details, conversations,
+  relevant checks, evidence, external references, and authorized neighbor
+  edges.
+- `review_surface`: intake/proposed-change/review-finding triage with source,
+  affected scope, required checks, and acceptance/rejection context.
+- `evidence_chain`: requirement/check/task/finding -> evidence ->
+  verification result, including provenance and restricted-context handling.
+- `blocker_view`: blocked items, blocker items, waiting reasons, and
+  authorized unblock paths.
+
+Question queue can be derived from inbox until question volume proves it needs
+a dedicated projection. Workstream board, dependency view, work packet
+context, arbitrary graph canvas, and rich agent-runtime status projections
+should follow after the core item lifecycles, work packet model, run model,
+and UI projection contracts are proven.
+
+### Immediate Ash resource boundary
+
+Ash should own stable domain resources with business actions, validation,
+policies, and type-specific lifecycle transitions. The immediate resource set
+for graph-core implementation should include work containers, signals, tasks,
+requirements, questions, decisions, checks, evidence, artifacts,
+conversations, conversation messages, external references, and review
+findings. A small graph identity or graph item resource may exist to provide
+addressability, but it must not become a generic mutation API that bypasses
+typed resources.
+
+Graph relationships, traversal, projection read models, bulk ingestion
+upserts, idempotent event replay, high-volume append-only logs, and
+maintenance paths should use explicit Ecto/SQL or read-model code where Ash
+would make traversal or volume handling weaker. Work packets, runs, run
+events, verification results, proposed graph changes, rich native document
+sections, and provider-neutral software resources remain first-class
+persistence concepts, but their fields, state machines, and Ash resource
+boundaries belong to their owning follow-on changes.
+
+### MVP projection status families
+
+The first normalized projection status families are `new`, `open`,
+`needs_review`, `in_progress`, `waiting`, `blocked`, `done`, `verified`,
+`failed`, `superseded`, `archived`, and `deleted`. These are derived read-model
+families for mixed projections. They do not authorize lifecycle transitions
+and do not replace type-specific statuses such as task, question, check,
+evidence, review finding, run, proposed-change, or work-packet state.

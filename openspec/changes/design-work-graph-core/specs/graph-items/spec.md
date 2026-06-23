@@ -41,6 +41,24 @@ Office Graph SHALL define a small department-neutral core graph item taxonomy.
 - **THEN** it MUST attach specialized records to the shared taxonomy rather
   than redefining a separate graph ontology for that department
 
+### Requirement: Addressable Section Promotion
+Office Graph SHALL make document and plan sections graph-addressable only when
+the section is individually relevant to work.
+
+#### Scenario: Section remains ordinary document structure
+- **WHEN** a document or plan section exists only as rich text structure,
+  imported document context, or presentation content
+- **THEN** it MUST remain part of document, artifact, or external-reference
+  persistence rather than becoming a mandatory graph item
+
+#### Scenario: Section becomes individually addressable
+- **WHEN** a document or plan section needs its own conversation, task link,
+  requirement link, decision link, check, evidence, provenance, review, or
+  agent context
+- **THEN** Office Graph MUST allow a product or domain action to promote or
+  create that section as an addressable graph item while preserving document
+  provenance
+
 ### Requirement: Typed Resources Own Business Meaning
 Office Graph SHALL keep type-specific business meaning in typed resources and
 domain actions rather than in opaque graph properties.
@@ -58,6 +76,24 @@ domain actions rather than in opaque graph properties.
 - **THEN** the design MUST prefer typed fields, join tables, or typed resources
   unless a later persistence design accepts a narrow raw-payload exception
 
+### Requirement: MVP Typed Resource Boundary
+Office Graph SHALL route MVP graph item mutations through stable typed
+resources rather than through a generic graph node mutation surface.
+
+#### Scenario: MVP typed resource is implemented
+- **WHEN** the first graph-core implementation introduces work containers,
+  signals, tasks, requirements, questions, decisions, checks, evidence,
+  artifacts, conversations, conversation messages, external references, or
+  review findings
+- **THEN** those concepts MUST be modeled through stable typed resources and
+  domain actions with graph identity participation
+
+#### Scenario: Generic graph identity is exposed
+- **WHEN** a graph identity or graph item resource exists to support
+  addressability, traversal, projections, or conversations
+- **THEN** it MUST NOT allow callers to bypass the typed resource's lifecycle,
+  validation, authorization, or provenance rules
+
 ### Requirement: Type-Specific Lifecycles And Projection Status Families
 Office Graph SHALL let typed resources own their lifecycle while exposing
 normalized status families for graph projections.
@@ -70,9 +106,10 @@ normalized status families for graph projections.
 
 #### Scenario: Projection filters by status
 - **WHEN** a graph projection filters or groups mixed item types
-- **THEN** it MAY use normalized status families such as new, open, blocked,
-  waiting, in progress, done, verified, failed, superseded, archived, or
-  deleted as read-model categories derived from type-specific state
+- **THEN** it MAY use normalized status families such as `new`, `open`,
+  `needs_review`, `in_progress`, `waiting`, `blocked`, `done`, `verified`,
+  `failed`, `superseded`, `archived`, or `deleted` as read-model categories
+  derived from type-specific state
 
 ### Requirement: Graph Items Preserve Provenance
 Office Graph SHALL preserve provenance for graph items created by humans,

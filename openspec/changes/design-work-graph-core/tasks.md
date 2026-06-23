@@ -40,18 +40,18 @@
 
 ## 3. Open Work Graph Questions
 
-- [ ] 3.1 Decide which exact edge types belong in MVP versus the first
+- [x] 3.1 Decide which exact edge types belong in MVP versus the first
   follow-up release.
-- [ ] 3.2 Decide whether document and plan sections are first-class core graph
+- [x] 3.2 Decide whether document and plan sections are first-class core graph
   item types in MVP or start as domain attachments that become graph items
   when individually addressed.
-- [ ] 3.3 Decide which initial projections are required for the first
+- [x] 3.3 Decide which initial projections are required for the first
   customer-facing MVP: inbox, question queue, work packet context, focused
   node view, blocker view, workstream board, evidence chain, review surface,
   or another projection.
-- [ ] 3.4 Decide which graph item types require dedicated Ash resources
+- [x] 3.4 Decide which graph item types require dedicated Ash resources
   immediately and which can wait until the persistence model is designed.
-- [ ] 3.5 Decide the first normalized projection status families after the
+- [x] 3.5 Decide the first normalized projection status families after the
   MVP item lifecycles are known.
 
 ## 4. Follow-On Planning Work
