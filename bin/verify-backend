@@ -1,14 +1,16 @@
 #!/usr/bin/env sh
 set -eu
 
-docker compose up -d postgres
-for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  if docker compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null 2>&1; then
-    break
-  fi
-  sleep 5
-done
-docker compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null
+if [ "${OFFICE_GRAPH_SKIP_COMPOSE:-0}" != "1" ]; then
+  docker compose up -d postgres
+  for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if docker compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null 2>&1; then
+      break
+    fi
+    sleep 5
+  done
+  docker compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null
+fi
 
 mix compile --warnings-as-errors
 mix format --check-formatted

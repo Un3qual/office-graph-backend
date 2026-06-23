@@ -81,3 +81,10 @@ Or run the same gate as one command:
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
 ```
+
+If Postgres is already provided outside Docker Compose, skip the local Compose
+startup:
+
+```sh
+OFFICE_GRAPH_SKIP_COMPOSE=1 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
+```
