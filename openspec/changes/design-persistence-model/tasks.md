@@ -20,8 +20,9 @@
 - [x] 1.8 Confirm rich text bodies use normalized Office Graph document state
   instead of Lexical JSON or another editor payload as canonical storage.
 - [x] 1.9 Confirm rich text revisions use whole-document semantic revisions in
-  v1 with stable identities that allow later copy-on-write inline versions,
-  anchors, ranges, and quote snapshots to attach without replacing the v1
+  v1 with stable identities, pinned exact-span quote snapshots, and selection
+  segments while allowing later copy-on-write inline versions, live anchors,
+  render caches, and collaboration state to attach without replacing the v1
   model.
 - [x] 1.10 Confirm ordered structures use domain-owned ordering in v1 with
   concrete foreign keys, sortable position keys, lifecycle state, operation
@@ -54,8 +55,9 @@
   volume tables, archive references, and operation correlation.
 - [x] 2.9 Review `portable-rich-text-persistence` requirements for editor-
   independent rich text, stable extension identities, whole-document semantic
-  revisions, normalized marks, typed references, deferred quote/reconstruction
-  behavior, and derived plain text.
+  revisions, normalized marks, typed references, pinned quote snapshots,
+  selection segments, deferred live quote/reconstruction behavior, and derived
+  plain text.
 - [x] 2.10 Review `ordered-placement-model` requirements for domain-owned v1
   ordering, concrete references, sortable position keys, lifecycle state,
   operation correlation, and future shared ordering strategies.
@@ -117,10 +119,11 @@
 - [x] 4.8 Create or continue `design-api-realtime-and-ui-projections` to define
   GraphQL, JSON API, realtime subscriptions, render caches, agent Markdown,
   and authorization-filtered graph projections.
-- [ ] 4.9 Create a future rich text implementation design before building
-  editor adapters, schema migrations, reconstruction logic, anchor resolution,
-  quote snapshots, render caches, search indexing, or collaboration/session
-  behavior.
+- [x] 4.9 Resolve the rich text implementation direction before schema
+  migrations: v1 includes pinned exact-span quote snapshots, selection
+  segments, source freshness, and current-permission reauthorization, while
+  live quote updating, automatic re-anchoring, render caches, and
+  collaboration/session behavior remain deferred.
 - [ ] 4.10 Create a future ordered placement implementation design before
   building reusable placement APIs, typed placement migrations, position-key
   libraries, rebalance jobs, derived ordinal projections, or strategy-specific
@@ -132,8 +135,10 @@
 - [x] 4.12 Define the first walking skeleton persistence scope and pull
   skeletal work packets, runs, run events, proposed graph changes, and
   verification results forward only as needed to prove the loop.
-- [x] 4.13 Narrow rich text v1 to normalized documents, current blocks, basic
-  marks/references, whole-document semantic revisions, and derived plain text.
+- [x] 4.13 Narrow rich text v1 to normalized documents, current blocks, stable
+  text-run or inline-span identities, basic marks/references, pinned
+  exact-span quote snapshots, selection segments, whole-document semantic
+  revisions, source freshness state, and derived plain text.
 - [x] 4.14 Narrow ordered placement v1 to explicit task-list ordering and rich
   text block ordering with concrete references.
 - [x] 4.15 Add the graph identity plus typed resource same-transaction

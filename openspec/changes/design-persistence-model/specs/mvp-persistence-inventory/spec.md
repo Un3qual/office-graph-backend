@@ -11,16 +11,16 @@ resources, external-reference-only records, and raw archives.
   workspaces, initiatives/projects, workstreams, graph items, graph
   relationships, signals, requirements, tasks, questions, decisions, checks,
   evidence, artifacts, conversations, conversation messages, rich text
-  documents, external references, raw payload archives, and operation
-  correlation records
+  documents, pinned quote snapshots, quote selection segments, external
+  references, raw payload archives, and operation correlation records
 
 #### Scenario: Immediate migration cut is selected
 - **WHEN** the first MVP migration scope is selected
 - **THEN** it MUST include the work-container, graph identity, graph
-  relationship, core work-loop, conversation, narrowed rich text foundation,
-  external reference, raw archive, operation correlation, manual intake, review
-  finding, verification check, evidence, and verified-completion resources
-  needed for the walking skeleton
+  relationship, core work-loop, conversation, narrowed rich text foundation
+  with pinned exact-span quote support, external reference, raw archive,
+  operation correlation, manual intake, review finding, verification check,
+  evidence, and verified-completion resources needed for the walking skeleton
 
 #### Scenario: Walking skeleton execution records are selected
 - **WHEN** the first backend cut proves manual intake through verified
