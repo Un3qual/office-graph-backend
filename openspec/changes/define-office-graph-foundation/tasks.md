@@ -78,7 +78,7 @@
 - [x] Create `design-proposed-graph-changes`.
 - [ ] Create `design-work-packets-and-readiness`.
 - [ ] Create `design-runs-and-verification`.
-- [ ] Create `design-api-realtime-and-ui-projections`.
+- [x] Create `design-api-realtime-and-ui-projections`.
 - [x] Create `design-enterprise-governance`.
 
 ## 5. Validation

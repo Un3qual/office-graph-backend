@@ -74,7 +74,7 @@
 - [ ] 4.8 Feed work-container scope, addressable graph items, checks, evidence,
   and projection context into `design-work-packets-and-readiness` and
   `design-runs-and-verification`.
-- [ ] 4.9 Feed initial projection families and authorization-filtered graph
+- [x] 4.9 Feed initial projection families and authorization-filtered graph
   context into `design-api-realtime-and-ui-projections`.
 - [x] 4.10 Feed the first executable walking skeleton graph slice into
   `design-persistence-model` and the project remediation plan.

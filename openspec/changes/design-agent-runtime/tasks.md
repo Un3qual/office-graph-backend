@@ -49,7 +49,7 @@
   envelope requirements into `design-work-packets-and-readiness`.
 - [ ] 4.2 Feed runtime state, run references, failure events, tool actions, and
   provenance requirements into `design-runs-and-verification`.
-- [ ] 4.3 Feed runtime status, authority, context-boundary, approval, failure,
+- [x] 4.3 Feed runtime status, authority, context-boundary, approval, failure,
   and provenance projection requirements into
   `design-api-realtime-and-ui-projections`.
 - [x] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules

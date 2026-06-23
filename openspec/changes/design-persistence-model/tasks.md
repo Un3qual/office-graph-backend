@@ -114,7 +114,7 @@
 - [ ] 4.7 Create or continue `design-work-packets-and-readiness` to define
   work packets, execution packages, readiness checks, approval gates, and
   agent-executable block constraints.
-- [ ] 4.8 Create or continue `design-api-realtime-and-ui-projections` to define
+- [x] 4.8 Create or continue `design-api-realtime-and-ui-projections` to define
   GraphQL, JSON API, realtime subscriptions, render caches, agent Markdown,
   and authorization-filtered graph projections.
 - [ ] 4.9 Create a future rich text implementation design before building

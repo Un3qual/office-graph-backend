@@ -71,7 +71,7 @@
 
 - [x] 4.1 Feed the context map, Boundary rules, and Ash/Ecto ownership rules
   into the first backend app-generation change.
-- [ ] 4.2 Feed entrypoint and projection rules into
+- [x] 4.2 Feed entrypoint and projection rules into
   `design-api-realtime-and-ui-projections`.
 - [ ] 4.3 Feed provider adapter, raw archive, sync event, and
   provider-neutral ownership rules into `design-ingestion-and-integrations`.
