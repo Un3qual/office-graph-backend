@@ -110,7 +110,8 @@ Alternatives considered:
 The runtime should receive context packages from graph/projection domain
 contracts rather than directly walking graph tables. A context package should
 include the selected item or trigger, authorized neighboring graph items,
-related typed records, external references, relevant decisions/checks/evidence,
+related typed records, rich text anchors, external references, raw archive
+references or approved payload slices, relevant decisions/checks/evidence,
 recent run references when available, and rationale for why each piece is
 included or restricted.
 

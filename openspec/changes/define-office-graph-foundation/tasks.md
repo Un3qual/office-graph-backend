@@ -40,7 +40,7 @@
   graph, repository, or a smaller subset.
 - [x] Decide the first role, capability, and grant vocabulary.
 - [x] Decide which authorization decisions must be durable records in v1.
-- [ ] Decide the first internal agent runtime scope for code review/fix versus
+- [x] Decide the first internal agent runtime scope for code review/fix versus
   conversation/review/proposed-change workflows.
 - [x] Decide where JSON storage is acceptable for raw payloads, model I/O, and
   archival data.
@@ -74,7 +74,7 @@
 - [x] Create `design-revision-audit-soft-delete`.
 - [x] Create `design-code-organization-and-boundaries`.
 - [x] Create `design-ingestion-and-integrations`.
-- [ ] Create `design-agent-runtime`.
+- [x] Create `design-agent-runtime`.
 - [x] Create `design-proposed-graph-changes`.
 - [ ] Create `design-work-packets-and-readiness`.
 - [ ] Create `design-runs-and-verification`.

@@ -68,7 +68,7 @@
   `design-code-organization-and-boundaries`.
 - [x] 4.5 Feed SSO, SCIM, local identity lab, credential, webhook-source, and
   external-write rules into `design-ingestion-and-integrations`.
-- [ ] 4.6 Feed cross-scope run authority, context expansion, temporary grants,
+- [x] 4.6 Feed cross-scope run authority, context expansion, temporary grants,
   agent effective permission, and AI data-control rules into
   `design-agent-runtime`.
 - [ ] 4.7 Feed capability, grant, approval gate, separation-of-duties, and

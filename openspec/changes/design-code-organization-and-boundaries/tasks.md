@@ -75,7 +75,7 @@
   `design-api-realtime-and-ui-projections`.
 - [ ] 4.3 Feed provider adapter, raw archive, sync event, and
   provider-neutral ownership rules into `design-ingestion-and-integrations`.
-- [ ] 4.4 Feed agent entrypoint, operation context, authorization, and
+- [x] 4.4 Feed agent entrypoint, operation context, authorization, and
   extractability rules into `design-agent-runtime`.
 - [ ] 4.5 Feed shared operation, revision, audit, and validation rules into
   `design-proposed-graph-changes`.

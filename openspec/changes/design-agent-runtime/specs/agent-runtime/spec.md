@@ -34,8 +34,9 @@ authorized graph projections and related typed records.
   agent
 - **THEN** the context package MUST include the selected graph item or trigger,
   authorized neighboring graph items, relevant typed records, external
-  references, prior decisions, checks, evidence, recent runs when available,
-  and projection rationale sufficient to explain why the context is present
+  references, rich text references, raw archive references when policy permits,
+  prior decisions, checks, evidence, recent runs when available, and projection
+  rationale sufficient to explain why the context is present
 
 #### Scenario: Context is restricted
 - **WHEN** relevant context is outside the agent's permitted scope,

@@ -52,14 +52,14 @@
 - [ ] 4.3 Feed runtime status, authority, context-boundary, approval, failure,
   and provenance projection requirements into
   `design-api-realtime-and-ui-projections`.
-- [ ] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules
+- [x] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules
   into `design-proposed-graph-changes`.
 - [ ] 4.5 Feed tool manifest, credential scope, external action, and AI
   data-control runtime requirements into `design-enterprise-governance` and
   `design-identity-and-authentication`.
-- [ ] 4.6 Feed runtime entrypoint, operation-context, Boundary, and future
+- [x] 4.6 Feed runtime entrypoint, operation-context, Boundary, and future
   extractability requirements into `design-code-organization-and-boundaries`.
-- [ ] 4.7 Feed graph projection, node conversation, context expansion, and
+- [x] 4.7 Feed graph projection, node conversation, context expansion, and
   embedded-agent mutation requirements back into `design-work-graph-core`.
 
 ## 5. Validation

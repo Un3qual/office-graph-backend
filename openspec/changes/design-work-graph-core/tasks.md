@@ -65,7 +65,7 @@
   and product-level promotion semantics into `design-revision-audit-soft-delete`.
 - [x] 4.4 Feed graph addressability, typed-resource boundaries, domain actions,
   and projection/query interfaces into `design-code-organization-and-boundaries`.
-- [ ] 4.5 Feed node-conversation context assembly, context expansion needs, and
+- [x] 4.5 Feed node-conversation context assembly, context expansion needs, and
   embedded-agent mutation boundaries into `design-agent-runtime`.
 - [x] 4.6 Feed external references, provider-neutral domain attachments, and
   source provenance rules into `design-ingestion-and-integrations`.

@@ -102,7 +102,7 @@
   external sources, raw payload archives, provider adapters, idempotency,
   replay, sync state, extension packages, and provider-specific extension
   tables.
-- [ ] 4.4 Create or continue `design-agent-runtime` to consume graph identity,
+- [x] 4.4 Create or continue `design-agent-runtime` to consume graph identity,
   rich text references, external references, raw archives, operation
   correlation, and cross-scope context expansion safely.
 - [ ] 4.5 Create or continue `design-runs-and-verification` to refine runs,
