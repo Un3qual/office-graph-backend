@@ -71,7 +71,7 @@
 - [x] 4.6 Feed cross-scope run authority, context expansion, temporary grants,
   agent effective permission, and AI data-control rules into
   `design-agent-runtime`.
-- [ ] 4.7 Feed capability, grant, approval gate, separation-of-duties, and
+- [x] 4.7 Feed capability, grant, approval gate, separation-of-duties, and
   manager/team-lead verification requirements into
   `design-proposed-graph-changes` and `design-work-packets-and-readiness`.
 - [x] 4.8 Create `design-identity-and-authorization-schema` as the concrete

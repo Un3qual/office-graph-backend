@@ -76,7 +76,7 @@
 - [x] Create `design-ingestion-and-integrations`.
 - [x] Create `design-agent-runtime`.
 - [x] Create `design-proposed-graph-changes`.
-- [ ] Create `design-work-packets-and-readiness`.
+- [x] Create `design-work-packets-and-readiness`.
 - [ ] Create `design-runs-and-verification`.
 - [x] Create `design-api-realtime-and-ui-projections`.
 - [x] Create `design-enterprise-governance`.

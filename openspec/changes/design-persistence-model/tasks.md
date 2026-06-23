@@ -111,7 +111,7 @@
 - [x] 4.6 Create or continue `design-proposed-graph-changes` to define how
   agents and humans propose typed persistence changes without bypassing graph,
   authorization, revision, and approval rules.
-- [ ] 4.7 Create or continue `design-work-packets-and-readiness` to define
+- [x] 4.7 Create or continue `design-work-packets-and-readiness` to define
   work packets, execution packages, readiness checks, approval gates, and
   agent-executable block constraints.
 - [x] 4.8 Create or continue `design-api-realtime-and-ui-projections` to define
