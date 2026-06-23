@@ -71,7 +71,10 @@
 - [x] 4.4 Feed revision, audit, tombstone, and proposed mutation traceability
   rules into `design-proposed-graph-changes`.
 - [x] 4.5 Feed export, redaction, audit visibility, and projection staleness
-  constraints into `design-api-realtime-and-ui-projections`.
+  constraints into durable specs: `openspec/specs/audit-compliance/spec.md`,
+  `openspec/specs/graph-projections/spec.md`,
+  `openspec/specs/realtime-delivery/spec.md`, and
+  `openspec/specs/ui-projection-contracts/spec.md`.
 - [x] 4.6 Add audit JSON exception cross-link and edge tombstone/restore
   cascade rules.
 

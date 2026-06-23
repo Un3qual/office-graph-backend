@@ -116,9 +116,12 @@
 - [x] 4.7 Create or continue `design-work-packets-and-readiness` to define
   work packets, execution packages, readiness checks, approval gates, and
   agent-executable block constraints.
-- [x] 4.8 Create or continue `design-api-realtime-and-ui-projections` to define
-  GraphQL, JSON API, realtime subscriptions, render caches, agent Markdown,
-  and authorization-filtered graph projections.
+- [x] 4.8 Retarget accepted API, realtime, render-cache, agent Markdown, and
+  projection follow-up work to durable specs:
+  `openspec/specs/ash-api-surface/spec.md`,
+  `openspec/specs/realtime-delivery/spec.md`,
+  `openspec/specs/graph-projections/spec.md`, and
+  `openspec/specs/ui-projection-contracts/spec.md`.
 - [x] 4.9 Resolve the rich text implementation direction before schema
   migrations: v1 includes pinned exact-span quote snapshots, selection
   segments, source freshness, and current-permission reauthorization, while
