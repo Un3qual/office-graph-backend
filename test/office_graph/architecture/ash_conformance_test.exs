@@ -114,7 +114,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     "rich_text_quote_snapshots" =>
       {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSnapshot},
     "rich_text_quote_selection_segments" =>
-      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSelectionSegment}
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSelectionSegment},
+    "rich_text_derived_plain_texts" =>
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextDerivedPlainText}
   }
 
   @accepted_software_proving_planned_tables MapSet.new([
@@ -140,7 +142,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
                                        "rich_text_references",
                                        "rich_text_document_revisions",
                                        "rich_text_quote_snapshots",
-                                       "rich_text_quote_selection_segments"
+                                       "rich_text_quote_selection_segments",
+                                       "rich_text_derived_plain_texts"
                                      ])
 
   @expected_resource_identities %{
@@ -374,6 +377,16 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert model_inventory_row("rich_text_quote_snapshots") =~ "quote freshness state",
            "rich_text_quote_snapshots row must explicitly own quote freshness state"
+  end
+
+  test "planned MVP inventory source references point to current files" do
+    errors =
+      planned_model_inventory_source_references()
+      |> Enum.reject(fn {_table, source_path} -> File.exists?(source_path) end)
+      |> Enum.map(fn {table, source_path} -> "#{table}: #{source_path}" end)
+
+    assert errors == [],
+           "Expected planned MVP inventory source references to point to existing files:\n#{format_errors(errors)}"
   end
 
   test "all expected Ash domains are registered in application config" do
@@ -761,6 +774,33 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     planned_model_inventory_resources()
     |> Enum.map(fn {table, _domain, _resource} -> table end)
     |> MapSet.new()
+  end
+
+  defp planned_model_inventory_source_references do
+    @model_inventory
+    |> File.read!()
+    |> model_inventory_section_lines("## Planned MVP Resource Inventory")
+    |> Enum.flat_map(fn line ->
+      case Regex.run(
+             ~r/^\|\s*`([^`]+)`\s*\|\s*`[^`]+`\s*\|\s*`[^`]+`\s*\|\s*([^|]+?)\s*\|/,
+             line
+           ) do
+        [_, table, sources] ->
+          sources
+          |> String.split(";")
+          |> Enum.map(fn source ->
+            source
+            |> String.trim()
+            |> String.trim_leading("`")
+            |> String.trim_trailing("`")
+          end)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.map(&{table, &1})
+
+        _ ->
+          []
+      end
+    end)
   end
 
   defp model_inventory_row(table) do

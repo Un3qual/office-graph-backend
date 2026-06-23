@@ -174,9 +174,9 @@ display fallback, or agent context requires it.
 #### Scenario: Agent or search context needs text
 - **WHEN** search indexing, graph summaries, verification context, or agent
   context needs text from a rich text body
-- **THEN** Office Graph MAY store or compute derived plain text tied to the
-  current document revision, applying authorization and redaction policy before
-  exposing it
+- **THEN** Office Graph MAY store `rich_text_derived_plain_texts` or compute
+  derived plain text tied to the current document revision, applying
+  authorization and redaction policy before exposing it
 
 ### Requirement: Unsupported Rich Text Features
 Office Graph SHALL handle unsupported editor features explicitly instead of
