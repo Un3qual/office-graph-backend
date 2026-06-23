@@ -677,10 +677,11 @@ subgraphs because authorization, classification, redaction, and graph edges are
 still core truth-table concerns.
 
 Dedicated read models may be introduced later for stable, high-traffic
-projections only after `design-api-realtime-and-ui-projections` defines their
-query shape, invalidation behavior, authorization filter, and staleness
-contract. Likely candidates are inbox/queue lists, node-neighborhood summaries,
-verification dashboards, and agent-context assembly caches.
+projections only after the durable API, realtime, graph-projection, and
+UI-projection specs define their query shape, invalidation behavior,
+authorization filter, and staleness contract. Likely candidates are inbox/queue
+lists, node-neighborhood summaries, verification dashboards, and agent-context
+assembly caches.
 
 All high-volume tables should be partition-ready in MVP, but none require
 day-one partitioning before first customer data. Raw payload archives, source
@@ -810,8 +811,11 @@ work should consume the persistence model in this order:
    validation, authorization, and domain-action application before agents or
    adapters propose durable graph changes.
 6. Use `design-agent-runtime`, `design-runs-and-verification`, and
-   `design-api-realtime-and-ui-projections` to refine high-volume event,
-   context, run, and projection read patterns.
+   `openspec/specs/ash-api-surface/spec.md`,
+   `openspec/specs/realtime-delivery/spec.md`,
+   `openspec/specs/graph-projections/spec.md`, and
+   `openspec/specs/ui-projection-contracts/spec.md` to refine high-volume
+   event, context, run, and projection read patterns.
 7. Use a future rich text implementation design to refine editor adapters,
    copy-on-write reconstruction, automatic source-range re-anchoring, live
    quote updating, rich diff views, ordering tables, rendering caches, search
