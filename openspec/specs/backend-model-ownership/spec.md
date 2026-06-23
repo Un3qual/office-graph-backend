@@ -95,6 +95,7 @@ ownership specs diverge.
 - **WHEN** `mix architecture.conformance` or `./bin/verify-backend` runs
 - **THEN** it MUST verify table inventory, Ash domain registration, Ash resource
   registration, absence of table-backed Ecto schemas, absence of duplicate
-  model definitions, planned MVP graph/rich-text resource coverage, and coverage in the existing
+  model definitions, planned MVP graph/software-proving/rich-text resource
+  coverage, and coverage in the existing
   `openspec/specs/backend-model-ownership/architecture-exceptions.md` direct
   Ecto exception ledger

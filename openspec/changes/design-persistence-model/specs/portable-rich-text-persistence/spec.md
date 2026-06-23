@@ -10,10 +10,12 @@ reconstruction.
   conversation message, requirement body, decision body, or plan-section body
   is saved in the first backend cut
 - **THEN** the canonical durable content MUST use normalized
-  `rich_text_documents`, current `rich_text_blocks`, stable text-run or inline
-  span identities, basic inline marks, typed references, pinned quote
-  snapshots when present, and whole-document semantic revision records rather
-  than Lexical JSON or another frontend-editor payload as canonical storage
+  `rich_text_documents`, current `rich_text_blocks`, versioned
+  `rich_text_block_versions`, stable text-run or inline span identities,
+  basic inline mark types and mark applications, typed references, pinned
+  quote snapshots when present, and whole-document semantic
+  `rich_text_document_revisions` rather than Lexical JSON or another
+  frontend-editor payload as canonical storage
 
 #### Scenario: Editor payload is needed
 - **WHEN** Lexical JSON, HTML, Markdown, or another editor-specific payload is
@@ -30,9 +32,9 @@ the walking skeleton.
 - **WHEN** the first rich text schema is built
 - **THEN** it MUST support documents, current blocks, text runs, paragraphs or
   equivalent plain blocks, ordered and unordered list blocks where needed for
-  task lists, and basic marks for bold, italic, inline code, links, principal
-  mentions, graph item references, external references, URLs, and artifact
-  references
+  task lists, block versions, mark-type definitions, mark applications, and
+  basic marks for bold, italic, inline code, links, principal mentions, graph
+  item references, external references, URLs, and artifact references
 
 #### Scenario: Rich text references Office Graph data
 - **WHEN** rich text contains a principal mention, graph item reference,

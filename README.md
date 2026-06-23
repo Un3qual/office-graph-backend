@@ -72,7 +72,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix for
 nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
-nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate first-backend-walking-skeleton --strict
+nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
 

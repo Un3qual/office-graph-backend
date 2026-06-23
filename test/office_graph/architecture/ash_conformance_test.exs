@@ -84,17 +84,64 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation},
     "conversation_messages" =>
       {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage},
+    "repositories" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Repository},
+    "repository_refs" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.RepositoryRef},
+    "commits" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Commit},
+    "pull_requests" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.PullRequest},
+    "review_threads" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewThread},
+    "review_comments" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewComment},
+    "check_runs" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.CheckRun},
+    "issues" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Issue},
+    "observability_issues" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ObservabilityIssue},
+    "observability_events" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ObservabilityEvent},
     "rich_text_documents" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextDocument},
     "rich_text_blocks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextBlock},
+    "rich_text_block_versions" =>
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextBlockVersion},
     "rich_text_spans" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextSpan},
+    "rich_text_mark_types" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextMarkType},
     "rich_text_marks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextMark},
     "rich_text_references" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextReference},
-    "rich_text_revisions" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextRevision},
+    "rich_text_document_revisions" =>
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextDocumentRevision},
     "rich_text_quote_snapshots" =>
       {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSnapshot},
     "rich_text_quote_selection_segments" =>
       {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSelectionSegment}
   }
+
+  @accepted_software_proving_planned_tables MapSet.new([
+                                              "repositories",
+                                              "repository_refs",
+                                              "commits",
+                                              "pull_requests",
+                                              "review_threads",
+                                              "review_comments",
+                                              "check_runs",
+                                              "issues",
+                                              "observability_issues",
+                                              "observability_events"
+                                            ])
+
+  @accepted_rich_text_planned_tables MapSet.new([
+                                       "rich_text_documents",
+                                       "rich_text_blocks",
+                                       "rich_text_block_versions",
+                                       "rich_text_spans",
+                                       "rich_text_mark_types",
+                                       "rich_text_marks",
+                                       "rich_text_references",
+                                       "rich_text_document_revisions",
+                                       "rich_text_quote_snapshots",
+                                       "rich_text_quote_selection_segments"
+                                     ])
 
   @expected_resource_identities %{
     OfficeGraph.Tenancy.Organization => %{unique_slug: [:slug]},
@@ -308,6 +355,25 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   test "OpenSpec model inventory tracks accepted planned MVP resources separately" do
     assert expected_planned_resource_inventory() == planned_model_inventory_resources()
+  end
+
+  test "planned MVP inventory covers accepted software proving and rich text sets" do
+    planned_map_tables = @planned_mvp_resources |> Map.keys() |> MapSet.new()
+    planned_inventory_tables = planned_model_inventory_tables()
+
+    for {label, required_tables} <- [
+          {"software proving", @accepted_software_proving_planned_tables},
+          {"rich text", @accepted_rich_text_planned_tables}
+        ] do
+      assert MapSet.subset?(required_tables, planned_map_tables),
+             "Expected @planned_mvp_resources to include accepted #{label} tables:\n#{format_missing_tables(required_tables, planned_map_tables)}"
+
+      assert MapSet.subset?(required_tables, planned_inventory_tables),
+             "Expected #{@model_inventory} to include accepted #{label} tables:\n#{format_missing_tables(required_tables, planned_inventory_tables)}"
+    end
+
+    assert model_inventory_row("rich_text_quote_snapshots") =~ "quote freshness state",
+           "rich_text_quote_snapshots row must explicitly own quote freshness state"
   end
 
   test "all expected Ash domains are registered in application config" do
@@ -689,6 +755,27 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   defp planned_model_inventory_resources do
     model_inventory_section_resources("## Planned MVP Resource Inventory")
+  end
+
+  defp planned_model_inventory_tables do
+    planned_model_inventory_resources()
+    |> Enum.map(fn {table, _domain, _resource} -> table end)
+    |> MapSet.new()
+  end
+
+  defp model_inventory_row(table) do
+    @model_inventory
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.find("", &String.starts_with?(&1, "| `#{table}` |"))
+  end
+
+  defp format_missing_tables(required_tables, actual_tables) do
+    required_tables
+    |> MapSet.difference(actual_tables)
+    |> MapSet.to_list()
+    |> Enum.sort()
+    |> Enum.map_join("\n", &"- #{&1}")
   end
 
   defp model_inventory_section_resources(heading) do

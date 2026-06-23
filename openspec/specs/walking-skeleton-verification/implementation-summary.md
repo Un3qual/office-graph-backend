@@ -47,9 +47,9 @@
 - Added focused tests for bootstrap/idempotency, authorization, graph identity,
   raw intake replay, proposed-change rejection, API smoke behavior, and the full
   walking-skeleton flow.
-- Added `bin/verify-backend` for Docker Compose Postgres startup, explicit
-  database create/migrate checks, compile, format, Boundary, tests, and
-  OpenSpec validation from inside the Nix development shell.
+- Added `bin/verify-backend` for Docker Compose Postgres startup, database
+  readiness, compile, format, Boundary, tests, and OpenSpec validation from
+  inside the Nix development shell.
 
 ### Architecture Evidence Matrix
 
@@ -57,7 +57,7 @@
 | --- | --- | --- |
 | Phoenix API baseline | `lib/office_graph_web`, `config/*.exs`, `mix.exs` | `mix compile --warnings-as-errors` |
 | Boundary context layout | `lib/office_graph/*.ex`, Boundary declarations | `mix boundary.check` |
-| Stable WorkGraph resources are Ash-backed, all table-backed resources have Ash owners, and planned MVP graph/rich-text resources remain tracked separately from implemented tables | `OfficeGraph.*.Domain`, canonical Ash resource modules for all 40 migration-created tables, `openspec/specs/backend-model-ownership/model-inventory.md` | `mix architecture.conformance` |
+| Stable WorkGraph resources are Ash-backed, all table-backed resources have Ash owners, and planned MVP graph/software-proving/rich-text resources remain tracked separately from implemented tables | `OfficeGraph.*.Domain`, canonical Ash resource modules for all 40 migration-created tables, `openspec/specs/backend-model-ownership/model-inventory.md` | `mix architecture.conformance` |
 | WorkGraph Ash actions are authorization-aware | `OfficeGraph.Authorization.Checks.HasCapability`, WorkGraph resource policies | `test/office_graph/architecture/ash_conformance_test.exs` |
 | Graph identity plus typed resource creation is atomic | `OfficeGraph.WorkGraph` transaction boundary with Ash-backed graph identity, relationship, and typed resource creates | `test/office_graph/work_graph/persistence_test.exs` |
 | Stable product mutations route through Ash or approved exceptions | `OfficeGraph.WorkGraph` Ash create/update helpers, `architecture-exceptions.md` | `mix architecture.conformance` |
