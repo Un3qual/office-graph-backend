@@ -36,7 +36,6 @@ current locked decisions into formal OpenSpec artifacts.
 
 - `foundation`
 - `work-graph`
-- `agent-runtime`
 - `authorization`
 - `verification`
 - `persistence`

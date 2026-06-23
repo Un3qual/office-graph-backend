@@ -15,8 +15,8 @@
   constraints.
 - [x] Review `work-graph` requirements for graph items, typed edges, proposed
   changes, work packets, questions, decisions, and micro-approvals.
-- [x] Review `agent-runtime` requirements for embedded agents, automatic
-  agents, structured output, tool separation, and run provenance.
+- [x] Confirm `design-agent-runtime` owns embedded agents, automatic agents,
+  structured output, tool separation, and run provenance.
 - [x] Review `authorization` requirements for principals, hybrid policy,
   scoped visibility, agent permissions, relational permission data, and
   decision records.
@@ -41,7 +41,7 @@
 - [x] Decide the first role, capability, and grant vocabulary.
 - [x] Decide which authorization decisions must be durable records in v1.
 - [x] Decide the first internal agent runtime scope for code review/fix versus
-  conversation/review/proposed-change workflows.
+  conversation/review/proposed-change workflows in `design-agent-runtime`.
 - [x] Decide where JSON storage is acceptable for raw payloads, model I/O, and
   archival data.
 - [x] Decide the revision table pattern for the first aggregates.

@@ -12,9 +12,10 @@ Run project commands through the Nix flake:
 nix --extra-experimental-features 'nix-command flakes' develop --command mix deps.get
 ```
 
-The shell pins Erlang/OTP 29, Elixir 1.20, Node.js 26, and OpenSpec. It also
-sets project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix
-archives do not leak into this runtime.
+The shell pins Erlang/OTP 29, Elixir 1.20, Node.js 26, OpenSpec, zsh, and the
+Docker/Compose CLI used by the local Postgres helpers. It also sets
+project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix archives do
+not leak into this runtime.
 
 ## Postgres
 
