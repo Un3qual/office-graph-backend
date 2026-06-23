@@ -76,8 +76,8 @@ the walking skeleton and first customer-facing projections.
 Office Graph SHALL NOT treat graph relationships as automatic access grants.
 
 This capability is the canonical owner for the "edges do not grant access"
-rule, in coordination with `design-enterprise-governance/specs/tenancy` for
-tenant and scope policy.
+rule, in coordination with `openspec/specs/tenancy/spec.md` for tenant and
+scope policy.
 
 #### Scenario: Traversal crosses scope boundary
 
