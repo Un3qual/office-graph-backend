@@ -708,7 +708,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     summary = File.read!(@implementation_summary)
 
     for required_text <- [
-          "### Architecture Evidence Matrix",
+          "## Architecture Evidence Matrix",
           "| Requirement | Evidence | Gate |",
           "Stable WorkGraph resources are Ash-backed",
           "WorkGraph Ash actions are authorization-aware",

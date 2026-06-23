@@ -1,6 +1,6 @@
 # Implementation Summary
 
-### backend-app-baseline
+## backend-app-baseline
 
 - Generated a Phoenix API application at the repository root with
   `OfficeGraph` and `OfficeGraphWeb`.
@@ -8,7 +8,7 @@
 - Added Phoenix/Ecto/Postgres, Ash, Boundary, Absinthe, and JSON API support
   dependencies inside the Nix-shell workflow.
 
-### walking-skeleton-persistence
+## walking-skeleton-persistence
 
 - Added identity, tenancy, authorization, operation correlation, revision,
   audit, tombstone, graph, raw archive, intake, proposed-change, content,
@@ -19,7 +19,7 @@
 - Preserved graph identity plus typed resource creation in one transaction for
   graph-backed resources.
 
-### walking-skeleton-domain-loop
+## walking-skeleton-domain-loop
 
 - Added local owner bootstrap with organization, workspace, initiative,
   principal/profile, role assignment, capabilities, policy bundle, and session
@@ -30,7 +30,7 @@
 - Implemented the executable loop from manual intake through verified
   completion with audit and revision traceability.
 
-### walking-skeleton-api-surface
+## walking-skeleton-api-surface
 
 - Added a thin shared `OfficeGraph.ApiSupport` facade for API entrypoints, with
   local owner bootstrap explicitly gated to dev/test configuration until real
@@ -41,7 +41,7 @@
 - API smoke coverage proves GraphQL and JSON drive equivalent durable
   state and duplicate replay behavior.
 
-### walking-skeleton-verification
+## walking-skeleton-verification
 
 - Added Boundary compiler enforcement and a `mix boundary.check` alias.
 - Added focused tests for bootstrap/idempotency, authorization, graph identity,
@@ -51,7 +51,7 @@
   readiness, compile, format, Boundary, tests, and OpenSpec validation from
   inside the Nix development shell.
 
-### Architecture Evidence Matrix
+## Architecture Evidence Matrix
 
 | Requirement | Evidence | Gate |
 | --- | --- | --- |
@@ -66,7 +66,7 @@
 | GraphQL and JSON use shared actions with gated local bootstrap | `OfficeGraph.ApiSupport`, `OfficeGraphWeb.Schema`, `OfficeGraphWeb.WalkingSkeletonController` | `test/office_graph_web/api_smoke_test.exs` |
 | OpenSpec remains valid and mapped to evidence | `openspec/specs/backend-app-baseline/spec.md`, `openspec/specs/walking-skeleton-*/spec.md`, and active changes | `openspec validate --specs --strict`; `openspec validate --changes --strict` |
 
-### Scope Guard
+## Scope Guard
 
 This implementation does not add a React frontend, LiveView UI, provider
 webhooks or polling, a full agent runtime, a generic ordered-placement
