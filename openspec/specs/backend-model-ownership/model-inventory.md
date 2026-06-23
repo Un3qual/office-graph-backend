@@ -1,5 +1,7 @@
 # Resource Ownership Inventory
 
+## Implemented Table Inventory
+
 Derived from committed migrations; expected count: 40 tables.
 
 | Table | Owning domain | Canonical Ash resource |
@@ -44,3 +46,26 @@ Derived from committed migrations; expected count: 40 tables.
 | `runs` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.Run` |
 | `run_events` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.RunEvent` |
 | `proposed_graph_changes` | `OfficeGraph.ProposedChanges.Domain` | `OfficeGraph.ProposedChanges.ProposedGraphChange` |
+
+## Planned MVP Resource Inventory
+
+These resources are accepted or active design commitments that are not yet
+implemented in committed migrations. They remain separate from the implemented
+40-table inventory so the architecture gate does not treat the walking skeleton
+as the complete MVP persistence model.
+
+| Table | Owning domain | Canonical Ash resource | Source | Implementation status |
+| --- | --- | --- | --- | --- |
+| `requirements` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Requirement` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `questions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Question` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `decisions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Decision` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_documents` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDocument` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_blocks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextBlock` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_spans` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextSpan` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_marks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextMark` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_references` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextReference` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_revisions` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextRevision` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_quote_snapshots` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSnapshot` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_quote_selection_segments` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSelectionSegment` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |

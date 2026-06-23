@@ -76,6 +76,26 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     OfficeGraph.WorkGraph.VerificationResult
   ]
 
+  @planned_mvp_resources %{
+    "requirements" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Requirement},
+    "questions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Question},
+    "decisions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Decision},
+    "conversations" =>
+      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation},
+    "conversation_messages" =>
+      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage},
+    "rich_text_documents" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextDocument},
+    "rich_text_blocks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextBlock},
+    "rich_text_spans" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextSpan},
+    "rich_text_marks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextMark},
+    "rich_text_references" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextReference},
+    "rich_text_revisions" => {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextRevision},
+    "rich_text_quote_snapshots" =>
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSnapshot},
+    "rich_text_quote_selection_segments" =>
+      {OfficeGraph.Content.Domain, OfficeGraph.Content.RichTextQuoteSelectionSegment}
+  }
+
   @expected_resource_identities %{
     OfficeGraph.Tenancy.Organization => %{unique_slug: [:slug]},
     OfficeGraph.Tenancy.Workspace => %{unique_slug: [:organization_id, :slug]},
@@ -284,6 +304,10 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   test "repo-wide Ash ownership inventory matches the OpenSpec model inventory" do
     assert expected_resource_inventory() == model_inventory_resources()
+  end
+
+  test "OpenSpec model inventory tracks accepted planned MVP resources separately" do
+    assert expected_planned_resource_inventory() == planned_model_inventory_resources()
   end
 
   test "all expected Ash domains are registered in application config" do
@@ -652,9 +676,43 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   defp model_inventory_resources do
+    model_inventory_section_resources("## Implemented Table Inventory")
+  end
+
+  defp expected_planned_resource_inventory do
+    @planned_mvp_resources
+    |> Enum.map(fn {table, {domain, resource}} ->
+      {table, inspect(domain), inspect(resource)}
+    end)
+    |> Enum.sort()
+  end
+
+  defp planned_model_inventory_resources do
+    model_inventory_section_resources("## Planned MVP Resource Inventory")
+  end
+
+  defp model_inventory_section_resources(heading) do
     @model_inventory
     |> File.read!()
+    |> model_inventory_section_lines(heading)
+    |> parse_model_inventory_resource_rows()
+  end
+
+  defp model_inventory_section_lines(content, heading) do
+    content
     |> String.split("\n")
+    |> Enum.drop_while(&(&1 != heading))
+    |> case do
+      [] ->
+        []
+
+      [_heading | section_lines] ->
+        Enum.take_while(section_lines, &(not String.starts_with?(&1, "## ")))
+    end
+  end
+
+  defp parse_model_inventory_resource_rows(lines) do
+    lines
     |> Enum.flat_map(fn line ->
       case Regex.run(~r/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|/, line) do
         [_, table, domain, resource] -> [{table, domain, resource}]

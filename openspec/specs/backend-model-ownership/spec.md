@@ -14,7 +14,9 @@ sync.
 Every durable table implemented by Office Graph SHALL have a canonical Ash
 resource in the bounded context that owns its lifecycle.
 `openspec/specs/backend-model-ownership/model-inventory.md` SHALL be the
-normative 40-table inventory used by the architecture conformance gate.
+normative inventory used by the architecture conformance gate, and SHALL
+distinguish implemented migration-created tables from accepted planned MVP
+resources that have not been migrated yet.
 
 #### Scenario: A migration-created table is implemented
 
@@ -33,6 +35,14 @@ normative 40-table inventory used by the architecture conformance gate.
 - **WHEN** an existing manual Ecto schema is promoted to Ash
 - **THEN** the existing canonical module path MUST become the Ash resource
   unless an OpenSpec design explicitly approves a different public module path
+
+#### Scenario: A planned MVP resource is accepted before migration
+
+- **WHEN** an accepted or active OpenSpec design requires a typed MVP resource
+  that is not present in committed migrations yet
+- **THEN** the model inventory MUST list the planned table, owning domain,
+  canonical Ash resource, source spec, and implementation status without
+  counting it as part of the implemented migration-created table inventory
 
 ### Requirement: No Duplicate Model Definitions
 
@@ -85,6 +95,6 @@ ownership specs diverge.
 - **WHEN** `mix architecture.conformance` or `./bin/verify-backend` runs
 - **THEN** it MUST verify table inventory, Ash domain registration, Ash resource
   registration, absence of table-backed Ecto schemas, absence of duplicate
-  model definitions, and coverage in the existing
+  model definitions, planned MVP graph/rich-text resource coverage, and coverage in the existing
   `openspec/specs/backend-model-ownership/architecture-exceptions.md` direct
   Ecto exception ledger
