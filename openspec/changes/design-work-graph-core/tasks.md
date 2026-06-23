@@ -71,9 +71,11 @@
   source provenance rules into `design-ingestion-and-integrations`.
 - [x] 4.7 Feed explicit graph-action routing and attachment-to-resource
   conversion rules into `design-proposed-graph-changes`.
-- [ ] 4.8 Feed work-container scope, addressable graph items, checks, evidence,
-  and projection context into `design-work-packets-and-readiness` and
-  `design-runs-and-verification`.
+- [x] 4.8 Record that work-container scope, addressable graph items, checks,
+  evidence, and projection context are available to
+  `design-work-packets-and-readiness` and `design-runs-and-verification`, but
+  the detailed packet/run handoff remains deferred until those designs
+  stabilize.
 - [x] 4.9 Feed initial projection families and authorization-filtered graph
   context into `design-api-realtime-and-ui-projections`.
 - [x] 4.10 Feed the first executable walking skeleton graph slice into
