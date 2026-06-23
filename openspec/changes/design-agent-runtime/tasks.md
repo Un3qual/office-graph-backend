@@ -30,17 +30,17 @@
 
 ## 3. Open Decisions Before Runtime Code
 
-- [ ] 3.1 Decide which first tool actions are low-risk enough for direct domain
+- [x] 3.1 Decide which first tool actions are low-risk enough for direct domain
   actions rather than proposed changes.
-- [ ] 3.2 Decide which model/tool payload fields are retained, summarized,
+- [x] 3.2 Decide which model/tool payload fields are retained, summarized,
   hashed, or dropped under the first AI data-control policy.
-- [ ] 3.3 Decide which runtime events belong in the future `runs` model versus
+- [x] 3.3 Decide which runtime events belong in the future `runs` model versus
   conversation, audit, operation-correlation, or provider-specific event
   tables.
-- [ ] 3.4 Decide the first automatic review agent: spec review, plan review, PR
+- [x] 3.4 Decide the first automatic review agent: spec review, plan review, PR
   review comment triage, verification evidence review, or another graph-native
   review.
-- [ ] 3.5 Decide how much context package rationale is visible to ordinary
+- [x] 3.5 Decide how much context package rationale is visible to ordinary
   users versus administrators, auditors, and debugging operators.
 
 ## 4. Follow-On Planning Work

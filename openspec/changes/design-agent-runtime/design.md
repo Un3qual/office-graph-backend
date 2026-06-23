@@ -250,6 +250,70 @@ Alternatives considered:
 - Hide runtime details behind a simple status. This is too opaque for governed
   human-agent work.
 
+## Runtime Code Decisions
+
+### First direct domain actions
+
+The first runtime implementation should not allow agents to perform direct
+business mutations. Agent-suggested work should go through proposed graph
+changes unless a later accepted policy grants a narrow direct action. The only
+initial direct domain calls should be runtime-supporting actions such as
+context package assembly, authorization checks, operation-context creation,
+provenance/event recording, validation, and creation of proposal/evidence
+candidates through owning domain contracts.
+
+This keeps the MVP useful without letting the first runtime quietly become a
+write-capable automation platform.
+
+### Model and tool payload retention
+
+The first retention posture should store typed metadata, classifications,
+operation/context references, summaries, hashes, and accepted structured
+outputs by default. Full prompts, model inputs/outputs, raw tool payloads, and
+provider responses should be retained only when a policy-approved raw archive,
+debug-retention rule, audit requirement, or external replay need explicitly
+allows it.
+
+This defers provider-specific payload storage while preserving enough
+provenance to explain agent behavior and reconstruct accepted graph changes.
+
+### Runtime event ownership
+
+Runtime event ownership should be split by purpose:
+
+- Execution lifecycle, retries, step failures, tool steps, and future run UI
+  events belong to the future `runs` model.
+- Conversation messages and embedded-agent chat turns belong to conversation
+  storage.
+- Sensitive authorization, approval, credential, context-expansion, export, and
+  external-write decisions belong to audit, authorization decision, and
+  operation-correlation records.
+- Raw model, provider, and tool payloads belong to raw archive or
+  provider-specific payload storage only when policy allows retention.
+- Runtime projections should stitch these records through operation context,
+  run/conversation references, context package references, and graph item links
+  rather than using one generic runtime-events table for everything.
+
+### First automatic review agent
+
+The first automatic agent should be an OpenSpec/spec review agent. It can run
+against repo-local OpenSpec artifacts, graph decisions, checks, and proposal
+text before external provider integrations are required. PR review comment
+triage remains an important proving workflow, but it depends on GitHub
+ingestion and richer run/verification surfaces.
+
+This makes the first automatic agent graph-native, self-dogfooding, and
+aligned with the current source-of-truth workflow.
+
+### Context rationale visibility
+
+Ordinary users should see concise explanations for included, omitted,
+redacted, or placeholder context when those explanations do not reveal
+restricted information. Administrators, auditors, and approved debugging
+operators may see expanded projection and policy rationale according to
+sensitivity labels, audit policy, and support-access rules. No role should gain
+access to the underlying restricted context merely because a rationale exists.
+
 ## Risks / Trade-offs
 
 - Runtime scope grows into a general automation platform -> Keep the first
@@ -296,13 +360,6 @@ operation records, audit records, and evidence candidates.
 
 ## Open Questions
 
-- Which first tool actions are low-risk enough for direct domain actions rather
-  than proposed changes?
-- Which model/tool payload fields are retained, summarized, hashed, or dropped
-  under the first AI data-control policy?
-- Which runtime events belong in the future `runs` model versus conversation,
-  audit, operation-correlation, or provider-specific event tables?
-- What is the first automatic review agent: spec review, plan review, PR review
-  comment triage, verification evidence review, or another graph-native review?
-- How much context package rationale should be visible to ordinary users versus
-  administrators, auditors, and debugging operators?
+- No blocking runtime-code decisions remain in this change. Future companion
+  changes still need to define concrete work-packet readiness, run-event
+  persistence, API/realtime projection shapes, and frontend review surfaces.
