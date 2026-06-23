@@ -3,8 +3,9 @@
 ### Requirement: Durable Model Ash Ownership
 Every durable table implemented by Office Graph SHALL have a canonical Ash
 resource in the bounded context that owns its lifecycle.
-`openspec/changes/repair-ash-model-conformance/model-inventory.md` SHALL be
-the normative 40-table inventory used by the architecture conformance gate.
+`openspec/changes/archive/2026-06-22-repair-ash-model-conformance/model-inventory.md`
+SHALL be the normative 40-table inventory used by the architecture conformance
+gate.
 
 #### Scenario: A migration-created table is implemented
 - **WHEN** a table exists in a committed migration for the backend
@@ -47,9 +48,9 @@ domain mutations.
 - **WHEN** a context uses direct Ecto for a transaction boundary, read model,
   replay scan, bulk maintenance path, or raw SQL escape hatch
 - **THEN** that path MUST be listed in
-  `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
-  with its owner, reason, allowed operation type, approving spec, and
-  retirement condition
+  `openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/architecture-exceptions.md`
+  with its owner, reason, allowed operation type, approving spec, and retirement
+  condition
 
 #### Scenario: A normal mutation is implemented
 - **WHEN** production code creates, updates, or deletes a durable domain record
@@ -65,5 +66,5 @@ ownership specs diverge.
 - **THEN** it MUST verify table inventory, Ash domain registration, Ash resource
   registration, absence of table-backed Ecto schemas, absence of duplicate
   model definitions, and coverage in the existing
-  `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
+  `openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/architecture-exceptions.md`
   direct Ecto exception ledger

@@ -2,7 +2,8 @@
 
 ## 1. OpenSpec And Gate Setup
 
-Reference: use `openspec/changes/repair-ash-model-conformance/model-inventory.md`
+Reference: use
+`openspec/changes/archive/2026-06-22-repair-ash-model-conformance/model-inventory.md`
 as the normative 40-table inventory for the architecture conformance gate.
 
 - [x] 1.1 Add this corrective OpenSpec change and model inventory.
@@ -39,7 +40,7 @@ as the normative 40-table inventory for the architecture conformance gate.
 - [x] 5.1 Remove all `use Ecto.Schema` occurrences under `lib/office_graph`.
 - [x] 5.2 Shrink the architecture exception ledger to remaining direct Ecto
   transaction/read paths only in
-  `openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
+  `openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/architecture-exceptions.md`
   rather than creating a second ledger.
 - [x] 5.3 Run full backend and OpenSpec verification.
 - [x] 5.4 Commit final docs and evidence.

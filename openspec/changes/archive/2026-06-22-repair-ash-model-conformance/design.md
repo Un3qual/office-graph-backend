@@ -14,10 +14,10 @@ The repair uses AshPostgres resources with `migrate? false` because the current
 two migrations already create the walking-skeleton tables. Follow-on changes can
 move selected tables to Ash-owned migrations intentionally, but this repair is
 about model ownership and conformance rather than schema churn.
-`openspec/changes/repair-ash-model-conformance/model-inventory.md` is the
-normative 40-table inventory derived from committed migrations and is the source
-the architecture conformance gate checks for table, domain, and resource
-coverage.
+`openspec/changes/archive/2026-06-22-repair-ash-model-conformance/model-inventory.md`
+is the normative 40-table inventory derived from committed migrations and is
+the source the architecture conformance gate checks for table, domain, and
+resource coverage.
 
 ## Direct Ecto Boundary
 
@@ -25,7 +25,7 @@ Direct Ecto may remain for explicit transactions, performance-sensitive reads,
 maintenance, replay scans, or raw SQL that Ash does not express cleanly. Direct
 Ecto must not define table-backed schemas or bypass normal domain mutations.
 Every remaining direct path is documented in the existing
-`openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md`
+`openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/architecture-exceptions.md`
 ledger. This repair updates and shrinks that existing ledger rather than
 creating a second competing exception ledger.
 

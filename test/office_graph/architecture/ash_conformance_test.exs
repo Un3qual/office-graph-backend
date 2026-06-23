@@ -7,9 +7,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
 
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
-  @architecture_exception_ledger "openspec/changes/first-backend-walking-skeleton/architecture-exceptions.md"
-  @implementation_summary "openspec/changes/first-backend-walking-skeleton/implementation-summary.md"
-  @model_inventory "openspec/changes/repair-ash-model-conformance/model-inventory.md"
+  @architecture_exception_ledger "openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/architecture-exceptions.md"
+  @implementation_summary "openspec/changes/archive/2026-06-22-first-backend-walking-skeleton/implementation-summary.md"
+  @model_inventory "openspec/changes/archive/2026-06-22-repair-ash-model-conformance/model-inventory.md"
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
@@ -616,7 +616,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
           "OpenSpec remains valid and mapped to evidence",
           "mix architecture.conformance",
           "./bin/verify-backend",
-          "openspec validate first-backend-walking-skeleton --strict",
+          "openspec validate --specs --strict",
           "openspec validate --changes --strict"
         ] do
       assert summary =~ required_text,

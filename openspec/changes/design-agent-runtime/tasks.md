@@ -49,18 +49,23 @@
   envelope requirements into `design-work-packets-and-readiness`.
 - [ ] 4.2 Feed runtime state, run references, failure events, tool actions, and
   provenance requirements into `design-runs-and-verification`.
-- [x] 4.3 Feed runtime status, authority, context-boundary, approval, failure,
-  and provenance projection requirements into
-  `design-api-realtime-and-ui-projections`.
+- [x] 4.3 Confirm runtime status, authority, context-boundary, approval,
+  failure, and provenance projection requirements are represented in
+  `openspec/changes/archive/2026-06-23-design-api-realtime-and-ui-projections`
+  and the durable `ash-api-surface`, `realtime-delivery`, and
+  `ui-projection-contracts` specs.
 - [x] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules
   into `design-proposed-graph-changes`.
-- [x] 4.5 Feed tool manifest, credential scope, external action, and AI
-  data-control runtime requirements into `design-enterprise-governance` and
-  `design-identity-and-authentication`.
+- [x] 4.5 Confirm tool manifest, credential scope, external action, and AI
+  data-control runtime requirements are represented in
+  `openspec/changes/archive/2026-06-23-design-enterprise-governance`, the
+  durable governance specs, and `design-identity-and-authentication`.
 - [x] 4.6 Feed runtime entrypoint, operation-context, Boundary, and future
   extractability requirements into `design-code-organization-and-boundaries`.
-- [x] 4.7 Feed graph projection, node conversation, context expansion, and
-  embedded-agent mutation requirements back into `design-work-graph-core`.
+- [x] 4.7 Confirm graph projection, node conversation, context expansion, and
+  embedded-agent mutation requirements are represented in
+  `openspec/changes/archive/2026-06-23-design-work-graph-core` and the durable
+  graph/core conversation specs.
 
 ## 5. Validation
 

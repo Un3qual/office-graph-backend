@@ -6,5 +6,5 @@ mix format --check-formatted
 mix boundary.check
 mix architecture.conformance
 mix test
-openspec validate first-backend-walking-skeleton --strict
+openspec validate --specs --strict
 openspec validate --changes --strict

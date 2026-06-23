@@ -1,3 +1,5 @@
+# Work Packets And Readiness Tasks
+
 ## 1. Direction Lock
 
 - [x] 1.1 Confirm this change defines work packet and readiness design only
@@ -48,10 +50,14 @@
   readiness checks, approval gates, and agent-executable block constraints
   into this change.
 - [x] 4.3 Feed work graph work-container scope, addressable graph items,
-  checks, evidence, and projection context into this change.
+  checks, evidence, and projection context from the durable graph specs and
+  `openspec/changes/archive/2026-06-23-design-work-graph-core` into this
+  change.
 - [x] 4.4 Feed enterprise governance capability, grant, approval gate,
-  separation-of-duties, and manager/team-lead verification requirements into
-  this change.
+  separation-of-duties, and manager/team-lead verification requirements from
+  the durable governance specs and
+  `openspec/changes/archive/2026-06-23-design-enterprise-governance` into this
+  change.
 - [ ] 4.5 Feed packet handoff, packet version, readiness result, evidence
   candidate, and future run-reference requirements into
   `design-runs-and-verification`.

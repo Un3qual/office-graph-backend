@@ -120,7 +120,8 @@
   and proposed-change safety.
 - [x] 7.4 Run the full backend verification gate from inside the Nix shell and
   fix failures.
-- [x] 7.5 Run `openspec validate first-backend-walking-skeleton --strict`.
+- [x] 7.5 Ran per-change OpenSpec validation before archive; post-archive
+  verification is covered by `openspec validate --specs --strict`.
 - [x] 7.6 Run `openspec validate --changes --strict`.
 
 ## 8. Handoff And Scope Guard
