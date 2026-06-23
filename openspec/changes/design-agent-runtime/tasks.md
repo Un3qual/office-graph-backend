@@ -54,7 +54,7 @@
   `design-api-realtime-and-ui-projections`.
 - [x] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules
   into `design-proposed-graph-changes`.
-- [ ] 4.5 Feed tool manifest, credential scope, external action, and AI
+- [x] 4.5 Feed tool manifest, credential scope, external action, and AI
   data-control runtime requirements into `design-enterprise-governance` and
   `design-identity-and-authentication`.
 - [x] 4.6 Feed runtime entrypoint, operation-context, Boundary, and future

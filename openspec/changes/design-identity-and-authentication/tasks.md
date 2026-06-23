@@ -28,7 +28,7 @@
 
 - [x] 3.1 Feed authenticated principal/session context contracts into the first
   backend walking-skeleton implementation plan.
-- [ ] 3.2 Feed service account, webhook, integration, and agent credential
+- [x] 3.2 Feed service account, webhook, integration, and agent credential
   mechanics into `design-ingestion-and-integrations` and
   `design-agent-runtime`.
 - [x] 3.3 Feed SecretStore behaviour placement and identity context public
