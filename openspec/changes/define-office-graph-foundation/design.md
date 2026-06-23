@@ -252,5 +252,5 @@ This foundation should be followed by narrower design changes:
 - `design-proposed-graph-changes`
 - `design-work-packets-and-readiness`
 - `design-runs-and-verification`
-- `design-api-realtime-and-ui-projections`
+- accepted API, realtime, graph-projection, and UI-projection specs
 - `design-enterprise-governance`
