@@ -14,6 +14,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
 
     foreign_key_names organization_id: "work_packets_organization_id_fkey",
                       workspace_id: "work_packets_workspace_id_fkey"
+
+    identity_index_names unique_operation: "work_packets_operation_id_unique_index"
   end
 
   attributes do
@@ -50,6 +52,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       public? false
       accept [:current_version_id, :state]
     end
+  end
+
+  identities do
+    identity :unique_operation, [:operation_id], where: expr(not is_nil(operation_id))
   end
 
   policies do

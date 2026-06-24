@@ -101,93 +101,16 @@ defmodule OfficeGraph.Verification do
           candidate = lock_candidate!(candidate.id)
           validate_scope!(session_context, candidate)
 
-          verification_check =
-            fetch_scoped!(VerificationCheck, session_context, candidate.verification_check_id)
+          case existing_acceptance_for_operation(session_context, operation) do
+            {:ok, nil} ->
+              accept_locked_candidate!(session_context, operation, candidate, attrs)
 
-          work_run = lock_scoped!(Run, session_context, candidate.work_run_id)
-          observation = validate_candidate_links!(candidate, work_run, verification_check)
-          result = attrs[:result] || "passed"
-          validate_passed_result_allowed!(result, work_run, observation)
+            {:ok, accepted} ->
+              accepted
 
-          document = create_document!(session_context, operation, attrs[:body] || "")
-          evidence_id = Ecto.UUID.generate()
-          evidence_graph_item_id = Ecto.UUID.generate()
-          now = DateTime.utc_now()
-
-          graph_item =
-            ash_create!(
-              GraphItem,
-              %{
-                id: evidence_graph_item_id,
-                organization_id: session_context.organization_id,
-                workspace_id: session_context.workspace_id,
-                resource_type: "evidence_item",
-                resource_id: evidence_id,
-                title: attrs[:title]
-              }
-            )
-
-          evidence_item =
-            ash_create!(
-              EvidenceItem,
-              %{
-                id: evidence_id,
-                organization_id: session_context.organization_id,
-                workspace_id: session_context.workspace_id,
-                graph_item_id: graph_item.id,
-                verification_check_id: candidate.verification_check_id,
-                artifact_id: candidate.artifact_id,
-                body_document_id: document.id,
-                candidate_id: candidate.id,
-                work_run_id: candidate.work_run_id,
-                accepted_by_principal_id: session_context.principal_id,
-                acceptance_operation_id: operation.id,
-                acceptance_policy_basis: attrs[:acceptance_policy_basis],
-                accepted_at: now,
-                visibility_constraints: Map.new(attrs[:visibility_constraints] || %{}),
-                sensitivity: candidate.sensitivity,
-                freshness_state: candidate.freshness_state,
-                trust_basis: candidate.trust_basis,
-                title: attrs[:title]
-              }
-            )
-
-          verification_result =
-            ash_create!(
-              VerificationResult,
-              %{
-                id: Ecto.UUID.generate(),
-                organization_id: session_context.organization_id,
-                workspace_id: session_context.workspace_id,
-                verification_check_id: candidate.verification_check_id,
-                evidence_item_id: evidence_item.id,
-                operation_id: operation.id,
-                work_run_id: work_run.id,
-                work_packet_version_id: work_run.work_packet_version_id,
-                target_graph_item_id: verification_check.graph_item_id,
-                actor_principal_id: session_context.principal_id,
-                policy_basis: attrs[:acceptance_policy_basis],
-                reason: attrs[:reason],
-                recorded_at: now,
-                result: result
-              }
-            )
-
-          candidate =
-            candidate
-            |> Ash.Changeset.for_update(:mark_accepted, %{})
-            |> Ash.update!(authorize?: false, return_notifications?: true)
-            |> unwrap_notification_result()
-
-          work_run = update_work_run_after_acceptance!(work_run, verification_result)
-
-          %{
-            evidence_item: evidence_item,
-            verification_result: verification_result,
-            evidence_graph_item: graph_item,
-            candidate: candidate,
-            work_run: work_run
-          }
+            {:error, error} ->
+              Repo.rollback(error)
+          end
         end)
         |> normalize_transaction_result()
       else
@@ -195,6 +118,96 @@ defmodule OfficeGraph.Verification do
         {:error, error} -> {:error, error}
       end
     end
+  end
+
+  defp accept_locked_candidate!(session_context, operation, candidate, attrs) do
+    verification_check =
+      fetch_scoped!(VerificationCheck, session_context, candidate.verification_check_id)
+
+    work_run = lock_scoped!(Run, session_context, candidate.work_run_id)
+    observation = validate_candidate_links!(candidate, work_run, verification_check)
+    result = attrs[:result] || "passed"
+    validate_passed_result_allowed!(result, candidate, work_run, observation)
+
+    document = create_document!(session_context, operation, attrs[:body] || "")
+    evidence_id = Ecto.UUID.generate()
+    evidence_graph_item_id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    graph_item =
+      ash_create!(
+        GraphItem,
+        %{
+          id: evidence_graph_item_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          resource_type: "evidence_item",
+          resource_id: evidence_id,
+          title: attrs[:title]
+        }
+      )
+
+    evidence_item =
+      ash_create!(
+        EvidenceItem,
+        %{
+          id: evidence_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          graph_item_id: graph_item.id,
+          verification_check_id: candidate.verification_check_id,
+          artifact_id: candidate.artifact_id,
+          body_document_id: document.id,
+          candidate_id: candidate.id,
+          work_run_id: candidate.work_run_id,
+          accepted_by_principal_id: session_context.principal_id,
+          acceptance_operation_id: operation.id,
+          acceptance_policy_basis: attrs[:acceptance_policy_basis],
+          accepted_at: now,
+          visibility_constraints: Map.new(attrs[:visibility_constraints] || %{}),
+          sensitivity: candidate.sensitivity,
+          freshness_state: candidate.freshness_state,
+          trust_basis: candidate.trust_basis,
+          title: attrs[:title]
+        }
+      )
+
+    verification_result =
+      ash_create!(
+        VerificationResult,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          verification_check_id: candidate.verification_check_id,
+          evidence_item_id: evidence_item.id,
+          operation_id: operation.id,
+          work_run_id: work_run.id,
+          work_packet_version_id: work_run.work_packet_version_id,
+          target_graph_item_id: verification_check.graph_item_id,
+          actor_principal_id: session_context.principal_id,
+          policy_basis: attrs[:acceptance_policy_basis],
+          reason: attrs[:reason],
+          recorded_at: now,
+          result: result
+        }
+      )
+
+    candidate =
+      candidate
+      |> Ash.Changeset.for_update(:mark_accepted, %{})
+      |> Ash.update!(authorize?: false, return_notifications?: true)
+      |> unwrap_notification_result()
+
+    work_run = update_work_run_after_acceptance!(work_run, verification_result)
+
+    %{
+      evidence_item: evidence_item,
+      verification_result: verification_result,
+      evidence_graph_item: graph_item,
+      candidate: candidate,
+      work_run: work_run
+    }
   end
 
   defp validate_referenced_scope(session_context, attrs) do
@@ -325,10 +338,16 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp validate_passed_result_allowed!("passed", work_run, observation) do
+  defp validate_passed_result_allowed!("passed", candidate, work_run, observation) do
     cond do
       not is_nil(observation) and observation.normalized_status != "succeeded" ->
         Repo.rollback({:observation_not_successful, observation.id})
+
+      not is_nil(observation) and not acceptable_evidence_source?(observation) ->
+        Repo.rollback({:observation_not_acceptable_evidence, observation.id})
+
+      not acceptable_evidence_source?(candidate) ->
+        Repo.rollback({:candidate_not_acceptable_evidence, candidate.id})
 
       work_run_failed?(work_run) ->
         Repo.rollback({:work_run_already_failed, work_run.id})
@@ -338,7 +357,12 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp validate_passed_result_allowed!(_result, _work_run, _observation), do: :ok
+  defp validate_passed_result_allowed!(_result, _candidate, _work_run, _observation), do: :ok
+
+  defp acceptable_evidence_source?(source) do
+    source.freshness_state == "fresh" and
+      source.trust_basis in ["owner_attested", "signed_provider_payload"]
+  end
 
   defp work_run_failed?(work_run) do
     work_run.state == "failed" or work_run.aggregate_state == "failed" or

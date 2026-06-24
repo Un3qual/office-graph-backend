@@ -13,6 +13,8 @@ defmodule OfficeGraph.Runs.Run do
     migrate? false
 
     foreign_key_names work_packet_id: "runs_work_packet_id_fkey"
+
+    identity_index_names unique_operation: "runs_operation_id_unique_index"
   end
 
   attributes do
@@ -77,6 +79,10 @@ defmodule OfficeGraph.Runs.Run do
         :completed_at
       ]
     end
+  end
+
+  identities do
+    identity :unique_operation, [:operation_id], where: expr(not is_nil(operation_id))
   end
 
   policies do

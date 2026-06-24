@@ -13,6 +13,7 @@ defmodule OfficeGraph.WorkPackets do
     exports: []
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
 
   alias OfficeGraph.WorkPackets.{
@@ -34,12 +35,7 @@ defmodule OfficeGraph.WorkPackets do
            Authorization.authorize_operation(session_context, operation, :work_packet_create,
              organization_id: session_context.organization_id
            ) do
-      with {:ok, nil} <- existing_packet_result(session_context, operation) do
-        create_packet_records(session_context, operation, attrs)
-      else
-        {:ok, packet_result} -> {:ok, packet_result}
-        {:error, error} -> {:error, error}
-      end
+      create_packet_records(session_context, operation, attrs)
     end
   end
 
@@ -49,92 +45,121 @@ defmodule OfficeGraph.WorkPackets do
     lifecycle_state = packet_lifecycle_state(attrs)
 
     Repo.transaction(fn ->
-      packet =
-        ash_create!(
-          WorkPacket,
-          %{
-            id: packet_id,
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            operation_id: operation.id,
-            title: attrs[:title],
-            state: lifecycle_state
-          }
-        )
+      _operation = lock_operation!(operation.id)
 
-      version =
-        ash_create!(
-          WorkPacketVersion,
-          %{
-            id: version_id,
-            work_packet_id: packet.id,
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            operation_id: operation.id,
-            version_number: 1,
-            lifecycle_state: lifecycle_state,
-            objective: attrs[:objective],
-            context_summary: attrs[:context_summary],
-            requirements: attrs[:requirements],
-            success_criteria: attrs[:success_criteria],
-            autonomy_posture: attrs[:autonomy_posture]
-          }
-        )
-
-      source_references =
-        attrs
-        |> Map.get(:source_graph_item_ids, [])
-        |> Enum.map(fn graph_item_id ->
-          ash_create!(
-            WorkPacketSourceReference,
-            %{
-              id: Ecto.UUID.generate(),
-              work_packet_version_id: version.id,
-              graph_item_id: graph_item_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              source_kind: "graph_item",
-              rationale: "packet_source",
-              visibility: "full",
-              sensitivity: "internal"
-            }
+      case existing_packet_result(session_context, operation) do
+        {:ok, nil} ->
+          create_packet_records!(
+            session_context,
+            operation,
+            attrs,
+            packet_id,
+            version_id,
+            lifecycle_state
           )
-        end)
 
-      required_checks =
-        attrs
-        |> Map.get(:verification_check_ids, [])
-        |> Enum.map(fn verification_check_id ->
-          ash_create!(
-            WorkPacketRequiredCheck,
-            %{
-              id: Ecto.UUID.generate(),
-              work_packet_version_id: version.id,
-              verification_check_id: verification_check_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              requirement_kind: "required",
-              state: "pending"
-            }
-          )
-        end)
+        {:ok, packet_result} ->
+          packet_result
 
-      packet =
-        packet
-        |> Ash.Changeset.for_update(:set_current_version, %{
-          current_version_id: version.id,
-          state: lifecycle_state
-        })
-        |> ash_update!()
-
-      %{
-        packet: packet,
-        version: version,
-        source_references: source_references,
-        required_checks: required_checks
-      }
+        {:error, error} ->
+          Repo.rollback(error)
+      end
     end)
     |> normalize_transaction_result()
+  end
+
+  defp create_packet_records!(
+         session_context,
+         operation,
+         attrs,
+         packet_id,
+         version_id,
+         lifecycle_state
+       ) do
+    packet =
+      ash_create!(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          operation_id: operation.id,
+          title: attrs[:title],
+          state: lifecycle_state
+        }
+      )
+
+    version =
+      ash_create!(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id,
+          operation_id: operation.id,
+          version_number: 1,
+          lifecycle_state: lifecycle_state,
+          objective: attrs[:objective],
+          context_summary: attrs[:context_summary],
+          requirements: attrs[:requirements],
+          success_criteria: attrs[:success_criteria],
+          autonomy_posture: attrs[:autonomy_posture]
+        }
+      )
+
+    source_references =
+      attrs
+      |> Map.get(:source_graph_item_ids, [])
+      |> Enum.map(fn graph_item_id ->
+        ash_create!(
+          WorkPacketSourceReference,
+          %{
+            id: Ecto.UUID.generate(),
+            work_packet_version_id: version.id,
+            graph_item_id: graph_item_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            source_kind: "graph_item",
+            rationale: "packet_source",
+            visibility: "full",
+            sensitivity: "internal"
+          }
+        )
+      end)
+
+    required_checks =
+      attrs
+      |> Map.get(:verification_check_ids, [])
+      |> Enum.map(fn verification_check_id ->
+        ash_create!(
+          WorkPacketRequiredCheck,
+          %{
+            id: Ecto.UUID.generate(),
+            work_packet_version_id: version.id,
+            verification_check_id: verification_check_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            requirement_kind: "required",
+            state: "pending"
+          }
+        )
+      end)
+
+    packet =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{
+        current_version_id: version.id,
+        state: lifecycle_state
+      })
+      |> ash_update!()
+
+    %{
+      packet: packet,
+      version: version,
+      source_references: source_references,
+      required_checks: required_checks
+    }
   end
 
   defp packet_lifecycle_state(attrs) do
@@ -215,6 +240,18 @@ defmodule OfficeGraph.WorkPackets do
       {:ok, nil} -> {:error, {:not_found, WorkPacketVersion, packet.current_version_id}}
       {:ok, version} -> {:ok, version}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  defp lock_operation!(operation_id) do
+    OperationCorrelation
+    |> Ash.Query.filter(id == ^operation_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> Repo.rollback({:not_found, OperationCorrelation, operation_id})
+      {:ok, operation} -> operation
+      {:error, error} -> Repo.rollback(error)
     end
   end
 

@@ -508,6 +508,36 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert observation_result.run.verification_state == "failed"
   end
 
+  test "succeeded observations do not resurrect a run with failed observations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    {:ok, failed_observation} =
+      record_observation(bootstrap.session, run_result.run, first_check,
+        key: "failed-then-success-first",
+        observed_status: "failed",
+        normalized_status: "failed"
+      )
+
+    assert failed_observation.run.aggregate_state == "failed"
+
+    {:ok, succeeded_observation} =
+      record_observation(bootstrap.session, failed_observation.run, second_check,
+        key: "failed-then-success-second"
+      )
+
+    assert succeeded_observation.run.aggregate_state == "failed"
+    assert succeeded_observation.run.execution_state == "failed"
+    assert succeeded_observation.run.verification_state == "failed"
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+    assert summary.run.aggregate_state == "failed"
+    assert summary.run.execution_state == "failed"
+    assert summary.run.verification_state == "failed"
+  end
+
   test "passed evidence from a failed observation cannot satisfy or verify a run" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -543,6 +573,47 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert [%{state: "pending"}] = summary.required_checks
     assert summary.evidence_items == []
     assert summary.verification_results == []
+  end
+
+  test "passed evidence rejects stale or unauthenticated observations" do
+    cases = [
+      {"stale-observation-evidence", "stale", "owner_attested"},
+      {"unauthenticated-observation-evidence", "fresh", "unauthenticated"}
+    ]
+
+    for {key, freshness_state, trust_basis} <- cases do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+      {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+      {:ok, observation_result} =
+        record_observation(bootstrap.session, run_result.run, verification_check,
+          key: key,
+          freshness_state: freshness_state,
+          trust_basis: trust_basis
+        )
+
+      {:ok, candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          observation_result.observation,
+          key: key,
+          freshness_state: freshness_state,
+          trust_basis: trust_basis
+        )
+
+      observation_id = observation_result.observation.id
+
+      assert {:error, {:observation_not_acceptable_evidence, ^observation_id}} =
+               accept_candidate(bootstrap.session, candidate, key: key, result: "passed")
+
+      {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+      assert [%{state: "pending"}] = summary.required_checks
+      assert summary.evidence_items == []
+      assert summary.verification_results == []
+    end
   end
 
   test "work run verifies only after every required check has passing evidence" do
@@ -806,6 +877,47 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert second.observation.id == first.observation.id
   end
 
+  test "observation recording replays by operation before source idempotency fields" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    attrs = %{
+      source_kind: "provider_check",
+      source_identity: "provider:operation-replay",
+      idempotency_key: "provider-check:operation-replay:first",
+      observed_status: "success",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider check succeeded."
+    }
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-operation-replay"
+      )
+
+    assert {:ok, first} =
+             Runs.record_observation(bootstrap.session, first_operation, run_result.run, attrs)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-operation-replay"
+      )
+
+    assert {:ok, replay} =
+             Runs.record_observation(bootstrap.session, replay_operation, run_result.run, %{
+               attrs
+               | source_identity: "provider:operation-replay-changed",
+                 idempotency_key: "provider-check:operation-replay:changed"
+             })
+
+    assert replay.observation.id == first.observation.id
+  end
+
   test "observation idempotency rejects conflicting check replays on the same run" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
@@ -851,6 +963,46 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                    graph_item_id: second_check.graph_item_id
                }
              )
+  end
+
+  test "observation recording reloads the persisted run before writing" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Reload A",
+        workspace_slug: "observation-reload-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Reload B",
+        workspace_slug: "observation-reload-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(second_scope.session)
+    {:ok, second_run} = create_ready_run(second_scope.session, verification_check)
+
+    spoofed_run = %{
+      second_run.run
+      | organization_id: first_scope.session.organization_id,
+        workspace_id: first_scope.session.workspace_id
+    }
+
+    {:ok, operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "spoofed-run-observation"
+      )
+
+    assert {:error, :forbidden} =
+             Runs.record_observation(first_scope.session, operation, spoofed_run, %{
+               source_kind: "human",
+               source_identity: "manual:spoofed-run-observation",
+               idempotency_key: "spoofed-run-observation",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               rationale: "Spoofed in-memory run structs are rejected."
+             })
   end
 
   defp create_packet_with_operation(session, idempotency_key, attrs) do
@@ -900,6 +1052,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     key = Keyword.get(opts, :key, Ecto.UUID.generate())
     normalized_status = Keyword.get(opts, :normalized_status, "succeeded")
     observed_status = Keyword.get(opts, :observed_status, "passed")
+    freshness_state = Keyword.get(opts, :freshness_state, "fresh")
+    trust_basis = Keyword.get(opts, :trust_basis, "owner_attested")
 
     {:ok, operation} =
       Operations.start_operation(session, :execution_observation_record,
@@ -912,8 +1066,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       idempotency_key: "observation:#{key}",
       observed_status: observed_status,
       normalized_status: normalized_status,
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
+      freshness_state: freshness_state,
+      trust_basis: trust_basis,
       verification_check_id: verification_check.id,
       graph_item_id: verification_check.graph_item_id,
       rationale: "Human confirmed #{key}."
@@ -935,8 +1089,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       claim: "Evidence candidate #{key}.",
       source_kind: "human",
       source_identity: "manual:#{key}",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
+      freshness_state: Keyword.get(opts, :freshness_state, "fresh"),
+      trust_basis: Keyword.get(opts, :trust_basis, "owner_attested"),
       sensitivity: "internal"
     })
   end

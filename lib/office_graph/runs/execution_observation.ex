@@ -11,6 +11,10 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     table "execution_observations"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_operation: "execution_observations_operation_id_unique_index",
+                         unique_source_idempotency_key:
+                           "execution_observations_idempotency_key_index"
   end
 
   attributes do
@@ -65,6 +69,8 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
   end
 
   identities do
+    identity :unique_operation, [:operation_id]
+
     identity :unique_source_idempotency_key,
              [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key],
              where: expr(not is_nil(idempotency_key))
