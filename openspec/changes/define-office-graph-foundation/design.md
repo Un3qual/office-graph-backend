@@ -88,9 +88,9 @@ projections, proposed graph changes, and addressable node conversations.
 
 ### Agent Runtime
 
-Owns embedded agents, automatic agents, run orchestration, model/tool
-separation, tool approvals, run events, findings, proposed changes, and agent
-provenance.
+Owned by `design-agent-runtime`. This foundation change only locks the runtime
+as a core product capability and records the handoff to the dedicated runtime
+change.
 
 ### Authorization
 
@@ -200,6 +200,9 @@ filter every included record through authorization.
 
 ## Agent Runtime Design
 
+The detailed executable runtime contract lives in `design-agent-runtime`; this
+section captures only the foundation framing.
+
 The runtime should support:
 
 - node-scoped embedded conversations
@@ -252,5 +255,5 @@ This foundation should be followed by narrower design changes:
 - `design-proposed-graph-changes`
 - `design-work-packets-and-readiness`
 - `design-runs-and-verification`
-- `design-api-realtime-and-ui-projections`
+- accepted API, realtime, graph-projection, and UI-projection specs
 - `design-enterprise-governance`

@@ -12,9 +12,10 @@ Run project commands through the Nix flake:
 nix --extra-experimental-features 'nix-command flakes' develop --command mix deps.get
 ```
 
-The shell pins Erlang/OTP 29, Elixir 1.20, Node.js 26, and OpenSpec. It also
-sets project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix
-archives do not leak into this runtime.
+The shell pins Erlang/OTP 29, Elixir 1.20, Node.js 26, OpenSpec, zsh, and the
+Docker/Compose CLI used by the local Postgres helpers. It also sets
+project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix archives do
+not leak into this runtime.
 
 ## Postgres
 
@@ -72,7 +73,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix for
 nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
-nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate first-backend-walking-skeleton --strict
+nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
 
@@ -80,4 +81,11 @@ Or run the same gate as one command:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
+```
+
+If Postgres is already provided outside Docker Compose, skip the local Compose
+startup:
+
+```sh
+OFFICE_GRAPH_SKIP_COMPOSE=1 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
 ```

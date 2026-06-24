@@ -71,11 +71,12 @@
 
 - [x] 4.1 Feed the context map, Boundary rules, and Ash/Ecto ownership rules
   into the first backend app-generation change.
-- [ ] 4.2 Feed entrypoint and projection rules into
-  `design-api-realtime-and-ui-projections`.
+- [x] 4.2 Feed entrypoint and projection rules into the accepted
+  `ash-api-surface`, `realtime-delivery`, `graph-projections`, and
+  `ui-projection-contracts` specs.
 - [ ] 4.3 Feed provider adapter, raw archive, sync event, and
   provider-neutral ownership rules into `design-ingestion-and-integrations`.
-- [ ] 4.4 Feed agent entrypoint, operation context, authorization, and
+- [x] 4.4 Feed agent entrypoint, operation context, authorization, and
   extractability rules into `design-agent-runtime`.
 - [ ] 4.5 Feed shared operation, revision, audit, and validation rules into
   `design-proposed-graph-changes`.
@@ -84,9 +85,12 @@
   `design-runs-and-verification`.
 - [x] 4.7 Create a future implementation plan before generating Phoenix, Ash,
   Ecto, Boundary, API, Oban, integration, or agent-runtime code.
-- [x] 4.8 Add the cross-change backend implementation-readiness gate and name
-  `first-backend-walking-skeleton` as the next app-generation change after the
-  gate is satisfied and approved.
+- [x] 4.8 Confirm backend app-generation work targets accepted durable specs
+  such as `backend-app-baseline`, `walking-skeleton-persistence`,
+  `walking-skeleton-verification`, `backend-model-ownership`,
+  `ash-api-surface`, `realtime-delivery`, `graph-projections`, and
+  `ui-projection-contracts` after the implementation-readiness gate is
+  satisfied and approved.
 
 ## 5. Validation
 

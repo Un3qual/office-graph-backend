@@ -473,27 +473,28 @@ Lexical is a likely React editor adapter, but Office Graph should persist an
 Office Graph rich text model so future editor changes, native renderers, agent
 serialization, and revision history do not depend on one frontend library.
 
-The expected persistence shape is:
+The expected durable rich text shape is:
 
 - `rich_text_documents` for the body/document aggregate and current revision
 - `rich_text_document_revisions` as semantic commit records
 - stable `rich_text_blocks` and versioned `rich_text_block_versions`
-- stable `rich_text_inlines` and versioned `rich_text_inline_versions`
+- stable text runs or inline-span identities inside blocks
 - `rich_text_mark_types` for supported marks such as bold, italic, underline,
   code, colors, highlights, or future semantic marks
-- versioned `rich_text_inline_mark_versions` for mark applications
 - typed reference tables for principal mentions, graph-item references,
   external links, artifacts, and future attachment references
-- sidecar anchor, range, and quote-snapshot tables for references to whole
-  resources, selected blocks, and selected inline spans
+- `rich_text_quote_snapshots` and ordered quote selection segments for pinned
+  exact-span, multi-block, and non-consecutive list-item references
 - derived render/cache tables for plain text, sanitized HTML, agent Markdown,
   Lexical JSON adapter output, or future editor adapter payloads
 
-Rich text revisions should be copy-on-write, not full document snapshots. A
-new document revision records the semantic edit, actor, operation, parent
-revision, and change set. Only changed block, inline, mark, or reference
-versions receive new rows. Unchanged blocks and inline nodes remain shared
-across revisions through validity ranges or equivalent version membership.
+The MVP revision model should use whole-document semantic revision records
+with stable document, block, text-run or inline-span, reference, quote,
+operation, and revision identities. A new document revision records the
+semantic edit, actor, operation, parent revision, reason when available, and
+current document state sufficient for audit and quote freshness checks. Full
+per-inline copy-on-write reconstruction, validity ranges, automatic
+re-anchoring, and collaborative editing state remain future extensions.
 
 Marks should be normalized rather than represented as boolean columns on text
 rows. A mark type defines the mark key, value kind, compatibility/exclusivity
@@ -508,28 +509,40 @@ references into Lexical custom nodes, GraphQL/JSON API response shapes,
 Markdown links for agents, or redacted placeholders when authorization
 requires it.
 
-Quotes and fine-grained references should be non-invasive sidecar records by
-default. Creating a quote from another rich text document must not modify the
-source document unless the user explicitly inserts a named source anchor or
-bookmark. Pinned quotes should record the target document, target revision,
-selected block or inline range, copied normalized snapshot fragment, hash, and
-source authorization/classification context. Live references should resolve
-against the latest authorized source state and carry resolution status such as
-resolved, stale, deleted, ambiguous, or source-reordered.
+Pinned exact-span quotes are MVP behavior. Creating a quote must not modify the
+source document. The quote should store the source document, source revision,
+source authorization/classification context, copied normalized snapshot
+fragment, segment hashes, and an ordered set of selection segments. Segment
+types should cover inline ranges, whole blocks, and list items, including
+multiple non-consecutive list items. Rendering should show the pinned snapshot
+by default and re-authorize against current source permissions; if access is
+lost, the quote renders as restricted unless the excerpt has been explicitly
+promoted into a standalone evidence/artifact record with its own sensitivity
+label and authorization.
 
-Selections should preserve the user's intent. A text selection that crosses
-multiple inline runs should store start and end anchors against stable inline
-version identities plus offsets and, for pinned quotes, store the copied
-fragment. Selecting several list items should be modeled as a block selection
-set, not a loose boundary range; if the source list is later reordered, pinned
-quotes preserve the original selected order while live excerpts must state
-whether they render in original selection order or current source order.
+Quote freshness should distinguish `current`, `source_changed_elsewhere`,
+`quoted_selection_changed`, `selection_unresolvable`, `source_deleted`,
+`source_access_restricted`, `external_source_updated`, and
+`external_source_unavailable`. MVP quotes do not live-update their text and do
+not attempt automatic re-anchoring across arbitrary edits. When authorized, UI
+and API projections may offer a "view current source" path or later diff view,
+but the primary quote remains the pinned snapshot selected by the user.
+
+Imported content may be quoted only after it has an internal normalized Office
+Graph representation. The durable chain is external provider object ->
+external reference/raw archive -> internal artifact or rich text document
+revision -> quote snapshot. Provider sync should automatically create a new
+internal normalized revision when the external source changes, and existing
+quotes should surface both internal and provider freshness without changing
+the pinned quote text.
 
 The first rich text schema should stay intentionally narrow: paragraphs,
-headings, lists, quotes, code blocks, text runs, basic marks, principal
-mentions, graph-item references, external links, and artifact references.
-Unsupported editor features should be rejected, flattened, or stored as
-artifacts until a later accepted change promotes them into the portable schema.
+headings, lists, quotes, code blocks, text runs or inline spans, basic marks,
+principal mentions, graph-item references, external links, artifact
+references, pinned quote snapshots, quote selection segments, and quote
+freshness state. Unsupported editor features should be rejected, flattened, or
+stored as artifacts until a later accepted change promotes them into the
+portable schema.
 
 Alternatives considered:
 
@@ -616,9 +629,11 @@ Immediate MVP migration scope:
 - signals, requirements, tasks, questions, decisions, checks, evidence, and
   artifacts
 - conversations and conversation messages
-- rich text documents, current blocks, basic marks, typed references,
-  whole-document semantic revision records, and derived plain text where needed
-  by those body fields
+- rich text documents, current blocks, stable text-run or inline-span
+  identities, basic marks, typed references, pinned exact-span quote
+  snapshots, quote selection segments, whole-document semantic revision
+  records, quote freshness state, and derived plain text where needed by those
+  body fields
 - external sources or integration installations
 - external references and raw payload archives
 - operation correlation records
@@ -662,10 +677,11 @@ subgraphs because authorization, classification, redaction, and graph edges are
 still core truth-table concerns.
 
 Dedicated read models may be introduced later for stable, high-traffic
-projections only after `design-api-realtime-and-ui-projections` defines their
-query shape, invalidation behavior, authorization filter, and staleness
-contract. Likely candidates are inbox/queue lists, node-neighborhood summaries,
-verification dashboards, and agent-context assembly caches.
+projections only after the durable API, realtime, graph-projection, and
+UI-projection specs define their query shape, invalidation behavior,
+authorization filter, and staleness contract. Likely candidates are inbox/queue
+lists, node-neighborhood summaries, verification dashboards, and agent-context
+assembly caches.
 
 All high-volume tables should be partition-ready in MVP, but none require
 day-one partitioning before first customer data. Raw payload archives, source
@@ -678,30 +694,31 @@ and narrow envelope fields so time or tenant partitioning can be added later.
 ### 16. Narrow rich text and ordered placement for the first schema
 
 The first portable rich text schema should support normalized
-`rich_text_documents`, current `rich_text_blocks`, text runs, basic marks for
-bold, italic, inline code, links, principal mentions, graph item references,
-external references, URLs, and artifact references, whole-document semantic
-revision records, and derived plain text where needed for search or agent
-context.
+`rich_text_documents`, current `rich_text_blocks`, stable text runs or inline
+span identities, basic marks for bold, italic, inline code, links, principal
+mentions, graph item references, external references, URLs, and artifact
+references, pinned exact-span quote snapshots with ordered selection segments,
+whole-document semantic revision records, quote freshness state, and derived
+plain text where needed for search or agent context.
 
 The narrowing is an implementation sequencing decision, not a disposable
-schema. V1 rich text records should carry stable document, block, reference,
-revision, and operation-correlation identities so future inline-version,
-range-anchor, quote-snapshot, render-cache, collaboration, and editor-adapter
-tables can attach to the same durable model. Later rich text work should add
-tables, typed backfills, and renderer records tied to source revisions rather
-than replacing the v1 records with Lexical JSON, HTML, Markdown, or another
-editor-specific canonical payload.
+schema. V1 rich text records should carry stable document, block, text-run or
+inline-span, reference, quote, revision, and operation-correlation identities
+so future inline-version, live-anchor, render-cache, collaboration, and
+editor-adapter tables can attach to the same durable model. Later rich text
+work should add tables, typed backfills, and renderer records tied to source
+revisions rather than replacing the v1 records with Lexical JSON, HTML,
+Markdown, or another editor-specific canonical payload.
 
 Unsupported editor features should be rejected during native authoring when
 they cannot be represented safely, flattened when they are style-only, or
 stored as artifacts/raw adapter payloads for imported content until a later
 accepted change promotes them into the portable schema.
 
-Per-inline copy-on-write reconstruction, quote snapshots, live quote
-resolution, selection-intent preservation, HTML render caches, Lexical adapter
-persistence, and collaboration/session state are deferred to a future rich text
-implementation change.
+Per-inline copy-on-write reconstruction, automatic live quote updating,
+automatic source-range re-anchoring, rich diff views, HTML render caches,
+Lexical adapter persistence, and collaboration/session state are deferred to a
+future rich text implementation change.
 
 MVP ordered structures should use explicit domain-owned ordering for task
 lists and rich text blocks. The durable no-polymorphic-FK rule remains, but a
@@ -794,12 +811,15 @@ work should consume the persistence model in this order:
    validation, authorization, and domain-action application before agents or
    adapters propose durable graph changes.
 6. Use `design-agent-runtime`, `design-runs-and-verification`, and
-   `design-api-realtime-and-ui-projections` to refine high-volume event,
-   context, run, and projection read patterns.
+   `openspec/specs/ash-api-surface/spec.md`,
+   `openspec/specs/realtime-delivery/spec.md`,
+   `openspec/specs/graph-projections/spec.md`, and
+   `openspec/specs/ui-projection-contracts/spec.md` to refine high-volume
+   event, context, run, and projection read patterns.
 7. Use a future rich text implementation design to refine editor adapters,
-   copy-on-write reconstruction, anchor resolution, quote snapshots, ordering
-   tables, rendering caches, search indexing, and collaboration/session
-   behavior.
+   copy-on-write reconstruction, automatic source-range re-anchoring, live
+   quote updating, rich diff views, ordering tables, rendering caches, search
+   indexing, and collaboration/session behavior.
 
 ## Remaining Open Questions
 

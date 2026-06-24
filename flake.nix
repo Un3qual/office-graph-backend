@@ -29,6 +29,8 @@
           elixir = pkgs.beam.packages.erlang_29.elixir_1_20;
           openspecCli = openspec.packages.${system}.default;
           nodejs = pkgs.nodejs_26;
+          dockerClient = pkgs.docker-client;
+          dockerCompose = pkgs.docker-compose;
         in
         {
           default = pkgs.mkShell {
@@ -37,6 +39,8 @@
               elixir
               openspecCli
               nodejs
+              dockerClient
+              dockerCompose
               pkgs.zsh
             ];
 
