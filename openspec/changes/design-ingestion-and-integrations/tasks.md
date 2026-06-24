@@ -20,7 +20,7 @@
 - [x] 3.2 Feed raw archive and replay storage needs into first backend walking
   skeleton planning.
 - [x] 3.3 Feed proposed mutation routing into `design-proposed-graph-changes`.
-- [ ] 3.4 Feed webhook/source principal requirements into future integration
+- [x] 3.4 Feed webhook/source principal requirements into future integration
   implementation plans.
 
 ## 4. Validation

@@ -27,7 +27,7 @@
 - [x] 3.1 Feed accepted principal, profile, external identity, scope, role,
   capability, grant, group, team, and credential inventory into first migration
   planning after the implementation-readiness gate is satisfied.
-- [ ] 3.2 Feed scope hierarchy and scope move semantics into authorization,
+- [x] 3.2 Feed scope hierarchy and scope move semantics into authorization,
   audit, revision, and graph projection implementation plans.
 - [x] 3.3 Feed sensitivity label separation into the enterprise governance and
   persistence cleanup tasks.

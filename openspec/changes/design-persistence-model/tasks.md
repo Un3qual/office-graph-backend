@@ -127,7 +127,7 @@
   segments, source freshness, and current-permission reauthorization, while
   live quote updating, automatic re-anchoring, render caches, and
   collaboration/session behavior remain deferred.
-- [ ] 4.10 Create a future ordered placement implementation design before
+- [x] 4.10 Create a future ordered placement implementation design before
   building reusable placement APIs, typed placement migrations, position-key
   libraries, rebalance jobs, derived ordinal projections, or strategy-specific
   extension tables.
