@@ -1,0 +1,179 @@
+defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
+  use OfficeGraphWeb.ConnCase, async: false
+
+  alias OfficeGraph.Foundation
+  alias OfficeGraph.Operations
+  alias OfficeGraph.WorkGraph
+
+  test "GraphQL and JSON APIs execute equivalent packet-run-verification flows", %{conn: conn} do
+    {:ok, json_check} = create_required_verification_check("json")
+    {:ok, graphql_check} = create_required_verification_check("graphql")
+
+    json_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", flow_attrs("json", json_check))
+      |> json_response(200)
+
+    graphql_summary =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            packet { id title state }
+            packetVersion { id versionNumber lifecycleState objective }
+            run { id aggregateState executionState verificationState }
+            requiredChecks { verificationCheckId state }
+            observations { normalizedStatus sourceKind sourceIdentity }
+            evidenceItems { id state candidateId workRunId }
+            verificationResults { id result workRunId workPacketVersionId }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{input: graphql_attrs("graphql", graphql_check)}
+      )
+
+    assert_summary_verified(json_summary, json_check.id)
+    assert_summary_verified(graphql_summary, graphql_check.id)
+
+    assert json_summary["packet"]["state"] == graphql_summary["packet"]["state"]
+    assert json_summary["run"]["aggregate_state"] == graphql_summary["run"]["aggregateState"]
+
+    assert json_summary["run"]["verification_state"] ==
+             graphql_summary["run"]["verificationState"]
+
+    assert json_summary["missing_evidence"] == []
+    assert graphql_summary["missingEvidence"] == []
+  end
+
+  defp assert_summary_verified(summary, verification_check_id) do
+    packet = summary["packet"]
+    packet_version = value(summary, "packet_version", "packetVersion")
+    run = summary["run"]
+
+    assert packet["state"] == "ready"
+    assert value(packet_version, "lifecycle_state", "lifecycleState") == "ready"
+    assert value(run, "aggregate_state", "aggregateState") == "verified"
+    assert value(run, "execution_state", "executionState") == "completed"
+    assert value(run, "verification_state", "verificationState") == "verified"
+
+    assert [required_check] = value(summary, "required_checks", "requiredChecks")
+
+    assert value(required_check, "verification_check_id", "verificationCheckId") ==
+             verification_check_id
+
+    assert required_check["state"] == "satisfied"
+
+    assert [observation] = summary["observations"]
+    assert value(observation, "normalized_status", "normalizedStatus") == "succeeded"
+
+    assert [evidence_item] = value(summary, "evidence_items", "evidenceItems")
+    assert evidence_item["state"] == "accepted"
+
+    assert [verification_result] = value(summary, "verification_results", "verificationResults")
+    assert verification_result["result"] == "passed"
+  end
+
+  defp value(map, snake_key, camel_key), do: Map.get(map, snake_key) || Map.fetch!(map, camel_key)
+
+  defp graphql(conn, query, variables) do
+    response =
+      conn
+      |> post(~p"/graphql", %{query: query, variables: variables})
+      |> json_response(200)
+
+    assert response["errors"] in [nil, []]
+    response["data"] |> Map.values() |> hd()
+  end
+
+  defp flow_attrs(label, verification_check) do
+    %{
+      flow_identity: "packet-run-#{label}-#{System.unique_integer([:positive])}",
+      verification_check_id: verification_check.id,
+      source_graph_item_id: verification_check.graph_item_id,
+      packet_title: "Verify #{label} launch readiness",
+      objective: "Confirm #{label} launch checklist has passing evidence.",
+      context_summary: "#{label} launch work collected from the current graph.",
+      requirements: "Review #{label} launch blockers.",
+      success_criteria: "The required verification check has accepted evidence.",
+      autonomy_posture: "human_supervised",
+      source_surface: "api_test",
+      reason: "Execute #{label} packet.",
+      authority_posture: "human_supervised",
+      observation_source_kind: "human",
+      observation_source_identity: "manual:#{label}",
+      observation_idempotency_key: "observation:#{label}",
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      observation_rationale: "Human confirmed #{label} passed.",
+      evidence_claim: "#{label} launch checklist passed.",
+      evidence_title: "#{label} launch check passed",
+      evidence_body: "The #{label} launch checklist passed.",
+      evidence_result: "passed",
+      acceptance_policy_basis: "owner_acceptance"
+    }
+  end
+
+  defp graphql_attrs(label, verification_check) do
+    attrs = flow_attrs(label, verification_check)
+
+    %{
+      flowIdentity: attrs.flow_identity,
+      verificationCheckId: attrs.verification_check_id,
+      sourceGraphItemId: attrs.source_graph_item_id,
+      packetTitle: attrs.packet_title,
+      objective: attrs.objective,
+      contextSummary: attrs.context_summary,
+      requirements: attrs.requirements,
+      successCriteria: attrs.success_criteria,
+      autonomyPosture: attrs.autonomy_posture,
+      sourceSurface: attrs.source_surface,
+      reason: attrs.reason,
+      authorityPosture: attrs.authority_posture,
+      observationSourceKind: attrs.observation_source_kind,
+      observationSourceIdentity: attrs.observation_source_identity,
+      observationIdempotencyKey: attrs.observation_idempotency_key,
+      observedStatus: attrs.observed_status,
+      normalizedStatus: attrs.normalized_status,
+      freshnessState: attrs.freshness_state,
+      trustBasis: attrs.trust_basis,
+      observationRationale: attrs.observation_rationale,
+      evidenceClaim: attrs.evidence_claim,
+      evidenceTitle: attrs.evidence_title,
+      evidenceBody: attrs.evidence_body,
+      evidenceResult: attrs.evidence_result,
+      acceptancePolicyBasis: attrs.acceptance_policy_basis
+    }
+  end
+
+  defp create_required_verification_check(label) do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    with {:ok, %{signal: signal}} <-
+           WorkGraph.create_signal(bootstrap.session, operation, %{
+             title: "#{label} launch signal",
+             body: "#{label} launch signal body."
+           }),
+         {:ok, %{task: task}} <-
+           WorkGraph.create_task(bootstrap.session, operation, signal, %{
+             title: "#{label} launch task",
+             body: "#{label} launch task body."
+           }),
+         {:ok, %{review_finding: review_finding}} <-
+           WorkGraph.create_review_finding(bootstrap.session, operation, task, %{
+             title: "#{label} launch finding",
+             body: "#{label} launch finding body."
+           }),
+         {:ok, %{verification_check: verification_check}} <-
+           WorkGraph.create_verification_check(bootstrap.session, operation, review_finding, %{
+             title: "#{label} launch check",
+             body: "#{label} launch check body."
+           }) do
+      {:ok, verification_check}
+    end
+  end
+end

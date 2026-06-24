@@ -4,7 +4,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   use Ash.Resource,
     domain: OfficeGraph.WorkPackets.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "work_packet_versions"
@@ -53,5 +54,31 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
 
   identities do
     identity :unique_packet_version, [:work_packet_id, :version_number]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+  end
+
+  graphql do
+    type :work_packet_version
+  end
+
+  json_api do
+    type "work_packet_version"
   end
 end

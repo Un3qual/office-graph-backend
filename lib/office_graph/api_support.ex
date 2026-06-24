@@ -9,8 +9,10 @@ defmodule OfficeGraph.ApiSupport do
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
       OfficeGraph.ProposedChanges,
+      OfficeGraph.Runs,
       OfficeGraph.Verification,
-      OfficeGraph.WorkGraph
+      OfficeGraph.WorkGraph,
+      OfficeGraph.WorkPackets
     ],
     exports: []
 
@@ -18,8 +20,10 @@ defmodule OfficeGraph.ApiSupport do
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
+  alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   def submit_manual_intake(params) do
     with {:ok, source_identity} <- required_string(params, :source_identity),
@@ -59,6 +63,87 @@ defmodule OfficeGraph.ApiSupport do
         body: body,
         artifact_uri: artifact_uri
       })
+    end
+  end
+
+  def execute_packet_run_verification(params) do
+    with {:ok, input} <- packet_run_input(params),
+         {:ok, bootstrap} <- bootstrap_local_api_owner(),
+         {:ok, packet_operation} <-
+           Operations.start_operation(bootstrap.session, :work_packet_create,
+             idempotency_key: input.flow_identity <> ":packet"
+           ),
+         {:ok, packet_result} <-
+           WorkPackets.create_packet(bootstrap.session, packet_operation, %{
+             title: input.packet_title,
+             objective: input.objective,
+             context_summary: input.context_summary,
+             requirements: input.requirements,
+             success_criteria: input.success_criteria,
+             autonomy_posture: input.autonomy_posture,
+             source_graph_item_ids: [input.source_graph_item_id],
+             verification_check_ids: [input.verification_check_id]
+           }),
+         {:ok, run_operation} <-
+           Operations.start_operation(bootstrap.session, :work_run_start,
+             idempotency_key: input.flow_identity <> ":run"
+           ),
+         {:ok, run_result} <-
+           Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+             source_surface: input.source_surface,
+             reason: input.reason,
+             authority_posture: input.authority_posture
+           }),
+         {:ok, observation_operation} <-
+           Operations.start_operation(bootstrap.session, :execution_observation_record,
+             idempotency_key: input.flow_identity <> ":observation"
+           ),
+         {:ok, observation_result} <-
+           Runs.record_observation(bootstrap.session, observation_operation, run_result.run, %{
+             source_kind: input.observation_source_kind,
+             source_identity: input.observation_source_identity,
+             idempotency_key: input.observation_idempotency_key,
+             observed_status: input.observed_status,
+             normalized_status: input.normalized_status,
+             freshness_state: input.freshness_state,
+             trust_basis: input.trust_basis,
+             verification_check_id: input.verification_check_id,
+             graph_item_id: input.source_graph_item_id,
+             rationale: input.observation_rationale
+           }),
+         {:ok, candidate_operation} <-
+           Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+             idempotency_key: input.flow_identity <> ":candidate"
+           ),
+         {:ok, candidate} <-
+           Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+             work_run_id: run_result.run.id,
+             verification_check_id: input.verification_check_id,
+             execution_observation_id: observation_result.observation.id,
+             claim: input.evidence_claim,
+             source_kind: input.observation_source_kind,
+             source_identity: input.observation_source_identity,
+             freshness_state: input.freshness_state,
+             trust_basis: input.trust_basis,
+             sensitivity: "internal"
+           }),
+         {:ok, acceptance_operation} <-
+           Operations.start_operation(bootstrap.session, :evidence_accept,
+             idempotency_key: input.flow_identity <> ":accept"
+           ),
+         {:ok, accepted} <-
+           Verification.accept_evidence_candidate(
+             bootstrap.session,
+             acceptance_operation,
+             candidate,
+             %{
+               title: input.evidence_title,
+               body: input.evidence_body,
+               result: input.evidence_result,
+               acceptance_policy_basis: input.acceptance_policy_basis
+             }
+           ) do
+      Runs.get_summary(bootstrap.session, accepted.work_run.id)
     end
   end
 
@@ -109,6 +194,65 @@ defmodule OfficeGraph.ApiSupport do
       value when is_binary(value) -> {:ok, value}
       nil -> {:ok, nil}
       _other -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp packet_run_input(params) do
+    with {:ok, flow_identity} <- required_string(params, :flow_identity),
+         {:ok, verification_check_id} <- required_id(params, :verification_check_id),
+         {:ok, source_graph_item_id} <- required_id(params, :source_graph_item_id),
+         {:ok, packet_title} <- required_string(params, :packet_title),
+         {:ok, objective} <- required_string(params, :objective),
+         {:ok, context_summary} <- required_string(params, :context_summary),
+         {:ok, requirements} <- required_string(params, :requirements),
+         {:ok, success_criteria} <- required_string(params, :success_criteria),
+         {:ok, autonomy_posture} <- required_string(params, :autonomy_posture),
+         {:ok, source_surface} <- required_string(params, :source_surface),
+         {:ok, reason} <- required_string(params, :reason),
+         {:ok, authority_posture} <- required_string(params, :authority_posture),
+         {:ok, observation_source_kind} <- required_string(params, :observation_source_kind),
+         {:ok, observation_source_identity} <-
+           required_string(params, :observation_source_identity),
+         {:ok, observation_idempotency_key} <-
+           required_string(params, :observation_idempotency_key),
+         {:ok, observed_status} <- required_string(params, :observed_status),
+         {:ok, normalized_status} <- required_string(params, :normalized_status),
+         {:ok, freshness_state} <- required_string(params, :freshness_state),
+         {:ok, trust_basis} <- required_string(params, :trust_basis),
+         {:ok, observation_rationale} <- required_string(params, :observation_rationale),
+         {:ok, evidence_claim} <- required_string(params, :evidence_claim),
+         {:ok, evidence_title} <- required_string(params, :evidence_title),
+         {:ok, evidence_body} <- required_string(params, :evidence_body),
+         {:ok, evidence_result} <- required_string(params, :evidence_result),
+         {:ok, acceptance_policy_basis} <- required_string(params, :acceptance_policy_basis) do
+      {:ok,
+       %{
+         flow_identity: flow_identity,
+         verification_check_id: verification_check_id,
+         source_graph_item_id: source_graph_item_id,
+         packet_title: packet_title,
+         objective: objective,
+         context_summary: context_summary,
+         requirements: requirements,
+         success_criteria: success_criteria,
+         autonomy_posture: autonomy_posture,
+         source_surface: source_surface,
+         reason: reason,
+         authority_posture: authority_posture,
+         observation_source_kind: observation_source_kind,
+         observation_source_identity: observation_source_identity,
+         observation_idempotency_key: observation_idempotency_key,
+         observed_status: observed_status,
+         normalized_status: normalized_status,
+         freshness_state: freshness_state,
+         trust_basis: trust_basis,
+         observation_rationale: observation_rationale,
+         evidence_claim: evidence_claim,
+         evidence_title: evidence_title,
+         evidence_body: evidence_body,
+         evidence_result: evidence_result,
+         acceptance_policy_basis: acceptance_policy_basis
+       }}
     end
   end
 

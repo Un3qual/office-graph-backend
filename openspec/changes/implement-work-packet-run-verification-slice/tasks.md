@@ -43,7 +43,7 @@
   verification-result run linkage.
 - [x] 3.4 Register new resources in their owning Ash domains and keep public
   context boundary exports/dependencies explicit.
-- [ ] 3.5 Add authorization policies and capability checks for packet creation,
+- [x] 3.5 Add authorization policies and capability checks for packet creation,
   run start, observation recording, evidence candidate creation, evidence
   acceptance, verification result recording, and summary reads.
 
@@ -70,32 +70,32 @@
 
 ## 5. API And Projection Surface
 
-- [ ] 5.1 Expose resource reads and simple mutations through AshGraphql and
+- [x] 5.1 Expose resource reads and simple mutations through AshGraphql and
   AshJsonApi where they map cleanly to resource actions.
-- [ ] 5.2 Add thin GraphQL and JSON command entrypoints only where orchestration
+- [x] 5.2 Add thin GraphQL and JSON command entrypoints only where orchestration
   spans WorkPackets, Runs, Verification, and Operations.
-- [ ] 5.3 Ensure GraphQL and JSON command entrypoints share the same public
+- [x] 5.3 Ensure GraphQL and JSON command entrypoints share the same public
   context actions, authorization semantics, validation errors, and operation
   correlation.
-- [ ] 5.4 Add an authorized packet-run summary projection that distinguishes
+- [x] 5.4 Add an authorized packet-run summary projection that distinguishes
   packet contract, work-run state, child observations, accepted evidence,
   verification result, and missing evidence reasons.
-- [ ] 5.5 Keep existing walking-skeleton endpoints isolated and avoid copying
+- [x] 5.5 Keep existing walking-skeleton endpoints isolated and avoid copying
   their manual transport pattern for new product resource surfaces.
 
 ## 6. Tests
 
 - [x] 6.1 Add domain tests for packet creation and stable packet-version
   references.
-- [ ] 6.2 Add domain tests for rejecting work-run start from draft,
+- [x] 6.2 Add domain tests for rejecting work-run start from draft,
   not-ready, stale, missing, cross-scope, or unauthorized packet versions.
 - [x] 6.3 Add domain tests for recording child execution observations and
   preserving typed child references.
 - [x] 6.4 Add domain tests proving successful child observations do not mark a
   work run verified without accepted evidence and verification results.
-- [ ] 6.5 Add verification tests for evidence candidate creation, acceptance,
+- [x] 6.5 Add verification tests for evidence candidate creation, acceptance,
   authorization rejection, cross-scope rejection, and result recording.
-- [ ] 6.6 Add API smoke tests proving GraphQL and JSON API parity for the
+- [x] 6.6 Add API smoke tests proving GraphQL and JSON API parity for the
   packet-run-verification flow.
 - [x] 6.7 Update or add boundary and architecture conformance tests for any new
   public context dependencies or generated API modules.
@@ -103,12 +103,12 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Run `mix format --check-formatted` from the project Nix shell.
-- [ ] 7.2 Run `mix compile --warnings-as-errors` from the project Nix shell.
-- [ ] 7.3 Run `mix test` from the project Nix shell with Docker Compose
+- [x] 7.1 Run `mix format --check-formatted` from the project Nix shell.
+- [x] 7.2 Run `mix compile --warnings-as-errors` from the project Nix shell.
+- [x] 7.3 Run `mix test` from the project Nix shell with Docker Compose
   Postgres available.
-- [ ] 7.4 Run `mix boundary.check` from the project Nix shell.
-- [ ] 7.5 Run `openspec validate implement-work-packet-run-verification-slice
+- [x] 7.4 Run `mix boundary.check` from the project Nix shell.
+- [x] 7.5 Run `openspec validate implement-work-packet-run-verification-slice
   --strict`.
-- [ ] 7.6 Run `openspec validate --changes --strict`.
-- [ ] 7.7 Run `git diff --check`.
+- [x] 7.6 Run `openspec validate --changes --strict`.
+- [x] 7.7 Run `git diff --check`.

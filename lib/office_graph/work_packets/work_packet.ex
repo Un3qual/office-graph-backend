@@ -4,7 +4,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   use Ash.Resource,
     domain: OfficeGraph.WorkPackets.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "work_packets"
@@ -31,7 +32,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   actions do
     read :read do
       primary? true
-      public? false
     end
 
     create :create do
@@ -50,5 +50,31 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       public? false
       accept [:current_version_id, :state]
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+  end
+
+  graphql do
+    type :work_packet
+  end
+
+  json_api do
+    type "work_packet"
   end
 end

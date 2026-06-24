@@ -4,7 +4,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
   use Ash.Resource,
     domain: OfficeGraph.WorkPackets.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "work_packet_version_sources"
@@ -52,5 +53,31 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
 
   identities do
     identity :unique_version_source, [:work_packet_version_id, :graph_item_id, :source_kind]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+  end
+
+  graphql do
+    type :work_packet_source_reference
+  end
+
+  json_api do
+    type "work_packet_source_reference"
   end
 end

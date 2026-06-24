@@ -16,7 +16,8 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.Authorization
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
-  alias OfficeGraph.WorkPackets.WorkPacketRequiredCheck
+  alias OfficeGraph.WorkGraph.{EvidenceItem, VerificationResult}
+  alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketRequiredCheck, WorkPacketVersion}
 
   require Ash.Query
 
@@ -143,6 +144,33 @@ defmodule OfficeGraph.Runs do
     |> Ash.read(authorize?: false)
   end
 
+  def get_summary(session_context, run_id) do
+    with :ok <-
+           Authorization.authorize(session_context, :skeleton_read,
+             organization_id: session_context.organization_id
+           ),
+         {:ok, run} <- fetch_scoped(Run, session_context, run_id),
+         {:ok, packet} <- fetch_scoped(WorkPacket, session_context, run.work_packet_id),
+         {:ok, packet_version} <-
+           fetch_scoped(WorkPacketVersion, session_context, run.work_packet_version_id),
+         {:ok, required_checks} <- read_run_required_checks(run.id),
+         {:ok, observations} <- read_observations(run.id),
+         {:ok, evidence_items} <- read_evidence_items(run.id),
+         {:ok, verification_results} <- read_verification_results(run.id) do
+      {:ok,
+       %{
+         packet: packet,
+         packet_version: packet_version,
+         run: run,
+         required_checks: required_checks,
+         observations: observations,
+         evidence_items: evidence_items,
+         verification_results: verification_results,
+         missing_evidence: missing_evidence(required_checks, verification_results)
+       }}
+    end
+  end
+
   defp create_observation(session_context, operation, run, attrs) do
     now = DateTime.utc_now()
 
@@ -233,6 +261,71 @@ defmodule OfficeGraph.Runs do
 
   defp validate_packet_version_ready(%{id: id}), do: {:error, {:packet_version_not_ready, id}}
   defp validate_packet_version_ready(_packet_version), do: {:error, :missing_packet_version}
+
+  defp read_run_required_checks(run_id) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_observations(run_id) do
+    ExecutionObservation
+    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_evidence_items(run_id) do
+    EvidenceItem
+    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_verification_results(run_id) do
+    VerificationResult
+    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp missing_evidence(required_checks, verification_results) do
+    passed_check_ids =
+      verification_results
+      |> Enum.filter(&(&1.result == "passed"))
+      |> MapSet.new(& &1.verification_check_id)
+
+    required_checks
+    |> Enum.reject(&MapSet.member?(passed_check_ids, &1.verification_check_id))
+    |> Enum.map(fn required_check ->
+      %{
+        verification_check_id: required_check.verification_check_id,
+        reason: "missing_accepted_evidence"
+      }
+    end)
+  end
+
+  defp fetch_scoped(resource, session_context, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        {:error, {:not_found, resource, id}}
+
+      {:ok, record} ->
+        case validate_scope(session_context, record) do
+          :ok -> {:ok, record}
+          error -> error
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp validate_scope(_session_context, nil), do: {:error, :missing_packet_version}
 
   defp validate_scope(session_context, record) do
     if record.organization_id == session_context.organization_id and

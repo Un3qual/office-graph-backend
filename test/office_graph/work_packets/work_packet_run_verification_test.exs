@@ -168,12 +168,159 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                reason: "Should be rejected.",
                authority_posture: "human_supervised"
              })
+
+    stale_version = %{packet_result.version | lifecycle_state: "stale"}
+    superseded_version = %{packet_result.version | lifecycle_state: "superseded"}
+
+    assert {:error, {:packet_version_not_ready, stale_version.id}} ==
+             Runs.start_run(bootstrap.session, run_operation, stale_version, %{
+               source_surface: "test",
+               reason: "Stale versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+
+    assert {:error, {:packet_version_not_ready, superseded_version.id}} ==
+             Runs.start_run(bootstrap.session, run_operation, superseded_version, %{
+               source_surface: "test",
+               reason: "Superseded versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+
+    assert {:error, :missing_packet_version} ==
+             Runs.start_run(bootstrap.session, run_operation, nil, %{
+               source_surface: "test",
+               reason: "Missing versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+  end
+
+  test "work run start rejects cross-scope packet versions" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Packet Scope A",
+        workspace_slug: "packet-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Packet Scope B",
+        workspace_slug: "packet-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, run} = create_ready_run(first_scope.session, verification_check)
+
+    {:ok, run_operation} =
+      Operations.start_operation(second_scope.session, :work_run_start,
+        idempotency_key: "cross-scope-run"
+      )
+
+    assert {:error, :forbidden} ==
+             Runs.start_run(second_scope.session, run_operation, run.packet_version, %{
+               source_surface: "test",
+               reason: "Cross-scope packet should be rejected.",
+               authority_posture: "human_supervised"
+             })
+  end
+
+  test "evidence candidate creation and acceptance reject cross-scope references" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Evidence Scope A",
+        workspace_slug: "evidence-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Evidence Scope B",
+        workspace_slug: "evidence-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, run} = create_ready_run(first_scope.session, verification_check)
+
+    {:ok, observation_operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "cross-scope-observation"
+      )
+
+    {:ok, observation_result} =
+      Runs.record_observation(first_scope.session, observation_operation, run.run, %{
+        source_kind: "human",
+        source_identity: "manual:cross-scope",
+        idempotency_key: "cross-scope-observation",
+        observed_status: "passed",
+        normalized_status: "succeeded",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        verification_check_id: verification_check.id,
+        graph_item_id: verification_check.graph_item_id,
+        rationale: "Human confirmed the check passed."
+      })
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(first_scope.session, :evidence_candidate_create,
+        idempotency_key: "cross-scope-candidate"
+      )
+
+    {:ok, candidate} =
+      Verification.create_evidence_candidate(first_scope.session, candidate_operation, %{
+        work_run_id: run.run.id,
+        verification_check_id: verification_check.id,
+        execution_observation_id: observation_result.observation.id,
+        claim: "Cross-scope candidate.",
+        source_kind: "human",
+        source_identity: "manual:cross-scope",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      })
+
+    {:ok, second_candidate_operation} =
+      Operations.start_operation(second_scope.session, :evidence_candidate_create,
+        idempotency_key: "cross-scope-candidate-rejected"
+      )
+
+    assert {:error, :forbidden} ==
+             Verification.create_evidence_candidate(
+               second_scope.session,
+               second_candidate_operation,
+               %{
+                 work_run_id: run.run.id,
+                 verification_check_id: verification_check.id,
+                 execution_observation_id: observation_result.observation.id,
+                 claim: "Invalid cross-scope candidate.",
+                 source_kind: "human",
+                 source_identity: "manual:cross-scope",
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 sensitivity: "internal"
+               }
+             )
+
+    {:ok, acceptance_operation} =
+      Operations.start_operation(second_scope.session, :evidence_accept,
+        idempotency_key: "cross-scope-accept-rejected"
+      )
+
+    assert {:error, :forbidden} ==
+             Verification.accept_evidence_candidate(
+               second_scope.session,
+               acceptance_operation,
+               candidate,
+               %{
+                 title: "Cross-scope evidence",
+                 body: "This should not be accepted.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
   end
 
   test "observation recording is idempotent for the same source key" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, run} = create_ready_run(bootstrap.session, verification_check)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
 
     attrs = %{
       source_kind: "provider_check",
@@ -193,7 +340,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "provider-check-operation"
       )
 
-    assert {:ok, first} = Runs.record_observation(bootstrap.session, first_operation, run, attrs)
+    assert {:ok, first} =
+             Runs.record_observation(bootstrap.session, first_operation, run_result.run, attrs)
 
     {:ok, second_operation} =
       Operations.start_operation(bootstrap.session, :execution_observation_record,
@@ -201,7 +349,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       )
 
     assert {:ok, second} =
-             Runs.record_observation(bootstrap.session, second_operation, run, attrs)
+             Runs.record_observation(bootstrap.session, second_operation, run_result.run, attrs)
 
     assert second.observation.id == first.observation.id
   end
@@ -229,7 +377,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              reason: "Execute ready packet.",
              authority_posture: "human_supervised"
            }) do
-      {:ok, run_result.run}
+      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
     end
   end
 

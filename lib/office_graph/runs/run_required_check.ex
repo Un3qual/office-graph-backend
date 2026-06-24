@@ -4,7 +4,8 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   use Ash.Resource,
     domain: OfficeGraph.Runs.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "run_required_checks"
@@ -47,5 +48,30 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
 
   identities do
     identity :unique_run_check, [:run_id, :verification_check_id]
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
+    end
+  end
+
+  graphql do
+    type :run_required_check
+  end
+
+  json_api do
+    type "run_required_check"
   end
 end

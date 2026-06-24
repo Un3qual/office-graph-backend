@@ -91,6 +91,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
 
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_link}
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_accept}
     end
   end
 

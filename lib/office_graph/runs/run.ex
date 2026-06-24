@@ -4,7 +4,8 @@ defmodule OfficeGraph.Runs.Run do
   use Ash.Resource,
     domain: OfficeGraph.Runs.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "runs"
@@ -76,5 +77,30 @@ defmodule OfficeGraph.Runs.Run do
         :completed_at
       ]
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
+    end
+  end
+
+  graphql do
+    type :work_run
+  end
+
+  json_api do
+    type "work_run"
   end
 end
