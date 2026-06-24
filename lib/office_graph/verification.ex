@@ -7,6 +7,7 @@ defmodule OfficeGraph.Verification do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Content,
+      OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.Runs,
       OfficeGraph.WorkGraph
@@ -15,6 +16,7 @@ defmodule OfficeGraph.Verification do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Content
+  alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
@@ -58,33 +60,7 @@ defmodule OfficeGraph.Verification do
              :evidence_candidate_create,
              organization_id: session_context.organization_id
            ) do
-      with {:ok, nil} <- existing_candidate_for_operation(session_context, operation) do
-        with :ok <- validate_referenced_scope(session_context, attrs) do
-          EvidenceCandidate
-          |> Ash.Changeset.for_create(:create, %{
-            id: Ecto.UUID.generate(),
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            verification_check_id: attrs[:verification_check_id],
-            work_run_id: attrs[:work_run_id],
-            execution_observation_id: attrs[:execution_observation_id],
-            artifact_id: attrs[:artifact_id],
-            operation_id: operation.id,
-            claim: attrs[:claim],
-            source_kind: attrs[:source_kind],
-            source_identity: attrs[:source_identity],
-            freshness_state: attrs[:freshness_state],
-            trust_basis: attrs[:trust_basis],
-            sensitivity: attrs[:sensitivity],
-            candidate_state: "candidate"
-          })
-          |> Ash.create(authorize?: false, return_notifications?: true)
-          |> unwrap_ash_result()
-        end
-      else
-        {:ok, candidate} -> {:ok, candidate}
-        {:error, error} -> {:error, error}
-      end
+      create_evidence_candidate_record(session_context, operation, attrs)
     end
   end
 
@@ -96,36 +72,92 @@ defmodule OfficeGraph.Verification do
            Authorization.authorize_operation(session_context, operation, :evidence_accept,
              organization_id: session_context.organization_id
            ) do
-      with {:ok, nil} <- existing_acceptance_for_operation(session_context, operation) do
-        Repo.transaction(fn ->
-          candidate = lock_candidate!(candidate.id)
-          validate_scope!(session_context, candidate)
+      case existing_acceptance_for_operation(session_context, operation) do
+        {:ok, nil} ->
+          accept_evidence_candidate_record(session_context, operation, candidate, attrs)
 
-          case existing_acceptance_for_operation(session_context, operation) do
-            {:ok, nil} ->
-              accept_locked_candidate!(session_context, operation, candidate, attrs)
+        {:ok, accepted} ->
+          replay_acceptance_result(accepted, candidate)
 
-            {:ok, accepted} ->
-              accepted
-
-            {:error, error} ->
-              Repo.rollback(error)
-          end
-        end)
-        |> normalize_transaction_result()
-      else
-        {:ok, accepted} -> {:ok, accepted}
-        {:error, error} -> {:error, error}
+        {:error, error} ->
+          {:error, error}
       end
     end
+  end
+
+  defp create_evidence_candidate_record(session_context, operation, attrs) do
+    Repo.transaction(fn ->
+      _operation = lock_operation!(operation.id)
+
+      case existing_candidate_for_operation(session_context, operation) do
+        {:ok, nil} ->
+          case validate_referenced_scope(session_context, attrs) do
+            :ok -> create_evidence_candidate_record!(session_context, operation, attrs)
+            {:error, error} -> Repo.rollback(error)
+          end
+
+        {:ok, candidate} ->
+          candidate
+
+        {:error, error} ->
+          Repo.rollback(error)
+      end
+    end)
+    |> normalize_transaction_result()
+  end
+
+  defp create_evidence_candidate_record!(session_context, operation, attrs) do
+    ash_create!(
+      EvidenceCandidate,
+      %{
+        id: Ecto.UUID.generate(),
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
+        verification_check_id: attrs[:verification_check_id],
+        work_run_id: attrs[:work_run_id],
+        execution_observation_id: attrs[:execution_observation_id],
+        artifact_id: attrs[:artifact_id],
+        operation_id: operation.id,
+        claim: attrs[:claim],
+        source_kind: attrs[:source_kind],
+        source_identity: attrs[:source_identity],
+        freshness_state: attrs[:freshness_state],
+        trust_basis: attrs[:trust_basis],
+        sensitivity: attrs[:sensitivity],
+        candidate_state: "candidate"
+      }
+    )
+  end
+
+  defp accept_evidence_candidate_record(session_context, operation, candidate, attrs) do
+    Repo.transaction(fn ->
+      _operation = lock_operation!(operation.id)
+      candidate = lock_candidate!(candidate.id)
+      validate_scope!(session_context, candidate)
+
+      case existing_acceptance_for_operation(session_context, operation) do
+        {:ok, nil} ->
+          accept_locked_candidate!(session_context, operation, candidate, attrs)
+
+        {:ok, accepted} ->
+          replay_acceptance_result!(accepted, candidate)
+
+        {:error, error} ->
+          Repo.rollback(error)
+      end
+    end)
+    |> normalize_transaction_result()
   end
 
   defp accept_locked_candidate!(session_context, operation, candidate, attrs) do
     verification_check =
       fetch_scoped!(VerificationCheck, session_context, candidate.verification_check_id)
 
-    work_run = lock_scoped!(Run, session_context, candidate.work_run_id)
-    observation = validate_candidate_links!(candidate, work_run, verification_check)
+    work_run = lock_optional_scoped!(Run, session_context, candidate.work_run_id)
+
+    observation =
+      validate_candidate_links!(session_context, candidate, work_run, verification_check)
+
     result = attrs[:result] || "passed"
     validate_passed_result_allowed!(result, candidate, work_run, observation)
 
@@ -182,8 +214,8 @@ defmodule OfficeGraph.Verification do
           verification_check_id: candidate.verification_check_id,
           evidence_item_id: evidence_item.id,
           operation_id: operation.id,
-          work_run_id: work_run.id,
-          work_packet_version_id: work_run.work_packet_version_id,
+          work_run_id: candidate.work_run_id,
+          work_packet_version_id: work_packet_version_id(work_run),
           target_graph_item_id: verification_check.graph_item_id,
           actor_principal_id: session_context.principal_id,
           policy_basis: attrs[:acceptance_policy_basis],
@@ -320,15 +352,18 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp validate_candidate_links!(candidate, work_run, verification_check) do
+  defp lock_optional_scoped!(_resource, _session_context, nil), do: nil
+
+  defp lock_optional_scoped!(resource, session_context, id) do
+    lock_scoped!(resource, session_context, id)
+  end
+
+  defp validate_candidate_links!(session_context, candidate, work_run, verification_check) do
     with :ok <- validate_run_requires_check(work_run, verification_check),
          {:ok, observation} <-
            fetch_optional_scoped(
              ExecutionObservation,
-             %{
-               organization_id: work_run.organization_id,
-               workspace_id: work_run.workspace_id
-             },
+             session_context,
              candidate.execution_observation_id
            ),
          :ok <- validate_observation_belongs(observation, work_run, verification_check) do
@@ -364,10 +399,14 @@ defmodule OfficeGraph.Verification do
       source.trust_basis in ["owner_attested", "signed_provider_payload"]
   end
 
+  defp work_run_failed?(nil), do: false
+
   defp work_run_failed?(work_run) do
     work_run.state == "failed" or work_run.aggregate_state == "failed" or
       work_run.execution_state == "failed" or work_run.verification_state == "failed"
   end
+
+  defp update_work_run_after_acceptance!(nil, _verification_result), do: nil
 
   defp update_work_run_after_acceptance!(work_run, %{result: "passed"} = verification_result) do
     case Runs.satisfy_required_check_and_verify_run(
@@ -386,6 +425,9 @@ defmodule OfficeGraph.Verification do
     end
   end
 
+  defp work_packet_version_id(nil), do: nil
+  defp work_packet_version_id(work_run), do: work_run.work_packet_version_id
+
   defp existing_candidate_for_operation(session_context, operation) do
     EvidenceCandidate
     |> Ash.Query.filter(
@@ -394,6 +436,21 @@ defmodule OfficeGraph.Verification do
         operation_id == ^operation.id
     )
     |> Ash.read_one(authorize?: false)
+  end
+
+  defp replay_acceptance_result(%{evidence_item: evidence_item} = accepted, candidate) do
+    if evidence_item.candidate_id == candidate.id do
+      {:ok, accepted}
+    else
+      {:error, {:evidence_acceptance_operation_conflict, evidence_item.id}}
+    end
+  end
+
+  defp replay_acceptance_result!(accepted, candidate) do
+    case replay_acceptance_result(accepted, candidate) do
+      {:ok, accepted} -> accepted
+      {:error, error} -> Repo.rollback(error)
+    end
   end
 
   defp existing_acceptance_for_operation(session_context, operation) do
@@ -414,7 +471,8 @@ defmodule OfficeGraph.Verification do
              {:ok, graph_item} <-
                fetch_scoped(GraphItem, session_context, evidence_item.graph_item_id),
              {:ok, verification_result} <- read_verification_result_for_evidence(evidence_item.id),
-             {:ok, work_run} <- fetch_scoped(Run, session_context, evidence_item.work_run_id) do
+             {:ok, work_run} <-
+               fetch_optional_scoped(Run, session_context, evidence_item.work_run_id) do
           {:ok,
            %{
              evidence_item: evidence_item,
@@ -427,6 +485,18 @@ defmodule OfficeGraph.Verification do
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp lock_operation!(operation_id) do
+    OperationCorrelation
+    |> Ash.Query.filter(id == ^operation_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> Repo.rollback({:not_found, OperationCorrelation, operation_id})
+      {:ok, operation} -> operation
+      {:error, error} -> Repo.rollback(error)
     end
   end
 
@@ -495,10 +565,6 @@ defmodule OfficeGraph.Verification do
       {:error, error} -> Repo.rollback(error)
     end
   end
-
-  defp unwrap_ash_result({:ok, record, _notifications}), do: {:ok, record}
-  defp unwrap_ash_result({:ok, record}), do: {:ok, record}
-  defp unwrap_ash_result({:error, error}), do: {:error, error}
 
   defp unwrap_notification_result({record, _notifications}), do: record
   defp unwrap_notification_result(record), do: record

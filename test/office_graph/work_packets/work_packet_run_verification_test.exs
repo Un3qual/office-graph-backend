@@ -616,6 +616,78 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     end
   end
 
+  test "runless evidence candidates can be accepted without updating a work run" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "runless-candidate"
+      )
+
+    assert {:ok, candidate} =
+             Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+               verification_check_id: verification_check.id,
+               claim: "Runless evidence candidate.",
+               source_kind: "human_note",
+               source_identity: "manual:runless-candidate",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+
+    assert candidate.work_run_id == nil
+    assert candidate.execution_observation_id == nil
+
+    {:ok, acceptance_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "runless-candidate-accept"
+      )
+
+    assert {:ok, accepted} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               acceptance_operation,
+               candidate,
+               %{
+                 title: "Runless accepted evidence",
+                 body: "This evidence is not attached to a work run.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
+
+    assert accepted.evidence_item.candidate_id == candidate.id
+    assert accepted.evidence_item.work_run_id == nil
+    assert accepted.verification_result.work_run_id == nil
+    assert accepted.verification_result.work_packet_version_id == nil
+    assert accepted.verification_result.target_graph_item_id == verification_check.graph_item_id
+    assert accepted.work_run == nil
+    assert accepted.candidate.candidate_state == "accepted"
+
+    assert {:ok, replayed} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               acceptance_operation,
+               candidate,
+               %{
+                 title: "Runless accepted evidence replay",
+                 body: "Replayed runless evidence acceptance.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
+
+    assert replayed.evidence_item.id == accepted.evidence_item.id
+    assert replayed.verification_result.id == accepted.verification_result.id
+    assert replayed.work_run == nil
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+    assert [%{state: "pending"}] = summary.required_checks
+    assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
+  end
+
   test "work run verifies only after every required check has passing evidence" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)

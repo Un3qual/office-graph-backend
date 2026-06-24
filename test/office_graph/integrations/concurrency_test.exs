@@ -665,6 +665,92 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "evidence candidate creation is idempotent under operation replay races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-candidate-create-race-#{suffix}"
+    workspace_slug = "evidence-candidate-create-race-workspace-#{suffix}"
+    owner_email = "evidence-candidate-create-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, candidate_operation, attrs} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Candidate Create Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Candidate Create Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Candidate Create Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "candidate-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [verification_check], suffix)
+
+          {:ok, observation_result} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              verification_check,
+              "candidate-#{suffix}"
+            )
+
+          {:ok, candidate_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+              idempotency_key: "evidence-candidate-create-race-#{suffix}"
+            )
+
+          install_evidence_candidate_insert_barrier!(candidate_operation.id)
+
+          attrs = %{
+            work_run_id: run_result.run.id,
+            verification_check_id: verification_check.id,
+            execution_observation_id: observation_result.observation.id,
+            claim: "Concurrent evidence candidate #{suffix}.",
+            source_kind: "provider_check",
+            source_identity: "provider:evidence-candidate-create-race-#{suffix}",
+            freshness_state: "fresh",
+            trust_basis: "signed_provider_payload",
+            sensitivity: "internal"
+          }
+
+          {bootstrap, candidate_operation, attrs}
+        end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Verification.create_evidence_candidate(
+                bootstrap.session,
+                candidate_operation,
+                attrs
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.id == second.id
+
+      assert 1 =
+               with_unboxed_connection(fn ->
+                 evidence_candidate_creation_count(candidate_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_evidence_candidate_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
   test "evidence acceptance replays after concurrent candidate locking" do
     suffix = System.unique_integer([:positive])
     organization_slug = "evidence-accept-race-#{suffix}"
@@ -749,6 +835,119 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     after
       with_unboxed_connection(fn ->
         drop_evidence_item_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "evidence acceptance replays one operation across different candidate locks" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-accept-operation-race-#{suffix}"
+    workspace_slug = "evidence-accept-operation-race-workspace-#{suffix}"
+    owner_email = "evidence-accept-operation-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, first_candidate, second_candidate, acceptance_operation} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Accept Operation Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Accept Operation Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Accept Operation Race Owner"
+            )
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(bootstrap.session, "accept-first-#{suffix}")
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(bootstrap.session, "accept-second-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [first_check, second_check], suffix)
+
+          {:ok, first_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              "accept-first-#{suffix}"
+            )
+
+          {:ok, second_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              "accept-second-#{suffix}"
+            )
+
+          {:ok, first_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              first_observation.observation,
+              "accept-first-#{suffix}"
+            )
+
+          {:ok, second_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              second_observation.observation,
+              "accept-second-#{suffix}"
+            )
+
+          {:ok, acceptance_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_accept,
+              idempotency_key: "evidence-accept-operation-race-#{suffix}"
+            )
+
+          install_evidence_item_operation_insert_barrier!(acceptance_operation.id)
+
+          {bootstrap, first_candidate, second_candidate, acceptance_operation}
+        end)
+
+      results =
+        [first_candidate, second_candidate]
+        |> Enum.with_index(1)
+        |> Enum.map(fn {candidate, index} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Verification.accept_evidence_candidate(
+                bootstrap.session,
+                acceptance_operation,
+                candidate,
+                %{
+                  title: "Concurrent operation accepted evidence #{index}",
+                  body: "Concurrent operation accepted evidence body #{index}.",
+                  result: "passed",
+                  acceptance_policy_basis: "owner_acceptance"
+                }
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      successes = for {:ok, accepted} <- results, do: accepted
+      conflicts = for {:error, {:evidence_acceptance_operation_conflict, id}} <- results, do: id
+
+      assert [accepted] = successes
+      assert [accepted.evidence_item.id] == conflicts
+
+      assert {1, 1} =
+               with_unboxed_connection(fn ->
+                 evidence_acceptance_operation_counts(acceptance_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_evidence_item_operation_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -1374,6 +1573,20 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     {run_count, required_check_count}
   end
 
+  defp evidence_candidate_creation_count(operation_id) do
+    %{rows: [[candidate_count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM evidence_candidates
+        WHERE operation_id = $1::uuid
+        """,
+        [db_uuid(operation_id)]
+      )
+
+    candidate_count
+  end
+
   defp evidence_acceptance_counts(candidate_id) do
     %{rows: [[evidence_item_count, verification_result_count]]} =
       Repo.query!(
@@ -1387,6 +1600,24 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
            ))
         """,
         [db_uuid(candidate_id)]
+      )
+
+    {evidence_item_count, verification_result_count}
+  end
+
+  defp evidence_acceptance_operation_counts(operation_id) do
+    %{rows: [[evidence_item_count, verification_result_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM evidence_items WHERE acceptance_operation_id = $1::uuid),
+          (SELECT count(*)
+           FROM verification_results
+           WHERE evidence_item_id IN (
+             SELECT id FROM evidence_items WHERE acceptance_operation_id = $1::uuid
+           ))
+        """,
+        [db_uuid(operation_id)]
       )
 
     {evidence_item_count, verification_result_count}
@@ -1868,6 +2099,63 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_run_insert_barrier()")
   end
 
+  defp install_evidence_candidate_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_candidate_insert_barrier ON evidence_candidates"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_candidate_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_evidence_candidate_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98251, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98252, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98252, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98251, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98252, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98252, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_evidence_candidate_insert_barrier
+    BEFORE INSERT ON evidence_candidates
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_evidence_candidate_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_evidence_candidate_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_candidate_insert_barrier ON evidence_candidates"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_candidate_insert_barrier()")
+  end
+
   defp install_evidence_item_insert_barrier!(candidate_id) do
     %{rows: [[quoted_candidate_id]]} = Repo.query!("SELECT quote_literal($1)", [candidate_id])
 
@@ -1923,6 +2211,67 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_item_insert_barrier()")
+  end
+
+  defp install_evidence_item_operation_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_operation_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_evidence_item_operation_insert_barrier()"
+    )
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_evidence_item_operation_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.acceptance_operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.acceptance_operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98351, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98352, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98352, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98351, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98352, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98352, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_evidence_item_operation_insert_barrier
+    BEFORE INSERT ON evidence_items
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_evidence_item_operation_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_evidence_item_operation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_operation_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_evidence_item_operation_insert_barrier()"
+    )
   end
 
   defp install_run_required_check_update_barrier!(run_id) do

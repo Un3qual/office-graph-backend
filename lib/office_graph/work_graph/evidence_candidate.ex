@@ -11,6 +11,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
     table "evidence_candidates"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_operation: "evidence_candidates_operation_id_unique_index"
   end
 
   attributes do
@@ -64,6 +66,10 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       accept []
       change set_attribute(:candidate_state, "accepted")
     end
+  end
+
+  identities do
+    identity :unique_operation, [:operation_id]
   end
 
   policies do
