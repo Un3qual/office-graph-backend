@@ -36,6 +36,30 @@ direction.
 - **THEN** they must be treated as later expansion packs over shared graph
   primitives unless explicitly accepted into the first proving workflow
 
+### Requirement: Cross-Functional Buyer User And Metric
+
+Office Graph SHALL target governed human-agent execution across departments,
+not an engineering-only buyer, daily user, or success metric.
+
+#### Scenario: First buyer and user are described
+
+- **WHEN** the first go-to-market or MVP user story is written
+- **THEN** the first buyer must be an AI-forward company leader, operations
+  leader, AI/platform leader, or department leader responsible for governed
+  human-agent execution across teams
+- **AND** the daily user must be a cross-functional work owner or agent
+  operator who turns ambiguous signals into work packets, work runs,
+  decisions, and evidence
+
+#### Scenario: Flagship metric is evaluated
+
+- **WHEN** MVP success is measured
+- **THEN** the flagship metric must be packet-backed verified completion rate
+  across selected cross-functional workflows rather than engineering-only
+  agent throughput
+- **AND** software review/fix/verification may serve as the first high-fidelity
+  proving workflow without narrowing the company-wide product frame
+
 ### Requirement: Software Proving Workflow
 
 Office Graph SHALL use software review/fix/verification as the first deep

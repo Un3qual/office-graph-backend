@@ -31,7 +31,7 @@
 
 ## 3. Open Questions To Resolve Before Code
 
-- [ ] Decide the first buyer, daily user, and flagship success metric.
+- [x] Decide the first buyer, daily user, and flagship success metric.
 - [x] Decide whether first intake is manual, GitHub, Sentry, CI, or another
   source.
 - [x] Decide the first schema cut for generic graph records versus typed
@@ -64,7 +64,7 @@
 - [x] Capture manual intake, ingestion normalization, idempotency, replay, and
   change proposal semantics in `design-ingestion-and-integrations` and
   `design-proposed-graph-changes` before backend code generation.
-- [ ] Mark individual open questions above complete only after the downstream
+- [x] Mark individual open questions above complete only after the downstream
   active change that owns the decision contains the accepted answer.
 
 ## 4. Follow-On OpenSpec Changes

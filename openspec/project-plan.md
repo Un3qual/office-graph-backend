@@ -118,17 +118,22 @@ expansion pattern rather than the first product surface.
   primitives. Avoid premature package splitting, but keep boundaries clean
   enough that extraction stays practical.
 
-## Current Working Assumptions
+## Current Working Direction
 
-Stable enough to guide discussion:
+Locked enough to guide OpenSpec work:
 
-- First buyer hypothesis: company leadership, operations leadership,
+- First buyer: AI-forward company leadership, operations leadership,
   AI/platform leadership, or department leaders who need governed
-  human-agent work across teams.
-- First daily users may include tech leads, design leads, marketing leads,
-  social/media managers, finance operators, and AI operations owners.
-- First workflow should be one concrete departmental loop, likely software
-  review/fix/verification because it is easiest to model precisely now.
+  human-agent execution across teams.
+- First daily user: cross-functional work owners and agent operators such as
+  operations owners, tech leads, design leads, marketing leads, social/media
+  managers, finance operators, and AI operations owners who turn ambiguous
+  signals into work packets, work runs, decisions, and evidence.
+- Flagship success metric: packet-backed verified completion rate across
+  selected cross-functional workflows, not engineering-only agent throughput.
+- First deep proving workflow: software review/fix/verification because it is
+  easiest to model precisely now, while preserving a department-neutral buyer,
+  user, and success metric.
 - MVP should integrate with existing systems before trying to replace them.
 - The graph should exist from the beginning, but the UI should start with
   practical projections such as inboxes, queues, packets, and verification
@@ -468,19 +473,19 @@ ground the first implementation in one concrete workflow.
 
 Questions to answer:
 
-- Is the first buyer company leadership, AI/platform leadership, operations,
-  engineering leadership, design leadership, marketing leadership, finance
-  leadership, or a founder/COO/CTO at AI-forward teams?
-- Is the first daily user a department lead, AI agent operator, operations
-  owner, tech lead, design lead, marketing lead, social media manager, finance
-  operator, or platform engineer?
+- The first buyer is AI-forward company leadership, operations leadership,
+  AI/platform leadership, or department leaders who need governed
+  human-agent execution across teams.
+- The first daily user is a cross-functional work owner or agent operator such
+  as an operations owner, tech lead, design lead, marketing lead, social media
+  manager, finance operator, or AI operations owner.
 - Which first departmental workflow proves the general system best: software
   review/fix loops, Sentry/incident triage, design review, campaign planning,
   social approvals, finance anomaly handling, or manual cross-functional
   intake?
-- Should the first promise be "time to agent-ready", "agent success uplift",
-  "review/fix throughput", "triage time saved", "verified completion",
-  "governed delegation", or "reusable organizational context"?
+- The first promise is packet-backed verified completion across selected
+  cross-functional workflows, with software review/fix/verification as the
+  first high-fidelity proving workflow.
 - Which existing product is augmented first: GitHub, Sentry, Jira, Slack,
   Google Drive, Figma, Notion, spreadsheets, social tools, finance systems,
   Cursor/Codex/Claude Code, or email?

@@ -29,6 +29,20 @@ and JSON API are required.
 
 The locked product direction is an agent-governed company work graph.
 
+The first buyer is AI-forward company leadership, operations leadership,
+AI/platform leadership, or department leaders who need governed human-agent
+execution across teams. The first daily user is a cross-functional work owner
+or agent operator who turns ambiguous signals into work packets, work runs,
+decisions, and evidence, including operations owners, tech leads, design
+leads, marketing leads, social media managers, finance operators, and AI
+operations owners.
+
+The flagship success metric is packet-backed verified completion rate across
+selected cross-functional workflows. Software review/fix/verification is the
+first high-fidelity proving workflow because it has concrete signals,
+artifacts, and evidence, but the buyer, daily user, and metric are not
+engineering-only.
+
 The core loop is:
 
 ```text
