@@ -1,11 +1,11 @@
 ## 1. Baseline And Scope Guard
 
-- [ ] 1.1 Re-read the accepted specs for `work-packet-contracts`,
+- [x] 1.1 Re-read the accepted specs for `work-packet-contracts`,
   `work-runs`, `execution-observations`, `verification-evidence`,
   `work-packet-projections`, and `ash-api-surface`.
-- [ ] 1.2 Confirm the existing walking-skeleton tests and API smoke tests pass
+- [x] 1.2 Confirm the existing walking-skeleton tests and API smoke tests pass
   before changing packet, run, or verification behavior.
-- [ ] 1.3 Confirm this change does not implement agent runtime execution,
+- [x] 1.3 Confirm this change does not implement agent runtime execution,
   provider webhooks, ordered placement, frontend UI, approval gates, waivers,
   or broad realtime subscriptions.
 
