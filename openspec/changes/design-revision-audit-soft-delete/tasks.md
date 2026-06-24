@@ -63,7 +63,7 @@
 
 - [x] 4.1 Feed revision, audit, tombstone, and retention boundaries into
   `design-code-organization-and-boundaries`.
-- [ ] 4.2 Feed operation correlation, authorization decision, audit, approval,
+- [x] 4.2 Feed operation correlation, authorization decision, audit, approval,
   and credential-use records into `design-agent-runtime` and
   `design-runs-and-verification`.
 - [x] 4.3 Feed raw archive retention, external sync event, idempotency, and

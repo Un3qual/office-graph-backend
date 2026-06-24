@@ -107,7 +107,7 @@
 - [x] 4.4 Create or continue `design-agent-runtime` to consume graph identity,
   rich text references, external references, raw archives, operation
   correlation, and cross-scope context expansion safely.
-- [ ] 4.5 Create or continue `design-runs-and-verification` to refine runs,
+- [x] 4.5 Create or continue `design-runs-and-verification` to refine runs,
   run events, checks, evidence, review findings, verification state, and
   high-volume event persistence.
 - [x] 4.6 Create or continue `design-proposed-graph-changes` to define how

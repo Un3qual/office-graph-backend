@@ -77,7 +77,7 @@
 - [x] Create `design-agent-runtime`.
 - [x] Create `design-proposed-graph-changes`.
 - [x] Create `design-work-packets-and-readiness`.
-- [ ] Create `design-runs-and-verification`.
+- [x] Create `design-runs-and-verification`.
 - [x] Promote API, realtime, graph-projection, and UI-projection follow-on
   decisions into accepted durable specs.
 - [x] Create `design-enterprise-governance`.

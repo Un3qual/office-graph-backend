@@ -12,8 +12,8 @@ and denied or escalated policy-sensitive attempts.
 #### Scenario: Sensitive action succeeds
 - **WHEN** a principal changes roles, grants, memberships, policies,
   credentials, integrations, retention, legal hold, approval gates, waivers,
-  exports, external writes, destructive state, restore state, purge state, or
-  sensitive agent tool use
+  exports, external writes, destructive state, restore state, purge state,
+  first-organization bootstrap state, or sensitive agent tool use
 - **THEN** Office Graph MUST create or be able to create a durable audit record
   for the action
 

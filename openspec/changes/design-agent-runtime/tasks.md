@@ -47,7 +47,7 @@
 
 - [x] 4.1 Feed invocation envelope, context package, authority, and autonomy
   envelope requirements into `design-work-packets-and-readiness`.
-- [ ] 4.2 Feed runtime state, run references, failure events, tool actions, and
+- [x] 4.2 Feed runtime state, run references, failure events, tool actions, and
   provenance requirements into `design-runs-and-verification`.
 - [x] 4.3 Confirm runtime status, authority, context-boundary, approval,
   failure, and provenance projection requirements are represented in

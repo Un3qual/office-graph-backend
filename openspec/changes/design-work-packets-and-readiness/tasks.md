@@ -58,7 +58,7 @@
   the durable governance specs and
   `openspec/changes/archive/2026-06-23-design-enterprise-governance` into this
   change.
-- [ ] 4.5 Feed packet handoff, packet version, readiness result, evidence
+- [x] 4.5 Feed packet handoff, packet version, readiness result, evidence
   candidate, and future run-reference requirements into
   `design-runs-and-verification`.
 

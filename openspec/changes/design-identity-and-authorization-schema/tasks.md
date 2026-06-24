@@ -31,7 +31,7 @@
   audit, revision, and graph projection implementation plans.
 - [x] 3.3 Feed sensitivity label separation into the enterprise governance and
   persistence cleanup tasks.
-- [ ] 3.4 Coordinate with `design-identity-and-authentication` on how login,
+- [x] 3.4 Coordinate with `design-identity-and-authentication` on how login,
   sessions, external identity reconciliation, service accounts, and agents
   create or use `principal_id` and `credential_metadata` records.
 

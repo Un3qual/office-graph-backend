@@ -33,7 +33,7 @@
   `design-agent-runtime`.
 - [x] 3.3 Feed SecretStore behaviour placement and identity context public
   contracts into `design-code-organization-and-boundaries`.
-- [ ] 3.4 Feed bootstrap audit and operation-correlation requirements into
+- [x] 3.4 Feed bootstrap audit and operation-correlation requirements into
   `design-revision-audit-soft-delete`.
 
 ## 4. Validation

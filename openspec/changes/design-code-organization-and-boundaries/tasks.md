@@ -74,13 +74,13 @@
 - [x] 4.2 Feed entrypoint and projection rules into the accepted
   `ash-api-surface`, `realtime-delivery`, `graph-projections`, and
   `ui-projection-contracts` specs.
-- [ ] 4.3 Feed provider adapter, raw archive, sync event, and
+- [x] 4.3 Feed provider adapter, raw archive, sync event, and
   provider-neutral ownership rules into `design-ingestion-and-integrations`.
 - [x] 4.4 Feed agent entrypoint, operation context, authorization, and
   extractability rules into `design-agent-runtime`.
-- [ ] 4.5 Feed shared operation, revision, audit, and validation rules into
+- [x] 4.5 Feed shared operation, revision, audit, and validation rules into
   `design-proposed-graph-changes`.
-- [ ] 4.6 Feed work packet, run, verification, evidence, and read-model
+- [x] 4.6 Feed work packet, run, verification, evidence, and read-model
   ownership rules into `design-work-packets-and-readiness` and
   `design-runs-and-verification`.
 - [x] 4.7 Create a future implementation plan before generating Phoenix, Ash,
