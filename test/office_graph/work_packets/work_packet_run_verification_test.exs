@@ -586,6 +586,57 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert required_check.state == "pending"
   end
 
+  test "same verification check can be verified across separate work runs" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_run} = create_ready_run(bootstrap.session, verification_check)
+    {:ok, second_run} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, first_observation} =
+      record_observation(bootstrap.session, first_run.run, verification_check, key: "rerun-first")
+
+    {:ok, first_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        first_run.run,
+        verification_check,
+        first_observation.observation,
+        key: "rerun-first"
+      )
+
+    {:ok, first_accepted} =
+      accept_candidate(bootstrap.session, first_candidate, key: "rerun-first", result: "passed")
+
+    {:ok, second_observation} =
+      record_observation(bootstrap.session, second_run.run, verification_check,
+        key: "rerun-second"
+      )
+
+    {:ok, second_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        second_run.run,
+        verification_check,
+        second_observation.observation,
+        key: "rerun-second"
+      )
+
+    assert {:ok, second_accepted} =
+             accept_candidate(bootstrap.session, second_candidate,
+               key: "rerun-second",
+               result: "passed"
+             )
+
+    assert first_accepted.verification_result.verification_check_id ==
+             second_accepted.verification_result.verification_check_id
+
+    assert first_accepted.verification_result.work_run_id !=
+             second_accepted.verification_result.work_run_id
+
+    assert first_accepted.work_run.aggregate_state == "verified"
+    assert second_accepted.work_run.aggregate_state == "verified"
+  end
+
   test "candidate observations must belong to the candidate run and check" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
