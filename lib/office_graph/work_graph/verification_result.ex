@@ -71,6 +71,13 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
     attribute :evidence_item_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :work_run_id, :uuid, allow_nil?: true, public?: true
+    attribute :work_packet_version_id, :uuid, allow_nil?: true, public?: true
+    attribute :target_graph_item_id, :uuid, allow_nil?: true, public?: true
+    attribute :actor_principal_id, :uuid, allow_nil?: true, public?: true
+    attribute :policy_basis, :string, allow_nil?: true, public?: true
+    attribute :reason, :string, allow_nil?: true, public?: true
+    attribute :recorded_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :result, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -90,6 +97,13 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
         :verification_check_id,
         :evidence_item_id,
         :operation_id,
+        :work_run_id,
+        :work_packet_version_id,
+        :target_graph_item_id,
+        :actor_principal_id,
+        :policy_basis,
+        :reason,
+        :recorded_at,
         :result
       ]
 

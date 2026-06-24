@@ -24,7 +24,12 @@ defmodule OfficeGraph.Authorization do
     manual_intake_submit: "manual_intake.submit",
     proposed_change_apply: "proposed_change.apply",
     evidence_link: "evidence.link",
-    verification_complete: "verification.complete"
+    verification_complete: "verification.complete",
+    work_packet_create: "work_packet.create",
+    work_run_start: "work_run.start",
+    execution_observation_record: "execution_observation.record",
+    evidence_candidate_create: "evidence_candidate.create",
+    evidence_accept: "evidence.accept"
   }
 
   def ensure_owner_role(principal, tenant) do

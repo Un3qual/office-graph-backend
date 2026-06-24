@@ -12,7 +12,9 @@ defmodule OfficeGraph.Content do
   @document_operation_capabilities %{
     "manual_intake.submit" => :manual_intake_submit,
     "proposed_change.apply" => :proposed_change_apply,
-    "verification.complete" => :verification_complete
+    "verification.complete" => :verification_complete,
+    "work_packet.create" => :work_packet_create,
+    "evidence.accept" => :evidence_accept
   }
   @document_operation_actions Map.keys(@document_operation_capabilities)
 

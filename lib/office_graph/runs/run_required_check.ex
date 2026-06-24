@@ -1,27 +1,23 @@
-defmodule OfficeGraph.WorkPackets.WorkPacket do
+defmodule OfficeGraph.Runs.RunRequiredCheck do
   @moduledoc false
 
   use Ash.Resource,
-    domain: OfficeGraph.WorkPackets.Domain,
+    domain: OfficeGraph.Runs.Domain,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "work_packets"
+    table "run_required_checks"
     repo OfficeGraph.Repo
     migrate? false
-
-    foreign_key_names organization_id: "work_packets_organization_id_fkey",
-                      workspace_id: "work_packets_workspace_id_fkey"
   end
 
   attributes do
     uuid_primary_key :id, writable?: true
+    attribute :run_id, :uuid, allow_nil?: false, public?: true
+    attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: true, public?: true
-    attribute :current_version_id, :uuid, allow_nil?: true, public?: true
-    attribute :title, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -29,26 +25,27 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   end
 
   actions do
-    read :read do
-      primary? true
-      public? false
-    end
+    defaults [:read]
 
     create :create do
       accept [
         :id,
+        :run_id,
+        :verification_check_id,
         :organization_id,
         :workspace_id,
-        :operation_id,
-        :current_version_id,
-        :title,
         :state
       ]
     end
 
-    update :set_current_version do
+    update :mark_satisfied do
       public? false
-      accept [:current_version_id, :state]
+      accept []
+      change set_attribute(:state, "satisfied")
     end
+  end
+
+  identities do
+    identity :unique_run_check, [:run_id, :verification_check_id]
   end
 end

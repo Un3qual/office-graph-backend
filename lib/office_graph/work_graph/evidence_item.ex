@@ -21,6 +21,16 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
     attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
     attribute :artifact_id, :uuid, allow_nil?: true, public?: true
     attribute :body_document_id, :uuid, allow_nil?: false, public?: true
+    attribute :candidate_id, :uuid, allow_nil?: true, public?: true
+    attribute :work_run_id, :uuid, allow_nil?: true, public?: true
+    attribute :accepted_by_principal_id, :uuid, allow_nil?: true, public?: true
+    attribute :acceptance_operation_id, :uuid, allow_nil?: true, public?: true
+    attribute :acceptance_policy_basis, :string, allow_nil?: true, public?: true
+    attribute :accepted_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :visibility_constraints, :map, allow_nil?: false, public?: true, default: %{}
+    attribute :sensitivity, :string, allow_nil?: true, public?: true
+    attribute :freshness_state, :string, allow_nil?: true, public?: true
+    attribute :trust_basis, :string, allow_nil?: true, public?: true
     attribute :title, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
@@ -40,6 +50,16 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
         :verification_check_id,
         :artifact_id,
         :body_document_id,
+        :candidate_id,
+        :work_run_id,
+        :accepted_by_principal_id,
+        :acceptance_operation_id,
+        :acceptance_policy_basis,
+        :accepted_at,
+        :visibility_constraints,
+        :sensitivity,
+        :freshness_state,
+        :trust_basis,
         :title
       ]
 

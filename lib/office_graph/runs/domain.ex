@@ -5,6 +5,8 @@ defmodule OfficeGraph.Runs.Domain do
 
   resources do
     resource OfficeGraph.Runs.Run
+    resource OfficeGraph.Runs.RunRequiredCheck
+    resource OfficeGraph.Runs.ExecutionObservation
     resource OfficeGraph.Runs.RunEvent
   end
 end

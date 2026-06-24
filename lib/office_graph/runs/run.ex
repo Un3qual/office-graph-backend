@@ -16,7 +16,21 @@ defmodule OfficeGraph.Runs.Run do
 
   attributes do
     uuid_primary_key :id, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: true, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: true, public?: true
     attribute :work_packet_id, :uuid, allow_nil?: false, public?: true
+    attribute :work_packet_version_id, :uuid, allow_nil?: true, public?: true
+    attribute :operation_id, :uuid, allow_nil?: true, public?: true
+    attribute :initiator_principal_id, :uuid, allow_nil?: true, public?: true
+    attribute :objective, :string, allow_nil?: true, public?: true
+    attribute :authority_posture, :string, allow_nil?: true, public?: true
+    attribute :source_surface, :string, allow_nil?: true, public?: true
+    attribute :reason, :string, allow_nil?: true, public?: true
+    attribute :aggregate_state, :string, allow_nil?: true, public?: true
+    attribute :execution_state, :string, allow_nil?: true, public?: true
+    attribute :verification_state, :string, allow_nil?: true, public?: true
+    attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :completed_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -30,7 +44,37 @@ defmodule OfficeGraph.Runs.Run do
     end
 
     create :create do
-      accept [:id, :work_packet_id, :state]
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :work_packet_id,
+        :work_packet_version_id,
+        :operation_id,
+        :initiator_principal_id,
+        :objective,
+        :authority_posture,
+        :source_surface,
+        :reason,
+        :aggregate_state,
+        :execution_state,
+        :verification_state,
+        :started_at,
+        :completed_at,
+        :state
+      ]
+    end
+
+    update :set_lifecycle_state do
+      public? false
+
+      accept [
+        :state,
+        :aggregate_state,
+        :execution_state,
+        :verification_state,
+        :completed_at
+      ]
     end
   end
 end

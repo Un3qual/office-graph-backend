@@ -1,0 +1,71 @@
+defmodule OfficeGraph.Runs.ExecutionObservation do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.Runs.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  postgres do
+    table "execution_observations"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
+
+  attributes do
+    uuid_primary_key :id, writable?: true
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :work_run_id, :uuid, allow_nil?: false, public?: true
+    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :verification_check_id, :uuid, allow_nil?: true, public?: true
+    attribute :graph_item_id, :uuid, allow_nil?: true, public?: true
+    attribute :source_kind, :string, allow_nil?: false, public?: true
+    attribute :source_identity, :string, allow_nil?: false, public?: true
+    attribute :idempotency_key, :string, allow_nil?: true, public?: true
+    attribute :observed_status, :string, allow_nil?: false, public?: true
+    attribute :normalized_status, :string, allow_nil?: false, public?: true
+    attribute :source_recorded_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :ingested_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :freshness_state, :string, allow_nil?: false, public?: true
+    attribute :trust_basis, :string, allow_nil?: false, public?: true
+    attribute :rationale, :string, allow_nil?: true, public?: true
+    attribute :metadata, :map, allow_nil?: false, public?: true, default: %{}
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :work_run_id,
+        :operation_id,
+        :verification_check_id,
+        :graph_item_id,
+        :source_kind,
+        :source_identity,
+        :idempotency_key,
+        :observed_status,
+        :normalized_status,
+        :source_recorded_at,
+        :ingested_at,
+        :freshness_state,
+        :trust_basis,
+        :rationale,
+        :metadata
+      ]
+    end
+  end
+
+  identities do
+    identity :unique_source_idempotency_key,
+             [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key],
+             where: expr(not is_nil(idempotency_key))
+  end
+end

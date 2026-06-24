@@ -5,5 +5,8 @@ defmodule OfficeGraph.WorkPackets.Domain do
 
   resources do
     resource OfficeGraph.WorkPackets.WorkPacket
+    resource OfficeGraph.WorkPackets.WorkPacketVersion
+    resource OfficeGraph.WorkPackets.WorkPacketSourceReference
+    resource OfficeGraph.WorkPackets.WorkPacketRequiredCheck
   end
 end

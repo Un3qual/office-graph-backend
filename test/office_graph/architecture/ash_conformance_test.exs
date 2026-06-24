@@ -56,11 +56,21 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     "verification_checks" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.VerificationCheck},
     "artifacts" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Artifact},
+    "evidence_candidates" =>
+      {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.EvidenceCandidate},
     "evidence_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.EvidenceItem},
     "verification_results" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.VerificationResult},
     "work_packets" => {OfficeGraph.WorkPackets.Domain, OfficeGraph.WorkPackets.WorkPacket},
+    "work_packet_versions" =>
+      {OfficeGraph.WorkPackets.Domain, OfficeGraph.WorkPackets.WorkPacketVersion},
+    "work_packet_version_sources" =>
+      {OfficeGraph.WorkPackets.Domain, OfficeGraph.WorkPackets.WorkPacketSourceReference},
+    "work_packet_version_required_checks" =>
+      {OfficeGraph.WorkPackets.Domain, OfficeGraph.WorkPackets.WorkPacketRequiredCheck},
     "runs" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.Run},
+    "run_required_checks" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.RunRequiredCheck},
+    "execution_observations" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.ExecutionObservation},
     "run_events" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.RunEvent},
     "proposed_graph_changes" =>
       {OfficeGraph.ProposedChanges.Domain, OfficeGraph.ProposedChanges.ProposedGraphChange}
@@ -347,7 +357,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       end)
       |> Enum.filter(fn {_resource, tables} -> length(tables) > 1 end)
 
-    assert map_size(@expected_resources) == 40
+    assert map_size(@expected_resources) == 46
     assert duplicate_resources == []
     assert migration_tables() == expected_tables
   end
