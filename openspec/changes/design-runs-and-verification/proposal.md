@@ -8,15 +8,19 @@ on implicit run, check, evidence, waiver, or traceability semantics.
 
 ## What Changes
 
-- Define Office Graph-managed runs as first-class execution records for work
-  started and supervised by Office Graph, including internal agent runtime
-  executions and approved Office Graph automation.
+- Define work runs as first-class execution records for a selected packet,
+  task, requirement, graph selection, or other bounded unit of work that
+  Office Graph coordinates toward completion.
+- Define agent executions as child runtime invocations inside a work run. A
+  single work run may include multiple agent executions, human handoffs,
+  provider observations, proposed changes, and verification steps.
 - Define separate execution observations for provider-native checks,
   integration jobs, external agent activity, and human handoff milestones that
   Office Graph records, imports, or links without owning their execution
   lifecycle.
-- Define run events, failure states, tool-action references, provenance, and
-  operation-correlation hooks for managed runs.
+- Define work-run and agent-execution events, failure states, tool-action
+  references, provenance, and operation-correlation hooks at the correct
+  parent or child level.
 - Define verification checks, evidence candidates, accepted evidence,
   verification results, monitoring outcomes, and check waivers.
 - Define how approval gates, proposed graph changes, work packets, runtime
@@ -30,14 +34,19 @@ on implicit run, check, evidence, waiver, or traceability semantics.
 
 ### New Capabilities
 
-- `managed-execution-runs`: Office Graph-owned run lifecycle, state model,
-  triggering source, authority basis, runtime references, failure handling,
-  event taxonomy, tool-action references, provenance, and operation/audit
-  linkage.
+- `work-runs`: Office Graph-coordinated execution of a selected work packet,
+  task, requirement, graph selection, or bounded objective, including parent
+  lifecycle, aggregate status, authority posture, child execution references,
+  evidence summary, and operation/audit linkage.
+- `agent-executions`: individual internal agent runtime invocations inside a
+  work run, including context package, agent principal, delegator or trigger
+  authority, autonomy envelope, model/tool steps, failure handling,
+  provenance, output classification, and links to proposed changes or evidence
+  candidates.
 - `execution-observations`: provider-native check runs, integration jobs,
   external agent activity, human handoff milestones, imported statuses, source
   identity, freshness, trust level, and links to graph items, work packets,
-  managed runs, and evidence.
+  work runs, agent executions, and evidence.
 - `verification-evidence`: verification checks, evidence candidates, accepted
   evidence, verification results, monitoring outcomes, check waivers, approval
   gate satisfaction, and traceability from completion claims back to work,
@@ -52,14 +61,15 @@ on implicit run, check, evidence, waiver, or traceability semantics.
 
 ## Impact
 
-- Affects future run, run event, external observation, verification check,
-  evidence, verification result, waiver, monitoring, review finding, and
-  traceability resources.
+- Affects future work run, work-run event, agent execution,
+  agent-execution event, external observation, verification check, evidence,
+  verification result, waiver, monitoring, review finding, and traceability
+  resources.
 - Consumes constraints from work packets/readiness, agent runtime, proposed
   graph changes, revision/audit/operation correlation, identity and
   authorization, ingestion/integration design, persistence, code organization,
   API/realtime projections, and the walking-skeleton specs.
 - Constrains later backend walking-skeleton implementation, graph projection
-  queries, verification gates, work packet handoffs, agent runtime event
+  queries, verification gates, work packet handoffs, agent runtime execution
   storage, external provider imports, and frontend verification surfaces.
 - Creates no application code.

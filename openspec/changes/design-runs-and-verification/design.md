@@ -8,37 +8,44 @@ persistence designs already reference runs, run events, checks, evidence,
 review findings, approval gates, and verification results, but they do not yet
 define the owning concepts.
 
-The most important boundary is that not every execution-like thing should be a
-run. Office Graph should own the lifecycle for work it starts and supervises,
-such as internal agent executions or approved Office Graph automation. It
-should separately record provider-native checks, integration jobs, external
-agent activity, and human handoff milestones as observations or evidence
-sources. Verification then decides which checks are required, which observations
-or artifacts count as evidence, and whether a completion claim is accepted.
+The most important boundary is that a run of selected work is not the same
+thing as one agent invocation. A work run is the parent execution of a selected
+work packet, task, requirement, graph selection, or bounded objective. It may
+coordinate multiple agent executions, human handoffs, integration activity,
+provider observations, proposed changes, checks, and evidence.
 
-This keeps Office Graph traceable without pretending that GitHub Actions,
-external review bots, human review activity, imported provider statuses, and
-internal agent runs all have the same lifecycle semantics.
+Agent executions are child runtime invocations inside that parent work run. An
+agent execution can perform one step, investigate one task, call tools, produce
+findings, propose changes, or emit evidence candidates, but it should not be
+the top-level representation of the work being executed.
+
+This gives Office Graph a durable execution spine without pretending that
+GitHub Actions, external review bots, human review activity, imported provider
+statuses, work-packet execution, and internal agent invocations all share the
+same lifecycle semantics.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Define Office Graph-managed runs as owned execution records with explicit
-  authority, lifecycle, event, failure, provenance, and operation-correlation
-  semantics.
+- Define work runs as parent execution records for selected work, with
+  aggregate status, authority posture, child execution references, evidence
+  summary, and operation-correlation semantics.
+- Define agent executions as child runtime invocations inside a work run, with
+  their own context packages, tool/model steps, failure states, outputs, and
+  provenance.
 - Define execution observations for provider-native checks, external agent
   activity, integration jobs, human handoff milestones, and imported statuses
   that Office Graph can link, interpret, and use without owning their
   lifecycle.
 - Define verification checks, evidence candidates, accepted evidence,
   verification results, monitoring outcomes, and check waivers.
-- Define how runs, observations, proposed graph changes, approval gates,
-  review findings, work packets, artifacts, audit records, and revisions
-  connect through traceable verification.
-- Keep run events separate from audit records, domain events, external sync
-  events, raw archives, and revision history while allowing shared operation
-  correlation.
+- Define how work runs, agent executions, observations, proposed graph changes,
+  approval gates, review findings, work packets, artifacts, audit records, and
+  revisions connect through traceable verification.
+- Keep work-run events and agent-execution events separate from audit records,
+  domain events, external sync events, raw archives, and revision history while
+  allowing shared operation correlation.
 - Preserve a minimal walking-skeleton path while leaving room for richer agent
   runtime, provider import, monitoring, and frontend verification surfaces.
 
@@ -51,80 +58,103 @@ internal agent runs all have the same lifecycle semantics.
 - No single generic event table for runs, audit, revisions, sync, domain
   events, and observations.
 - No final UI layout, transport schema, or table column list.
-- No policy shortcut that lets a passing provider check, external approval, or
-  run success automatically satisfy Office Graph verification without mapped
-  checks, authority, and evidence acceptance.
+- No policy shortcut that lets a passing provider check, external approval,
+  work-run success, or agent-execution success automatically satisfy Office
+  Graph verification without mapped checks, authority, and evidence acceptance.
 
 ## Decisions
 
-### 1. Separate Managed Runs From Execution Observations
+### 1. Work Runs Are Parent Executions Of Selected Work
 
-A managed run is an Office Graph-owned execution record. It is created when
-Office Graph starts or supervises work with an explicit invocation source,
-authority basis, scope, lifecycle state, and operation context. Initial managed
-run categories should include internal agent runtime executions, approved
-automation, verification jobs that Office Graph owns, and future delegated
-execution packages that run under Office Graph supervision.
+A work run is the Office Graph-owned parent execution record for a selected
+unit of work. The selection can be a work packet version, task, requirement,
+proposed change, graph item set, conversation request, incident, campaign
+artifact, or another bounded objective. A work run answers: "What work did we
+try to execute, under which authority and scope, with which participants and
+evidence, and what was the aggregate outcome?"
 
-An execution observation is a record of execution-like activity whose lifecycle
-is owned elsewhere or by a human process. Examples include provider-native
-check runs, CI jobs, imported deployment statuses, external review-bot comments,
-external agent activity, integration sync jobs, pull request review events,
-manual completion notes, and human handoff milestones.
+Work runs should carry organization, scope, selected work reference, work
+packet version when present, objective, triggering source, initiating
+principal or trigger, authority posture, autonomy envelope summary, aggregate
+lifecycle state, child execution references, required checks, evidence summary,
+operation context, and terminal outcome.
 
-Rationale: Office Graph needs to reason about both categories, but they answer
-different questions. A managed run asks, "What did Office Graph start, allow,
-supervise, block, retry, or stop?" An observation asks, "What did Office Graph
-learn happened elsewhere, how fresh is it, and can it support verification?"
+A work run can contain multiple child records:
 
-Alternatives considered:
+- agent executions for individual internal agent invocations
+- human handoff or review milestones
+- execution observations from providers, CI, external agents, and integrations
+- proposed graph changes produced during execution
+- verification checks, evidence candidates, accepted evidence, and waivers
+- operation, audit, authorization-decision, revision, and artifact references
 
-- Use one broad `run` concept for all execution-like records. This simplifies
-  search, but it lies about ownership and makes external state transitions look
-  controllable by Office Graph.
-- Model only managed runs and attach external data as loose evidence. This
-  avoids lifecycle confusion but loses important source, status, freshness,
-  trust, and replay details for provider-native checks and human handoffs.
-- Treat provider-native check runs as domain-specific records only. This keeps
-  provider models pure but makes cross-provider verification and evidence
-  projections harder.
+```
+work_run
+  -> work_packet_version or selected graph/work target
+  -> agent_execution[0..n]
+  -> execution_observation[0..n]
+  -> proposed_graph_change[0..n]
+  -> verification_check / evidence / waiver / verification_result
+```
 
-### 2. Managed Runs Own Office Graph Execution Lifecycle
-
-Managed runs should carry organization, scope, source graph item or trigger,
-work packet version when applicable, invocation mode, principal, agent
-principal when applicable, delegator or trigger authority, autonomy envelope,
-requested capabilities, operation context, current lifecycle state, terminal
-result, and provenance references.
-
-The lifecycle should distinguish at least queued, running, waiting for
-approval, waiting for context expansion, blocked, succeeded, failed, cancelled,
-timed out, and superseded. Domain-specific runtime details can extend this
-vocabulary, but product projections should expose an understandable status
-instead of raw worker internals.
-
-Managed run events should be append-only timeline records for meaningful
-execution steps: run started, context package selected, authority evaluated,
-model step completed, tool action requested, tool action completed, approval
-requested, approval received, context expansion requested, output classified,
-proposed change created, evidence candidate produced, failure occurred, retry
-scheduled, run completed, and run cancelled.
-
-Rationale: a managed run is the audit-adjacent product record for supervised
-execution. It needs enough lifecycle detail for product review, debugging,
-verification, and future context reuse without becoming the audit log or the
-agent runtime's private state dump.
+Rationale: execution of selected work is the product-level unit users care
+about. It can span several agent invocations, human decisions, provider checks,
+and evidence updates. Making the work run the parent keeps the product model
+honest and avoids making a single agent invocation stand in for the whole work.
 
 Alternatives considered:
 
-- Store managed run state only in worker/job tables. This hides product
+- Make every agent invocation a run. This matches agent-runtime terminology but
+  loses the parent execution context when a work packet requires several
+  agents, retries, handoffs, or provider checks.
+- Use one broad run table for work runs, agent executions, provider checks, and
+  human handoffs. This simplifies querying but erases ownership and lifecycle
+  differences.
+- Treat work runs as just work packet status. This avoids another record, but
+  it hides execution history, retries, child attempts, evidence production, and
+  operation correlation.
+
+### 2. Agent Executions Are Child Runtime Invocations
+
+An agent execution is one internal agent runtime invocation inside a work run.
+It answers: "Which agent was invoked, with what context and authority, what
+model/tool steps happened, what outputs were produced, and how did this
+invocation end?"
+
+Agent executions should carry parent work run, invocation mode, selected task
+or sub-objective, context package reference, agent principal, delegator or
+trigger authority, autonomy envelope, requested capabilities, model/tool step
+summaries, current lifecycle state, terminal result, output classification,
+failure state, retry/supersession references, and provenance.
+
+The agent-execution lifecycle should distinguish at least queued, running,
+waiting for approval, waiting for context expansion, blocked, succeeded,
+failed, cancelled, timed out, retried, and superseded. Product projections can
+roll these up into the parent work run without exposing raw worker internals.
+
+Agent-execution events should be append-only timeline records for meaningful
+runtime steps: execution started, context package selected, authority
+evaluated, model step completed, tool action requested, tool action completed,
+approval requested, approval received, context expansion requested, output
+classified, proposed change created, evidence candidate produced, failure
+occurred, retry scheduled, execution completed, and execution cancelled.
+
+Rationale: a work run may have several agent executions: one to analyze a
+review finding, another to draft a proposed graph change, another to run a
+verification step, and another to summarize evidence. Each invocation needs its
+own context, authority, failure, and provenance without fragmenting the
+product-level work execution.
+
+Alternatives considered:
+
+- Store agent executions only inside runtime worker tables. This hides product
   execution history and makes verification evidence hard to explain.
-- Store every low-level runtime message as a run event. This creates volume,
-  retention, and sensitivity problems. Low-level traces can remain logs or raw
-  archives unless they become product-relevant.
-- Make terminal run success equivalent to verification success. This is wrong:
-  a run can execute successfully while producing invalid evidence or incomplete
-  work.
+- Store every low-level runtime message as an agent-execution event. This
+  creates volume, retention, and sensitivity problems. Low-level traces can
+  remain logs or raw archives unless they become product-relevant.
+- Make terminal agent-execution success equivalent to work-run or verification
+  success. This is wrong: an agent can complete its invocation while producing
+  invalid evidence, a failed proposed change, or only partial progress.
 
 ### 3. Observations Preserve Source Truth Without Becoming Truth
 
@@ -255,10 +285,10 @@ Alternatives considered:
 ### 8. Review Findings Are Work Inputs With Verification Effects
 
 Review findings should be treated as graph-linked work inputs that may be
-produced by managed runs, execution observations, external reviewers, imported
-provider comments, or humans. Findings can require tasks, proposed changes,
-verification checks, evidence, or waivers, but they are not the same as
-evidence by default.
+produced by work runs, agent executions, execution observations, external
+reviewers, imported provider comments, or humans. Findings can require tasks,
+proposed changes, verification checks, evidence, or waivers, but they are not
+the same as evidence by default.
 
 Rationale: a CodeRabbit comment, internal review-agent finding, or human review
 note may identify work to do. It only becomes evidence when it supports a
@@ -274,37 +304,37 @@ Alternatives considered:
 
 ### 9. Operation Correlation Links Related Records
 
-Managed runs, run events, execution observations, evidence candidates,
-accepted evidence, verification results, waivers, proposed changes, revisions,
-audit records, and authorization decisions should reference operation
-correlation when they belong to the same meaningful command or externally
-observed action.
+Work runs, work-run events, agent executions, agent-execution events,
+execution observations, evidence candidates, accepted evidence, verification
+results, waivers, proposed changes, revisions, audit records, and
+authorization decisions should reference operation correlation when they belong
+to the same meaningful command or externally observed action.
 
 The operation record should not become the event payload or a polymorphic
 target table. Each owning domain keeps its typed record and uses the operation
 reference for traceability.
 
 Rationale: verification needs a chain from completion claim back through
-packet, run or observation, evidence, approval, proposed change, audit, and
-revision. Operation correlation provides the spine without collapsing all
-record types into one table.
+packet, work run, agent execution, observation, evidence, approval, proposed
+change, audit, and revision. Operation correlation provides the spine without
+collapsing all record types into one table.
 
 Alternatives considered:
 
 - Store only loose graph edges between all records. Edges are useful for graph
   traversal but weaker for command traceability, idempotency, and audit review.
-- Put all execution and verification facts on the run. This fails when the
-  source is external or human-owned and when verification spans multiple runs
-  and observations.
+- Put all execution and verification facts on the work run. This fails when
+  the source is an individual agent execution, external observation, or
+  human-owned activity, and when verification spans multiple child records.
 
 ### 10. High-Volume Events Need Tiered Retention
 
-Managed run events, execution observations, monitoring outcomes, and provider
-check imports can grow quickly. The first design should require tenant/scope,
-source, status, target, operation, and time indexes, and it should identify
-likely partitioning paths before implementation. Product-relevant summaries and
-evidence links should remain queryable even if raw low-level traces expire or
-move to archive storage.
+Work-run events, agent-execution events, execution observations, monitoring
+outcomes, and provider check imports can grow quickly. The first design should
+require tenant/scope, source, status, target, operation, and time indexes, and
+it should identify likely partitioning paths before implementation.
+Product-relevant summaries and evidence links should remain queryable even if
+raw low-level traces expire or move to archive storage.
 
 Rationale: run and verification data is valuable, but unrestricted retention of
 every low-level event will create performance, privacy, and cost problems.
@@ -318,10 +348,11 @@ Alternatives considered:
 
 ## Risks / Trade-offs
 
-- [Risk] The distinction between managed runs and observations may feel
-  abstract in early implementation. Mitigation: make the walking skeleton use
-  one managed run only if Office Graph truly starts work; otherwise use
-  observations and evidence links for imported or human-owned activity.
+- [Risk] The distinction among work runs, agent executions, and observations
+  may feel abstract in early implementation. Mitigation: make the walking
+  skeleton create a work run only when there is a selected work objective being
+  coordinated, create an agent execution only when the internal runtime is
+  invoked, and use observations for imported or human-owned activity.
 - [Risk] Verification records become too complex for the MVP. Mitigation:
   start with required checks, evidence candidates, accepted evidence,
   verification results, and waivers; defer richer monitoring and confidence
@@ -348,21 +379,25 @@ Alternatives considered:
 
 1. In a later implementation plan, introduce the minimal record families
    needed by the walking skeleton: verification checks, evidence items,
-   verification results, and only the skeletal managed run or observation
-   records required to prove the loop.
-2. Add managed run records and run events when the internal agent runtime or
-   Office Graph-owned automation first starts supervised work.
-3. Add execution observations for imported provider checks, external review
+   verification results, and only the skeletal work run, agent execution, or
+   observation records required to prove the loop.
+2. Add work run records and work-run events when Office Graph first coordinates
+   execution of a selected work objective.
+3. Add agent execution records and agent-execution events when the internal
+   agent runtime first performs child invocations inside a work run.
+4. Add execution observations for imported provider checks, external review
    bot activity, integration jobs, and human handoff milestones as integrations
    require them.
-4. Connect work packet handoff to managed runs or observations through explicit
-   packet version, authority, context package, and operation references.
-5. Connect proposed graph change application, revisions, audit records, and
+5. Connect work packet handoff to work runs, agent executions, or observations
+   through explicit packet version, authority, context package, parent/child,
+   and operation references.
+6. Connect proposed graph change application, revisions, audit records, and
    authorization decisions through operation correlation so verification can
    trace accepted changes.
-6. Add projection and API/realtime contracts for verification summary, evidence
-   chain, run status, observation freshness, waiver state, and stale markers.
-7. Add growth controls, indexing, partitioning, raw archive references, and
+7. Add projection and API/realtime contracts for verification summary, evidence
+   chain, work-run status, child execution status, observation freshness,
+   waiver state, and stale markers.
+8. Add growth controls, indexing, partitioning, raw archive references, and
    retention behavior before high-volume provider checks, monitoring outcomes,
    or agent event streams become production-scale.
 
@@ -373,7 +408,7 @@ data migration can safely remove or supersede them.
 
 ## Open Questions
 
-- Which first walking-skeleton path should create a managed run, if any, versus
+- Which first walking-skeleton path should create a work run, if any, versus
   relying on observations and evidence around manual intake?
 - What exact product vocabulary should appear in the UI for observation trust:
   raw, normalized, accepted, stale, disputed, superseded, or a smaller set?
