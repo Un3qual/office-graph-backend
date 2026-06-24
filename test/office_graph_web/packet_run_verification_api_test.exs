@@ -107,6 +107,49 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
     assert [%{"extensions" => %{"code" => "validation_failed"}}] = graphql_response["errors"]
   end
 
+  test "JSON API rejects mismatched source and check before durable flow writes", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("json-mismatched-source")
+    {:ok, other_check} = create_required_verification_check("json-mismatched-source-other")
+
+    attrs =
+      flow_attrs("json-mismatched-source", verification_check)
+      |> Map.put(:source_graph_item_id, other_check.graph_item_id)
+
+    json_response =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "validation_failed"
+
+    corrected_summary =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        Map.put(attrs, :source_graph_item_id, verification_check.graph_item_id)
+      )
+      |> json_response(200)
+
+    assert_summary_verified(corrected_summary, verification_check.id)
+  end
+
+  test "JSON API rejects passed evidence for failed observations", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("json-failed-observation")
+
+    json_response =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        flow_attrs("json-failed-observation", verification_check)
+        |> Map.put(:observed_status, "failed")
+        |> Map.put(:normalized_status, "failed")
+        |> Map.put(:evidence_result, "passed")
+      )
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "validation_failed"
+  end
+
   defp assert_summary_verified(summary, verification_check_id) do
     packet = summary["packet"]
     packet_version = value(summary, "packet_version", "packetVersion")

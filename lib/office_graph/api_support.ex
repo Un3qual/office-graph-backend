@@ -69,6 +69,9 @@ defmodule OfficeGraph.ApiSupport do
   def execute_packet_run_verification(params) do
     with {:ok, input} <- packet_run_input(params),
          {:ok, bootstrap} <- bootstrap_local_api_owner(),
+         {:ok, verification_check} <-
+           WorkGraph.get_verification_check(bootstrap.session, input.verification_check_id),
+         :ok <- validate_packet_run_source(input, verification_check),
          {:ok, packet_operation} <-
            Operations.start_operation(bootstrap.session, :work_packet_create,
              idempotency_key: input.flow_identity <> ":packet"
@@ -253,6 +256,16 @@ defmodule OfficeGraph.ApiSupport do
          evidence_result: evidence_result,
          acceptance_policy_basis: acceptance_policy_basis
        }}
+    end
+  end
+
+  defp validate_packet_run_source(input, verification_check) do
+    if input.source_graph_item_id == verification_check.graph_item_id do
+      :ok
+    else
+      {:error,
+       {:source_graph_item_check_mismatch, input.source_graph_item_id, verification_check.id,
+        verification_check.graph_item_id}}
     end
   end
 

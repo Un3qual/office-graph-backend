@@ -59,7 +59,7 @@ defmodule OfficeGraph.Runs do
           create_observation(session_context, operation, run, attrs)
 
         {:ok, observation} ->
-          if observation.work_run_id == run.id do
+          if same_observation_replay?(observation, run, attrs) do
             {:ok, %{observation: observation, run: run}}
           else
             {:error, {:observation_idempotency_conflict, observation.id}}
@@ -85,13 +85,13 @@ defmodule OfficeGraph.Runs do
   end
 
   def set_run_verified_if_all_required_checks_satisfied(run) do
-    with {:ok, required_checks} <- required_checks_for_run(run.id) do
-      if required_checks != [] and Enum.all?(required_checks, &(&1.state == "satisfied")) do
-        set_run_verified(run)
-      else
-        {:ok, run}
-      end
-    end
+    Repo.transaction(fn ->
+      locked_run = lock_run!(run.id)
+      required_checks = lock_required_checks_for_run!(locked_run.id)
+
+      maybe_set_run_verified!(locked_run, required_checks)
+    end)
+    |> normalize_transaction_result()
   end
 
   def set_run_verification_failed(run) do
@@ -108,22 +108,24 @@ defmodule OfficeGraph.Runs do
   end
 
   def mark_required_check_satisfied(run_id, verification_check_id) do
-    RunRequiredCheck
-    |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
-        {:ok, nil}
+    Repo.transaction(fn ->
+      _run = lock_run!(run_id)
+      mark_required_check_satisfied_in_locked_run!(run_id, verification_check_id)
+    end)
+    |> normalize_transaction_result()
+  end
 
-      {:ok, required_check} ->
-        required_check
-        |> Ash.Changeset.for_update(:mark_satisfied, %{})
-        |> Ash.update(authorize?: false, return_notifications?: true)
-        |> unwrap_ash_result()
+  def satisfy_required_check_and_verify_run(run, verification_check_id) do
+    Repo.transaction(fn ->
+      locked_run = lock_run!(run.id)
 
-      {:error, error} ->
-        {:error, error}
-    end
+      _required_check =
+        mark_required_check_satisfied_in_locked_run!(locked_run.id, verification_check_id)
+
+      required_checks = lock_required_checks_for_run!(locked_run.id)
+      maybe_set_run_verified!(locked_run, required_checks)
+    end)
+    |> normalize_transaction_result()
   end
 
   def required_checks_for_run(run_id) do
@@ -286,6 +288,83 @@ defmodule OfficeGraph.Runs do
         idempotency_key == ^key
     )
     |> Ash.read_one(authorize?: false)
+  end
+
+  defp same_observation_replay?(observation, run, attrs) do
+    observation.work_run_id == run.id and
+      observation.verification_check_id == attrs[:verification_check_id] and
+      observation.graph_item_id == attrs[:graph_item_id] and
+      observation.observed_status == attrs[:observed_status] and
+      observation.normalized_status == attrs[:normalized_status]
+  end
+
+  defp lock_run!(run_id) do
+    Run
+    |> Ash.Query.filter(id == ^run_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> Repo.rollback({:not_found, Run, run_id})
+      {:ok, run} -> run
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp lock_required_checks_for_run!(run_id) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp mark_required_check_satisfied_in_locked_run!(run_id, verification_check_id) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        nil
+
+      {:ok, required_check} ->
+        required_check
+        |> Ash.Changeset.for_update(:mark_satisfied, %{})
+        |> Ash.update(authorize?: false, return_notifications?: true)
+        |> case do
+          {:ok, required_check, _notifications} -> required_check
+          {:ok, required_check} -> required_check
+          {:error, error} -> Repo.rollback(error)
+        end
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp maybe_set_run_verified!(run, required_checks) do
+    cond do
+      run_failed?(run) ->
+        run
+
+      required_checks != [] and Enum.all?(required_checks, &(&1.state == "satisfied")) ->
+        set_run_verified!(run)
+
+      true ->
+        run
+    end
+  end
+
+  defp set_run_verified!(run) do
+    case set_run_verified(run) do
+      {:ok, run} -> run
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp run_failed?(run) do
+    run.state == "failed" or run.aggregate_state == "failed" or run.execution_state == "failed" or
+      run.verification_state == "failed"
   end
 
   defp packet_required_checks(packet_version_id) do

@@ -508,6 +508,43 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert observation_result.run.verification_state == "failed"
   end
 
+  test "passed evidence from a failed observation cannot satisfy or verify a run" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "failed-observation-passed-evidence",
+        observed_status: "failed",
+        normalized_status: "failed"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "failed-observation-passed-evidence"
+      )
+
+    observation_id = observation_result.observation.id
+
+    assert {:error, {:observation_not_successful, ^observation_id}} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "failed-observation-passed-evidence",
+               result: "passed"
+             )
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+    assert summary.run.aggregate_state == "failed"
+    assert summary.run.verification_state == "failed"
+    assert [%{state: "pending"}] = summary.required_checks
+    assert summary.evidence_items == []
+    assert summary.verification_results == []
+  end
+
   test "work run verifies only after every required check has passing evidence" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
@@ -767,6 +804,53 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              Runs.record_observation(bootstrap.session, second_operation, run_result.run, attrs)
 
     assert second.observation.id == first.observation.id
+  end
+
+  test "observation idempotency rejects conflicting check replays on the same run" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    attrs = %{
+      source_kind: "provider_check",
+      source_identity: "provider:conflicting-replay",
+      idempotency_key: "provider-check:conflicting-replay",
+      observed_status: "success",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: first_check.id,
+      graph_item_id: first_check.graph_item_id,
+      rationale: "Provider check succeeded."
+    }
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-conflicting-replay-first"
+      )
+
+    assert {:ok, first} =
+             Runs.record_observation(bootstrap.session, first_operation, run_result.run, attrs)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-conflicting-replay-second"
+      )
+
+    first_observation_id = first.observation.id
+
+    assert {:error, {:observation_idempotency_conflict, ^first_observation_id}} =
+             Runs.record_observation(
+               bootstrap.session,
+               second_operation,
+               run_result.run,
+               %{
+                 attrs
+                 | verification_check_id: second_check.id,
+                   graph_item_id: second_check.graph_item_id
+               }
+             )
   end
 
   defp create_packet_with_operation(session, idempotency_key, attrs) do

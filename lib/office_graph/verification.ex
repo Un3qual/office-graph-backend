@@ -104,8 +104,10 @@ defmodule OfficeGraph.Verification do
           verification_check =
             fetch_scoped!(VerificationCheck, session_context, candidate.verification_check_id)
 
-          work_run = fetch_scoped!(Run, session_context, candidate.work_run_id)
-          validate_candidate_links!(candidate, work_run, verification_check)
+          work_run = lock_scoped!(Run, session_context, candidate.work_run_id)
+          observation = validate_candidate_links!(candidate, work_run, verification_check)
+          result = attrs[:result] || "passed"
+          validate_passed_result_allowed!(result, work_run, observation)
 
           document = create_document!(session_context, operation, attrs[:body] || "")
           evidence_id = Ecto.UUID.generate()
@@ -167,7 +169,7 @@ defmodule OfficeGraph.Verification do
                 policy_basis: attrs[:acceptance_policy_basis],
                 reason: attrs[:reason],
                 recorded_at: now,
-                result: attrs[:result] || "passed"
+                result: result
               }
             )
 
@@ -287,10 +289,21 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp update_required_check!(run_id, verification_check_id) do
-    case Runs.mark_required_check_satisfied(run_id, verification_check_id) do
-      {:ok, required_check} -> required_check
-      {:error, error} -> Repo.rollback(error)
+  defp lock_scoped!(resource, session_context, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        Repo.rollback({:not_found, resource, id})
+
+      {:ok, record} ->
+        validate_scope!(session_context, record)
+        record
+
+      {:error, error} ->
+        Repo.rollback(error)
     end
   end
 
@@ -306,17 +319,37 @@ defmodule OfficeGraph.Verification do
              candidate.execution_observation_id
            ),
          :ok <- validate_observation_belongs(observation, work_run, verification_check) do
-      :ok
+      observation
     else
       {:error, error} -> Repo.rollback(error)
     end
   end
 
-  defp update_work_run_after_acceptance!(work_run, %{result: "passed"} = verification_result) do
-    _required_check =
-      update_required_check!(work_run.id, verification_result.verification_check_id)
+  defp validate_passed_result_allowed!("passed", work_run, observation) do
+    cond do
+      not is_nil(observation) and observation.normalized_status != "succeeded" ->
+        Repo.rollback({:observation_not_successful, observation.id})
 
-    case Runs.set_run_verified_if_all_required_checks_satisfied(work_run) do
+      work_run_failed?(work_run) ->
+        Repo.rollback({:work_run_already_failed, work_run.id})
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_passed_result_allowed!(_result, _work_run, _observation), do: :ok
+
+  defp work_run_failed?(work_run) do
+    work_run.state == "failed" or work_run.aggregate_state == "failed" or
+      work_run.execution_state == "failed" or work_run.verification_state == "failed"
+  end
+
+  defp update_work_run_after_acceptance!(work_run, %{result: "passed"} = verification_result) do
+    case Runs.satisfy_required_check_and_verify_run(
+           work_run,
+           verification_result.verification_check_id
+         ) do
       {:ok, run} -> run
       {:error, error} -> Repo.rollback(error)
     end
