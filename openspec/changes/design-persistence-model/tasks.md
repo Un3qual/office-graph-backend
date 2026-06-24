@@ -88,7 +88,7 @@
 - [x] 3.9 Decide the first sortable position-key implementation, rebalance
   policy, and conflict behavior for concurrent reorders.
 - [x] 3.10 Decide the first operation-correlation record shape shared by
-  revisions, audit records, run events, sync events, proposed graph changes,
+  revisions, audit records, run events, sync events, change proposals,
   and domain events.
 
 ## 4. Follow-On Planning Work
@@ -136,7 +136,7 @@
   scopes, roles, capabilities, grants, policy facts, sensitivity labels, and
   credential metadata before first migrations.
 - [x] 4.12 Define the first walking skeleton persistence scope and pull
-  skeletal work packets, runs, run events, proposed graph changes, and
+  skeletal work packets, runs, run events, change proposals, and
   verification results forward only as needed to prove the loop.
 - [x] 4.13 Narrow rich text v1 to normalized documents, current blocks, stable
   text-run or inline-span identities, basic marks/references, pinned

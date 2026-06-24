@@ -45,7 +45,7 @@ when delegating packet work to an internal agent.
 
 ### Requirement: Execution Outputs Return Through Domain Contracts
 
-Office Graph SHALL route execution outputs through proposed graph changes,
+Office Graph SHALL route execution outputs through change proposals,
 evidence candidates, accepted domain actions, or future run/verification
 contracts rather than hidden packet side effects.
 
@@ -54,7 +54,7 @@ contracts rather than hidden packet side effects.
 - **WHEN** a human or agent execution output proposes creating, updating,
   linking, closing, approving, rejecting, waiving, or attaching evidence to
   graph or domain state
-- **THEN** Office Graph MUST route the output through proposed graph change or
+- **THEN** Office Graph MUST route the output through change proposal or
   accepted domain action contracts with validation, authorization, revision,
   audit, and operation correlation
 

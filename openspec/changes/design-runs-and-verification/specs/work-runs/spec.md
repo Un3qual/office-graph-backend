@@ -19,7 +19,7 @@ human handoff observations.
 #### Scenario: Work run starts from selected graph work
 
 - **WHEN** a user, policy, integration, or agent starts execution for a task,
-  requirement, proposed change, graph item set, conversation request, incident,
+  requirement, change proposal, graph item set, conversation request, incident,
   campaign artifact, or another bounded objective without a packet version
 - **THEN** Office Graph MUST be able to create a work run that records the
   selected work target, reason for execution, source surface, scope, authority
@@ -41,7 +41,7 @@ collapsing their distinct ownership and lifecycle semantics.
 #### Scenario: Work run has mixed child activity
 
 - **WHEN** execution includes agent executions, human handoffs, provider check
-  observations, proposed graph changes, approval gates, evidence candidates, or
+  observations, change proposals, approval gates, evidence candidates, or
   waivers
 - **THEN** the work run MUST preserve typed child references and MUST NOT store
   all child payloads in one generic run-event record
@@ -62,8 +62,8 @@ staleness.
 
 #### Scenario: Child execution fails
 
-- **WHEN** an agent execution, human handoff, provider observation, proposed
-  change, or verification step fails inside a work run
+- **WHEN** an agent execution, human handoff, provider observation, change
+  proposal, or verification step fails inside a work run
 - **THEN** Office Graph MUST preserve the child failure and MUST update the
   work-run aggregate status to blocked, failed, partial, retryable, or another
   policy-defined state with traceable reasons
@@ -75,9 +75,9 @@ and revision traceability for work runs.
 
 #### Scenario: Work run changes product state
 
-- **WHEN** execution inside a work run applies a proposed graph change, creates
-  evidence, satisfies verification, records a waiver, or changes a related
-  product record
+- **WHEN** execution inside a work run applies an accepted change proposal
+  through its owning domain action, creates evidence, satisfies verification,
+  records a waiver, or changes a related product record
 - **THEN** the resulting records MUST preserve references to the work run and
   operation correlation where applicable
 

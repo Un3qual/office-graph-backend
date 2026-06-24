@@ -61,8 +61,9 @@ decisions into this file or into formal OpenSpec specs.
 - Linear is not a concern for the initial planning slice.
 - OpenSpec is only the workflow for building Office Graph. Office Graph product
   features are not inherently OpenSpec features.
-- Retire GraphPatch as product language. Keep the underlying safety pattern as
-  structured proposed graph changes that apply through validated domain actions.
+- Retire GraphPatch and `proposed_graph_change` as product language. Keep the
+  underlying safety pattern as structured change proposals that apply through
+  validated domain actions.
 - Backend extensibility is a first-order requirement. New capabilities should
   feel like natural additions to the domain model rather than late add-ons that
   require broad rewrites.
@@ -265,7 +266,7 @@ Locked or strongly preferred technical direction:
 - Evidence: proof or counterproof attached to a check, task, run, or
   requirement. Examples include a merged PR, passing CI run, Sentry quiet
   period, human approval, test result, or review decision.
-- Proposed graph change: a structured mutation proposal to the graph. Agents may
+- Change proposal: a structured mutation proposal to the graph. Agents may
   propose changes, but validation, permissions, and domain actions decide what
   becomes true.
 - External reference: a typed link between an Office Graph record and a record
@@ -284,7 +285,7 @@ Locked or strongly preferred technical direction:
   human-only handling.
 - Agent runtime: Office Graph's managed environment for graph-aware agents that
   can converse about selected graph items, run automatic reviews, produce
-  findings, propose graph changes, and perform approved tool actions.
+  findings, create change proposals, and perform approved tool actions.
 - Automatic agent: an agent attached to a graph item, workflow, trigger, or
   completion event. Examples include code review, security review, spec review,
   plan review, finance review, campaign review, or brand review agents.

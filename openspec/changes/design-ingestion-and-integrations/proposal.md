@@ -40,6 +40,6 @@ backend code generation.
 
 - Affects OpenSpec planning for ingestion, integration adapters, raw archives,
   external references, manual intake, and future webhook/API imports.
-- Feeds persistence, code organization, proposed graph changes, work packets,
+- Feeds persistence, code organization, change proposals, work packets,
   runs/verification, and future API/UI work.
 - Creates no application code.

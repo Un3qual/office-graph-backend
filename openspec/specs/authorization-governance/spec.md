@@ -88,7 +88,7 @@ under roles, explicit grants, agent permissions, and integration scopes.
 - **WHEN** the initial capability set is defined
 - **THEN** it must cover graph item access, membership management,
   integration management, credential management, agent execution, agent
-  approval, work packet modification, proposed graph change approval, check
+  approval, work packet modification, change proposal approval, check
   waivers, sensitive artifact access, exports, external comments, external
   writes, context expansion, approval gate satisfaction, retention, legal
   hold, and audit-log visibility

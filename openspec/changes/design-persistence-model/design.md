@@ -43,7 +43,7 @@ duplicating every identity and authorization table family here.
 - Identify large-table growth and partitioning candidates without overbuilding
   the MVP.
 - Preserve clean boundaries with revision/audit/soft-delete, code
-  organization, ingestion/integrations, agent runtime, proposed graph changes,
+  organization, ingestion/integrations, agent runtime, change proposals,
   work packets/readiness, runs/verification, and API/UI projections.
 
 **Non-Goals:**
@@ -97,7 +97,7 @@ than drive it. A resource may implement API interfaces such as closable,
 updatable, reactable, comment-like, approvable, or subscribable because its
 own typed resource and domain actions support those capabilities. Interface
 resolvers must derive viewer affordance fields from authorization and policy
-checks. Mutations should remain domain-specific or proposed-change-specific;
+checks. Mutations should remain domain-specific or change-proposal-specific;
 Office Graph should not add one generic "update any interface implementor"
 path that bypasses typed resource validation.
 
@@ -165,7 +165,7 @@ First-class execution resources expected by nearby follow-on designs:
 - work packets
 - runs
 - run events
-- proposed graph changes
+- change proposals
 - context expansion requests
 - verification results
 
@@ -452,7 +452,7 @@ Alternatives considered:
 
 Meaningful product actions should create or reference an operation/command
 correlation record. Revisions, audit logs, run events, domain events, external
-sync events, and proposed graph changes can all reference the same operation
+sync events, and change proposals can all reference the same operation
 without duplicating one another's payloads.
 
 This design does not define the full revision or audit schema, but it reserves
@@ -640,9 +640,9 @@ Immediate MVP migration scope:
 - provider-neutral software proving records needed by the walking skeleton,
   especially review findings and the minimum external reference or artifact
   context needed to explain their source
-- skeletal `work_packets`, `runs`, `run_events`, `proposed_graph_changes`, and
-  `verification_results` records needed to prove readiness, execution trace,
-  proposed mutation safety, and evidence-based completion
+- skeletal work packet, run, run event, change proposal, and verification
+  result records needed to prove readiness, execution trace, proposed mutation
+  safety, and evidence-based completion
 
 Near-follow-up scaffolding should remain reserved but should wait for its
 dedicated design before migrations create full behavior: context expansion
@@ -745,7 +745,7 @@ one range.
 Concurrent reorders should use optimistic placement or collection version
 checks. On conflict, a command may reload the latest sibling keys and retry if
 the user's or agent's move intent is still unambiguous; otherwise it must
-return a conflict for human review or a proposed graph change rather than
+return a conflict for human review or a change proposal rather than
 silently overwriting another move.
 
 ### 17. Define the first operation correlation shape
@@ -759,8 +759,7 @@ applicable, request/trace identifiers, policy bundle or authorization context
 version when applicable, reason, origin, and occurred/created timestamps.
 
 Records produced by the operation should reference `operation_id` directly:
-revisions, audit records, run events, sync events, domain events, proposed
-graph changes, and derived records each keep their own typed payload. The
+revisions, audit records, run events, sync events, domain events, change proposals, and derived records each keep their own typed payload. The
 operation record may point to a primary graph item or external reference when
 one exists, but it must not introduce a polymorphic local `resource_type` plus
 `resource_id` target model.
@@ -807,9 +806,9 @@ work should consume the persistence model in this order:
    responsibilities into Ash domains, Ecto modules, and boundary rules.
 4. Use `design-ingestion-and-integrations` to refine raw payload archives,
    source events, idempotency, replay, and provider adapter contracts.
-5. Use `design-proposed-graph-changes` to define proposed mutation shape,
+5. Use `design-proposed-graph-changes` to define change-proposal shape,
    validation, authorization, and domain-action application before agents or
-   adapters propose durable graph changes.
+   adapters create change proposals.
 6. Use `design-agent-runtime`, `design-runs-and-verification`, and
    `openspec/specs/ash-api-surface/spec.md`,
    `openspec/specs/realtime-delivery/spec.md`,

@@ -1,6 +1,6 @@
 ## 1. Review And Acceptance
 
-- [x] 1.1 Review the foundation, work-graph, governance, proposed-change,
+- [x] 1.1 Review the foundation, work-graph, governance, change-proposal,
   persistence, revision/audit, and code-organization constraints that feed the
   agent runtime.
 - [x] 1.2 Create the proposal for `design-agent-runtime`.
@@ -31,7 +31,7 @@
 ## 3. Open Decisions Before Runtime Code
 
 - [x] 3.1 Decide which first tool actions are low-risk enough for direct domain
-  actions rather than proposed changes.
+  actions rather than change proposals.
 - [x] 3.2 Decide which model/tool payload fields are retained, summarized,
   hashed, or dropped under the first AI data-control policy.
 - [x] 3.3 Decide which runtime events belong in the future `runs` model versus
@@ -54,7 +54,7 @@
   `openspec/changes/archive/2026-06-23-design-api-realtime-and-ui-projections`
   and the durable `ash-api-surface`, `realtime-delivery`, and
   `ui-projection-contracts` specs.
-- [x] 4.4 Feed proposed-change and accepted-domain-action runtime mutation rules
+- [x] 4.4 Feed change-proposal and accepted-domain-action runtime mutation rules
   into `design-proposed-graph-changes`.
 - [x] 4.5 Confirm tool manifest, credential scope, external action, and AI
   data-control runtime requirements are represented in

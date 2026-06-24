@@ -15,7 +15,7 @@ realtime, and frontend designs depend on implicit agent behavior.
   projection rationale, handles missing or restricted context, and requests
   context expansion instead of bypassing policy.
 - Define the boundary between model output, supervising runtime logic, tool
-  execution, durable domain actions, and proposed graph changes.
+  execution, durable domain actions, and change proposals.
 - Define how agent activity carries operation context, agent/delegator or
   trigger authority, autonomy envelope, tool or integration scope, provenance,
   and audit/revision hooks.
@@ -23,7 +23,7 @@ realtime, and frontend designs depend on implicit agent behavior.
   API/realtime, and UI-projection changes without implementing those surfaces
   in this change.
 - Keep the first scope bounded to graph-aware conversations, automatic
-  review-style agents, proposed changes, and approved tool actions. This change
+  review-style agents, change proposals, and approved tool actions. This change
   does not introduce unrestricted coding-agent authority or a generic workflow
   automation platform.
 
@@ -46,7 +46,7 @@ realtime, and frontend designs depend on implicit agent behavior.
 
 - Affects OpenSpec planning for the future agent-runtime implementation.
 - Consumes constraints from work graph node conversations and projections,
-  enterprise governance, identity/credential design, proposed graph changes,
+  enterprise governance, identity/credential design, change proposals,
   revision/audit/operation correlation, persistence, and code organization.
 - Constrains later work packet, run, verification, API/realtime, frontend,
   Oban/job, and tool-adapter designs.

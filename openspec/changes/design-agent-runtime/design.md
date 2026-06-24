@@ -2,7 +2,7 @@
 
 Office Graph is aiming for a company-wide, agent-native work graph where
 humans and agents act on the same graph, decisions, evidence, and governance
-rules. The walking skeleton now proves manual intake, proposed changes,
+rules. The walking skeleton now proves manual intake, change proposals,
 authorization checks, graph-backed records, and verification evidence, but it
 does not yet define how internal agents enter the system, receive context, use
 tools, or produce durable outputs.
@@ -10,13 +10,13 @@ tools, or produce durable outputs.
 Several accepted or active planning tracks already constrain the runtime:
 
 - Work graph planning owns addressable graph items, node conversations,
-  projection context, and conversation-driven proposed changes.
+  projection context, and conversation-driven change proposals.
 - Enterprise governance owns cross-scope agent authority, context expansion,
   temporary grants, approval gates, AI data controls, and separation of duties.
 - Identity and authorization planning owns human, service account, webhook,
   integration, internal-agent, and external-executor principal and credential
   records.
-- Proposed graph changes own validation, authorization, approval, and
+- Change proposals own validation, authorization, approval, and
   application of agent-suggested mutations.
 - Revision, audit, and code-organization planning own operation correlation,
   audit/revision separation, thin entrypoints, Boundary rules, and shared
@@ -60,9 +60,9 @@ owning domain contracts.
 
 The future implementation should introduce an `OfficeGraph.AgentRuntime`
 bounded context that accepts explicit invocation envelopes and calls public
-domain APIs for graph context, authorization, proposed changes, operation
+domain APIs for graph context, authorization, change proposals, operation
 correlation, credentials, tools, runs, and verification. It should not own the
-canonical records for work packets, runs, proposed graph changes, graph items,
+canonical records for work packets, runs, change proposals, graph items,
 audit records, revisions, credentials, or policy facts.
 
 Rationale: the runtime needs to coordinate many domains, but making it the
@@ -176,7 +176,7 @@ Tool execution should go through runtime-managed adapters with declared
 capabilities, input/output shapes, credential needs, sensitivity posture,
 external-write behavior, timeout/budget limits, and audit requirements. A tool
 call should receive an operation context and return classified output:
-observation, raw payload, evidence candidate, proposed-change input, external
+observation, raw payload, evidence candidate, change-proposal input, external
 action result, or error.
 
 Rationale: tool manifests give authorization and governance something concrete
@@ -190,7 +190,7 @@ Alternatives considered:
 - Expose provider SDKs directly to agents. This increases blast radius and
   couples prompts to provider-specific behavior.
 
-### Durable mutations use proposed changes or domain actions
+### Durable mutations use change proposals or domain actions
 
 Agent-driven graph or domain mutations should route through proposed graph
 changes by default. Direct accepted domain actions are allowed only when the
@@ -203,7 +203,7 @@ draft, explain, and package mutations, while sensitive, destructive,
 cross-scope, credential-backed, external-write, or high-risk lifecycle actions
 require approval gates.
 
-Rationale: proposed changes preserve safety without making agents read-only.
+Rationale: change proposals preserve safety without making agents read-only.
 They also give humans and future review agents an inspectable object to
 approve, reject, amend, or apply.
 
@@ -211,13 +211,13 @@ Alternatives considered:
 
 - Make all agent output read-only. This is safe but undercuts work delegation.
 - Let approved agents write directly to graph tables. This bypasses the
-  proposed-change, revision, audit, and policy contracts.
+  change-proposal, revision, audit, and policy contracts.
 
 ### Runtime provenance is a first-class output
 
-Runtime steps should preserve provenance for agent messages, findings, proposed
-changes, tool calls, external actions, evidence candidates, errors, approvals,
-and accepted domain actions. Provenance should include agent principal,
+Runtime steps should preserve provenance for agent messages, findings, change
+proposals, tool calls, external actions, evidence candidates, errors,
+approvals, and accepted domain actions. Provenance should include agent principal,
 delegator or trigger authority, selected graph item or trigger, context package
 reference, operation context, tool or model family when policy permits, time,
 visibility context, and failure or retry status when applicable.
@@ -318,7 +318,7 @@ access to the underlying restricted context merely because a rationale exists.
 ## Risks / Trade-offs
 
 - Runtime scope grows into a general automation platform -> Keep the first
-  scope to graph-aware conversations, review-style agents, proposed changes,
+  scope to graph-aware conversations, review-style agents, change proposals,
   and approved tool actions. Defer workflow builders and department packs.
 - Runtime duplicates work-packet or run ownership -> Treat the runtime as an
   orchestrator and hand off durable execution records through future owning
@@ -352,11 +352,11 @@ Future implementation should proceed in narrow changes:
    external-write tool actions.
 5. Add tool adapter manifests and a local test adapter before provider-backed
    tools.
-6. Connect runtime output to proposed graph changes, evidence candidates, and
+6. Connect runtime output to change proposals, evidence candidates, and
    future run/work-packet/verification contracts as those designs land.
 
 Rollback for any future implementation should disable the relevant runtime
-entrypoint or tool adapter while preserving generated proposed changes,
+entrypoint or tool adapter while preserving generated change proposals,
 operation records, audit records, and evidence candidates.
 
 ## Open Questions

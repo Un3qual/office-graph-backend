@@ -210,7 +210,7 @@ request/trace identifiers, policy bundle or authorization context version when
 applicable, origin, reason, and timestamps.
 
 Related revisions, audit records, authorization decisions, approvals, run
-events, external sync events, proposed graph changes, and domain events should
+events, external sync events, change proposals, and domain events should
 reference the operation. The operation may reference a primary graph item or
 external reference when one exists, but it must not introduce a polymorphic
 local target model.

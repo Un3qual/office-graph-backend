@@ -91,7 +91,7 @@ provider-neutral, tenant-scoped persistence decisions for the MVP.
   GraphQL, JSON API, Oban, integration adapter, and agent-runtime
   implementation.
 - Feeds follow-on changes for revision/audit/soft-delete, code organization,
-  ingestion/integrations, agent runtime, proposed graph changes, work packets,
+  ingestion/integrations, agent runtime, change proposals, work packets,
   runs/verification, and API/UI projections.
 - Does not implement application code, database migrations, Ash resources,
   API endpoints, frontend screens, integration adapters, or agent runtime

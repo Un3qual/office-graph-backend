@@ -3,7 +3,7 @@
 ## Purpose
 
 Define the first executable Office Graph domain loop from local owner
-bootstrap through manual intake, proposed graph changes, state progression,
+bootstrap through manual intake, change proposals, state progression,
 authorization context, and adapter-safe mutation boundaries.
 
 ## Requirements
@@ -32,21 +32,20 @@ Office Graph SHALL begin the first executable loop from manual intake.
   event, create or propose a signal, and preserve idempotency and replay
   identity for duplicate handling
 
-### Requirement: Proposed Changes Guard Graph Mutation
+### Requirement: Change Proposals Guard Graph Mutation
 
 Office Graph SHALL route generated or adapter-derived mutations through
-proposed graph changes before applying them to truth tables.
+change proposals before applying them to truth tables.
 
 #### Scenario: Intake suggests durable graph changes
 
 - **WHEN** manual intake normalization identifies a task, review finding,
   verification check, evidence item, artifact, or relationship to create
-- **THEN** Office Graph MUST represent the intended mutation as a proposed
-  graph change and apply it only through authorized domain actions
+- **THEN** Office Graph MUST represent the intended mutation as a change proposal and apply it only through authorized domain actions
 
-#### Scenario: Proposed change is invalid or unauthorized
+#### Scenario: Change proposal is invalid or unauthorized
 
-- **WHEN** proposed graph change validation or authorization fails
+- **WHEN** change proposal validation or authorization fails
 - **THEN** Office Graph MUST leave product truth tables unchanged and preserve
   enough trace information for review, correction, or rejection
 
@@ -82,7 +81,7 @@ principal and operation context.
   principal/session context and local API owner bootstrap is not explicitly
   enabled
 - **THEN** Office Graph MUST reject the mutation before creating operation
-  correlation, intake, proposed-change, verification, or graph truth records
+  correlation, intake, change-proposal, verification, or graph truth records
 
 ### Requirement: Adapter Paths Do Not Write Truth Tables Directly
 
@@ -93,6 +92,6 @@ actions.
 
 - **WHEN** the manual intake adapter recognizes content that maps to graph
   resources or relationships
-- **THEN** the adapter MUST output typed envelopes or proposed changes rather
+- **THEN** the adapter MUST output typed envelopes or change proposals rather
   than directly inserting graph items, typed resources, relationships, checks,
   evidence, or verification results

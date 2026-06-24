@@ -26,8 +26,8 @@ direction.
 #### Scenario: MVP scope is discussed
 
 - **WHEN** MVP functionality is prioritized
-- **THEN** the graph, internal agent runtime, authorization, runs, proposed
-  changes, and evidence-based verification must be treated as core
+- **THEN** the graph, internal agent runtime, authorization, runs, change
+  proposals, and evidence-based verification must be treated as core
   infrastructure rather than optional add-ons
 
 #### Scenario: Department packs are discussed

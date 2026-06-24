@@ -17,7 +17,7 @@ events.
   state
 - **THEN** domain actions MUST decide whether to create or update a signal,
   provider-neutral resource, review finding, evidence item, external
-  reference, sync event, or proposed graph change
+  reference, sync event, or change proposal
 
 ### Requirement: Queryable Fields Are Extracted
 Office Graph SHALL extract queryable ingestion fields into typed columns or

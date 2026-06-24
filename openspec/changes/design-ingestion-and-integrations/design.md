@@ -84,7 +84,7 @@ Adapters output typed provider-neutral envelopes containing:
 - validation warnings or conflict hints
 
 Adapters do not write graph truth tables directly and do not bypass
-authorization or proposed-change validation.
+authorization or change-proposal validation.
 
 ### 5. Use a small sync state machine
 

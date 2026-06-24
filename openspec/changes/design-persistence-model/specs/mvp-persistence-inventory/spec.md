@@ -25,13 +25,12 @@ resources, external-reference-only records, and raw archives.
 #### Scenario: Walking skeleton execution records are selected
 - **WHEN** the first backend cut proves manual intake through verified
   completion
-- **THEN** it MUST include skeletal work packets, runs, run events, proposed
-  graph changes, and verification results only to the extent needed to prove
+- **THEN** it MUST include skeletal work packets, runs, run events, change proposals, and verification results only to the extent needed to prove
   readiness, traceability, proposed mutation safety, and evidence-based
   completion
 
 #### Scenario: Near-follow-up resources are reserved
-- **WHEN** work packets, runs, run events, proposed graph changes, context
+- **WHEN** work packets, runs, run events, change proposals, context
   expansion requests, final revision/audit/tombstone records, projection read
   models, or API/UI render caches are considered during the first migration
   cut
@@ -49,8 +48,7 @@ resources, external-reference-only records, and raw archives.
 
 #### Scenario: Nearby execution resources are reserved
 - **WHEN** persistence planning accounts for agent and execution follow-ons
-- **THEN** context expansion requests and full work packet, run, proposed
-  graph change, and verification state machines MUST remain reserved typed
+- **THEN** context expansion requests and full work packet, run, change proposal, and verification state machines MUST remain reserved typed
   concepts until their dedicated follow-on designs define complete fields,
   lifecycle, authorization, and operational behavior
 

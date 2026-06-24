@@ -12,7 +12,7 @@
   authorization, audit, operation correlation, work containers, work graph,
   content, ordered placement, revisions, tombstones, external references, raw
   archives, integrations, software proving records, work packets, runs,
-  verification, proposed graph changes, agent runtime, entrypoints, and
+  verification, change proposals, agent runtime, entrypoints, and
   projections.
 - [x] 1.5 Confirm Ash owns normal domain mutations, validations, lifecycle
   rules, and policy integration for typed resources.

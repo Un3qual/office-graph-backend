@@ -13,7 +13,7 @@ on implicit run, check, evidence, waiver, or traceability semantics.
   Office Graph coordinates toward completion.
 - Define agent executions as child runtime invocations inside a work run. A
   single work run may include multiple agent executions, human handoffs,
-  provider observations, proposed changes, and verification steps.
+  provider observations, change proposals, and verification steps.
 - Define separate execution observations for provider-native checks,
   integration jobs, external agent activity, and human handoff milestones that
   Office Graph records, imports, or links without owning their execution
@@ -23,7 +23,7 @@ on implicit run, check, evidence, waiver, or traceability semantics.
   parent or child level.
 - Define verification checks, evidence candidates, accepted evidence,
   verification results, monitoring outcomes, and check waivers.
-- Define how approval gates, proposed graph changes, work packets, runtime
+- Define how approval gates, change proposals, work packets, runtime
   activity, audit records, and external observations can satisfy, block, or
   inform verification without bypassing domain actions or policy.
 - Keep this change design-only. It does not implement Ash resources, Ecto
@@ -41,7 +41,7 @@ on implicit run, check, evidence, waiver, or traceability semantics.
 - `agent-executions`: individual internal agent runtime invocations inside a
   work run, including context package, agent principal, delegator or trigger
   authority, autonomy envelope, model/tool steps, failure handling,
-  provenance, output classification, and links to proposed changes or evidence
+  provenance, output classification, and links to change proposals or evidence
   candidates.
 - `execution-observations`: provider-native check runs, integration jobs,
   external agent activity, human handoff milestones, imported statuses, source
@@ -65,8 +65,8 @@ on implicit run, check, evidence, waiver, or traceability semantics.
   agent-execution event, external observation, verification check, evidence,
   verification result, waiver, monitoring, review finding, and traceability
   resources.
-- Consumes constraints from work packets/readiness, agent runtime, proposed
-  graph changes, revision/audit/operation correlation, identity and
+- Consumes constraints from work packets/readiness, agent runtime, change
+  proposals, revision/audit/operation correlation, identity and
   authorization, ingestion/integration design, persistence, code organization,
   API/realtime projections, and the walking-skeleton specs.
 - Constrains later backend walking-skeleton implementation, graph projection

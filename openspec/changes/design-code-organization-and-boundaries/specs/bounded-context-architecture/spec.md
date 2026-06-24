@@ -50,7 +50,7 @@ The code organization SHALL preserve ownership areas for identity, tenancy,
 authorization, audit, operation correlation, work containers, work graph,
 content, ordered placement, revisions, tombstones, external references, raw
 archives, integrations, software proving records, work packets, runs,
-verification, proposed graph changes, agent runtime, entrypoints, and
+verification, change proposals, agent runtime, entrypoints, and
 projections.
 
 #### Scenario: First module layout is proposed

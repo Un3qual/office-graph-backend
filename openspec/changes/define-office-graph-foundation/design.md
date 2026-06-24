@@ -73,7 +73,7 @@ This foundation change owns product framing, vocabulary, locked platform
 choices, and the first proving workflow. Granular follow-on changes own
 canonical durable requirements for identity, authentication, authorization,
 scope hierarchy, work-graph relationships, persistence, revision/audit,
-operation correlation, code organization, ingestion, proposed changes, runs,
+operation correlation, code organization, ingestion, change proposals, runs,
 verification, and API/UI behavior.
 
 ### Foundation
@@ -84,7 +84,7 @@ workflow, non-goals, and reference-material precedence.
 ### Work Graph
 
 Owns graph items, typed edges, questions, decisions, work packets, graph
-projections, proposed graph changes, and addressable node conversations.
+projections, change proposals, and addressable node conversations.
 
 ### Agent Runtime
 
@@ -212,7 +212,7 @@ The runtime should support:
 - trusted runtime components for tool execution
 - explicit tool permissions and approvals
 - durable runs, events, findings, prompt/model provenance, outputs, and
-  proposed changes
+  change proposals
 
 The first implementation should be scoped carefully. It should not try to
 replace IDEs, CI, or every external automation tool. It should make Office
@@ -238,7 +238,7 @@ bus.
   explicit Ecto/SQL behind domain boundaries where needed.
 - Internal agent runtime is core, but unrestricted coding-agent scope would
   explode the MVP. Start with graph-aware conversations, automatic reviews,
-  proposed changes, and approved tool actions.
+  change proposals, and approved tool actions.
 - Department packs are important, but broad workflow templates are deferred
   until the shared ontology proves itself through a deep workflow.
 

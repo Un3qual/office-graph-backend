@@ -20,7 +20,7 @@ tools.
 
 ### Requirement: Shared Policy And Mutation Paths
 Equivalent durable actions MUST use the same authorization,
-operation-correlation, revision, audit, tombstone, and proposed-change
+operation-correlation, revision, audit, tombstone, and change-proposal
 contracts across human API requests, automatic agents, delegated agents,
 provider webhooks, sync jobs, and integration adapters.
 

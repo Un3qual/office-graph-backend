@@ -91,7 +91,7 @@ without duplicating approval semantics inside the packet.
 
 - **WHEN** a packet requires approval for context expansion, sensitive data,
   external writes, credential use, destructive actions, waiver, final
-  verification, or high-risk proposed graph changes
+  verification, or high-risk change proposals
 - **THEN** readiness evaluation MUST keep the relevant execution mode blocked
   until the governing approval gate is satisfied, waived, rejected, expired, or
   explicitly marked not required by policy

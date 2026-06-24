@@ -6,7 +6,7 @@ Office Graph's foundation already names the core loop:
 signal -> question -> decision -> work packet or execution package -> human or
 agent run -> evidence -> verification -> reusable context.
 
-The current specs define graph items, typed edges, proposed graph changes,
+The current specs define graph items, typed edges, change proposals,
 checks, evidence, approval gates, agent runtime entrypoints, authorized context
 packages, API/realtime projection contracts, and operation context propagation.
 What remains undefined is the layer that makes work executable: the work packet
@@ -30,7 +30,7 @@ agents from receiving ambiguous scope, unsafe authority, or stale context.
   context, unresolved approvals, unsafe autonomy, stale packets, or policy
   restrictions are represented.
 - Define handoff boundaries to humans, agent runtime, future runs,
-  verification, proposed graph changes, evidence candidates, API/realtime
+  verification, change proposals, evidence candidates, API/realtime
   projections, and escalation flows.
 - Preserve traceable version history when packets are compiled, invalidated,
   superseded, accepted for execution, or retired.
@@ -42,7 +42,7 @@ agents from receiving ambiguous scope, unsafe authority, or stale context.
   verification engines.
 - Define the full run-event model. That remains owned by
   `design-runs-and-verification`.
-- Replace graph items, proposed graph changes, approval gates, checks, or
+- Replace graph items, change proposals, approval gates, checks, or
   evidence with packet-specific copies.
 - Make work packets authorization containers. They package authorized context
   and authority decisions, but do not grant access by themselves.
@@ -142,13 +142,13 @@ fragment governance and make separation-of-duties checks inconsistent.
 
 ### 7. Handoffs Create References, Not Hidden Side Effects
 
-Handing a packet to a human, internal agent, future run, proposed graph change,
+Handing a packet to a human, internal agent, future run, change proposal,
 or verification flow should create explicit references and operation context.
 The packet handoff itself should not mutate graph truth except through approved
-domain actions or proposed graph changes.
+domain actions or change proposals.
 
 Rationale: Packet execution must use the same entrypoint, authorization,
-revision, audit, operation-correlation, and proposed-change contracts as other
+revision, audit, operation-correlation, and change-proposal contracts as other
 durable actions.
 
 Alternative considered: Let a packet executor directly update linked tasks,

@@ -33,7 +33,7 @@ rather than copying graph truth into packet-owned fields.
 
 - **WHEN** Office Graph compiles packet context from graph projections,
   decisions, requirements, checks, evidence, artifacts, external references,
-  conversations, proposed changes, or prior runs
+  conversations, change proposals, or prior runs
 - **THEN** the packet MUST preserve typed references, graph identity, projection
   inputs, context package metadata, and enough rationale to explain why each
   included item is in scope

@@ -47,7 +47,7 @@ authorized graph projections and related typed records.
   silently include the restricted context
 
 #### Scenario: Agent cites context boundary
-- **WHEN** an agent answer, finding, proposed change, or tool request depends on
+- **WHEN** an agent answer, finding, change proposal, or tool request depends on
   omitted, redacted, summarized, or placeholder context
 - **THEN** the runtime MUST preserve enough context-boundary rationale for the
   agent, reviewer, or auditor to understand the limitation when policy permits
@@ -94,7 +94,7 @@ execution, durable writes, and external actions.
 #### Scenario: Tool output returns to the runtime
 - **WHEN** a tool produces output for an agent step
 - **THEN** the runtime MUST classify the output as raw payload, observation,
-  evidence candidate, proposed change input, or error before any downstream
+  evidence candidate, change proposal input, or error before any downstream
   domain action consumes it
 
 ### Requirement: Durable Mutation Boundaries
@@ -105,7 +105,7 @@ changes or accepted domain actions rather than hidden runtime side effects.
 - **WHEN** an agent suggests creating, updating, linking, unlinking, closing,
   approving, rejecting, attaching evidence to, or otherwise changing graph or
   domain state
-- **THEN** the runtime MUST create a proposed graph change or invoke an
+- **THEN** the runtime MUST create a change proposal or invoke an
   accepted domain action with the same validation, authorization, revision,
   audit, and operation-correlation contracts used by human and integration
   entry points
@@ -122,7 +122,7 @@ agent activity that affects graph understanding, durable state, external
 systems, or verification.
 
 #### Scenario: Agent produces a durable contribution
-- **WHEN** an agent message, answer, finding, proposed change, evidence
+- **WHEN** an agent message, answer, finding, change proposal, evidence
   candidate, tool action, external action, or accepted domain action is recorded
 - **THEN** the runtime MUST retain agent principal, delegator or trigger
   authority when present, operation context, selected graph item or trigger,

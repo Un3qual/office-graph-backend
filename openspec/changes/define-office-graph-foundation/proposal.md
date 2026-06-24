@@ -25,7 +25,7 @@ current locked decisions into formal OpenSpec artifacts.
 - Lock the backend posture: Elixir, Phoenix, Ash, Postgres, React frontend,
   GraphQL and JSON API, no LiveView, modular monolith, Boundary, and DDD-style
   bounded contexts.
-- Define the foundation for graph items, proposed graph changes, work packets,
+- Define the foundation for graph items, change proposals, work packets,
   internal agents, runs, authorization, verification evidence, typed
   persistence, revision history, audit, and soft deletion.
 - Record architecture constraints that keep future extraction possible for

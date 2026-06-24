@@ -38,7 +38,7 @@ product API surfaces.
 
 #### Scenario: New API work touches walking-skeleton endpoints
 
-- **WHEN** future API work extends manual intake, proposed change application,
+- **WHEN** future API work extends manual intake, change proposal application,
   verification completion, or walking-skeleton read behavior
 - **THEN** the work MUST either migrate the surface to AshGraphql/AshJsonApi or
   explicitly keep the manual code isolated as a temporary compatibility path
@@ -69,7 +69,7 @@ not map cleanly to generated Ash APIs.
 #### Scenario: Orchestration command spans domains
 
 - **WHEN** a GraphQL mutation or JSON route coordinates multiple domains such
-  as intake, proposed changes, verification, work packets, runs, or agent
+  as intake, change proposals, verification, work packets, runs, or agent
   runtime activity
 - **THEN** custom transport code MAY exist as a thin entrypoint that builds or
   receives operation context, calls public domain commands, maps errors, and

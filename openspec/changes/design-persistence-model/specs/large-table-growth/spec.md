@@ -32,7 +32,7 @@ records.
 ### Requirement: Operation Correlation Links High-Volume Concerns
 Office Graph SHALL use operation correlation records to connect related
 revisions, audit records, run events, domain events, external sync events, and
-proposed graph changes.
+change proposals.
 
 #### Scenario: Product action creates multiple records
 - **WHEN** a human, agent, integration, or system job performs one meaningful

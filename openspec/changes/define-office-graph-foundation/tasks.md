@@ -13,8 +13,8 @@
 
 - [x] Review `foundation` requirements for product framing and platform
   constraints.
-- [x] Review `work-graph` requirements for graph items, typed edges, proposed
-  changes, work packets, questions, decisions, and micro-approvals.
+- [x] Review `work-graph` requirements for graph items, typed edges, change
+  proposals, work packets, questions, decisions, and micro-approvals.
 - [x] Confirm `design-agent-runtime` owns embedded agents, automatic agents,
   structured output, tool separation, and run provenance.
 - [x] Review `authorization` requirements for principals, hybrid policy,
@@ -41,7 +41,7 @@
 - [x] Decide the first role, capability, and grant vocabulary.
 - [x] Decide which authorization decisions must be durable records in v1.
 - [x] Decide the first internal agent runtime scope for code review/fix versus
-  conversation/review/proposed-change workflows in `design-agent-runtime`.
+  conversation/review/change-proposal workflows in `design-agent-runtime`.
 - [x] Decide where JSON storage is acceptable for raw payloads, model I/O, and
   archival data.
 - [x] Decide the revision table pattern for the first aggregates.
@@ -62,7 +62,7 @@
 - [x] Narrow the first backend target to the walking skeleton captured in
   `openspec/project-plan.md` and the persistence/work-graph changes.
 - [x] Capture manual intake, ingestion normalization, idempotency, replay, and
-  proposed graph change semantics in `design-ingestion-and-integrations` and
+  change proposal semantics in `design-ingestion-and-integrations` and
   `design-proposed-graph-changes` before backend code generation.
 - [ ] Mark individual open questions above complete only after the downstream
   active change that owns the decision contains the accepted answer.

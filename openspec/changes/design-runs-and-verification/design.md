@@ -3,7 +3,7 @@
 ## Context
 
 Office Graph's core loop ends in evidence, verification, and reusable context.
-The current foundation, work packet, agent runtime, proposed-change, audit, and
+The current foundation, work packet, agent runtime, change-proposal, audit, and
 persistence designs already reference runs, run events, checks, evidence,
 review findings, approval gates, and verification results, but they do not yet
 define the owning concepts.
@@ -12,7 +12,7 @@ The most important boundary is that a run of selected work is not the same
 thing as one agent invocation. A work run is the parent execution of a selected
 work packet, task, requirement, graph selection, or bounded objective. It may
 coordinate multiple agent executions, human handoffs, integration activity,
-provider observations, proposed changes, checks, and evidence.
+provider observations, change proposals, checks, and evidence.
 
 Agent executions are child runtime invocations inside that parent work run. An
 agent execution can perform one step, investigate one task, call tools, produce
@@ -40,7 +40,7 @@ same lifecycle semantics.
   lifecycle.
 - Define verification checks, evidence candidates, accepted evidence,
   verification results, monitoring outcomes, and check waivers.
-- Define how work runs, agent executions, observations, proposed graph changes,
+- Define how work runs, agent executions, observations, change proposals,
   approval gates, review findings, work packets, artifacts, audit records, and
   revisions connect through traceable verification.
 - Keep work-run events and agent-execution events separate from audit records,
@@ -68,7 +68,7 @@ same lifecycle semantics.
 
 A work run is the Office Graph-owned parent execution record for a selected
 unit of work. The selection can be a work packet version, task, requirement,
-proposed change, graph item set, conversation request, incident, campaign
+change proposal, graph item set, conversation request, incident, campaign
 artifact, or another bounded objective. A work run answers: "What work did we
 try to execute, under which authority and scope, with which participants and
 evidence, and what was the aggregate outcome?"
@@ -84,7 +84,7 @@ A work run can contain multiple child records:
 - agent executions for individual internal agent invocations
 - human handoff or review milestones
 - execution observations from providers, CI, external agents, and integrations
-- proposed graph changes produced during execution
+- change proposals produced during execution
 - verification checks, evidence candidates, accepted evidence, and waivers
 - operation, audit, authorization-decision, revision, and artifact references
 
@@ -93,8 +93,31 @@ work_run
   -> work_packet_version or selected graph/work target
   -> agent_execution[0..n]
   -> execution_observation[0..n]
-  -> proposed_graph_change[0..n]
+  -> change_proposal[0..n]
+  -> domain_action / revision / audit references
   -> verification_check / evidence / waiver / verification_result
+```
+
+Example:
+
+```
+work_run WR-1042
+  selected work: WP-42 v3 / requirement "contracts expose renewal_date"
+  scope: Acme org, contract graph, import connector
+  authority: proposal-only until approval
+  status: running -> waiting_for_approval -> verifying -> complete
+
+  agent_execution AE-1: investigate current contract model
+  agent_execution AE-2: draft the change
+  approval_gate AG-9: human approves applying it
+  change_proposal CP-12: proposed domain action, not graph truth
+  domain_action DA-33: validated application of the approved change
+  execution_observation EO-55: provider check passed
+  execution_observation EO-56: external review bot finding imported
+  evidence_candidate EC-21: test output from AE-2
+  accepted_evidence EV-21: test output accepted for "import works"
+  verification_result VR-8: required checks satisfied or waived
+  audit/revision records: what changed, actor, operation correlation
 ```
 
 Rationale: execution of selected work is the product-level unit users care
@@ -136,11 +159,11 @@ Agent-execution events should be append-only timeline records for meaningful
 runtime steps: execution started, context package selected, authority
 evaluated, model step completed, tool action requested, tool action completed,
 approval requested, approval received, context expansion requested, output
-classified, proposed change created, evidence candidate produced, failure
+classified, change proposal created, evidence candidate produced, failure
 occurred, retry scheduled, execution completed, and execution cancelled.
 
 Rationale: a work run may have several agent executions: one to analyze a
-review finding, another to draft a proposed graph change, another to run a
+review finding, another to draft a change proposal, another to run a
 verification step, and another to summarize evidence. Each invocation needs its
 own context, authority, failure, and provenance without fragmenting the
 product-level work execution.
@@ -154,7 +177,7 @@ Alternatives considered:
   remain logs or raw archives unless they become product-relevant.
 - Make terminal agent-execution success equivalent to work-run or verification
   success. This is wrong: an agent can complete its invocation while producing
-  invalid evidence, a failed proposed change, or only partial progress.
+  invalid evidence, a failed change proposal, or only partial progress.
 
 ### 3. Observations Preserve Source Truth Without Becoming Truth
 
@@ -189,7 +212,7 @@ Alternatives considered:
 
 Verification should center on explicit verification checks. A check defines a
 condition that must be satisfied before a task, work packet, requirement,
-proposed change, completion claim, or monitored outcome is accepted. Checks can
+change proposal, completion claim, or monitored outcome is accepted. Checks can
 be required, optional, advisory, blocking, satisfied, failed, stale, waived, or
 superseded.
 
@@ -219,7 +242,7 @@ Evidence should be an explicit product concept with source, target, evidence
 kind, supporting artifact or observation, produced-by run or imported source,
 claim, freshness, sensitivity, trust basis, and visibility policy. Agent
 outputs, tool results, provider checks, human notes, artifacts, approvals,
-monitoring outcomes, and proposed-change application traces can create evidence
+monitoring outcomes, and change-proposal application traces can create evidence
 candidates.
 
 An evidence candidate should not satisfy a check until accepted automatically
@@ -270,7 +293,7 @@ unblocks the condition. Provider-native approvals can be imported as execution
 observations and then accepted as evidence only after actor mapping, scope,
 source, and policy relevance are validated.
 
-Rationale: approvals are shared across work packets, proposed changes, context
+Rationale: approvals are shared across work packets, change proposals, context
 expansion, waivers, sensitive data access, external writes, and verification.
 Runs and verification should not fork approval semantics.
 
@@ -287,7 +310,7 @@ Alternatives considered:
 Review findings should be treated as graph-linked work inputs that may be
 produced by work runs, agent executions, execution observations, external
 reviewers, imported provider comments, or humans. Findings can require tasks,
-proposed changes, verification checks, evidence, or waivers, but they are not
+change proposals, verification checks, evidence, or waivers, but they are not
 the same as evidence by default.
 
 Rationale: a CodeRabbit comment, internal review-agent finding, or human review
@@ -306,7 +329,7 @@ Alternatives considered:
 
 Work runs, work-run events, agent executions, agent-execution events,
 execution observations, evidence candidates, accepted evidence, verification
-results, waivers, proposed changes, revisions, audit records, and
+results, waivers, change proposals, revisions, audit records, and
 authorization decisions should reference operation correlation when they belong
 to the same meaningful command or externally observed action.
 
@@ -315,8 +338,8 @@ target table. Each owning domain keeps its typed record and uses the operation
 reference for traceability.
 
 Rationale: verification needs a chain from completion claim back through
-packet, work run, agent execution, observation, evidence, approval, proposed
-change, audit, and revision. Operation correlation provides the spine without
+packet, work run, agent execution, observation, evidence, approval,
+domain action, audit, and revision. Operation correlation provides the spine without
 collapsing all record types into one table.
 
 Alternatives considered:
@@ -391,7 +414,7 @@ Alternatives considered:
 5. Connect work packet handoff to work runs, agent executions, or observations
    through explicit packet version, authority, context package, parent/child,
    and operation references.
-6. Connect proposed graph change application, revisions, audit records, and
+6. Connect change-proposal application, revisions, audit records, and
    authorization decisions through operation correlation so verification can
    trace accepted changes.
 7. Add projection and API/realtime contracts for verification summary, evidence

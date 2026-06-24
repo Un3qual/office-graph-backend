@@ -60,8 +60,8 @@ authorization, and mutation-safety boundaries as other agent activity.
 - **WHEN** an embedded agent drafts an answer, suggests a task, identifies a
   missing requirement, proposes an edge, recommends a check, or summarizes
   evidence from a node conversation
-- **THEN** the output MUST be represented as a draft, suggestion, or proposed
-  graph change until validated domain actions accept it
+- **THEN** the output MUST be represented as a draft, suggestion, or change
+  proposal until validated domain actions accept it
 
 #### Scenario: Embedded agent needs tools
 
@@ -87,8 +87,8 @@ node-scoped conversations.
 
 - **WHEN** a conversation answer or suggestion affects a question, decision,
   task, requirement, check, evidence item, work packet, run, or relationship
-- **THEN** the affected graph change MUST preserve a link back to the
-  conversation contribution that caused or justified it
+- **THEN** the affected change proposal or accepted domain action MUST preserve
+  a link back to the conversation contribution that caused or justified it
 
 ### Requirement: Conversation Surfaces Prefer Graph Actions
 
@@ -101,7 +101,7 @@ graph or domain actions rather than hidden chat side effects.
   update a requirement, create a check, attach evidence, or link an external
   artifact
 - **THEN** the system MUST represent the intended durable change as an
-  explicit domain action or proposed graph change with validation and
+  explicit domain action or change proposal with validation and
   authorization
 
 #### Scenario: Conversation contains informal discussion

@@ -32,7 +32,7 @@ execution.
 #### Scenario: Agent execution authority is evaluated
 
 - **WHEN** an agent execution starts or requests a tool, credential, context
-  expansion, external write, proposed graph change, or domain action
+  expansion, external write, change proposal, or domain action
 - **THEN** Office Graph MUST evaluate and record delegator or trigger
   authority, agent principal capability, scope, autonomy envelope, tool or
   integration scope, sensitivity labels, temporary grants, and policy result
@@ -53,7 +53,7 @@ turning low-level runtime traces into the product timeline by default.
 #### Scenario: Agent execution produces durable outputs
 
 - **WHEN** an agent execution selects context, evaluates authority, calls a
-  tool, creates a finding, proposes a graph change, emits an evidence
+  tool, creates a finding, creates a change proposal, emits an evidence
   candidate, requests approval, fails, retries, or completes
 - **THEN** Office Graph MUST preserve an agent-execution event or equivalent
   typed reference sufficient to explain the output, failure, or handoff
@@ -74,7 +74,7 @@ they are validated and routed to the owning domain.
 #### Scenario: Agent proposes a mutation
 
 - **WHEN** an agent execution produces a graph or domain mutation suggestion
-- **THEN** Office Graph MUST route it through proposed graph change validation,
+- **THEN** Office Graph MUST route it through change-proposal validation,
   authorization, approval, and domain-action application rather than letting
   the agent execution write graph truth directly
 
@@ -83,5 +83,5 @@ they are validated and routed to the owning domain.
 - **WHEN** an agent execution produces a finding, check result, summary,
   artifact, monitoring conclusion, or other verification material
 - **THEN** Office Graph MUST classify it as a finding, observation, evidence
-  candidate, proposed change input, or another typed output before it can
+  candidate, change-proposal input, or another typed output before it can
   satisfy verification

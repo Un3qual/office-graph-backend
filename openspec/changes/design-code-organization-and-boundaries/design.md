@@ -46,7 +46,7 @@ must follow. It does not create application code or migrations.
 - No umbrella application, microservice split, or separate Hex package split
   for MVP.
 - No replacement for the dedicated persistence, governance, revision/audit,
-  ingestion, agent-runtime, proposed-change, work-packet, runs/verification,
+  ingestion, agent-runtime, change-proposal, work-packet, runs/verification,
   or API/UI projection designs.
 
 ## Decisions
@@ -76,7 +76,7 @@ Initial logical contexts should include:
 - software proving records
 - work packets and readiness
 - runs and verification
-- proposed graph changes
+- change proposals
 - agent runtime
 - API and realtime entrypoints
 - projection/read-model support
@@ -116,8 +116,8 @@ split module folders where it improves clarity, but each durable resource,
 command, query, event, and policy must still have one clear owner.
 
 Provider adapters, manual intake, raw archive processing, idempotency/replay,
-sync events, and proposed graph changes should have explicit context owners.
-Adapters produce typed provider-neutral envelopes; proposed changes are applied
+sync events, and change proposals should have explicit context owners.
+Adapters produce typed provider-neutral envelopes; change proposals are applied
 only through owning domain actions. Neither adapter modules nor generated UI
 entrypoints should write graph truth tables directly.
 
@@ -247,7 +247,7 @@ their typed data and concrete relationships.
 Operation correlation starts as `OfficeGraph.Operations`, a dedicated context
 that owns operation context structs, idempotency basis, and durable operation
 records. It does not live under audit or revisions because it spans audit,
-revisions, authorization decisions, runs, sync events, proposed changes, jobs,
+revisions, authorization decisions, runs, sync events, change proposals, jobs,
 and external actions.
 
 Durable domain actions should use one transaction for product state, operation
@@ -355,7 +355,7 @@ domain mutation rules, direct table writes, or special authorization shortcuts.
 
 GraphQL and JSON API may expose different shapes, but both should call the same
 domain contracts. Agent-runtime and integration entrypoints must use the same
-authorization, operation, revision, audit, and proposed-change pathways as
+authorization, operation, revision, audit, and change-proposal pathways as
 human-driven requests.
 
 Alternatives considered:

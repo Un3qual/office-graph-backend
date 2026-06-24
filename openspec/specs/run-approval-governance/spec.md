@@ -81,7 +81,7 @@ agents so safe repeated work can proceed without per-action human babysitting.
 - **WHEN** an agent requests sensitive context, broad cross-workspace access,
   credential use, write-capable authority, external comments, external
   provider mutations, production-affecting actions, exports, destructive
-  actions, or high-risk proposed graph changes
+  actions, or high-risk change proposals
 - **THEN** Office Graph must require an approval gate unless an explicit
   accepted policy configuration safely permits the action
 
@@ -121,7 +121,7 @@ side-channel comments or status flags.
 
 #### Scenario: Work requires final approval
 
-- **WHEN** a task, work packet, proposed graph change, PR merge, external
+- **WHEN** a task, work packet, change proposal, PR merge, external
   write, deployment, waiver, sensitive data access, or cross-scope expansion
   requires human approval
 - **THEN** the system must represent the approval gate with required
@@ -132,7 +132,7 @@ side-channel comments or status flags.
 
 - **WHEN** a human approves or rejects an approval gate
 - **THEN** Office Graph must record principal, authority basis, related graph
-  item, related run, related proposed graph change, related revision or
+  item, related run, related change proposal, related revision or
   operation when available, reason when available, timestamp, and audit trail
 
 ### Requirement: Company-Structure-Derived Approvals

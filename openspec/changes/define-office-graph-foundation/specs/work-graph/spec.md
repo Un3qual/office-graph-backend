@@ -55,9 +55,9 @@ validation rules.
 - **THEN** the edge must not grant access by itself; the response must hide the
   item, redact it, summarize it, or expose a placeholder according to policy
 
-### Requirement: Proposed Graph Changes
+### Requirement: Change Proposals
 
-Agents and AI pipelines SHALL propose structured graph changes instead of
+Agents and AI pipelines SHALL create structured change proposals instead of
 writing directly to truth tables.
 
 #### Scenario: Agent suggests graph mutations
@@ -71,7 +71,7 @@ writing directly to truth tables.
 
 - **WHEN** the mutation safety pattern is described in product or planning
   documents
-- **THEN** it must use language such as proposed graph change rather than
+- **THEN** it must use language such as change proposal rather than
   legacy patch terminology as the product term
 
 ### Requirement: Work Packets As Versioned Execution Packages

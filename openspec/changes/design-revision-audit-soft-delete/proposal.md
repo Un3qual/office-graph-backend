@@ -22,7 +22,7 @@ store.
   append-only correction semantics.
 - Define operation correlation as the shared command trace that links
   revisions, audit records, authorization decisions, run events, sync events,
-  domain events, and proposed graph changes without duplicating payloads.
+  domain events, and change proposals without duplicating payloads.
 - Define soft deletion and tombstones for mutable product records, including
   deletion actor, reason, lifecycle state, URL slug/handle reservation,
   display-identifier uniqueness behavior, restore eligibility, and purge
@@ -46,8 +46,7 @@ store.
   events are shaped, how event-specific detail is versioned, and how audit
   visibility differs from normal product visibility.
 - `operation-correlation`: Defines shared operation or command correlation
-  records that revisions, audit records, run events, sync events, and proposed
-  graph changes can reference.
+  records that revisions, audit records, run events, sync events, and change proposals can reference.
 - `soft-delete-tombstones`: Defines soft-deleted state, tombstone records,
   active uniqueness, restore eligibility, and purge blocking rules for mutable
   product records.

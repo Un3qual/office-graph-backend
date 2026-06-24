@@ -15,7 +15,7 @@ backend walking skeleton.
 - **WHEN** the same manual input is submitted again with the same idempotency
   basis
 - **THEN** Office Graph MUST identify the duplicate and avoid creating
-  duplicate signals, tasks, findings, evidence, or proposed changes
+  duplicate signals, tasks, findings, evidence, or change proposals
 
 ### Requirement: Manual Intake Uses Integration Path
 Manual intake SHALL use the same normalization, idempotency, replay, and domain

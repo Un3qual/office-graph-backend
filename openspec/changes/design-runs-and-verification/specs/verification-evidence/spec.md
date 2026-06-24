@@ -10,7 +10,7 @@ claim alone.
 
 #### Scenario: Completion claim is evaluated
 
-- **WHEN** a task, work packet, requirement, proposed graph change, monitored
+- **WHEN** a task, work packet, requirement, change proposal, monitored
   outcome, or other graph item is claimed complete
 - **THEN** Office Graph MUST evaluate the required verification checks,
   accepted evidence, failed checks, stale inputs, waivers, approval gates, and
@@ -31,7 +31,7 @@ Office Graph SHALL distinguish evidence candidates from accepted evidence.
 #### Scenario: Candidate is produced
 
 - **WHEN** an agent execution, work run, provider observation, human note,
-  artifact, approval gate, monitoring outcome, or proposed-change application
+  artifact, approval gate, monitoring outcome, or change-proposal application
   produces material that may prove a claim
 - **THEN** Office Graph MUST record or be able to record an evidence candidate
   with source, target, claim, sensitivity, freshness, trust basis, and related

@@ -62,7 +62,7 @@ projection boundaries.
 
 - **WHEN** agent output appears in a node conversation, review surface,
   evidence chain, verification view, or work packet context
-- **THEN** the projection MUST distinguish draft, suggestion, proposed change,
+- **THEN** the projection MUST distinguish draft, suggestion, change proposal,
   accepted graph state, evidence candidate, verified evidence, raw observation,
   and rejected output
 

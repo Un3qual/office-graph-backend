@@ -24,11 +24,11 @@ action with a narrow operation correlation record.
 ### Requirement: Correlated Records Reference Operations
 Office Graph SHALL link related revisions, audit records, authorization
 decisions, run events, external sync events, domain events, approvals, and
-proposed graph changes through operation correlation.
+change proposals through operation correlation.
 
 #### Scenario: One action writes several record families
 - **WHEN** one action changes product state, requires audit, evaluates policy,
-  records runtime execution, syncs provider state, or proposes a graph change
+  records runtime execution, syncs provider state, or creates a change proposal
 - **THEN** the related typed records MUST be able to reference the same
   operation correlation identifier without duplicating each other's payloads
 
@@ -44,6 +44,6 @@ webhooks, sync replay, and agent actions.
 
 #### Scenario: Operation is caused by another operation
 - **WHEN** an operation is triggered by a previous run event, sync event,
-  approval, proposed graph change, or domain event
+  approval, change proposal, or domain event
 - **THEN** Office Graph MUST be able to preserve causal references without
   merging the two operations into one payload

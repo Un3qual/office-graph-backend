@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
-### Requirement: Proposed Change Envelope
+### Requirement: Change Proposal Envelope
 Office Graph SHALL represent agent, generated UI, integration, and human graph
-mutation proposals as structured proposed graph changes.
+or domain mutation suggestions as structured change proposals.
 
-#### Scenario: Proposed change is created
+#### Scenario: Change proposal is created
 - **WHEN** a human, agent, generated UI, manual intake, or integration proposes
   a graph or domain mutation
 - **THEN** Office Graph MUST record proposer principal, agent/run/source when
@@ -13,8 +13,8 @@ mutation proposals as structured proposed graph changes.
   basis, validation state, approval state, lifecycle state, and operation
   correlation
 
-#### Scenario: Proposed change targets external context
-- **WHEN** a proposed change references provider data
+#### Scenario: Change proposal targets external context
+- **WHEN** a change proposal references provider data
 - **THEN** it MUST reference external references, raw archive records, or
   provider-neutral resources rather than embedding opaque provider payload as
   the only target identity

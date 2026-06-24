@@ -4,7 +4,7 @@
 Meaningful durable actions SHALL receive or create an operation context,
 including writes, external syncs, agent actions, approvals, denials, revisions,
 audit events, run events, domain events, tombstones, raw archive links, and
-proposed graph changes.
+change proposals.
 
 The canonical durable field list for operation correlation is owned by
 `design-revision-audit-soft-delete/specs/operation-correlation`. Code
