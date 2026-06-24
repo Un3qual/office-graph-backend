@@ -267,7 +267,18 @@ defmodule OfficeGraph.Repo.Migrations.CreateWorkPacketRunVerificationSlice do
       add :recorded_at, :utc_datetime_usec
     end
 
-    create index(:verification_results, [:work_run_id, :verification_check_id])
+    drop_if_exists unique_index(:verification_results, [:verification_check_id])
+
+    create unique_index(:verification_results, [:verification_check_id],
+             where: "work_run_id IS NULL",
+             name: :verification_results_unique_check_without_run_index
+           )
+
+    create unique_index(:verification_results, [:work_run_id, :verification_check_id],
+             where: "work_run_id IS NOT NULL",
+             name: :verification_results_unique_run_check_index
+           )
+
     create index(:verification_results, [:work_packet_version_id])
     create index(:verification_results, [:target_graph_item_id])
   end

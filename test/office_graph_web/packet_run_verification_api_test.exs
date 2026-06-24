@@ -47,6 +47,66 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
     assert graphql_summary["missingEvidence"] == []
   end
 
+  test "JSON API replays the same packet-run-verification flow idempotently", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("idempotent")
+    attrs = flow_attrs("idempotent", verification_check)
+
+    first_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(200)
+
+    second_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(200)
+
+    assert second_summary["packet"]["id"] == first_summary["packet"]["id"]
+    assert second_summary["packet_version"]["id"] == first_summary["packet_version"]["id"]
+    assert second_summary["run"]["id"] == first_summary["run"]["id"]
+    assert hd(second_summary["observations"])["id"] == hd(first_summary["observations"])["id"]
+    assert hd(second_summary["evidence_items"])["id"] == hd(first_summary["evidence_items"])["id"]
+
+    assert hd(second_summary["verification_results"])["id"] ==
+             hd(first_summary["verification_results"])["id"]
+  end
+
+  test "APIs return structured validation errors for invalid packet references", %{conn: conn} do
+    {:ok, json_check} = create_required_verification_check("json-invalid-ref")
+
+    json_response =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        flow_attrs("json-invalid-ref", json_check)
+        |> Map.put(:source_graph_item_id, Ecto.UUID.generate())
+      )
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "validation_failed"
+
+    {:ok, graphql_check} = create_required_verification_check("graphql-invalid-ref")
+
+    graphql_response =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_attrs("graphql-invalid-ref", graphql_check)
+            |> Map.put(:sourceGraphItemId, Ecto.UUID.generate())
+        }
+      )
+
+    assert [%{"extensions" => %{"code" => "validation_failed"}}] = graphql_response["errors"]
+  end
+
   defp assert_summary_verified(summary, verification_check_id) do
     packet = summary["packet"]
     packet_version = value(summary, "packet_version", "packetVersion")
@@ -78,13 +138,16 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
   defp value(map, snake_key, camel_key), do: Map.get(map, snake_key) || Map.fetch!(map, camel_key)
 
   defp graphql(conn, query, variables) do
-    response =
-      conn
-      |> post(~p"/graphql", %{query: query, variables: variables})
-      |> json_response(200)
+    response = raw_graphql(conn, query, variables)
 
     assert response["errors"] in [nil, []]
     response["data"] |> Map.values() |> hd()
+  end
+
+  defp raw_graphql(conn, query, variables) do
+    conn
+    |> post(~p"/graphql", %{query: query, variables: variables})
+    |> json_response(200)
   end
 
   defp flow_attrs(label, verification_check) do

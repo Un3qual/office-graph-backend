@@ -6,6 +6,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkGraph.{Artifact, GraphItem}
   alias OfficeGraph.WorkPackets
 
   test "packet-backed work run stays unverified until evidence is accepted" do
@@ -194,6 +195,33 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work run start reloads the persisted packet version" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    spoofed_version = %{
+      packet_result.version
+      | lifecycle_state: "draft",
+        objective: "Spoofed objective from caller memory."
+    }
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "reload-persisted-packet-version"
+      )
+
+    assert {:ok, run_result} =
+             Runs.start_run(bootstrap.session, run_operation, spoofed_version, %{
+               source_surface: "test",
+               reason: "Use persisted packet state.",
+               authority_posture: "human_supervised"
+             })
+
+    assert run_result.run.objective == packet_result.version.objective
+    assert run_result.run.objective != spoofed_version.objective
+  end
+
   test "work run start rejects cross-scope packet versions" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(
@@ -317,6 +345,342 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
   end
 
+  test "work packet creation returns validation errors for invalid references" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Packet Invalid Reference A",
+        workspace_slug: "packet-invalid-reference-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Packet Invalid Reference B",
+        workspace_slug: "packet-invalid-reference-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "missing-source-reference", %{
+               title: "Invalid packet source",
+               objective: "Reject missing source.",
+               context_summary: "Invalid source reference.",
+               requirements: "Use only scoped source references.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [Ecto.UUID.generate()],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "missing-check-reference", %{
+               title: "Invalid packet check",
+               objective: "Reject missing check.",
+               context_summary: "Invalid check reference.",
+               requirements: "Use only scoped checks.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [Ecto.UUID.generate()]
+             })
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "cross-scope-source-reference", %{
+               title: "Cross-scope source",
+               objective: "Reject cross-scope source.",
+               context_summary: "Foreign source reference.",
+               requirements: "Use only local sources.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [foreign_check.graph_item_id],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "cross-scope-check-reference", %{
+               title: "Cross-scope check",
+               objective: "Reject cross-scope check.",
+               context_summary: "Foreign check reference.",
+               requirements: "Use only local checks.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [foreign_check.id]
+             })
+  end
+
+  test "observation recording validates run check and graph references" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Scope A",
+        workspace_slug: "observation-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Scope B",
+        workspace_slug: "observation-scope-b"
+      )
+
+    {:ok, required_check} = create_required_verification_check(first_scope.session)
+    {:ok, unrelated_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+    {:ok, run} = create_ready_run(first_scope.session, required_check)
+
+    {:ok, foreign_operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "foreign-observation-reference"
+      )
+
+    assert {:error, :forbidden} =
+             Runs.record_observation(first_scope.session, foreign_operation, run.run, %{
+               source_kind: "human",
+               source_identity: "manual:foreign-observation-reference",
+               idempotency_key: "foreign-observation-reference",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               verification_check_id: foreign_check.id,
+               graph_item_id: foreign_check.graph_item_id,
+               rationale: "Foreign references are rejected."
+             })
+
+    {:ok, unrelated_operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "unrequired-observation-reference"
+      )
+
+    run_id = run.run.id
+    unrelated_check_id = unrelated_check.id
+    unrelated_graph_item_id = unrelated_check.graph_item_id
+
+    assert {:error, {:verification_check_not_required, ^run_id, ^unrelated_check_id}} =
+             Runs.record_observation(first_scope.session, unrelated_operation, run.run, %{
+               source_kind: "human",
+               source_identity: "manual:unrequired-observation-reference",
+               idempotency_key: "unrequired-observation-reference",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               verification_check_id: unrelated_check.id,
+               graph_item_id: unrelated_check.graph_item_id,
+               rationale: "Unrequired checks are rejected."
+             })
+
+    {:ok, mismatched_operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "mismatched-observation-reference"
+      )
+
+    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+             Runs.record_observation(first_scope.session, mismatched_operation, run.run, %{
+               source_kind: "human",
+               source_identity: "manual:mismatched-observation-reference",
+               idempotency_key: "mismatched-observation-reference",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               verification_check_id: required_check.id,
+               graph_item_id: unrelated_check.graph_item_id,
+               rationale: "Mismatched graph item is rejected."
+             })
+  end
+
+  test "failed observations mark the work run failed" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "failed-observation",
+        observed_status: "failed",
+        normalized_status: "failed"
+      )
+
+    assert observation_result.observation.normalized_status == "failed"
+    assert observation_result.run.aggregate_state == "failed"
+    assert observation_result.run.execution_state == "failed"
+    assert observation_result.run.verification_state == "failed"
+  end
+
+  test "work run verifies only after every required check has passing evidence" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    {:ok, first_observation} =
+      record_observation(bootstrap.session, run_result.run, first_check, key: "first-check")
+
+    {:ok, first_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        first_check,
+        first_observation.observation,
+        key: "first-check"
+      )
+
+    {:ok, first_accepted} =
+      accept_candidate(bootstrap.session, first_candidate, key: "first-check", result: "passed")
+
+    assert first_accepted.work_run.aggregate_state == "awaiting_verification"
+
+    {:ok, partial_summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+
+    second_check_id = second_check.id
+
+    assert [%{verification_check_id: ^second_check_id, reason: "missing_accepted_evidence"}] =
+             partial_summary.missing_evidence
+
+    {:ok, second_observation} =
+      record_observation(bootstrap.session, first_accepted.work_run, second_check,
+        key: "second-check"
+      )
+
+    {:ok, second_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        first_accepted.work_run,
+        second_check,
+        second_observation.observation,
+        key: "second-check"
+      )
+
+    {:ok, second_accepted} =
+      accept_candidate(bootstrap.session, second_candidate, key: "second-check", result: "passed")
+
+    assert second_accepted.work_run.aggregate_state == "verified"
+    assert second_accepted.work_run.verification_state == "verified"
+  end
+
+  test "failed evidence result does not satisfy a required check" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check)
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "failed-evidence"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate, key: "failed-evidence", result: "failed")
+
+    assert accepted.verification_result.result == "failed"
+    assert accepted.work_run.aggregate_state == "failed"
+
+    assert {:ok, [required_check]} = Runs.required_checks_for_run(run_result.run.id)
+    assert required_check.state == "pending"
+  end
+
+  test "candidate observations must belong to the candidate run and check" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_run} = create_ready_run(bootstrap.session, [first_check, second_check])
+    {:ok, second_run} = create_ready_run(bootstrap.session, first_check)
+
+    {:ok, second_run_observation} =
+      record_observation(bootstrap.session, second_run.run, first_check, key: "second-run")
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "wrong-run-observation-candidate"
+      )
+
+    second_run_observation_id = second_run_observation.observation.id
+
+    assert {:error, {:observation_not_for_candidate_run, ^second_run_observation_id}} =
+             Verification.create_evidence_candidate(bootstrap.session, first_operation, %{
+               work_run_id: first_run.run.id,
+               verification_check_id: first_check.id,
+               execution_observation_id: second_run_observation.observation.id,
+               claim: "Wrong run observation.",
+               source_kind: "human",
+               source_identity: "manual:wrong-run",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+
+    {:ok, first_run_observation} =
+      record_observation(bootstrap.session, first_run.run, first_check, key: "first-run")
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "wrong-check-observation-candidate"
+      )
+
+    first_run_observation_id = first_run_observation.observation.id
+
+    assert {:error, {:observation_not_for_candidate_run, ^first_run_observation_id}} =
+             Verification.create_evidence_candidate(bootstrap.session, second_operation, %{
+               work_run_id: first_run.run.id,
+               verification_check_id: second_check.id,
+               execution_observation_id: first_run_observation.observation.id,
+               claim: "Wrong check observation.",
+               source_kind: "human",
+               source_identity: "manual:wrong-check",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+  end
+
+  test "candidate artifact references must stay in scope" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Candidate Artifact A",
+        workspace_slug: "candidate-artifact-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Candidate Artifact B",
+        workspace_slug: "candidate-artifact-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, run_result} = create_ready_run(first_scope.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(first_scope.session, run_result.run, verification_check)
+
+    foreign_artifact = insert_artifact!(second_scope, "Foreign evidence artifact")
+
+    {:ok, operation} =
+      Operations.start_operation(first_scope.session, :evidence_candidate_create,
+        idempotency_key: "cross-scope-artifact-candidate"
+      )
+
+    assert {:error, :forbidden} =
+             Verification.create_evidence_candidate(first_scope.session, operation, %{
+               work_run_id: run_result.run.id,
+               verification_check_id: verification_check.id,
+               execution_observation_id: observation_result.observation.id,
+               artifact_id: foreign_artifact.id,
+               claim: "Cross-scope artifact.",
+               source_kind: "human",
+               source_identity: "manual:cross-scope-artifact",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+  end
+
   test "observation recording is idempotent for the same source key" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -354,21 +718,19 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert second.observation.id == first.observation.id
   end
 
-  defp create_ready_run(session, verification_check) do
-    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
+  defp create_packet_with_operation(session, idempotency_key, attrs) do
+    {:ok, operation} =
+      Operations.start_operation(session, :work_packet_create, idempotency_key: idempotency_key)
 
-    {:ok, packet_result} =
-      WorkPackets.create_packet(session, packet_operation, %{
-        title: "Ready packet",
-        objective: "Run selected work.",
-        context_summary: "Ready context.",
-        requirements: "Complete selected work.",
-        success_criteria: "Required check passes.",
-        autonomy_posture: "human_supervised",
-        source_graph_item_ids: [verification_check.graph_item_id],
-        verification_check_ids: [verification_check.id]
-      })
+    WorkPackets.create_packet(session, operation, attrs)
+  end
 
+  defp create_ready_run(session, verification_check) when not is_list(verification_check) do
+    create_ready_run(session, [verification_check])
+  end
+
+  defp create_ready_run(session, verification_checks) when is_list(verification_checks) do
+    {:ok, packet_result} = create_ready_packet(session, verification_checks)
     {:ok, run_operation} = Operations.start_operation(session, :work_run_start)
 
     with {:ok, run_result} <-
@@ -377,8 +739,87 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              reason: "Execute ready packet.",
              authority_posture: "human_supervised"
            }) do
-      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
+      {:ok,
+       run_result
+       |> Map.put(:packet, packet_result.packet)
+       |> Map.put(:packet_version, packet_result.version)}
     end
+  end
+
+  defp create_ready_packet(session, verification_checks) do
+    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
+
+    WorkPackets.create_packet(session, packet_operation, %{
+      title: "Ready packet",
+      objective: "Run selected work.",
+      context_summary: "Ready context.",
+      requirements: "Complete selected work.",
+      success_criteria: "Required checks pass.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+      verification_check_ids: Enum.map(verification_checks, & &1.id)
+    })
+  end
+
+  defp record_observation(session, run, verification_check, opts \\ []) do
+    key = Keyword.get(opts, :key, Ecto.UUID.generate())
+    normalized_status = Keyword.get(opts, :normalized_status, "succeeded")
+    observed_status = Keyword.get(opts, :observed_status, "passed")
+
+    {:ok, operation} =
+      Operations.start_operation(session, :execution_observation_record,
+        idempotency_key: "observation-operation:#{key}"
+      )
+
+    Runs.record_observation(session, operation, run, %{
+      source_kind: "human",
+      source_identity: "manual:#{key}",
+      idempotency_key: "observation:#{key}",
+      observed_status: observed_status,
+      normalized_status: normalized_status,
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Human confirmed #{key}."
+    })
+  end
+
+  defp create_evidence_candidate(session, run, verification_check, observation, opts) do
+    key = Keyword.get(opts, :key, Ecto.UUID.generate())
+
+    {:ok, operation} =
+      Operations.start_operation(session, :evidence_candidate_create,
+        idempotency_key: "candidate-operation:#{key}"
+      )
+
+    Verification.create_evidence_candidate(session, operation, %{
+      work_run_id: run.id,
+      verification_check_id: verification_check.id,
+      execution_observation_id: observation.id,
+      claim: "Evidence candidate #{key}.",
+      source_kind: "human",
+      source_identity: "manual:#{key}",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      sensitivity: "internal"
+    })
+  end
+
+  defp accept_candidate(session, candidate, opts) do
+    key = Keyword.get(opts, :key, Ecto.UUID.generate())
+
+    {:ok, operation} =
+      Operations.start_operation(session, :evidence_accept,
+        idempotency_key: "accept-operation:#{key}"
+      )
+
+    Verification.accept_evidence_candidate(session, operation, candidate, %{
+      title: "Accepted evidence #{key}",
+      body: "Accepted evidence body #{key}.",
+      result: Keyword.get(opts, :result, "passed"),
+      acceptance_policy_basis: "owner_acceptance"
+    })
   end
 
   defp create_required_verification_check(session) do
@@ -406,5 +847,38 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
            }) do
       {:ok, verification_check}
     end
+  end
+
+  defp insert_artifact!(bootstrap, title) do
+    artifact_id = Ecto.UUID.generate()
+
+    {:ok, graph_item} =
+      Ash.create(
+        GraphItem,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          resource_type: "artifact",
+          resource_id: artifact_id,
+          title: "#{title} graph item"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      Artifact,
+      %{
+        id: artifact_id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        graph_item_id: graph_item.id,
+        title: title,
+        uri: "https://example.test/#{artifact_id}"
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 end

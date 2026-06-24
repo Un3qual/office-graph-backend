@@ -16,7 +16,7 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.Authorization
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
-  alias OfficeGraph.WorkGraph.{EvidenceItem, VerificationResult}
+  alias OfficeGraph.WorkGraph.{EvidenceItem, GraphItem, VerificationCheck, VerificationResult}
   alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketRequiredCheck, WorkPacketVersion}
 
   require Ash.Query
@@ -27,59 +27,19 @@ defmodule OfficeGraph.Runs do
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- validate_operation_context(session_context, operation),
          :ok <- validate_operation_action(operation, @work_run_start_action),
-         :ok <- validate_scope(session_context, packet_version),
-         :ok <- validate_packet_version_ready(packet_version),
          :ok <-
            Authorization.authorize_operation(session_context, operation, :work_run_start,
              organization_id: session_context.organization_id
            ) do
-      required_checks = packet_required_checks(packet_version.id)
-      run_id = Ecto.UUID.generate()
-      now = DateTime.utc_now()
-
-      Repo.transaction(fn ->
-        run =
-          ash_create!(
-            Run,
-            %{
-              id: run_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              work_packet_id: packet_version.work_packet_id,
-              work_packet_version_id: packet_version.id,
-              operation_id: operation.id,
-              initiator_principal_id: session_context.principal_id,
-              objective: packet_version.objective,
-              authority_posture: attrs[:authority_posture],
-              source_surface: attrs[:source_surface],
-              reason: attrs[:reason],
-              state: "running",
-              aggregate_state: "running",
-              execution_state: "pending",
-              verification_state: "unverified",
-              started_at: now
-            }
-          )
-
-        run_required_checks =
-          Enum.map(required_checks, fn required_check ->
-            ash_create!(
-              RunRequiredCheck,
-              %{
-                id: Ecto.UUID.generate(),
-                run_id: run.id,
-                verification_check_id: required_check.verification_check_id,
-                organization_id: session_context.organization_id,
-                workspace_id: session_context.workspace_id,
-                state: "pending"
-              }
-            )
-          end)
-
-        %{run: run, required_checks: run_required_checks}
-      end)
+      with {:ok, nil} <- existing_run_result(session_context, operation),
+           {:ok, packet_version} <- reload_packet_version(session_context, packet_version),
+           :ok <- validate_packet_version_ready(packet_version) do
+        create_run_records(session_context, operation, packet_version, attrs)
+      else
+        {:ok, run_result} -> {:ok, run_result}
+        {:error, error} -> {:error, error}
+      end
     end
-    |> normalize_transaction_result()
   end
 
   def record_observation(session_context, operation, run, attrs) when is_map(attrs) do
@@ -92,13 +52,18 @@ defmodule OfficeGraph.Runs do
              operation,
              :execution_observation_record,
              organization_id: session_context.organization_id
-           ) do
+           ),
+         :ok <- validate_observation_references(session_context, run, attrs) do
       case existing_observation(session_context, attrs) do
         {:ok, nil} ->
           create_observation(session_context, operation, run, attrs)
 
         {:ok, observation} ->
-          {:ok, %{observation: observation, run: run}}
+          if observation.work_run_id == run.id do
+            {:ok, %{observation: observation, run: run}}
+          else
+            {:error, {:observation_idempotency_conflict, observation.id}}
+          end
 
         {:error, error} ->
           {:error, error}
@@ -113,6 +78,29 @@ defmodule OfficeGraph.Runs do
       aggregate_state: "verified",
       execution_state: "completed",
       verification_state: "verified",
+      completed_at: run.completed_at || DateTime.utc_now()
+    })
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> unwrap_ash_result()
+  end
+
+  def set_run_verified_if_all_required_checks_satisfied(run) do
+    with {:ok, required_checks} <- required_checks_for_run(run.id) do
+      if required_checks != [] and Enum.all?(required_checks, &(&1.state == "satisfied")) do
+        set_run_verified(run)
+      else
+        {:ok, run}
+      end
+    end
+  end
+
+  def set_run_verification_failed(run) do
+    run
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
+      state: "failed",
+      aggregate_state: "failed",
+      execution_state: run.execution_state || "completed",
+      verification_state: "failed",
       completed_at: run.completed_at || DateTime.utc_now()
     })
     |> Ash.update(authorize?: false, return_notifications?: true)
@@ -207,6 +195,55 @@ defmodule OfficeGraph.Runs do
     |> normalize_transaction_result()
   end
 
+  defp create_run_records(session_context, operation, packet_version, attrs) do
+    required_checks = packet_required_checks(packet_version.id)
+    run_id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Repo.transaction(fn ->
+      run =
+        ash_create!(
+          Run,
+          %{
+            id: run_id,
+            organization_id: session_context.organization_id,
+            workspace_id: session_context.workspace_id,
+            work_packet_id: packet_version.work_packet_id,
+            work_packet_version_id: packet_version.id,
+            operation_id: operation.id,
+            initiator_principal_id: session_context.principal_id,
+            objective: packet_version.objective,
+            authority_posture: attrs[:authority_posture],
+            source_surface: attrs[:source_surface],
+            reason: attrs[:reason],
+            state: "running",
+            aggregate_state: "running",
+            execution_state: "pending",
+            verification_state: "unverified",
+            started_at: now
+          }
+        )
+
+      run_required_checks =
+        Enum.map(required_checks, fn required_check ->
+          ash_create!(
+            RunRequiredCheck,
+            %{
+              id: Ecto.UUID.generate(),
+              run_id: run.id,
+              verification_check_id: required_check.verification_check_id,
+              organization_id: session_context.organization_id,
+              workspace_id: session_context.workspace_id,
+              state: "pending"
+            }
+          )
+        end)
+
+      %{run: run, required_checks: run_required_checks}
+    end)
+    |> normalize_transaction_result()
+  end
+
   defp update_run_after_observation!(run, %{normalized_status: "succeeded"}) do
     run
     |> Ash.Changeset.for_update(:set_lifecycle_state, %{
@@ -223,10 +260,11 @@ defmodule OfficeGraph.Runs do
   defp update_run_after_observation!(run, _observation) do
     run
     |> Ash.Changeset.for_update(:set_lifecycle_state, %{
-      state: "running",
-      aggregate_state: "running",
-      execution_state: "pending",
-      verification_state: run.verification_state || "unverified"
+      state: "failed",
+      aggregate_state: "failed",
+      execution_state: "failed",
+      verification_state: "failed",
+      completed_at: DateTime.utc_now()
     })
     |> Ash.update!(authorize?: false, return_notifications?: true)
     |> unwrap_notification_result()
@@ -257,10 +295,91 @@ defmodule OfficeGraph.Runs do
     |> Ash.read!(authorize?: false)
   end
 
+  defp existing_run_result(session_context, operation) do
+    Run
+    |> Ash.Query.filter(
+      organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and
+        operation_id == ^operation.id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, run} ->
+        with {:ok, required_checks} <- read_run_required_checks(run.id) do
+          {:ok, %{run: run, required_checks: required_checks}}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp reload_packet_version(_session_context, nil), do: {:error, :missing_packet_version}
+
+  defp reload_packet_version(session_context, %{id: id}) do
+    fetch_scoped(WorkPacketVersion, session_context, id)
+  end
+
+  defp reload_packet_version(_session_context, _packet_version),
+    do: {:error, :missing_packet_version}
+
   defp validate_packet_version_ready(%{lifecycle_state: "ready"}), do: :ok
 
   defp validate_packet_version_ready(%{id: id}), do: {:error, {:packet_version_not_ready, id}}
   defp validate_packet_version_ready(_packet_version), do: {:error, :missing_packet_version}
+
+  defp validate_observation_references(session_context, run, attrs) do
+    with {:ok, verification_check} <-
+           validate_observation_verification_check(
+             session_context,
+             run,
+             attrs[:verification_check_id]
+           ),
+         {:ok, graph_item} <-
+           validate_optional_graph_item(session_context, attrs[:graph_item_id]),
+         :ok <- validate_observation_graph_item(run, verification_check, graph_item) do
+      :ok
+    end
+  end
+
+  defp validate_observation_verification_check(_session_context, _run, nil), do: {:ok, nil}
+
+  defp validate_observation_verification_check(session_context, run, verification_check_id) do
+    with {:ok, verification_check} <-
+           fetch_scoped(VerificationCheck, session_context, verification_check_id),
+         true <- run_requires_check?(run.id, verification_check.id) do
+      {:ok, verification_check}
+    else
+      false -> {:error, {:verification_check_not_required, run.id, verification_check_id}}
+      error -> error
+    end
+  end
+
+  defp validate_optional_graph_item(_session_context, nil), do: {:ok, nil}
+
+  defp validate_optional_graph_item(session_context, graph_item_id) do
+    fetch_scoped(GraphItem, session_context, graph_item_id)
+  end
+
+  defp validate_observation_graph_item(_run, nil, _graph_item), do: :ok
+  defp validate_observation_graph_item(_run, _verification_check, nil), do: :ok
+
+  defp validate_observation_graph_item(run, verification_check, graph_item) do
+    if graph_item.id == verification_check.graph_item_id do
+      :ok
+    else
+      {:error, {:graph_item_not_required, run.id, graph_item.id}}
+    end
+  end
+
+  defp run_requires_check?(run_id, verification_check_id) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
+    |> Ash.exists?(authorize?: false)
+  end
 
   defp read_run_required_checks(run_id) do
     RunRequiredCheck
@@ -360,8 +479,12 @@ defmodule OfficeGraph.Runs do
   defp ash_create!(resource, attrs) do
     resource
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create!(authorize?: false, return_notifications?: true)
-    |> unwrap_notification_result()
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> case do
+      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
+      {:ok, record} -> record
+      {:error, error} -> Repo.rollback(error)
+    end
   end
 
   defp unwrap_ash_result({:ok, record, _notifications}), do: {:ok, record}

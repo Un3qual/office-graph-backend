@@ -118,10 +118,6 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     end
   end
 
-  identities do
-    identity :unique_verification_check, [:verification_check_id]
-  end
-
   policies do
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
