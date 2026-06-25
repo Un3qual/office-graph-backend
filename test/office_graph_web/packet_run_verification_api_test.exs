@@ -150,6 +150,69 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
     assert json_response["error"]["code"] == "validation_failed"
   end
 
+  test "JSON API rejects not-ready packet input before durable flow writes", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("json-invalid-posture")
+
+    attrs =
+      flow_attrs("json-invalid-posture", verification_check)
+      |> Map.put(:autonomy_posture, "fully_autonomous")
+
+    json_response =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "validation_failed"
+
+    corrected_summary =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        Map.put(attrs, :autonomy_posture, "human_supervised")
+      )
+      |> json_response(200)
+
+    assert_summary_verified(corrected_summary, verification_check.id)
+  end
+
+  test "JSON API rejects passed evidence input before durable flow writes", %{conn: conn} do
+    cases = [
+      {"json-failed-before-write", %{observed_status: "failed", normalized_status: "failed"}},
+      {"json-stale-before-write", %{freshness_state: "stale"}},
+      {"json-unauthenticated-before-write", %{trust_basis: "unauthenticated"}}
+    ]
+
+    for {label, invalid_attrs} <- cases do
+      {:ok, verification_check} = create_required_verification_check(label)
+
+      attrs =
+        label
+        |> flow_attrs(verification_check)
+        |> Map.merge(invalid_attrs)
+
+      json_response =
+        conn
+        |> post(~p"/api/packet-run-verification/execute", attrs)
+        |> json_response(422)
+
+      assert json_response["error"]["code"] == "validation_failed"
+
+      corrected_summary =
+        conn
+        |> post(
+          ~p"/api/packet-run-verification/execute",
+          attrs
+          |> Map.put(:observed_status, "passed")
+          |> Map.put(:normalized_status, "succeeded")
+          |> Map.put(:freshness_state, "fresh")
+          |> Map.put(:trust_basis, "owner_attested")
+        )
+        |> json_response(200)
+
+      assert_summary_verified(corrected_summary, verification_check.id)
+    end
+  end
+
   defp assert_summary_verified(summary, verification_check_id) do
     packet = summary["packet"]
     packet_version = value(summary, "packet_version", "packetVersion")

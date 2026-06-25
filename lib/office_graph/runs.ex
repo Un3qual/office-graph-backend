@@ -304,6 +304,9 @@ defmodule OfficeGraph.Runs do
       failed_observations_for_run?(run.id) ->
         update_run_failed!(run)
 
+      run_verified?(run) ->
+        run
+
       true ->
         run
         |> Ash.Changeset.for_update(:set_lifecycle_state, %{
@@ -472,6 +475,11 @@ defmodule OfficeGraph.Runs do
   defp run_failed?(run) do
     run.state == "failed" or run.aggregate_state == "failed" or run.execution_state == "failed" or
       run.verification_state == "failed"
+  end
+
+  defp run_verified?(run) do
+    run.state == "verified" or run.aggregate_state == "verified" or
+      run.verification_state == "verified"
   end
 
   defp packet_required_checks(packet_version_id) do

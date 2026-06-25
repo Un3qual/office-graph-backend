@@ -85,6 +85,10 @@ defmodule OfficeGraph.Verification do
     end
   end
 
+  def passed_evidence_input_acceptable?(attrs) when is_map(attrs) do
+    attrs[:normalized_status] == "succeeded" and acceptable_evidence_source?(attrs)
+  end
+
   defp create_evidence_candidate_record(session_context, operation, attrs) do
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
@@ -231,7 +235,7 @@ defmodule OfficeGraph.Verification do
       |> Ash.update!(authorize?: false, return_notifications?: true)
       |> unwrap_notification_result()
 
-    work_run = update_work_run_after_acceptance!(work_run, verification_result)
+    work_run = update_after_acceptance!(verification_check, work_run, verification_result)
 
     %{
       evidence_item: evidence_item,
@@ -395,8 +399,8 @@ defmodule OfficeGraph.Verification do
   defp validate_passed_result_allowed!(_result, _candidate, _work_run, _observation), do: :ok
 
   defp acceptable_evidence_source?(source) do
-    source.freshness_state == "fresh" and
-      source.trust_basis in ["owner_attested", "signed_provider_payload"]
+    Map.get(source, :freshness_state) == "fresh" and
+      Map.get(source, :trust_basis) in ["owner_attested", "signed_provider_payload"]
   end
 
   defp work_run_failed?(nil), do: false
@@ -406,9 +410,18 @@ defmodule OfficeGraph.Verification do
       work_run.execution_state == "failed" or work_run.verification_state == "failed"
   end
 
-  defp update_work_run_after_acceptance!(nil, _verification_result), do: nil
+  defp update_after_acceptance!(verification_check, nil, %{result: "passed"}) do
+    _verification_check = mark_verification_check_satisfied!(verification_check)
+    nil
+  end
 
-  defp update_work_run_after_acceptance!(work_run, %{result: "passed"} = verification_result) do
+  defp update_after_acceptance!(_verification_check, nil, _verification_result), do: nil
+
+  defp update_after_acceptance!(
+         _verification_check,
+         work_run,
+         %{result: "passed"} = verification_result
+       ) do
     case Runs.satisfy_required_check_and_verify_run(
            work_run,
            verification_result.verification_check_id
@@ -418,11 +431,18 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp update_work_run_after_acceptance!(work_run, _verification_result) do
+  defp update_after_acceptance!(_verification_check, work_run, _verification_result) do
     case Runs.set_run_verification_failed(work_run) do
       {:ok, run} -> run
       {:error, error} -> Repo.rollback(error)
     end
+  end
+
+  defp mark_verification_check_satisfied!(verification_check) do
+    verification_check
+    |> Ash.Changeset.for_update(:mark_satisfied, %{})
+    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> unwrap_notification_result()
   end
 
   defp work_packet_version_id(nil), do: nil

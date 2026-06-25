@@ -167,3 +167,12 @@ packet-run-verification flow.
   evidence, authorization, lifecycle, scope, or idempotency input
 - **THEN** it MUST return a structured error with a stable code and safe
   explanatory detail equivalent to the other API surface
+
+#### Scenario: Composite flow input is invalid
+
+- **WHEN** a packet-run-verification orchestration request contains packet
+  readiness input or passed-evidence input that the owning domain rules would
+  later reject
+- **THEN** the shared API context MUST reject the request before creating
+  per-step operation-correlated packet, run, observation, candidate, evidence,
+  or verification result records

@@ -39,6 +39,10 @@ defmodule OfficeGraph.WorkPackets do
     end
   end
 
+  def ready_for_execution_attrs?(attrs) when is_map(attrs) do
+    packet_ready?(attrs)
+  end
+
   defp create_packet_records(session_context, operation, attrs) do
     packet_id = Ecto.UUID.generate()
     version_id = Ecto.UUID.generate()

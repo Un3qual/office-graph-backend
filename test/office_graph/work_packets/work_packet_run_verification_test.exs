@@ -616,6 +616,49 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     end
   end
 
+  test "verified runs stay verified after later successful observations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "verified-before-extra-observation"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        observation_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "verified-before-extra-observation"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "verified-before-extra-observation",
+        result: "passed"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.verification_state == "verified"
+
+    {:ok, later_observation} =
+      record_observation(bootstrap.session, accepted.work_run, verification_check,
+        key: "verified-after-extra-observation"
+      )
+
+    assert later_observation.run.aggregate_state == "verified"
+    assert later_observation.run.execution_state == "completed"
+    assert later_observation.run.verification_state == "verified"
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
+    assert summary.run.aggregate_state == "verified"
+    assert summary.run.execution_state == "completed"
+    assert summary.run.verification_state == "verified"
+  end
+
   test "runless evidence candidates can be accepted without updating a work run" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -665,6 +708,11 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert accepted.verification_result.target_graph_item_id == verification_check.graph_item_id
     assert accepted.work_run == nil
     assert accepted.candidate.candidate_state == "accepted"
+
+    {:ok, satisfied_check} =
+      WorkGraph.get_verification_check(bootstrap.session, verification_check.id)
+
+    assert satisfied_check.lifecycle_state == "satisfied"
 
     assert {:ok, replayed} =
              Verification.accept_evidence_candidate(

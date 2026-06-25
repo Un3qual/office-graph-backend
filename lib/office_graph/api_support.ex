@@ -72,6 +72,8 @@ defmodule OfficeGraph.ApiSupport do
          {:ok, verification_check} <-
            WorkGraph.get_verification_check(bootstrap.session, input.verification_check_id),
          :ok <- validate_packet_run_source(input, verification_check),
+         :ok <- validate_packet_run_ready_input(input),
+         :ok <- validate_packet_run_passed_evidence_input(input),
          {:ok, packet_operation} <-
            Operations.start_operation(bootstrap.session, :work_packet_create,
              idempotency_key: input.flow_identity <> ":packet"
@@ -268,6 +270,32 @@ defmodule OfficeGraph.ApiSupport do
         verification_check.graph_item_id}}
     end
   end
+
+  defp validate_packet_run_ready_input(input) do
+    ready_attrs = %{
+      objective: input.objective,
+      success_criteria: input.success_criteria,
+      autonomy_posture: input.autonomy_posture,
+      source_graph_item_ids: [input.source_graph_item_id],
+      verification_check_ids: [input.verification_check_id]
+    }
+
+    if WorkPackets.ready_for_execution_attrs?(ready_attrs) do
+      :ok
+    else
+      {:error, {:invalid_packet_run_input, :packet_readiness}}
+    end
+  end
+
+  defp validate_packet_run_passed_evidence_input(%{evidence_result: "passed"} = input) do
+    if Verification.passed_evidence_input_acceptable?(input) do
+      :ok
+    else
+      {:error, {:invalid_packet_run_evidence_input, :evidence_result}}
+    end
+  end
+
+  defp validate_packet_run_passed_evidence_input(_input), do: :ok
 
   defp validate_apply_id_set([]) do
     {:error, {:invalid_proposed_change_set, {:missing_change_type, "create_signal"}}}

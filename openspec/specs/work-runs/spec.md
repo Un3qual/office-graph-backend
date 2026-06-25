@@ -145,3 +145,11 @@ verification completion.
   evidence and passing verification results
 - **THEN** Office Graph MUST be able to expose the work run as verified while
   preserving the evidence and result records that explain the status
+
+#### Scenario: Successful observation arrives after verification
+
+- **WHEN** a work run is already verified and a later successful child
+  observation is recorded without an explicit stale, failed, or re-verification
+  signal
+- **THEN** Office Graph MUST preserve the verified aggregate and verification
+  state while still recording the later observation

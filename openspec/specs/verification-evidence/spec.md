@@ -130,6 +130,13 @@ first packet-run-verification slice.
   candidate, check, work run when present, acceptance actor or policy basis,
   acceptance operation, timestamp, and visibility constraints
 
+#### Scenario: Runless candidate is accepted
+
+- **WHEN** policy or an authorized actor accepts passed evidence for a candidate
+  that is linked to a verification check but not to a specific work run
+- **THEN** Office Graph MUST satisfy the check-level verification state while
+  leaving unrelated packet-backed work-run required-check rows unchanged
+
 ### Requirement: Initial Verification Results Link Evidence To Runs
 
 Office Graph SHALL record verification results that explain whether a packet or
