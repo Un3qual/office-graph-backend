@@ -5,10 +5,12 @@ defmodule OfficeGraph.Verification do
 
   use Boundary,
     deps: [
+      OfficeGraph.Audit,
       OfficeGraph.Authorization,
       OfficeGraph.Content,
       OfficeGraph.Operations,
       OfficeGraph.Repo,
+      OfficeGraph.Revisions,
       OfficeGraph.Runs,
       OfficeGraph.WorkGraph
     ],
@@ -18,6 +20,7 @@ defmodule OfficeGraph.Verification do
   alias OfficeGraph.Content
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
+  alias OfficeGraph.{Audit, Revisions}
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
 
@@ -37,6 +40,7 @@ defmodule OfficeGraph.Verification do
 
   @evidence_candidate_create_action "evidence_candidate.create"
   @evidence_accept_action "evidence.accept"
+  @evidence_results ["passed", "failed"]
 
   def complete_with_evidence(session_context, operation, verification_check, attrs) do
     with :ok <-
@@ -165,8 +169,10 @@ defmodule OfficeGraph.Verification do
       validate_candidate_links!(session_context, candidate, work_run, verification_check)
 
     result = attrs[:result] || "passed"
+    validate_evidence_result!(result)
     validate_runless_result_allowed!(work_run, candidate, result)
     validate_passed_result_allowed!(result, candidate, work_run, observation)
+    prepare_runless_completion!(session_context, operation, verification_check, work_run, result)
 
     document = create_document!(session_context, operation, attrs[:body] || "")
     evidence_id = Ecto.UUID.generate()
@@ -242,11 +248,22 @@ defmodule OfficeGraph.Verification do
         }
       )
 
+    trace!(operation, "evidence_item.create", "evidence_item", evidence_item.id)
+
+    trace!(
+      operation,
+      "verification_result.create",
+      "verification_result",
+      verification_result.id
+    )
+
     candidate =
       candidate
       |> Ash.Changeset.for_update(:mark_accepted, %{})
       |> Ash.update!(authorize?: false, return_notifications?: true)
       |> unwrap_notification_result()
+
+    trace!(operation, "evidence_candidate.accept", "evidence_candidate", candidate.id)
 
     work_run =
       update_after_acceptance!(
@@ -382,6 +399,12 @@ defmodule OfficeGraph.Verification do
     lock_scoped!(resource, session_context, id)
   end
 
+  defp validate_evidence_result!(result) when result in @evidence_results, do: :ok
+
+  defp validate_evidence_result!(result) do
+    Repo.rollback({:invalid_evidence_result, result})
+  end
+
   defp validate_runless_result_allowed!(nil, _candidate, "passed"), do: :ok
 
   defp validate_runless_result_allowed!(nil, candidate, _result) do
@@ -438,12 +461,12 @@ defmodule OfficeGraph.Verification do
       work_run.execution_state == "failed" or work_run.verification_state == "failed"
   end
 
-  defp update_after_acceptance!(
+  defp prepare_runless_completion!(
          session_context,
          operation,
          verification_check,
          nil,
-         %{result: "passed"}
+         "passed"
        ) do
     case WorkGraph.satisfy_verification_check_from_evidence(
            session_context,
@@ -453,6 +476,16 @@ defmodule OfficeGraph.Verification do
       {:ok, _completed} -> nil
       {:error, error} -> Repo.rollback(error)
     end
+  end
+
+  defp prepare_runless_completion!(
+         _session_context,
+         _operation,
+         _verification_check,
+         _work_run,
+         _result
+       ) do
+    :ok
   end
 
   defp update_after_acceptance!(_session_context, _operation, _verification_check, nil, _result) do
@@ -601,6 +634,11 @@ defmodule OfficeGraph.Verification do
         relationship_type: relationship_type
       }
     )
+  end
+
+  defp trace!(operation, action, resource_type, resource_id) do
+    Audit.record!(operation, action, resource_type, resource_id)
+    Revisions.record!(operation, resource_type, resource_id, action, action)
   end
 
   defp validate_scope(session_context, record) do

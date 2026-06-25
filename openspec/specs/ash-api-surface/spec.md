@@ -181,11 +181,20 @@ packet-run-verification flow.
 
 - **WHEN** a packet-run-verification orchestration request reuses an observation
   source identity and idempotency key that already belongs to a different flow
-  step, work run, check, status, freshness, trust basis, or graph linkage
+  step, work run, check, status, freshness, trust basis, or graph linkage,
+  including concurrent requests racing on the same absent observation key
 - **THEN** the shared API context MUST reject the request as an idempotency
   conflict before creating packet, run, evidence, or verification-result records
   and MUST allow a corrected retry with the same flow identity when no durable
   flow step has been consumed
+
+#### Scenario: Composite evidence result is unsupported
+
+- **WHEN** a packet-run-verification orchestration request supplies an evidence
+  result outside the supported acceptance vocabulary
+- **THEN** the shared API context MUST reject the request before creating
+  per-step operation-correlated packet, run, observation, candidate, evidence, or
+  verification-result records
 
 #### Scenario: Composite flow identity is reused with different input
 

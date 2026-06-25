@@ -83,6 +83,18 @@ defmodule OfficeGraph.Runs do
     end
   end
 
+  def with_observation_idempotency_lock(session_context, attrs, fun)
+      when is_map(attrs) and is_function(fun, 0) do
+    attrs = normalize_observation_attrs(attrs)
+
+    if is_nil(attrs[:idempotency_key]) do
+      fun.()
+    else
+      lock_observation_idempotency_key!(session_context, attrs)
+      fun.()
+    end
+  end
+
   def set_run_verified(run) do
     run
     |> Ash.Changeset.for_update(:set_lifecycle_state, %{
@@ -475,6 +487,20 @@ defmodule OfficeGraph.Runs do
   end
 
   defp normalize_idempotency_key(value), do: value
+
+  defp lock_observation_idempotency_key!(session_context, attrs) do
+    lock_key =
+      [
+        session_context.organization_id,
+        session_context.workspace_id,
+        attrs[:source_kind],
+        attrs[:source_identity],
+        attrs[:idempotency_key]
+      ]
+      |> Enum.join(":")
+
+    Repo.query!("SELECT pg_advisory_xact_lock(98301, hashtext($1))", [lock_key])
+  end
 
   defp failed_observations_for_run?(run_id) do
     ExecutionObservation

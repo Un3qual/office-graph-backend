@@ -74,11 +74,15 @@ defmodule OfficeGraph.Operations do
     |> Ash.Changeset.for_create(:create, operation_attrs)
     |> Ash.create(
       authorize?: false,
+      return_notifications?: true,
       upsert?: not is_nil(idempotency_key),
       upsert_identity: :unique_idempotency_key,
       upsert_fields: []
     )
     |> case do
+      {:ok, operation, _notifications} ->
+        {:ok, operation}
+
       {:ok, operation} ->
         {:ok, operation}
 

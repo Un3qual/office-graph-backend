@@ -431,6 +431,33 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
     assert json_response["error"]["code"] == "validation_failed"
   end
 
+  test "JSON API rejects unknown evidence results before durable flow writes", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("json-unknown-evidence-result")
+
+    attrs =
+      flow_attrs("json-unknown-evidence-result", verification_check)
+      |> Map.put(:evidence_result, "passsed")
+
+    json_response =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "validation_failed"
+
+    corrected_summary =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        Map.put(attrs, :evidence_result, "failed")
+      )
+      |> json_response(200)
+
+    assert [verification_result] = corrected_summary["verification_results"]
+    assert verification_result["result"] == "failed"
+    assert corrected_summary["run"]["aggregate_state"] == "failed"
+  end
+
   test "JSON API rejects not-ready packet input before durable flow writes", %{conn: conn} do
     {:ok, verification_check} = create_required_verification_check("json-invalid-posture")
 

@@ -6,7 +6,18 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkGraph.{Artifact, GraphItem, GraphRelationship, ReviewFinding, Task}
+  alias OfficeGraph.{Audit, Revisions}
+
+  alias OfficeGraph.WorkGraph.{
+    Artifact,
+    EvidenceItem,
+    GraphItem,
+    GraphRelationship,
+    ReviewFinding,
+    Task,
+    VerificationResult
+  }
+
   alias OfficeGraph.WorkPackets
 
   require Ash.Query
@@ -177,6 +188,48 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              artifact.graph_item_id,
              "references_artifact"
            )
+  end
+
+  test "accepted evidence candidates record audit and revision trace rows" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "candidate-evidence-traces"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "candidate-evidence-traces"
+      )
+
+    {:ok, acceptance_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "candidate-evidence-traces-accept"
+      )
+
+    assert {:ok, accepted} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               acceptance_operation,
+               candidate,
+               %{
+                 title: "Candidate evidence traces",
+                 body: "Candidate acceptance should emit trace rows.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
+
+    assert accepted.evidence_item.candidate_id == candidate.id
+    assert Audit.count_for_operation(acceptance_operation.id) >= 2
+    assert Revisions.count_for_operation(acceptance_operation.id) >= 2
   end
 
   test "work run start rejects packet versions that are not ready" do
@@ -975,6 +1028,35 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert required_check.state == "pending"
   end
 
+  test "unknown evidence results are rejected before accepting a candidate" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "unknown-evidence-result"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "unknown-evidence-result"
+      )
+
+    assert {:error, {:invalid_evidence_result, "passsed"}} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "unknown-evidence-result",
+               result: "passsed"
+             )
+
+    refute accepted_evidence_for_candidate?(candidate.id)
+    refute verification_result_for_candidate_target?(candidate)
+  end
+
   test "same verification check can be verified across separate work runs" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -1527,6 +1609,21 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     |> Ash.Query.filter(
       source_item_id == ^source_item_id and target_item_id == ^target_item_id and
         relationship_type == ^relationship_type
+    )
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp accepted_evidence_for_candidate?(candidate_id) do
+    EvidenceItem
+    |> Ash.Query.filter(candidate_id == ^candidate_id)
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp verification_result_for_candidate_target?(candidate) do
+    VerificationResult
+    |> Ash.Query.filter(
+      verification_check_id == ^candidate.verification_check_id and
+        work_run_id == ^candidate.work_run_id
     )
     |> Ash.exists?(authorize?: false)
   end

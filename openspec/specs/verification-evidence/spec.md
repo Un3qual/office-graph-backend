@@ -130,7 +130,8 @@ first packet-run-verification slice.
   candidate, check, work run when present, acceptance actor or policy basis,
   acceptance operation, timestamp, and visibility constraints, and MUST link the
   check graph item to the evidence graph item plus the evidence graph item to
-  the candidate artifact graph item when an artifact is present
+  the candidate artifact graph item when an artifact is present, and MUST record
+  audit and revision trace rows for the accepted evidence and verification result
 
 #### Scenario: Runless candidate is accepted
 
@@ -138,7 +139,9 @@ first packet-run-verification slice.
   that is linked to a verification check but not to a specific work run
 - **THEN** Office Graph MUST satisfy the check-level verification state,
   recompute completion for the parent review finding and task, and leave
-  unrelated packet-backed work-run required-check rows unchanged
+  unrelated packet-backed work-run required-check rows unchanged, while following
+  the same completion-graph lock order as direct verification completion before
+  inserting the no-run verification result
 
 #### Scenario: Runless non-passed candidate is rejected
 
@@ -147,6 +150,13 @@ first packet-run-verification slice.
 - **THEN** Office Graph MUST reject the acceptance before creating accepted
   evidence or a no-run verification result so a later passed runless candidate
   can satisfy the check
+
+#### Scenario: Candidate result is unsupported
+
+- **WHEN** policy or an authorized actor attempts to accept evidence with a
+  result outside the supported verification-result vocabulary
+- **THEN** Office Graph MUST reject the acceptance before creating accepted
+  evidence, verification results, or failed work-run state
 
 ### Requirement: Initial Verification Results Link Evidence To Runs
 
@@ -160,7 +170,8 @@ work run is verified, unverified, stale, failed, or partial.
 - **THEN** Office Graph MUST record a verification result that identifies the
   check, accepted evidence, target packet version or graph item, related work
   run, operation correlation, actor or policy basis, timestamp, result state,
-  and explanatory reason
+  and explanatory reason, and the initial supported result vocabulary MUST
+  include passed and failed outcomes
 
 #### Scenario: Verification is missing evidence
 
