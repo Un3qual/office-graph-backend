@@ -18,7 +18,13 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.WorkGraph.{EvidenceItem, GraphItem, VerificationCheck, VerificationResult}
-  alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketRequiredCheck, WorkPacketVersion}
+
+  alias OfficeGraph.WorkPackets.{
+    WorkPacket,
+    WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
+    WorkPacketVersion
+  }
 
   require Ash.Query
 
@@ -573,7 +579,16 @@ defmodule OfficeGraph.Runs do
     fetch_scoped(GraphItem, session_context, graph_item_id)
   end
 
-  defp validate_observation_graph_item(_run, nil, _graph_item), do: :ok
+  defp validate_observation_graph_item(_run, nil, nil), do: :ok
+
+  defp validate_observation_graph_item(run, nil, graph_item) do
+    if graph_item_belongs_to_run?(run, graph_item.id) do
+      :ok
+    else
+      {:error, {:graph_item_not_required, run.id, graph_item.id}}
+    end
+  end
+
   defp validate_observation_graph_item(_run, _verification_check, nil), do: :ok
 
   defp validate_observation_graph_item(run, verification_check, graph_item) do
@@ -581,6 +596,35 @@ defmodule OfficeGraph.Runs do
       :ok
     else
       {:error, {:graph_item_not_required, run.id, graph_item.id}}
+    end
+  end
+
+  defp graph_item_belongs_to_run?(run, graph_item_id) do
+    packet_source_graph_item?(run.work_packet_version_id, graph_item_id) or
+      required_check_graph_item?(run.id, graph_item_id)
+  end
+
+  defp packet_source_graph_item?(work_packet_version_id, graph_item_id) do
+    WorkPacketSourceReference
+    |> Ash.Query.filter(
+      work_packet_version_id == ^work_packet_version_id and graph_item_id == ^graph_item_id
+    )
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp required_check_graph_item?(run_id, graph_item_id) do
+    case read_run_required_checks(run_id) do
+      {:ok, required_checks} ->
+        Enum.any?(required_checks, fn required_check ->
+          check_id = required_check.verification_check_id
+
+          VerificationCheck
+          |> Ash.Query.filter(id == ^check_id and graph_item_id == ^graph_item_id)
+          |> Ash.exists?(authorize?: false)
+        end)
+
+      {:error, _error} ->
+        false
     end
   end
 

@@ -488,6 +488,28 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                graph_item_id: unrelated_check.graph_item_id,
                rationale: "Mismatched graph item is rejected."
              })
+
+    {:ok, graph_only_operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "unrelated-graph-only-observation-reference"
+      )
+
+    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+             Runs.record_observation(first_scope.session, graph_only_operation, run.run, %{
+               source_kind: "human",
+               source_identity: "manual:unrelated-graph-only-observation-reference",
+               idempotency_key: "unrelated-graph-only-observation-reference",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               graph_item_id: unrelated_check.graph_item_id,
+               rationale: "Unrelated graph-item-only observations are rejected."
+             })
+
+    {:ok, summary} = Runs.get_summary(first_scope.session, run.run.id)
+    assert summary.observations == []
+    assert summary.run.aggregate_state == "running"
   end
 
   test "failed observations mark the work run failed" do
@@ -734,6 +756,54 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
     assert [%{state: "pending"}] = summary.required_checks
     assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
+  end
+
+  test "runless failed evidence is rejected before consuming the check result slot" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "runless-failed-candidate"
+      )
+
+    assert {:ok, candidate} =
+             Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+               verification_check_id: verification_check.id,
+               claim: "Runless failed evidence candidate.",
+               source_kind: "human_note",
+               source_identity: "manual:runless-failed-candidate",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+
+    candidate_id = candidate.id
+
+    assert {:error, {:runless_evidence_result_not_passed, ^candidate_id}} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "runless-failed-candidate",
+               result: "failed"
+             )
+
+    {:ok, required_check} =
+      WorkGraph.get_verification_check(bootstrap.session, verification_check.id)
+
+    assert required_check.lifecycle_state == "required"
+
+    assert {:ok, accepted} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "runless-failed-candidate-passed",
+               result: "passed"
+             )
+
+    assert accepted.verification_result.result == "passed"
+    assert accepted.work_run == nil
+
+    {:ok, satisfied_check} =
+      WorkGraph.get_verification_check(bootstrap.session, verification_check.id)
+
+    assert satisfied_check.lifecycle_state == "satisfied"
   end
 
   test "work run verifies only after every required check has passing evidence" do

@@ -127,6 +127,14 @@ activity in the first slice.
 - **THEN** Office Graph MUST preserve typed child references and MUST NOT store
   the child activity only as an opaque generic run-event payload
 
+#### Scenario: Observation references graph item without check
+
+- **WHEN** an execution observation supplies a graph item without a verification
+  check for a packet-backed work run
+- **THEN** Office Graph MUST accept the observation only when the graph item is
+  part of the selected packet sources or required-check targets and MUST reject
+  unrelated same-scope graph items before recording the observation
+
 ### Requirement: Initial Work Run Status Separates Execution From Verification
 
 Office Graph SHALL compute the first work-run aggregate status separately from

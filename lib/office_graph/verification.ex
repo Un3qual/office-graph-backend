@@ -163,6 +163,7 @@ defmodule OfficeGraph.Verification do
       validate_candidate_links!(session_context, candidate, work_run, verification_check)
 
     result = attrs[:result] || "passed"
+    validate_runless_result_allowed!(work_run, candidate, result)
     validate_passed_result_allowed!(result, candidate, work_run, observation)
 
     document = create_document!(session_context, operation, attrs[:body] || "")
@@ -361,6 +362,14 @@ defmodule OfficeGraph.Verification do
   defp lock_optional_scoped!(resource, session_context, id) do
     lock_scoped!(resource, session_context, id)
   end
+
+  defp validate_runless_result_allowed!(nil, _candidate, "passed"), do: :ok
+
+  defp validate_runless_result_allowed!(nil, candidate, _result) do
+    Repo.rollback({:runless_evidence_result_not_passed, candidate.id})
+  end
+
+  defp validate_runless_result_allowed!(_work_run, _candidate, _result), do: :ok
 
   defp validate_candidate_links!(session_context, candidate, work_run, verification_check) do
     with :ok <- validate_run_requires_check(work_run, verification_check),

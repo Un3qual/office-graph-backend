@@ -137,6 +137,14 @@ first packet-run-verification slice.
 - **THEN** Office Graph MUST satisfy the check-level verification state while
   leaving unrelated packet-backed work-run required-check rows unchanged
 
+#### Scenario: Runless non-passed candidate is rejected
+
+- **WHEN** policy or an authorized actor attempts to accept non-passed evidence
+  for a candidate linked to a verification check but not to a specific work run
+- **THEN** Office Graph MUST reject the acceptance before creating accepted
+  evidence or a no-run verification result so a later passed runless candidate
+  can satisfy the check
+
 ### Requirement: Initial Verification Results Link Evidence To Runs
 
 Office Graph SHALL record verification results that explain whether a packet or
