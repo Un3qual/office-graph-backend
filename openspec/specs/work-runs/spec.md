@@ -101,12 +101,29 @@ as the first execution path.
   workspace, packet, packet version, objective, initiator, authority posture,
   operation correlation, required checks, aggregate state, and timestamps
 
+#### Scenario: Work run create lifecycle is derived by the domain
+
+- **WHEN** a work run row is created directly or through the work-run start
+  command
+- **THEN** Office Graph MUST derive the initial running, pending, and
+  unverified lifecycle fields and MUST NOT accept caller-supplied verified,
+  failed, completed, or completed-at lifecycle state at create time
+
 #### Scenario: Packet version is not ready
 
 - **WHEN** an actor attempts to start a work run from a draft, stale,
-  superseded, not-ready, unauthorized, or missing packet version
+  superseded, not-ready, malformed-ready, unauthorized, or missing packet
+  version
 - **THEN** Office Graph MUST reject the command without creating a work run
   and MUST return an explainable validation or authorization error
+
+#### Scenario: Run required checks match the selected packet contract
+
+- **WHEN** a run required-check link is created directly or copied from a
+  packet version
+- **THEN** Office Graph MUST keep the link in the target scope, derive the
+  initial pending state, and reject verification checks that are not required
+  by the run's selected packet version
 
 ### Requirement: Initial Work Run Coordinates Typed Child Observations
 
@@ -134,6 +151,14 @@ activity in the first slice.
 - **THEN** Office Graph MUST accept the observation only when the graph item is
   part of the selected packet sources or required-check targets and MUST reject
   unrelated same-scope graph items before recording the observation
+
+#### Scenario: Observation references a check for a packet-backed run
+
+- **WHEN** an execution observation supplies a verification check for a
+  packet-backed work run
+- **THEN** Office Graph MUST accept the observation only when the check belongs
+  to the run's selected packet required checks and MUST reject unrelated
+  same-scope checks before recording the observation
 
 ### Requirement: Initial Work Run Status Separates Execution From Verification
 

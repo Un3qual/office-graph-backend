@@ -35,6 +35,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :work_packet_id,

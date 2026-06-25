@@ -4,7 +4,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
-  alias OfficeGraph.Runs.ExecutionObservation
+  alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.{Audit, Repo, Revisions}
@@ -20,7 +20,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   }
 
   alias OfficeGraph.WorkPackets
-  alias OfficeGraph.WorkPackets.{WorkPacketRequiredCheck, WorkPacketSourceReference}
+
+  alias OfficeGraph.WorkPackets.{
+    WorkPacket,
+    WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
+    WorkPacketVersion
+  }
 
   require Ash.Query
 
@@ -290,6 +296,69 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                reason: "Missing versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+  end
+
+  test "work run start rejects malformed ready packet versions without execution links" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "malformed-ready-packet-version"
+      )
+
+    packet_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          current_version_id: version_id,
+          title: "Malformed ready packet",
+          state: "ready"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          version_number: 1,
+          lifecycle_state: "ready",
+          objective: "Malformed ready packet version.",
+          context_summary: "Missing source and required-check rows.",
+          requirements: "Should not be executable.",
+          success_criteria: nil,
+          autonomy_posture: "human_supervised"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "malformed-ready-packet-version-run"
+      )
+
+    assert {:error, {:packet_version_not_ready, ^version_id}} =
+             Runs.start_run(bootstrap.session, run_operation, version, %{
+               source_surface: "test",
+               reason: "Malformed ready versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+
+    refute run_exists_for_operation?(run_operation.id)
   end
 
   test "work run start reloads the persisted packet version" do
@@ -581,6 +650,110 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert Exception.message(error) =~ "work_packet_version_id"
   end
 
+  test "domain-owned packet-run create actions are private" do
+    for resource <- [Run, RunRequiredCheck, ExecutionObservation, WorkPacketVersion] do
+      action = Ash.Resource.Info.action(resource, :create)
+
+      refute action.public?,
+             "#{inspect(resource)}.create must stay behind the owning domain command"
+    end
+  end
+
+  test "direct run creates derive initial lifecycle state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-create-derived-lifecycle"
+      )
+
+    completed_at = DateTime.utc_now()
+
+    assert {:ok, run} =
+             Ash.create(
+               Run,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_packet_id: packet_result.packet.id,
+                 work_packet_version_id: packet_result.version.id,
+                 operation_id: run_operation.id,
+                 initiator_principal_id: bootstrap.session.principal_id,
+                 objective: packet_result.version.objective,
+                 authority_posture: "human_supervised",
+                 source_surface: "test",
+                 reason: "Direct creates cannot choose terminal lifecycle.",
+                 state: "verified",
+                 aggregate_state: "verified",
+                 execution_state: "completed",
+                 verification_state: "verified",
+                 started_at: DateTime.add(completed_at, -3600, :second),
+                 completed_at: completed_at
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert run.state == "running"
+    assert run.aggregate_state == "running"
+    assert run.execution_state == "pending"
+    assert run.verification_state == "unverified"
+    assert is_nil(run.completed_at)
+    assert DateTime.compare(run.started_at, completed_at) != :lt
+  end
+
+  test "direct run required-check creates reject checks outside the run packet contract" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, required_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, required_check)
+
+    assert {:error, error} =
+             Ash.create(
+               RunRequiredCheck,
+               %{
+                 id: Ecto.UUID.generate(),
+                 run_id: run_result.run.id,
+                 verification_check_id: unrelated_check.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 state: "pending"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "verification_check_id"
+  end
+
+  test "direct run required-check creates derive pending state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    delete_run_required_check!(run_result.run.id, verification_check.id)
+
+    assert {:ok, required_check} =
+             Ash.create(
+               RunRequiredCheck,
+               %{
+                 id: Ecto.UUID.generate(),
+                 run_id: run_result.run.id,
+                 verification_check_id: verification_check.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 state: "satisfied"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert required_check.state == "pending"
+  end
+
   test "observation recording validates run check and graph references" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(
@@ -732,6 +905,85 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
 
     assert Exception.message(error) =~ "work_run_id"
+  end
+
+  test "direct observation creates reject checks outside the run packet contract" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, required_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, required_check)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "direct-unrequired-check-observation"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               ExecutionObservation,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_run_id: run_result.run.id,
+                 operation_id: operation.id,
+                 verification_check_id: unrelated_check.id,
+                 graph_item_id: unrelated_check.graph_item_id,
+                 source_kind: "human",
+                 source_identity: "manual:direct-unrequired-check-observation",
+                 idempotency_key: "direct-unrequired-check-observation",
+                 observed_status: "passed",
+                 normalized_status: "succeeded",
+                 ingested_at: DateTime.utc_now(),
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 rationale: "Direct creates must not attach unrelated checks.",
+                 metadata: %{}
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "verification_check_id"
+  end
+
+  test "direct observation creates reject graph-only rows outside the run packet contract" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, required_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, required_check)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "direct-unrelated-graph-observation"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               ExecutionObservation,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_run_id: run_result.run.id,
+                 operation_id: operation.id,
+                 graph_item_id: unrelated_check.graph_item_id,
+                 source_kind: "human",
+                 source_identity: "manual:direct-unrelated-graph-observation",
+                 idempotency_key: "direct-unrelated-graph-observation",
+                 observed_status: "passed",
+                 normalized_status: "succeeded",
+                 ingested_at: DateTime.utc_now(),
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 rationale: "Direct creates must not attach unrelated graph items.",
+                 metadata: %{}
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "graph_item_id"
   end
 
   test "run summaries ignore malformed cross-scope observation rows" do
@@ -1884,6 +2136,22 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     )
 
     id
+  end
+
+  defp delete_run_required_check!(run_id, verification_check_id) do
+    Repo.query!(
+      """
+      DELETE FROM run_required_checks
+      WHERE run_id = $1::uuid AND verification_check_id = $2::uuid
+      """,
+      [db_uuid(run_id), db_uuid(verification_check_id)]
+    )
+  end
+
+  defp run_exists_for_operation?(operation_id) do
+    Run
+    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> Ash.exists?(authorize?: false)
   end
 
   defp db_uuid(value), do: Ecto.UUID.dump!(value)

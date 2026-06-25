@@ -30,6 +30,7 @@ defmodule OfficeGraph.Runs do
 
   @work_run_start_action "work_run.start"
   @execution_observation_record_action "execution_observation.record"
+  @allowed_packet_autonomy_postures MapSet.new(["human_supervised"])
 
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- validate_operation_context(session_context, operation),
@@ -651,10 +652,47 @@ defmodule OfficeGraph.Runs do
 
   defp reload_run(_session_context, _run), do: {:error, :missing_work_run}
 
-  defp validate_packet_version_ready(%{lifecycle_state: "ready"}), do: :ok
+  defp validate_packet_version_ready(%{lifecycle_state: "ready"} = packet_version) do
+    if persisted_packet_version_ready?(packet_version) do
+      :ok
+    else
+      {:error, {:packet_version_not_ready, packet_version.id}}
+    end
+  end
 
   defp validate_packet_version_ready(%{id: id}), do: {:error, {:packet_version_not_ready, id}}
   defp validate_packet_version_ready(_packet_version), do: {:error, :missing_packet_version}
+
+  defp persisted_packet_version_ready?(packet_version) do
+    present?(packet_version.objective) and
+      present?(packet_version.success_criteria) and
+      MapSet.member?(@allowed_packet_autonomy_postures, packet_version.autonomy_posture) and
+      packet_has_source_reference?(packet_version) and
+      packet_has_required_check?(packet_version)
+  end
+
+  defp packet_has_source_reference?(packet_version) do
+    WorkPacketSourceReference
+    |> Ash.Query.filter(
+      work_packet_version_id == ^packet_version.id and
+        organization_id == ^packet_version.organization_id and
+        workspace_id == ^packet_version.workspace_id
+    )
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp packet_has_required_check?(packet_version) do
+    WorkPacketRequiredCheck
+    |> Ash.Query.filter(
+      work_packet_version_id == ^packet_version.id and
+        organization_id == ^packet_version.organization_id and
+        workspace_id == ^packet_version.workspace_id
+    )
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp validate_observation_references(session_context, run, attrs) do
     with {:ok, verification_check} <-

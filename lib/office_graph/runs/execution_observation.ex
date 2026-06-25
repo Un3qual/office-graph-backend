@@ -45,6 +45,8 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,
@@ -73,6 +75,8 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
                 verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
                 graph_item_id: OfficeGraph.WorkGraph.GraphItem
               ]}
+
+      change OfficeGraph.Runs.Changes.ValidateObservationRunReferences
     end
   end
 

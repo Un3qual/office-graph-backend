@@ -47,6 +47,8 @@ defmodule OfficeGraph.Runs.Run do
     end
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,
@@ -66,6 +68,15 @@ defmodule OfficeGraph.Runs.Run do
         :completed_at,
         :state
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
+                work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
+
+      change OfficeGraph.Runs.Changes.DeriveRunInitialLifecycle
     end
 
     update :set_lifecycle_state do

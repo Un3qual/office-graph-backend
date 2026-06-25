@@ -152,6 +152,14 @@ slice.
 - **THEN** Office Graph MUST be able to mark that version ready for execution
   and allow a work run to start from it
 
+#### Scenario: Persisted ready versions are revalidated before execution
+
+- **WHEN** a persisted packet version claims a ready lifecycle state but lacks
+  objective text, success criteria, scoped source references, scoped required
+  check references, operation context, or an allowed autonomy posture
+- **THEN** Office Graph MUST treat the version as not ready at work-run start
+  time and MUST reject the command without creating a run
+
 #### Scenario: Packet is missing verification expectations
 
 - **WHEN** a packet version lacks required checks, success criteria, or an

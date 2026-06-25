@@ -139,6 +139,15 @@ shared domain actions and Ash-owned API surfaces.
   on the owning domain/resource or document a narrow custom transport
   exception
 
+#### Scenario: Domain-owned packet-run creates are not exposed as simple resource creates
+
+- **WHEN** packet-version readiness, work-run lifecycle, run required checks,
+  or execution observations require command-owned derivation, operation
+  validation, idempotency, or packet-contract checks
+- **THEN** Office Graph MUST keep those create actions private to the owning
+  domain command and MUST not expose generated public resource creates that let
+  callers choose lifecycle state or child links directly
+
 #### Scenario: Orchestration command spans domains
 
 - **WHEN** an API command creates a packet, starts a work run, records an

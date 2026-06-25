@@ -105,6 +105,15 @@ verification decisions.
   recording the observation and MUST exclude malformed cross-scope child rows
   from scoped work-run summaries
 
+#### Scenario: Observation links match the target run contract
+
+- **WHEN** an observation create supplies a verification check or graph item
+  for a packet-backed work run
+- **THEN** Office Graph MUST reject same-scope references that are not part of
+  the selected packet sources or required-check targets before recording the
+  observation and before those rows can influence run summaries or lifecycle
+  recomputation
+
 #### Scenario: Observation source is duplicated
 
 - **WHEN** the same source identity and replay or idempotency key is recorded

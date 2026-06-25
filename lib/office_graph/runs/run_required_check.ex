@@ -29,6 +29,8 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :run_id,
@@ -37,6 +39,15 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
         :workspace_id,
         :state
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                run_id: OfficeGraph.Runs.Run,
+                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
+              ]}
+
+      change OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract
+      change set_attribute(:state, "pending")
     end
 
     update :mark_satisfied do
