@@ -1054,6 +1054,100 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "standalone observation recording serializes source idempotency replays" do
+    suffix = System.unique_integer([:positive])
+    shared_source_identity = "provider:standalone-observation-race-#{suffix}"
+    shared_observation_key = "standalone-observation-race-#{suffix}"
+
+    try do
+      {bootstrap, first_check, second_check, first_run, second_run, first_operation,
+       second_operation} =
+        with_unboxed_connection(fn ->
+          cleanup_work_run_verification_scope!("office-graph")
+          cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+
+          {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "standalone-observation-race-second-#{suffix}"
+            )
+
+          {:ok, first_run} =
+            create_concurrency_ready_run(
+              bootstrap.session,
+              [first_check],
+              "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_run} =
+            create_concurrency_ready_run(
+              bootstrap.session,
+              [second_check],
+              "standalone-observation-race-second-#{suffix}"
+            )
+
+          {:ok, first_operation} =
+            Operations.start_operation(bootstrap.session, :execution_observation_record,
+              idempotency_key: "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_operation} =
+            Operations.start_operation(bootstrap.session, :execution_observation_record,
+              idempotency_key: "standalone-observation-race-second-#{suffix}"
+            )
+
+          install_execution_observation_insert_barrier!(shared_observation_key)
+
+          {bootstrap, first_check, second_check, first_run, second_run, first_operation,
+           second_operation}
+        end)
+
+      first_attrs =
+        standalone_observation_attrs(first_check, shared_source_identity, shared_observation_key)
+
+      second_attrs =
+        standalone_observation_attrs(second_check, shared_source_identity, shared_observation_key)
+
+      results =
+        [
+          {first_operation, first_run.run, first_attrs},
+          {second_operation, second_run.run, second_attrs}
+        ]
+        |> Enum.map(fn {operation, run, attrs} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Runs.record_observation(bootstrap.session, operation, run, attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [successful] = for({:ok, result} <- results, do: result)
+
+      assert [successful.observation.id] ==
+               for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 observation_source_key_count(shared_source_identity, shared_observation_key)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_execution_observation_insert_barrier!()
+        cleanup_work_run_verification_scope!("office-graph")
+        cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+      end)
+    end
+  end
+
   test "runless evidence acceptance follows completion lock order under direct completion races" do
     suffix = System.unique_integer([:positive])
     organization_slug = "runless-completion-race-#{suffix}"
@@ -1483,6 +1577,21 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     }
   end
 
+  defp standalone_observation_attrs(verification_check, source_identity, observation_key) do
+    %{
+      source_kind: "provider_check",
+      source_identity: source_identity,
+      idempotency_key: observation_key,
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider confirmed the standalone observation."
+    }
+  end
+
   defp create_concurrency_candidate(session, run, verification_check, observation, key) do
     {:ok, operation} =
       Operations.start_operation(session, :evidence_candidate_create,
@@ -1888,6 +1997,21 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       )
 
     {operation_count, packet_count, run_count}
+  end
+
+  defp observation_source_key_count(source_identity, idempotency_key) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM execution_observations
+        WHERE source_identity = $1
+          AND idempotency_key = $2
+        """,
+        [source_identity, idempotency_key]
+      )
+
+    count
   end
 
   defp no_run_verification_result_count(verification_check_id) do

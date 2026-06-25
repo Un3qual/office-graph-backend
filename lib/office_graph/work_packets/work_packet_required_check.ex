@@ -42,6 +42,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
+                work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
                 verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
               ]}
     end

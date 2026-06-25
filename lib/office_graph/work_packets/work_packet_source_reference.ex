@@ -46,6 +46,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
+                work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
                 graph_item_id: OfficeGraph.WorkGraph.GraphItem
               ]}
     end

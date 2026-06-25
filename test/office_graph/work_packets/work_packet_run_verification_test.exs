@@ -4,9 +4,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
+  alias OfficeGraph.Runs.ExecutionObservation
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.{Audit, Revisions}
+  alias OfficeGraph.{Audit, Repo, Revisions}
 
   alias OfficeGraph.WorkGraph.{
     Artifact,
@@ -19,6 +20,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   }
 
   alias OfficeGraph.WorkPackets
+  alias OfficeGraph.WorkPackets.{WorkPacketRequiredCheck, WorkPacketSourceReference}
 
   require Ash.Query
 
@@ -505,6 +507,80 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "direct required-check creates reject foreign packet versions" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Required Check Direct Scope A",
+        workspace_slug: "required-check-direct-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Required Check Direct Scope B",
+        workspace_slug: "required-check-direct-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+    {:ok, foreign_packet} = create_ready_packet(second_scope.session, [foreign_check])
+
+    assert {:error, error} =
+             Ash.create(
+               WorkPacketRequiredCheck,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_version_id: foreign_packet.version.id,
+                 verification_check_id: verification_check.id,
+                 organization_id: first_scope.session.organization_id,
+                 workspace_id: first_scope.session.workspace_id,
+                 requirement_kind: "required",
+                 state: "pending"
+               },
+               actor: first_scope.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "work_packet_version_id"
+  end
+
+  test "direct source-reference creates reject foreign packet versions" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Source Reference Direct Scope A",
+        workspace_slug: "source-reference-direct-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Source Reference Direct Scope B",
+        workspace_slug: "source-reference-direct-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+    {:ok, foreign_packet} = create_ready_packet(second_scope.session, [foreign_check])
+
+    assert {:error, error} =
+             Ash.create(
+               WorkPacketSourceReference,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_version_id: foreign_packet.version.id,
+                 graph_item_id: verification_check.graph_item_id,
+                 organization_id: first_scope.session.organization_id,
+                 workspace_id: first_scope.session.workspace_id,
+                 source_kind: "graph_item",
+                 rationale: "packet_source",
+                 visibility: "full",
+                 sensitivity: "internal"
+               },
+               actor: first_scope.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "work_packet_version_id"
+  end
+
   test "observation recording validates run check and graph references" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(
@@ -605,6 +681,91 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, summary} = Runs.get_summary(first_scope.session, run.run.id)
     assert summary.observations == []
     assert summary.run.aggregate_state == "running"
+  end
+
+  test "direct observation creates reject foreign work runs" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Direct Scope A",
+        workspace_slug: "observation-direct-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Direct Scope B",
+        workspace_slug: "observation-direct-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+    {:ok, foreign_run} = create_ready_run(second_scope.session, foreign_check)
+
+    {:ok, operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "direct-foreign-run-observation"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               ExecutionObservation,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: first_scope.session.organization_id,
+                 workspace_id: first_scope.session.workspace_id,
+                 work_run_id: foreign_run.run.id,
+                 operation_id: operation.id,
+                 verification_check_id: verification_check.id,
+                 graph_item_id: verification_check.graph_item_id,
+                 source_kind: "human",
+                 source_identity: "manual:direct-foreign-run-observation",
+                 idempotency_key: "direct-foreign-run-observation",
+                 observed_status: "passed",
+                 normalized_status: "succeeded",
+                 ingested_at: DateTime.utc_now(),
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 rationale: "Direct creates must not link foreign runs.",
+                 metadata: %{}
+               },
+               actor: first_scope.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "work_run_id"
+  end
+
+  test "run summaries ignore malformed cross-scope observation rows" do
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Summary Scope A",
+        workspace_slug: "observation-summary-scope-a"
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Observation Summary Scope B",
+        workspace_slug: "observation-summary-scope-b"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, foreign_check} = create_required_verification_check(second_scope.session)
+    {:ok, foreign_run} = create_ready_run(second_scope.session, foreign_check)
+
+    {:ok, operation} =
+      Operations.start_operation(first_scope.session, :execution_observation_record,
+        idempotency_key: "malformed-summary-observation"
+      )
+
+    observation_id =
+      insert_malformed_execution_observation!(
+        first_scope.session,
+        operation,
+        foreign_run.run,
+        verification_check
+      )
+
+    assert {:ok, summary} = Runs.get_summary(second_scope.session, foreign_run.run.id)
+    refute Enum.any?(summary.observations, &(&1.id == observation_id))
   end
 
   test "failed observations mark the work run failed" do
@@ -1660,4 +1821,70 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       authorize?: false
     )
   end
+
+  defp insert_malformed_execution_observation!(session, operation, run, verification_check) do
+    id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      """
+      INSERT INTO execution_observations (
+        id,
+        organization_id,
+        workspace_id,
+        work_run_id,
+        operation_id,
+        verification_check_id,
+        graph_item_id,
+        source_kind,
+        source_identity,
+        idempotency_key,
+        observed_status,
+        normalized_status,
+        ingested_at,
+        freshness_state,
+        trust_basis,
+        rationale,
+        metadata,
+        inserted_at,
+        updated_at
+      )
+      VALUES (
+        $1::uuid,
+        $2::uuid,
+        $3::uuid,
+        $4::uuid,
+        $5::uuid,
+        $6::uuid,
+        $7::uuid,
+        'human',
+        'manual:malformed-summary-observation',
+        'malformed-summary-observation',
+        'passed',
+        'succeeded',
+        $8,
+        'fresh',
+        'owner_attested',
+        'Malformed legacy row.',
+        '{}'::jsonb,
+        $8,
+        $8
+      )
+      """,
+      [
+        db_uuid(id),
+        db_uuid(session.organization_id),
+        db_uuid(session.workspace_id),
+        db_uuid(run.id),
+        db_uuid(operation.id),
+        db_uuid(verification_check.id),
+        db_uuid(verification_check.graph_item_id),
+        now
+      ]
+    )
+
+    id
+  end
+
+  defp db_uuid(value), do: Ecto.UUID.dump!(value)
 end

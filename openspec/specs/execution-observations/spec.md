@@ -97,12 +97,30 @@ verification decisions.
   state, trust basis, operation correlation, and related work-run or graph
   references
 
+#### Scenario: Observation links stay in scope
+
+- **WHEN** an observation create supplies a work run, operation correlation,
+  verification check, or graph item reference
+- **THEN** Office Graph MUST reject missing or cross-scope references before
+  recording the observation and MUST exclude malformed cross-scope child rows
+  from scoped work-run summaries
+
 #### Scenario: Observation source is duplicated
 
 - **WHEN** the same source identity and replay or idempotency key is recorded
   more than once in the same organization and workspace
 - **THEN** Office Graph MUST return the existing observation or reject the
   duplicate according to the owning command's idempotency rules
+
+#### Scenario: Observation source is duplicated concurrently
+
+- **WHEN** multiple observation record commands concurrently use the same
+  source identity and replay or idempotency key in the same organization and
+  workspace
+- **THEN** Office Graph MUST serialize the source replay lookup and insert so
+  exactly one source observation is created and competing commands return the
+  existing observation or a domain idempotency conflict instead of a database
+  unique-key error
 
 #### Scenario: Observation source has no replay key
 

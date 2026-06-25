@@ -132,6 +132,14 @@ typed records in the initial packet creation path.
   policy-approved restricted placeholder instead of copying unauthorized
   source data into the packet version
 
+#### Scenario: Packet typed links stay in scope
+
+- **WHEN** a packet source-reference or required-check link is created
+  directly or through packet creation
+- **THEN** Office Graph MUST validate that the packet version, graph item, and
+  verification check references exist in the target organization and workspace
+  before the link can influence future packet context or work runs
+
 ### Requirement: Initial Packet Lifecycle Is Explicit
 
 Office Graph SHALL implement a minimal packet lifecycle for the first execution

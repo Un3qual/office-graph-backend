@@ -65,6 +65,14 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
         :rationale,
         :metadata
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                work_run_id: OfficeGraph.Runs.Run,
+                operation_id: OfficeGraph.Operations.OperationCorrelation,
+                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                graph_item_id: OfficeGraph.WorkGraph.GraphItem
+              ]}
     end
   end
 

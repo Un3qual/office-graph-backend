@@ -167,10 +167,10 @@ defmodule OfficeGraph.Runs do
          {:ok, packet} <- fetch_scoped(WorkPacket, session_context, run.work_packet_id),
          {:ok, packet_version} <-
            fetch_scoped(WorkPacketVersion, session_context, run.work_packet_version_id),
-         {:ok, required_checks} <- read_run_required_checks(run.id),
-         {:ok, observations} <- read_observations(run.id),
-         {:ok, evidence_items} <- read_evidence_items(run.id),
-         {:ok, verification_results} <- read_verification_results(run.id) do
+         {:ok, required_checks} <- read_run_required_checks(run),
+         {:ok, observations} <- read_observations(run),
+         {:ok, evidence_items} <- read_evidence_items(run),
+         {:ok, verification_results} <- read_verification_results(run) do
       {:ok,
        %{
          packet: packet,
@@ -190,6 +190,7 @@ defmodule OfficeGraph.Runs do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
+      maybe_lock_observation_idempotency_key!(session_context, attrs)
       _operation = lock_operation!(operation.id)
       run = lock_scoped_run!(session_context, run.id)
 
@@ -269,7 +270,7 @@ defmodule OfficeGraph.Runs do
             {:error, error} -> Repo.rollback(error)
           end
 
-          required_checks = packet_required_checks(packet_version.id)
+          required_checks = packet_required_checks(packet_version)
 
           create_run_records!(
             session_context,
@@ -488,6 +489,12 @@ defmodule OfficeGraph.Runs do
 
   defp normalize_idempotency_key(value), do: value
 
+  defp maybe_lock_observation_idempotency_key!(_session_context, %{idempotency_key: nil}), do: :ok
+
+  defp maybe_lock_observation_idempotency_key!(session_context, attrs) do
+    lock_observation_idempotency_key!(session_context, attrs)
+  end
+
   defp lock_observation_idempotency_key!(session_context, attrs) do
     lock_key =
       [
@@ -594,9 +601,13 @@ defmodule OfficeGraph.Runs do
       run.verification_state == "verified"
   end
 
-  defp packet_required_checks(packet_version_id) do
+  defp packet_required_checks(packet_version) do
     WorkPacketRequiredCheck
-    |> Ash.Query.filter(work_packet_version_id == ^packet_version_id)
+    |> Ash.Query.filter(
+      work_packet_version_id == ^packet_version.id and
+        organization_id == ^packet_version.organization_id and
+        workspace_id == ^packet_version.workspace_id
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!(authorize?: false)
   end
@@ -614,7 +625,7 @@ defmodule OfficeGraph.Runs do
         {:ok, nil}
 
       {:ok, run} ->
-        with {:ok, required_checks} <- read_run_required_checks(run.id) do
+        with {:ok, required_checks} <- read_run_required_checks(run) do
           {:ok, %{run: run, required_checks: required_checks}}
         end
 
@@ -671,7 +682,7 @@ defmodule OfficeGraph.Runs do
   defp validate_observation_verification_check(session_context, run, verification_check_id) do
     with {:ok, verification_check} <-
            fetch_scoped(VerificationCheck, session_context, verification_check_id),
-         true <- run_requires_check?(run.id, verification_check.id) do
+         true <- run_requires_check?(run, verification_check.id) do
       {:ok, verification_check}
     else
       false -> {:error, {:verification_check_not_required, run.id, verification_check_id}}
@@ -706,20 +717,21 @@ defmodule OfficeGraph.Runs do
   end
 
   defp graph_item_belongs_to_run?(run, graph_item_id) do
-    packet_source_graph_item?(run.work_packet_version_id, graph_item_id) or
-      required_check_graph_item?(run.id, graph_item_id)
+    packet_source_graph_item?(run, graph_item_id) or
+      required_check_graph_item?(run, graph_item_id)
   end
 
-  defp packet_source_graph_item?(work_packet_version_id, graph_item_id) do
+  defp packet_source_graph_item?(run, graph_item_id) do
     WorkPacketSourceReference
     |> Ash.Query.filter(
-      work_packet_version_id == ^work_packet_version_id and graph_item_id == ^graph_item_id
+      work_packet_version_id == ^run.work_packet_version_id and graph_item_id == ^graph_item_id and
+        organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
     )
     |> Ash.exists?(authorize?: false)
   end
 
-  defp required_check_graph_item?(run_id, graph_item_id) do
-    case read_run_required_checks(run_id) do
+  defp required_check_graph_item?(run, graph_item_id) do
+    case read_run_required_checks(run) do
       {:ok, required_checks} ->
         Enum.any?(required_checks, fn required_check ->
           check_id = required_check.verification_check_id
@@ -734,10 +746,23 @@ defmodule OfficeGraph.Runs do
     end
   end
 
-  defp run_requires_check?(run_id, verification_check_id) do
+  defp run_requires_check?(run, verification_check_id) do
     RunRequiredCheck
-    |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
+    |> Ash.Query.filter(
+      run_id == ^run.id and verification_check_id == ^verification_check_id and
+        organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
+    )
     |> Ash.exists?(authorize?: false)
+  end
+
+  defp read_run_required_checks(%Run{} = run) do
+    RunRequiredCheck
+    |> Ash.Query.filter(
+      run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
   end
 
   defp read_run_required_checks(run_id) do
@@ -747,23 +772,32 @@ defmodule OfficeGraph.Runs do
     |> Ash.read(authorize?: false)
   end
 
-  defp read_observations(run_id) do
+  defp read_observations(%Run{} = run) do
     ExecutionObservation
-    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
   end
 
-  defp read_evidence_items(run_id) do
+  defp read_evidence_items(%Run{} = run) do
     EvidenceItem
-    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
   end
 
-  defp read_verification_results(run_id) do
+  defp read_verification_results(%Run{} = run) do
     VerificationResult
-    |> Ash.Query.filter(work_run_id == ^run_id)
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
   end
