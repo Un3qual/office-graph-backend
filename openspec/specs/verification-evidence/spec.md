@@ -134,8 +134,9 @@ first packet-run-verification slice.
 
 - **WHEN** policy or an authorized actor accepts passed evidence for a candidate
   that is linked to a verification check but not to a specific work run
-- **THEN** Office Graph MUST satisfy the check-level verification state while
-  leaving unrelated packet-backed work-run required-check rows unchanged
+- **THEN** Office Graph MUST satisfy the check-level verification state,
+  recompute completion for the parent review finding and task, and leave
+  unrelated packet-backed work-run required-check rows unchanged
 
 #### Scenario: Runless non-passed candidate is rejected
 

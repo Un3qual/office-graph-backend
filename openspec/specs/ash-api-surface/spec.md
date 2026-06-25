@@ -176,3 +176,12 @@ packet-run-verification flow.
 - **THEN** the shared API context MUST reject the request before creating
   per-step operation-correlated packet, run, observation, candidate, evidence,
   or verification result records
+
+#### Scenario: Composite flow identity is reused with different input
+
+- **WHEN** a packet-run-verification orchestration request reuses a flow
+  identity with a different verification check, source graph item, packet
+  contract, observation, evidence, or acceptance input
+- **THEN** the shared API context MUST reject the request as an idempotency
+  conflict instead of replaying prior durable packet, run, observation,
+  candidate, evidence, verification result, or summary records

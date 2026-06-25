@@ -236,7 +236,14 @@ defmodule OfficeGraph.Verification do
       |> Ash.update!(authorize?: false, return_notifications?: true)
       |> unwrap_notification_result()
 
-    work_run = update_after_acceptance!(verification_check, work_run, verification_result)
+    work_run =
+      update_after_acceptance!(
+        session_context,
+        operation,
+        verification_check,
+        work_run,
+        verification_result
+      )
 
     %{
       evidence_item: evidence_item,
@@ -419,14 +426,30 @@ defmodule OfficeGraph.Verification do
       work_run.execution_state == "failed" or work_run.verification_state == "failed"
   end
 
-  defp update_after_acceptance!(verification_check, nil, %{result: "passed"}) do
-    _verification_check = mark_verification_check_satisfied!(verification_check)
+  defp update_after_acceptance!(
+         session_context,
+         operation,
+         verification_check,
+         nil,
+         %{result: "passed"}
+       ) do
+    case WorkGraph.satisfy_verification_check_from_evidence(
+           session_context,
+           operation,
+           verification_check
+         ) do
+      {:ok, _completed} -> nil
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp update_after_acceptance!(_session_context, _operation, _verification_check, nil, _result) do
     nil
   end
 
-  defp update_after_acceptance!(_verification_check, nil, _verification_result), do: nil
-
   defp update_after_acceptance!(
+         _session_context,
+         _operation,
          _verification_check,
          work_run,
          %{result: "passed"} = verification_result
@@ -440,18 +463,17 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp update_after_acceptance!(_verification_check, work_run, _verification_result) do
+  defp update_after_acceptance!(
+         _session_context,
+         _operation,
+         _verification_check,
+         work_run,
+         _verification_result
+       ) do
     case Runs.set_run_verification_failed(work_run) do
       {:ok, run} -> run
       {:error, error} -> Repo.rollback(error)
     end
-  end
-
-  defp mark_verification_check_satisfied!(verification_check) do
-    verification_check
-    |> Ash.Changeset.for_update(:mark_satisfied, %{})
-    |> Ash.update!(authorize?: false, return_notifications?: true)
-    |> unwrap_notification_result()
   end
 
   defp work_packet_version_id(nil), do: nil

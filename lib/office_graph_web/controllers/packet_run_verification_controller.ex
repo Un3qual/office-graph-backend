@@ -38,6 +38,30 @@ defmodule OfficeGraphWeb.PacketRunVerificationController do
     })
   end
 
+  defp render_error(conn, {:error, {:missing_verification_check, id}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: %{
+        code: "missing_verification_check",
+        detail: "A verification check could not be found.",
+        verification_check_id: id
+      }
+    })
+  end
+
+  defp render_error(conn, {:error, {:packet_run_flow_idempotency_conflict, flow_identity}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: %{
+        code: "idempotency_conflict",
+        detail: "The packet-run-verification flow identity conflicts with different input.",
+        flow_identity: flow_identity
+      }
+    })
+  end
+
   defp render_error(conn, {:error, {:not_found, _resource, id}}) do
     conn
     |> put_status(:unprocessable_entity)

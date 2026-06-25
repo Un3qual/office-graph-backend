@@ -104,6 +104,14 @@ verification decisions.
 - **THEN** Office Graph MUST return the existing observation or reject the
   duplicate according to the owning command's idempotency rules
 
+#### Scenario: Observation replay trust facts change
+
+- **WHEN** the same source identity and replay or idempotency key is reused
+  with different freshness state, trust basis, status, work-run, check, or graph
+  linkage
+- **THEN** Office Graph MUST reject the replay as an idempotency conflict
+  instead of returning an observation recorded with different evidence facts
+
 ### Requirement: Initial Observations Can Become Evidence Candidates
 
 Office Graph SHALL allow an execution observation to produce an evidence

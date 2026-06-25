@@ -71,6 +71,122 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
              hd(first_summary["verification_results"])["id"]
   end
 
+  test "APIs reject conflicting packet-run-verification flow replays", %{conn: conn} do
+    {:ok, first_check} = create_required_verification_check("json-conflicting-flow")
+    {:ok, second_check} = create_required_verification_check("json-conflicting-flow-other")
+
+    attrs = flow_attrs("json-conflicting-flow", first_check)
+
+    first_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(200)
+
+    conflict =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        attrs
+        |> Map.put(:verification_check_id, second_check.id)
+        |> Map.put(:source_graph_item_id, second_check.graph_item_id)
+      )
+      |> json_response(422)
+
+    assert conflict["error"]["code"] == "idempotency_conflict"
+    assert conflict["error"]["flow_identity"] == attrs.flow_identity
+
+    replay =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(200)
+
+    assert replay["run"]["id"] == first_summary["run"]["id"]
+
+    {:ok, graphql_first_check} = create_required_verification_check("graphql-conflicting-flow")
+
+    {:ok, graphql_second_check} =
+      create_required_verification_check("graphql-conflicting-flow-other")
+
+    graphql_input = graphql_attrs("graphql-conflicting-flow", graphql_first_check)
+
+    _graphql_first =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{input: graphql_input}
+      )
+
+    graphql_conflict =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_input
+            |> Map.put(:verificationCheckId, graphql_second_check.id)
+            |> Map.put(:sourceGraphItemId, graphql_second_check.graph_item_id)
+        }
+      )
+
+    assert [%{"extensions" => extensions}] = graphql_conflict["errors"]
+    assert extensions["code"] == "idempotency_conflict"
+    assert extensions["flow_identity"] == graphql_input.flowIdentity
+  end
+
+  test "APIs report missing packet-run-verification checks with stable codes", %{conn: conn} do
+    {:ok, json_check} = create_required_verification_check("json-missing-check")
+    missing_json_check_id = Ecto.UUID.generate()
+
+    json_response =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        flow_attrs("json-missing-check", json_check)
+        |> Map.put(:verification_check_id, missing_json_check_id)
+      )
+      |> json_response(422)
+
+    assert json_response["error"]["code"] == "missing_verification_check"
+    assert json_response["error"]["verification_check_id"] == missing_json_check_id
+
+    {:ok, graphql_check} = create_required_verification_check("graphql-missing-check")
+    missing_graphql_check_id = Ecto.UUID.generate()
+
+    graphql_response =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_attrs("graphql-missing-check", graphql_check)
+            |> Map.put(:verificationCheckId, missing_graphql_check_id)
+        }
+      )
+
+    assert [%{"extensions" => %{"code" => "missing_verification_check"} = extensions}] =
+             graphql_response["errors"]
+
+    assert extensions["verification_check_id"] == missing_graphql_check_id
+  end
+
   test "APIs return structured validation errors for invalid packet references", %{conn: conn} do
     {:ok, json_check} = create_required_verification_check("json-invalid-ref")
 

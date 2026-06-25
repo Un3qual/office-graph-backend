@@ -377,7 +377,9 @@ defmodule OfficeGraph.Runs do
       observation.verification_check_id == attrs[:verification_check_id] and
       observation.graph_item_id == attrs[:graph_item_id] and
       observation.observed_status == attrs[:observed_status] and
-      observation.normalized_status == attrs[:normalized_status]
+      observation.normalized_status == attrs[:normalized_status] and
+      observation.freshness_state == attrs[:freshness_state] and
+      observation.trust_basis == attrs[:trust_basis]
   end
 
   defp replay_operation_observation!(observation, run) do

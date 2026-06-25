@@ -252,6 +252,12 @@ defmodule OfficeGraphWeb.Schema do
      extensions: %{code: "missing_verification_check", verification_check_id: id}}
   end
 
+  defp graphql_error({:error, {:packet_run_flow_idempotency_conflict, flow_identity}}) do
+    {:error,
+     message: "The packet-run-verification flow identity conflicts with different input.",
+     extensions: %{code: "idempotency_conflict", flow_identity: flow_identity}}
+  end
+
   defp graphql_error({:error, {:invalid_verification_check_status, id}}) do
     {:error,
      message: "A verification check is no longer required.",

@@ -36,6 +36,7 @@ defmodule OfficeGraph.WorkGraph do
 
   @proposed_change_apply_action "proposed_change.apply"
   @verification_complete_action "verification.complete"
+  @evidence_accept_action "evidence.accept"
 
   def get_verification_check(session_context, id) do
     VerificationCheck
@@ -455,6 +456,66 @@ defmodule OfficeGraph.WorkGraph do
         {:error, error} ->
           {:error, error}
       end
+    end
+  end
+
+  def satisfy_verification_check_from_evidence(session_context, operation, verification_check) do
+    with :ok <- validate_operation_context(session_context, operation),
+         :ok <- validate_operation_action(operation, @evidence_accept_action),
+         :ok <-
+           Authorization.authorize_operation(session_context, operation, :evidence_accept,
+             organization_id: session_context.organization_id
+           ) do
+      graph_transaction(fn ->
+        {verification_check, review_finding, task, task_review_findings, task_verification_checks} =
+          lock_completion_graph!(session_context, verification_check.id)
+
+        if verification_check.lifecycle_state != "required" do
+          Repo.rollback({:invalid_verification_check_status, verification_check.id})
+        end
+
+        validate_open_review_finding!(review_finding)
+
+        verification_check =
+          verification_check
+          |> ash_update_internal(:mark_satisfied)
+          |> unwrap_ash()
+
+        {review_finding, task, completed_review_finding?, completed_task?} =
+          maybe_complete_parent_work!(
+            review_finding,
+            task,
+            task_review_findings,
+            task_verification_checks,
+            verification_check.id
+          )
+
+        trace!(
+          operation,
+          "verification_check.satisfy",
+          "verification_check",
+          verification_check.id
+        )
+
+        if completed_review_finding? do
+          trace!(
+            operation,
+            "review_finding.complete",
+            "review_finding",
+            review_finding.id
+          )
+        end
+
+        if completed_task? do
+          trace!(operation, "task.complete", "task", task.id)
+        end
+
+        %{
+          verification_check: verification_check,
+          review_finding: review_finding,
+          task: task
+        }
+      end)
     end
   end
 

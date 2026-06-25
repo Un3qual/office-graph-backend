@@ -6,8 +6,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkGraph.{Artifact, GraphItem}
+  alias OfficeGraph.WorkGraph.{Artifact, GraphItem, ReviewFinding, Task}
   alias OfficeGraph.WorkPackets
+
+  require Ash.Query
 
   test "packet-backed work run stays unverified until evidence is accepted" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -758,6 +760,55 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
   end
 
+  test "runless evidence completion propagates to parent graph items" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, graph} = create_required_verification_graph(bootstrap.session)
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "runless-parent-completion-candidate"
+      )
+
+    assert {:ok, candidate} =
+             Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+               verification_check_id: graph.verification_check.id,
+               claim: "Runless evidence candidate.",
+               source_kind: "human_note",
+               source_identity: "manual:runless-parent-completion",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+
+    {:ok, acceptance_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "runless-parent-completion-accept"
+      )
+
+    assert {:ok, accepted} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               acceptance_operation,
+               candidate,
+               %{
+                 title: "Runless accepted evidence",
+                 body: "This evidence is not attached to a work run.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
+
+    assert accepted.work_run == nil
+
+    assert "satisfied" ==
+             fetch_resource!(WorkGraph.VerificationCheck, graph.verification_check.id).lifecycle_state
+
+    assert "verified_complete" ==
+             fetch_resource!(ReviewFinding, graph.review_finding.id).lifecycle_state
+
+    assert "verified_complete" == fetch_resource!(Task, graph.task.id).lifecycle_state
+  end
+
   test "runless failed evidence is rejected before consuming the check result slot" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -1155,6 +1206,48 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
   end
 
+  test "observation idempotency rejects conflicting evidence trust replays" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    attrs = %{
+      source_kind: "provider_check",
+      source_identity: "provider:trust-conflict",
+      idempotency_key: "provider-check:trust-conflict",
+      observed_status: "success",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider check succeeded."
+    }
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-trust-conflict-first"
+      )
+
+    assert {:ok, first} =
+             Runs.record_observation(bootstrap.session, first_operation, run_result.run, attrs)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "provider-check-trust-conflict-second"
+      )
+
+    first_observation_id = first.observation.id
+
+    assert {:error, {:observation_idempotency_conflict, ^first_observation_id}} =
+             Runs.record_observation(
+               bootstrap.session,
+               second_operation,
+               run_result.run,
+               %{attrs | freshness_state: "stale"}
+             )
+  end
+
   test "observation recording reloads the persisted run before writing" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(
@@ -1302,6 +1395,12 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   end
 
   defp create_required_verification_check(session) do
+    with {:ok, graph} <- create_required_verification_graph(session) do
+      {:ok, graph.verification_check}
+    end
+  end
+
+  defp create_required_verification_graph(session) do
     {:ok, operation} = Operations.start_operation(session, :proposed_change_apply)
 
     with {:ok, %{signal: signal}} <-
@@ -1324,8 +1423,20 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              title: "Launch check",
              body: "Launch check body."
            }) do
-      {:ok, verification_check}
+      {:ok,
+       %{
+         signal: signal,
+         task: task,
+         review_finding: review_finding,
+         verification_check: verification_check
+       }}
     end
+  end
+
+  defp fetch_resource!(resource, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one!(authorize?: false)
   end
 
   defp insert_artifact!(bootstrap, title) do

@@ -25,6 +25,35 @@ defmodule OfficeGraph.ApiSupport do
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
+  @packet_run_flow_digest_key "packet_run_flow_digest"
+  @packet_run_input_keys [
+    :flow_identity,
+    :verification_check_id,
+    :source_graph_item_id,
+    :packet_title,
+    :objective,
+    :context_summary,
+    :requirements,
+    :success_criteria,
+    :autonomy_posture,
+    :source_surface,
+    :reason,
+    :authority_posture,
+    :observation_source_kind,
+    :observation_source_identity,
+    :observation_idempotency_key,
+    :observed_status,
+    :normalized_status,
+    :freshness_state,
+    :trust_basis,
+    :observation_rationale,
+    :evidence_claim,
+    :evidence_title,
+    :evidence_body,
+    :evidence_result,
+    :acceptance_policy_basis
+  ]
+
   def submit_manual_intake(params) do
     with {:ok, source_identity} <- required_string(params, :source_identity),
          {:ok, replay_identity} <- required_string(params, :replay_identity),
@@ -76,8 +105,10 @@ defmodule OfficeGraph.ApiSupport do
          :ok <- validate_packet_run_passed_evidence_input(input),
          {:ok, packet_operation} <-
            Operations.start_operation(bootstrap.session, :work_packet_create,
-             idempotency_key: input.flow_identity <> ":packet"
+             idempotency_key: input.flow_identity <> ":packet",
+             metadata: packet_run_flow_metadata(input)
            ),
+         :ok <- validate_packet_run_flow_replay(packet_operation, input),
          {:ok, packet_result} <-
            WorkPackets.create_packet(bootstrap.session, packet_operation, %{
              title: input.packet_title,
@@ -296,6 +327,39 @@ defmodule OfficeGraph.ApiSupport do
   end
 
   defp validate_packet_run_passed_evidence_input(_input), do: :ok
+
+  defp packet_run_flow_metadata(input) do
+    %{
+      "flow_identity" => input.flow_identity,
+      @packet_run_flow_digest_key => packet_run_flow_digest(input)
+    }
+  end
+
+  defp packet_run_flow_digest(input) do
+    input
+    |> Map.take(@packet_run_input_keys)
+    |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp validate_packet_run_flow_replay(operation, input) do
+    expected_digest = packet_run_flow_digest(input)
+
+    case metadata_value(operation.metadata, @packet_run_flow_digest_key) do
+      nil -> :ok
+      ^expected_digest -> :ok
+      _other -> {:error, {:packet_run_flow_idempotency_conflict, input.flow_identity}}
+    end
+  end
+
+  defp metadata_value(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key)
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
 
   defp validate_apply_id_set([]) do
     {:error, {:invalid_proposed_change_set, {:missing_change_type, "create_signal"}}}
