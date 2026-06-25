@@ -211,7 +211,7 @@ defmodule OfficeGraph.Runs do
           end
 
         {:ok, observation} ->
-          replay_operation_observation!(observation, run)
+          replay_operation_observation!(observation, run, attrs)
 
         {:error, error} ->
           Repo.rollback(error)
@@ -415,12 +415,18 @@ defmodule OfficeGraph.Runs do
 
   defp same_observation_replay?(observation, run, attrs) do
     observation.work_run_id == run.id and
+      observation.source_kind == attrs[:source_kind] and
+      observation.source_identity == attrs[:source_identity] and
+      observation.idempotency_key == attrs[:idempotency_key] and
       observation.verification_check_id == attrs[:verification_check_id] and
       observation.graph_item_id == attrs[:graph_item_id] and
       observation.observed_status == attrs[:observed_status] and
       observation.normalized_status == attrs[:normalized_status] and
+      observation.source_recorded_at == attrs[:source_recorded_at] and
       observation.freshness_state == attrs[:freshness_state] and
-      observation.trust_basis == attrs[:trust_basis]
+      observation.trust_basis == attrs[:trust_basis] and
+      observation.rationale == attrs[:rationale] and
+      observation.metadata == Map.new(attrs[:metadata] || %{})
   end
 
   defp validate_preflight_observation_replay(
@@ -460,8 +466,8 @@ defmodule OfficeGraph.Runs do
     |> then(&{:ok, &1})
   end
 
-  defp replay_operation_observation!(observation, run) do
-    if observation.work_run_id == run.id do
+  defp replay_operation_observation!(observation, run, attrs) do
+    if same_observation_replay?(observation, run, attrs) do
       %{observation: observation, run: run}
     else
       Repo.rollback({:observation_operation_conflict, observation.id})

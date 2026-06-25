@@ -816,7 +816,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
 
       results =
         1..2
-        |> Enum.map(fn index ->
+        |> Enum.map(fn _index ->
           Task.async(fn ->
             with_unboxed_connection(fn ->
               Verification.accept_evidence_candidate(
@@ -824,8 +824,8 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
                 acceptance_operation,
                 candidate,
                 %{
-                  title: "Concurrent accepted evidence #{index}",
-                  body: "Concurrent accepted evidence body #{index}.",
+                  title: "Concurrent accepted evidence",
+                  body: "Concurrent accepted evidence body.",
                   result: "passed",
                   acceptance_policy_basis: "owner_acceptance"
                 }

@@ -82,7 +82,7 @@ defmodule OfficeGraph.Verification do
           accept_evidence_candidate_record(session_context, operation, candidate, attrs)
 
         {:ok, accepted} ->
-          replay_acceptance_result(accepted, candidate)
+          replay_acceptance_result(session_context, accepted, candidate, attrs)
 
         {:error, error} ->
           {:error, error}
@@ -106,7 +106,7 @@ defmodule OfficeGraph.Verification do
           end
 
         {:ok, candidate} ->
-          candidate
+          replay_candidate!(candidate, attrs)
 
         {:error, error} ->
           Repo.rollback(error)
@@ -132,8 +132,7 @@ defmodule OfficeGraph.Verification do
         source_identity: attrs[:source_identity],
         freshness_state: attrs[:freshness_state],
         trust_basis: attrs[:trust_basis],
-        sensitivity: attrs[:sensitivity],
-        candidate_state: "candidate"
+        sensitivity: attrs[:sensitivity]
       }
     )
   end
@@ -149,7 +148,7 @@ defmodule OfficeGraph.Verification do
           accept_locked_candidate!(session_context, operation, candidate, attrs)
 
         {:ok, accepted} ->
-          replay_acceptance_result!(accepted, candidate)
+          replay_acceptance_result!(session_context, accepted, candidate, attrs)
 
         {:error, error} ->
           Repo.rollback(error)
@@ -534,6 +533,26 @@ defmodule OfficeGraph.Verification do
     |> Ash.read_one(authorize?: false)
   end
 
+  defp replay_candidate!(candidate, attrs) do
+    if same_candidate_replay?(candidate, attrs) do
+      candidate
+    else
+      Repo.rollback({:evidence_candidate_operation_conflict, candidate.id})
+    end
+  end
+
+  defp same_candidate_replay?(candidate, attrs) do
+    candidate.verification_check_id == attrs[:verification_check_id] and
+      candidate.work_run_id == attrs[:work_run_id] and
+      candidate.execution_observation_id == attrs[:execution_observation_id] and
+      candidate.artifact_id == attrs[:artifact_id] and candidate.claim == attrs[:claim] and
+      candidate.source_kind == attrs[:source_kind] and
+      candidate.source_identity == attrs[:source_identity] and
+      candidate.freshness_state == attrs[:freshness_state] and
+      candidate.trust_basis == attrs[:trust_basis] and
+      candidate.sensitivity == attrs[:sensitivity]
+  end
+
   defp replay_acceptance_result(%{evidence_item: evidence_item} = accepted, candidate) do
     if evidence_item.candidate_id == candidate.id do
       {:ok, accepted}
@@ -542,11 +561,41 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp replay_acceptance_result!(accepted, candidate) do
-    case replay_acceptance_result(accepted, candidate) do
+  defp replay_acceptance_result!(session_context, accepted, candidate, attrs) do
+    case replay_acceptance_result(session_context, accepted, candidate, attrs) do
       {:ok, accepted} -> accepted
       {:error, error} -> Repo.rollback(error)
     end
+  end
+
+  defp replay_acceptance_result(session_context, accepted, candidate, attrs) do
+    with {:ok, accepted} <- replay_acceptance_result(accepted, candidate),
+         :ok <- validate_acceptance_replay(session_context, accepted, attrs) do
+      {:ok, accepted}
+    end
+  end
+
+  defp validate_acceptance_replay(session_context, accepted, attrs) do
+    evidence_item = accepted.evidence_item
+    verification_result = accepted.verification_result
+
+    with {:ok, body} <-
+           Content.plain_text_for_document(session_context, evidence_item.body_document_id) do
+      if same_acceptance_replay?(evidence_item, verification_result, body, attrs) do
+        :ok
+      else
+        {:error, {:evidence_acceptance_operation_conflict, evidence_item.id}}
+      end
+    end
+  end
+
+  defp same_acceptance_replay?(evidence_item, verification_result, body, attrs) do
+    evidence_item.title == attrs[:title] and
+      evidence_item.acceptance_policy_basis == attrs[:acceptance_policy_basis] and
+      evidence_item.visibility_constraints == Map.new(attrs[:visibility_constraints] || %{}) and
+      body == (attrs[:body] || "") and verification_result.result == (attrs[:result] || "passed") and
+      verification_result.policy_basis == attrs[:acceptance_policy_basis] and
+      verification_result.reason == attrs[:reason]
   end
 
   defp existing_acceptance_for_operation(session_context, operation) do

@@ -147,6 +147,14 @@ verification decisions.
 - **THEN** Office Graph MUST reject the replay as an idempotency conflict
   instead of returning an observation recorded with different evidence facts
 
+#### Scenario: Observation operation replay facts change
+
+- **WHEN** the same observation-record operation idempotency key is reused with
+  different source, idempotency key, status, freshness, trust, rationale, or
+  work-run/check/graph linkage
+- **THEN** Office Graph MUST reject the replay as an operation conflict instead
+  of returning an observation recorded for different execution facts
+
 ### Requirement: Initial Observations Can Become Evidence Candidates
 
 Office Graph SHALL allow an execution observation to produce an evidence

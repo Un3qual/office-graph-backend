@@ -12,6 +12,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.WorkGraph.{
     Artifact,
     EvidenceItem,
+    EvidenceCandidate,
     GraphItem,
     GraphRelationship,
     ReviewFinding,
@@ -651,7 +652,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   end
 
   test "domain-owned packet-run create actions are private" do
-    for resource <- [Run, RunRequiredCheck, ExecutionObservation, WorkPacketVersion] do
+    for resource <- [
+          Run,
+          RunRequiredCheck,
+          ExecutionObservation,
+          WorkPacketVersion,
+          EvidenceCandidate
+        ] do
       action = Ash.Resource.Info.action(resource, :create)
 
       refute action.public?,
@@ -986,6 +993,128 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert Exception.message(error) =~ "graph_item_id"
   end
 
+  test "direct evidence candidate creates reject checks outside the run packet contract" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, required_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, required_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, required_check,
+        key: "direct-candidate-unrequired-check"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "direct-candidate-unrequired-check"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               EvidenceCandidate,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 verification_check_id: unrelated_check.id,
+                 work_run_id: run_result.run.id,
+                 execution_observation_id: observation_result.observation.id,
+                 operation_id: operation.id,
+                 claim: "Direct candidate should not escape run contract.",
+                 source_kind: "human",
+                 source_identity: "manual:direct-candidate-unrequired-check",
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 sensitivity: "internal"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "verification_check_id"
+  end
+
+  test "direct evidence candidate creates derive candidate state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "direct-candidate-derived-state"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "direct-candidate-derived-state"
+      )
+
+    assert {:ok, candidate} =
+             Ash.create(
+               EvidenceCandidate,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 verification_check_id: verification_check.id,
+                 work_run_id: run_result.run.id,
+                 execution_observation_id: observation_result.observation.id,
+                 operation_id: operation.id,
+                 claim: "Direct candidate should derive state.",
+                 source_kind: "human",
+                 source_identity: "manual:direct-candidate-derived-state",
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 sensitivity: "internal"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert candidate.candidate_state == "candidate"
+    assert is_nil(candidate.rejection_reason)
+  end
+
+  test "direct evidence candidate creates reject non-candidate operations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "direct-candidate-wrong-operation"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "direct-candidate-wrong-operation"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               EvidenceCandidate,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 verification_check_id: verification_check.id,
+                 work_run_id: run_result.run.id,
+                 execution_observation_id: observation_result.observation.id,
+                 operation_id: operation.id,
+                 claim: "Direct candidate should require candidate operations.",
+                 source_kind: "human",
+                 source_identity: "manual:direct-candidate-wrong-operation",
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 sensitivity: "internal"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "operation_id"
+  end
+
   test "run summaries ignore malformed cross-scope observation rows" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(
@@ -1244,17 +1373,19 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
     assert satisfied_check.lifecycle_state == "satisfied"
 
+    accepted_attrs = %{
+      title: "Runless accepted evidence",
+      body: "This evidence is not attached to a work run.",
+      result: "passed",
+      acceptance_policy_basis: "owner_acceptance"
+    }
+
     assert {:ok, replayed} =
              Verification.accept_evidence_candidate(
                bootstrap.session,
                acceptance_operation,
                candidate,
-               %{
-                 title: "Runless accepted evidence replay",
-                 body: "Replayed runless evidence acceptance.",
-                 result: "passed",
-                 acceptance_policy_basis: "owner_acceptance"
-               }
+               accepted_attrs
              )
 
     assert replayed.evidence_item.id == accepted.evidence_item.id
@@ -1264,6 +1395,106 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
     assert [%{state: "pending"}] = summary.required_checks
     assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
+  end
+
+  test "evidence candidate operation replay rejects changed candidate input" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "candidate-operation-input-conflict"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "candidate-operation-input-conflict"
+      )
+
+    attrs = %{
+      work_run_id: run_result.run.id,
+      verification_check_id: verification_check.id,
+      execution_observation_id: observation_result.observation.id,
+      claim: "Candidate operation replay input.",
+      source_kind: "human",
+      source_identity: "manual:candidate-operation-input-conflict",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      sensitivity: "internal"
+    }
+
+    assert {:ok, candidate} =
+             Verification.create_evidence_candidate(bootstrap.session, operation, attrs)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "candidate-operation-input-conflict"
+      )
+
+    candidate_id = candidate.id
+
+    assert {:error, {:evidence_candidate_operation_conflict, ^candidate_id}} =
+             Verification.create_evidence_candidate(
+               bootstrap.session,
+               replay_operation,
+               %{attrs | claim: "Changed candidate claim."}
+             )
+  end
+
+  test "evidence acceptance operation replay rejects changed acceptance input" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "acceptance-operation-input-conflict",
+        normalized_status: "failed",
+        observed_status: "failed"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "acceptance-operation-input-conflict"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "acceptance-operation-input-conflict"
+      )
+
+    assert {:ok, accepted} =
+             Verification.accept_evidence_candidate(bootstrap.session, operation, candidate, %{
+               title: "Failed accepted evidence",
+               body: "The provider reported a failed result.",
+               result: "failed",
+               acceptance_policy_basis: "owner_acceptance"
+             })
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "acceptance-operation-input-conflict"
+      )
+
+    evidence_item_id = accepted.evidence_item.id
+
+    assert {:error, {:evidence_acceptance_operation_conflict, ^evidence_item_id}} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               replay_operation,
+               candidate,
+               %{
+                 title: "Passed accepted evidence",
+                 body: "The provider corrected the result.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
   end
 
   test "runless evidence completion propagates to parent graph items" do
@@ -1695,7 +1926,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert length(summary.observations) == 2
   end
 
-  test "observation recording replays by operation before source idempotency fields" do
+  test "observation operation replay rejects changed observation fields" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
@@ -1726,14 +1957,14 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "provider-check-operation-replay"
       )
 
-    assert {:ok, replay} =
+    first_observation_id = first.observation.id
+
+    assert {:error, {:observation_operation_conflict, ^first_observation_id}} =
              Runs.record_observation(bootstrap.session, replay_operation, run_result.run, %{
                attrs
                | source_identity: "provider:operation-replay-changed",
                  idempotency_key: "provider-check:operation-replay:changed"
              })
-
-    assert replay.observation.id == first.observation.id
   end
 
   test "observation idempotency rejects conflicting check replays on the same run" do

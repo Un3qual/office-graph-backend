@@ -26,6 +26,13 @@ polling, replay, model outputs, and tool outputs.
   idempotency keys or validate the same flow digest before replaying durable
   step results
 
+#### Scenario: Operation replay input changes
+- **WHEN** a command operation idempotency key is replayed after durable command
+  output already exists
+- **THEN** Office Graph MUST compare the new material command input with the
+  persisted output's command facts and reject incompatible replays instead of
+  returning stale domain records for different input
+
 ### Requirement: Replay And Out-Of-Order Handling
 Office Graph SHALL support replay without corrupting product truth.
 

@@ -139,14 +139,15 @@ shared domain actions and Ash-owned API surfaces.
   on the owning domain/resource or document a narrow custom transport
   exception
 
-#### Scenario: Domain-owned packet-run creates are not exposed as simple resource creates
+#### Scenario: Domain-owned packet-run and evidence creates are not exposed as simple resource creates
 
 - **WHEN** packet-version readiness, work-run lifecycle, run required checks,
-  or execution observations require command-owned derivation, operation
-  validation, idempotency, or packet-contract checks
+  execution observations, or evidence candidates require command-owned
+  derivation, operation validation, idempotency, evidence-acceptance rules, or
+  packet-contract checks
 - **THEN** Office Graph MUST keep those create actions private to the owning
   domain command and MUST not expose generated public resource creates that let
-  callers choose lifecycle state or child links directly
+  callers choose lifecycle state, candidate state, or child links directly
 
 #### Scenario: Orchestration command spans domains
 
@@ -213,3 +214,20 @@ packet-run-verification flow.
 - **THEN** the shared API context MUST reject the request as an idempotency
   conflict instead of replaying prior durable packet, run, observation,
   candidate, evidence, verification result, or summary records
+
+#### Scenario: Evidence candidate operation replay conflicts
+
+- **WHEN** an evidence-candidate create operation is replayed with a different
+  run, check, observation, artifact, source, claim, freshness, trust, or
+  sensitivity input
+- **THEN** the verification domain MUST reject the replay as an operation
+  conflict instead of returning a candidate recorded for different evidence
+  facts
+
+#### Scenario: Evidence acceptance operation replay conflicts
+
+- **WHEN** an evidence-acceptance operation is replayed for the same candidate
+  with different result, policy basis, title, body, reason, or visibility input
+- **THEN** the verification domain MUST reject the replay as an operation
+  conflict instead of returning accepted evidence and verification results
+  recorded for different acceptance facts

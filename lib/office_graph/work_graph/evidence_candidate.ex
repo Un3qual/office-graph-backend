@@ -41,6 +41,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,
@@ -55,10 +57,20 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
         :source_identity,
         :freshness_state,
         :trust_basis,
-        :sensitivity,
-        :candidate_state,
-        :rejection_reason
+        :sensitivity
       ]
+
+      change set_attribute(:candidate_state, "candidate")
+      change set_attribute(:rejection_reason, nil)
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                artifact_id: OfficeGraph.WorkGraph.Artifact,
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
+
+      change OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences
     end
 
     update :mark_accepted do
