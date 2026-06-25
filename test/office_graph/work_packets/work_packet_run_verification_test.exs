@@ -6,7 +6,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkGraph.{Artifact, GraphItem, ReviewFinding, Task}
+  alias OfficeGraph.WorkGraph.{Artifact, GraphItem, GraphRelationship, ReviewFinding, Task}
   alias OfficeGraph.WorkPackets
 
   require Ash.Query
@@ -137,6 +137,46 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert accepted.verification_result.result == "passed"
     assert accepted.work_run.aggregate_state == "verified"
     assert accepted.work_run.verification_state == "verified"
+  end
+
+  test "accepted evidence candidates link evidence and artifact graph items" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+    artifact = insert_artifact!(bootstrap, "Candidate artifact")
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "candidate-evidence-relationships"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "candidate-evidence-relationships",
+        artifact_id: artifact.id
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "candidate-evidence-relationships",
+        result: "passed"
+      )
+
+    assert relationship_exists?(
+             verification_check.graph_item_id,
+             accepted.evidence_item.graph_item_id,
+             "has_evidence"
+           )
+
+    assert relationship_exists?(
+             accepted.evidence_item.graph_item_id,
+             artifact.graph_item_id,
+             "references_artifact"
+           )
   end
 
   test "work run start rejects packet versions that are not ready" do
@@ -1118,6 +1158,48 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert second.observation.id == first.observation.id
   end
 
+  test "blank observation idempotency keys are stored as nil and do not replay" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    attrs = %{
+      source_kind: "provider_check",
+      source_identity: "provider:blank-idempotency-key",
+      idempotency_key: "",
+      observed_status: "success",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider check succeeded without a replay key."
+    }
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "blank-idempotency-key:first"
+      )
+
+    assert {:ok, first} =
+             Runs.record_observation(bootstrap.session, first_operation, run_result.run, attrs)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "blank-idempotency-key:second"
+      )
+
+    assert {:ok, second} =
+             Runs.record_observation(bootstrap.session, second_operation, run_result.run, attrs)
+
+    assert first.observation.id != second.observation.id
+    assert first.observation.idempotency_key == nil
+    assert second.observation.idempotency_key == nil
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
+    assert length(summary.observations) == 2
+  end
+
   test "observation recording replays by operation before source idempotency fields" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -1369,6 +1451,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       work_run_id: run.id,
       verification_check_id: verification_check.id,
       execution_observation_id: observation.id,
+      artifact_id: Keyword.get(opts, :artifact_id),
       claim: "Evidence candidate #{key}.",
       source_kind: "human",
       source_identity: "manual:#{key}",
@@ -1437,6 +1520,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     resource
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one!(authorize?: false)
+  end
+
+  defp relationship_exists?(source_item_id, target_item_id, relationship_type) do
+    GraphRelationship
+    |> Ash.Query.filter(
+      source_item_id == ^source_item_id and target_item_id == ^target_item_id and
+        relationship_type == ^relationship_type
+    )
+    |> Ash.exists?(authorize?: false)
   end
 
   defp insert_artifact!(bootstrap, title) do

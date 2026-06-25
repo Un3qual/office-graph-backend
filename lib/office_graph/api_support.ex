@@ -26,6 +26,7 @@ defmodule OfficeGraph.ApiSupport do
   alias OfficeGraph.WorkPackets
 
   @packet_run_flow_digest_key "packet_run_flow_digest"
+  @packet_run_operation_prefix "packet-run-verification"
   @packet_run_input_keys [
     :flow_identity,
     :verification_check_id,
@@ -103,9 +104,15 @@ defmodule OfficeGraph.ApiSupport do
          :ok <- validate_packet_run_source(input, verification_check),
          :ok <- validate_packet_run_ready_input(input),
          :ok <- validate_packet_run_passed_evidence_input(input),
+         :ok <-
+           Runs.preflight_observation_idempotency(
+             bootstrap.session,
+             packet_run_step_key(input, :observation),
+             packet_run_observation_attrs(input)
+           ),
          {:ok, packet_operation} <-
            Operations.start_operation(bootstrap.session, :work_packet_create,
-             idempotency_key: input.flow_identity <> ":packet",
+             idempotency_key: packet_run_step_key(input, :packet),
              metadata: packet_run_flow_metadata(input)
            ),
          :ok <- validate_packet_run_flow_replay(packet_operation, input),
@@ -122,8 +129,10 @@ defmodule OfficeGraph.ApiSupport do
            }),
          {:ok, run_operation} <-
            Operations.start_operation(bootstrap.session, :work_run_start,
-             idempotency_key: input.flow_identity <> ":run"
+             idempotency_key: packet_run_step_key(input, :run),
+             metadata: packet_run_flow_metadata(input)
            ),
+         :ok <- validate_packet_run_flow_replay(run_operation, input),
          {:ok, run_result} <-
            Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
              source_surface: input.source_surface,
@@ -132,25 +141,23 @@ defmodule OfficeGraph.ApiSupport do
            }),
          {:ok, observation_operation} <-
            Operations.start_operation(bootstrap.session, :execution_observation_record,
-             idempotency_key: input.flow_identity <> ":observation"
+             idempotency_key: packet_run_step_key(input, :observation),
+             metadata: packet_run_flow_metadata(input)
            ),
+         :ok <- validate_packet_run_flow_replay(observation_operation, input),
          {:ok, observation_result} <-
-           Runs.record_observation(bootstrap.session, observation_operation, run_result.run, %{
-             source_kind: input.observation_source_kind,
-             source_identity: input.observation_source_identity,
-             idempotency_key: input.observation_idempotency_key,
-             observed_status: input.observed_status,
-             normalized_status: input.normalized_status,
-             freshness_state: input.freshness_state,
-             trust_basis: input.trust_basis,
-             verification_check_id: input.verification_check_id,
-             graph_item_id: input.source_graph_item_id,
-             rationale: input.observation_rationale
-           }),
+           Runs.record_observation(
+             bootstrap.session,
+             observation_operation,
+             run_result.run,
+             packet_run_observation_attrs(input)
+           ),
          {:ok, candidate_operation} <-
            Operations.start_operation(bootstrap.session, :evidence_candidate_create,
-             idempotency_key: input.flow_identity <> ":candidate"
+             idempotency_key: packet_run_step_key(input, :candidate),
+             metadata: packet_run_flow_metadata(input)
            ),
+         :ok <- validate_packet_run_flow_replay(candidate_operation, input),
          {:ok, candidate} <-
            Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
              work_run_id: run_result.run.id,
@@ -165,8 +172,10 @@ defmodule OfficeGraph.ApiSupport do
            }),
          {:ok, acceptance_operation} <-
            Operations.start_operation(bootstrap.session, :evidence_accept,
-             idempotency_key: input.flow_identity <> ":accept"
+             idempotency_key: packet_run_step_key(input, :accept),
+             metadata: packet_run_flow_metadata(input)
            ),
+         :ok <- validate_packet_run_flow_replay(acceptance_operation, input),
          {:ok, accepted} <-
            Verification.accept_evidence_candidate(
              bootstrap.session,
@@ -335,6 +344,25 @@ defmodule OfficeGraph.ApiSupport do
     }
   end
 
+  defp packet_run_step_key(input, step) do
+    @packet_run_operation_prefix <> ":" <> input.flow_identity <> ":" <> Atom.to_string(step)
+  end
+
+  defp packet_run_observation_attrs(input) do
+    %{
+      source_kind: input.observation_source_kind,
+      source_identity: input.observation_source_identity,
+      idempotency_key: input.observation_idempotency_key,
+      observed_status: input.observed_status,
+      normalized_status: input.normalized_status,
+      freshness_state: input.freshness_state,
+      trust_basis: input.trust_basis,
+      verification_check_id: input.verification_check_id,
+      graph_item_id: input.source_graph_item_id,
+      rationale: input.observation_rationale
+    }
+  end
+
   defp packet_run_flow_digest(input) do
     input
     |> Map.take(@packet_run_input_keys)
@@ -349,7 +377,6 @@ defmodule OfficeGraph.ApiSupport do
     expected_digest = packet_run_flow_digest(input)
 
     case metadata_value(operation.metadata, @packet_run_flow_digest_key) do
-      nil -> :ok
       ^expected_digest -> :ok
       _other -> {:error, {:packet_run_flow_idempotency_conflict, input.flow_identity}}
     end

@@ -128,7 +128,9 @@ first packet-run-verification slice.
   verification check
 - **THEN** Office Graph MUST create or update accepted evidence linked to the
   candidate, check, work run when present, acceptance actor or policy basis,
-  acceptance operation, timestamp, and visibility constraints
+  acceptance operation, timestamp, and visibility constraints, and MUST link the
+  check graph item to the evidence graph item plus the evidence graph item to
+  the candidate artifact graph item when an artifact is present
 
 #### Scenario: Runless candidate is accepted
 

@@ -258,6 +258,12 @@ defmodule OfficeGraphWeb.Schema do
      extensions: %{code: "idempotency_conflict", flow_identity: flow_identity}}
   end
 
+  defp graphql_error({:error, {:observation_idempotency_conflict, observation_id}}) do
+    {:error,
+     message: "The observation source idempotency key conflicts with different input.",
+     extensions: %{code: "idempotency_conflict", observation_id: observation_id}}
+  end
+
   defp graphql_error({:error, {:invalid_verification_check_status, id}}) do
     {:error,
      message: "A verification check is no longer required.",

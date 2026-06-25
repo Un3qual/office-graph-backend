@@ -3,7 +3,10 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
 
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
+  alias OfficeGraph.Runs
+  alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   test "GraphQL and JSON APIs execute equivalent packet-run-verification flows", %{conn: conn} do
     {:ok, json_check} = create_required_verification_check("json")
@@ -185,6 +188,168 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
              graphql_response["errors"]
 
     assert extensions["verification_check_id"] == missing_graphql_check_id
+  end
+
+  test "APIs reject observation idempotency conflicts before consuming flow identity", %{
+    conn: conn
+  } do
+    {:ok, first_check} = create_required_verification_check("json-observation-conflict-first")
+
+    first_attrs = flow_attrs("json-observation-conflict-first", first_check)
+
+    first_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", first_attrs)
+      |> json_response(200)
+
+    {:ok, second_check} = create_required_verification_check("json-observation-conflict-second")
+
+    second_attrs =
+      "json-observation-conflict-second"
+      |> flow_attrs(second_check)
+      |> Map.put(:observation_source_identity, first_attrs.observation_source_identity)
+      |> Map.put(:observation_idempotency_key, first_attrs.observation_idempotency_key)
+
+    conflict =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", second_attrs)
+      |> json_response(422)
+
+    assert conflict["error"]["code"] == "idempotency_conflict"
+    assert conflict["error"]["observation_id"] == hd(first_summary["observations"])["id"]
+
+    corrected_summary =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        Map.put(second_attrs, :observation_idempotency_key, "observation:json-conflict-corrected")
+      )
+      |> json_response(200)
+
+    assert_summary_verified(corrected_summary, second_check.id)
+
+    {:ok, graphql_first_check} =
+      create_required_verification_check("graphql-observation-conflict-first")
+
+    graphql_first_input = graphql_attrs("graphql-observation-conflict-first", graphql_first_check)
+
+    graphql_first_summary =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id aggregateState executionState verificationState }
+            requiredChecks { verificationCheckId state }
+            observations { id normalizedStatus sourceKind sourceIdentity }
+            evidenceItems { id state candidateId workRunId }
+            verificationResults { id result workRunId workPacketVersionId }
+            packet { id title state }
+            packetVersion { id versionNumber lifecycleState objective }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{input: graphql_first_input}
+      )
+
+    {:ok, graphql_second_check} =
+      create_required_verification_check("graphql-observation-conflict-second")
+
+    graphql_second_input =
+      "graphql-observation-conflict-second"
+      |> graphql_attrs(graphql_second_check)
+      |> Map.put(:observationSourceIdentity, graphql_first_input.observationSourceIdentity)
+      |> Map.put(:observationIdempotencyKey, graphql_first_input.observationIdempotencyKey)
+
+    graphql_conflict =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{input: graphql_second_input}
+      )
+
+    assert [%{"extensions" => extensions}] = graphql_conflict["errors"]
+    assert extensions["code"] == "idempotency_conflict"
+    assert extensions["observation_id"] == hd(graphql_first_summary["observations"])["id"]
+
+    graphql_corrected_summary =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            packet { id title state }
+            packetVersion { id versionNumber lifecycleState objective }
+            run { id aggregateState executionState verificationState }
+            requiredChecks { verificationCheckId state }
+            observations { id normalizedStatus sourceKind sourceIdentity }
+            evidenceItems { id state candidateId workRunId }
+            verificationResults { id result workRunId workPacketVersionId }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{
+          input:
+            Map.put(
+              graphql_second_input,
+              :observationIdempotencyKey,
+              "observation:graphql-conflict-corrected"
+            )
+        }
+      )
+
+    assert_summary_verified(graphql_corrected_summary, graphql_second_check.id)
+  end
+
+  test "JSON API namespaces packet-run step keys away from standalone candidates", %{
+    conn: conn
+  } do
+    {:ok, verification_check} = create_required_verification_check("json-candidate-key-namespace")
+    attrs = flow_attrs("json-candidate-key-namespace", verification_check)
+
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, old_check} = create_required_verification_check("standalone-candidate-key-namespace")
+    {:ok, old_run} = create_ready_run(bootstrap.session, old_check)
+    {:ok, old_observation} = record_observation(bootstrap.session, old_run.run, old_check)
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: attrs.flow_identity <> ":candidate"
+      )
+
+    {:ok, old_candidate} =
+      Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+        work_run_id: old_run.run.id,
+        verification_check_id: old_check.id,
+        execution_observation_id: old_observation.observation.id,
+        claim: "Standalone candidate with a legacy flow-shaped key.",
+        source_kind: "human",
+        source_identity: "manual:standalone-candidate-key-namespace",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      })
+
+    summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", attrs)
+      |> json_response(200)
+
+    assert_summary_verified(summary, verification_check.id)
+    assert summary["run"]["id"] != old_run.run.id
+    assert hd(summary["evidence_items"])["candidate_id"] != old_candidate.id
+
+    {:ok, old_summary} = Runs.get_summary(bootstrap.session, old_run.run.id)
+    assert old_summary.evidence_items == []
+    assert [%{reason: "missing_accepted_evidence"}] = old_summary.missing_evidence
   end
 
   test "APIs return structured validation errors for invalid packet references", %{conn: conn} do
@@ -460,5 +625,60 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
            }) do
       {:ok, verification_check}
     end
+  end
+
+  defp create_ready_run(session, verification_check) do
+    {:ok, packet_operation} =
+      Operations.start_operation(session, :work_packet_create,
+        idempotency_key: "api-helper-packet-#{Ecto.UUID.generate()}"
+      )
+
+    {:ok, packet_result} =
+      WorkPackets.create_packet(session, packet_operation, %{
+        title: "Ready packet",
+        objective: "Run selected work.",
+        context_summary: "Ready context.",
+        requirements: "Complete selected work.",
+        success_criteria: "Required checks pass.",
+        autonomy_posture: "human_supervised",
+        source_graph_item_ids: [verification_check.graph_item_id],
+        verification_check_ids: [verification_check.id]
+      })
+
+    {:ok, run_operation} =
+      Operations.start_operation(session, :work_run_start,
+        idempotency_key: "api-helper-run-#{Ecto.UUID.generate()}"
+      )
+
+    with {:ok, run_result} <-
+           Runs.start_run(session, run_operation, packet_result.version, %{
+             source_surface: "api_test",
+             reason: "Execute ready packet.",
+             authority_posture: "human_supervised"
+           }) do
+      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
+    end
+  end
+
+  defp record_observation(session, run, verification_check) do
+    key = Ecto.UUID.generate()
+
+    {:ok, operation} =
+      Operations.start_operation(session, :execution_observation_record,
+        idempotency_key: "api-helper-observation-#{key}"
+      )
+
+    Runs.record_observation(session, operation, run, %{
+      source_kind: "human",
+      source_identity: "manual:#{key}",
+      idempotency_key: "observation:#{key}",
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Human confirmed #{key}."
+    })
   end
 end

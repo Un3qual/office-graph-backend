@@ -28,6 +28,7 @@ defmodule OfficeGraph.Verification do
     EvidenceCandidate,
     EvidenceItem,
     GraphItem,
+    GraphRelationship,
     VerificationCheck,
     VerificationResult
   }
@@ -158,6 +159,7 @@ defmodule OfficeGraph.Verification do
       fetch_scoped!(VerificationCheck, session_context, candidate.verification_check_id)
 
     work_run = lock_optional_scoped!(Run, session_context, candidate.work_run_id)
+    artifact = lock_optional_scoped!(Artifact, session_context, candidate.artifact_id)
 
     observation =
       validate_candidate_links!(session_context, candidate, work_run, verification_check)
@@ -208,6 +210,16 @@ defmodule OfficeGraph.Verification do
           title: attrs[:title]
         }
       )
+
+    _check_evidence_relationship =
+      create_relationship!(
+        verification_check.graph_item_id,
+        evidence_item.graph_item_id,
+        "has_evidence"
+      )
+
+    _evidence_artifact_relationship =
+      maybe_create_evidence_artifact_relationship!(evidence_item, artifact)
 
     verification_result =
       ash_create!(
@@ -567,6 +579,28 @@ defmodule OfficeGraph.Verification do
       {:ok, document} -> document
       {:error, error} -> Repo.rollback(error)
     end
+  end
+
+  defp maybe_create_evidence_artifact_relationship!(_evidence_item, nil), do: nil
+
+  defp maybe_create_evidence_artifact_relationship!(evidence_item, artifact) do
+    create_relationship!(
+      evidence_item.graph_item_id,
+      artifact.graph_item_id,
+      "references_artifact"
+    )
+  end
+
+  defp create_relationship!(source_item_id, target_item_id, relationship_type) do
+    ash_create!(
+      GraphRelationship,
+      %{
+        id: Ecto.UUID.generate(),
+        source_item_id: source_item_id,
+        target_item_id: target_item_id,
+        relationship_type: relationship_type
+      }
+    )
   end
 
   defp validate_scope(session_context, record) do

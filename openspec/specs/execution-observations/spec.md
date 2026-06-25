@@ -104,6 +104,14 @@ verification decisions.
 - **THEN** Office Graph MUST return the existing observation or reject the
   duplicate according to the owning command's idempotency rules
 
+#### Scenario: Observation source has no replay key
+
+- **WHEN** an observation is recorded without a replay or idempotency key, or
+  with a blank key that normalizes to no key
+- **THEN** Office Graph MUST treat the observation as non-idempotent input so
+  repeated same-source observations create distinct records rather than being
+  blocked by source-idempotency uniqueness
+
 #### Scenario: Observation replay trust facts change
 
 - **WHEN** the same source identity and replay or idempotency key is reused

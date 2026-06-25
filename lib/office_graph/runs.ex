@@ -57,6 +57,32 @@ defmodule OfficeGraph.Runs do
     end
   end
 
+  def preflight_observation_idempotency(session_context, operation_idempotency_key, attrs)
+      when is_map(attrs) do
+    attrs = normalize_observation_attrs(attrs)
+
+    with :ok <-
+           Authorization.authorize(session_context, :execution_observation_record,
+             organization_id: session_context.organization_id
+           ) do
+      case existing_observation(session_context, attrs) do
+        {:ok, nil} ->
+          :ok
+
+        {:ok, observation} ->
+          validate_preflight_observation_replay(
+            session_context,
+            observation,
+            operation_idempotency_key,
+            attrs
+          )
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
   def set_run_verified(run) do
     run
     |> Ash.Changeset.for_update(:set_lifecycle_state, %{
@@ -148,6 +174,7 @@ defmodule OfficeGraph.Runs do
   end
 
   defp create_observation(session_context, operation, run, attrs) do
+    attrs = normalize_observation_attrs(attrs)
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
@@ -382,6 +409,43 @@ defmodule OfficeGraph.Runs do
       observation.trust_basis == attrs[:trust_basis]
   end
 
+  defp validate_preflight_observation_replay(
+         session_context,
+         observation,
+         operation_idempotency_key,
+         _attrs
+       ) do
+    with {:ok, true} <-
+           observation_operation_idempotency_key_matches?(
+             session_context,
+             observation,
+             operation_idempotency_key
+           ) do
+      :ok
+    else
+      _conflict -> {:error, {:observation_idempotency_conflict, observation.id}}
+    end
+  end
+
+  defp observation_operation_idempotency_key_matches?(
+         session_context,
+         observation,
+         operation_idempotency_key
+       ) do
+    OperationCorrelation
+    |> Ash.Query.filter(
+      id == ^observation.operation_id and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and
+        principal_id == ^session_context.principal_id and
+        session_id == ^session_context.session_id and
+        action == ^@execution_observation_record_action and
+        idempotency_key == ^operation_idempotency_key
+    )
+    |> Ash.exists?(authorize?: false)
+    |> then(&{:ok, &1})
+  end
+
   defp replay_operation_observation!(observation, run) do
     if observation.work_run_id == run.id do
       %{observation: observation, run: run}
@@ -397,6 +461,20 @@ defmodule OfficeGraph.Runs do
       Repo.rollback({:observation_idempotency_conflict, observation.id})
     end
   end
+
+  defp normalize_observation_attrs(attrs) do
+    Map.put(attrs, :idempotency_key, normalize_idempotency_key(attrs[:idempotency_key]))
+  end
+
+  defp normalize_idempotency_key(value) when is_binary(value) do
+    if String.trim(value) == "" do
+      nil
+    else
+      value
+    end
+  end
+
+  defp normalize_idempotency_key(value), do: value
 
   defp failed_observations_for_run?(run_id) do
     ExecutionObservation

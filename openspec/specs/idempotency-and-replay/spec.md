@@ -19,6 +19,13 @@ polling, replay, model outputs, and tool outputs.
 - **THEN** Office Graph MUST reject it, merge it through a domain action, or
   place it into a conflict/review state according to adapter and domain policy
 
+#### Scenario: Orchestrated flow owns derived step keys
+- **WHEN** a workflow command derives per-step operation idempotency keys from a
+  higher-level flow identity
+- **THEN** those step keys MUST be namespaced away from standalone command
+  idempotency keys or validate the same flow digest before replaying durable
+  step results
+
 ### Requirement: Replay And Out-Of-Order Handling
 Office Graph SHALL support replay without corrupting product truth.
 

@@ -62,6 +62,18 @@ defmodule OfficeGraphWeb.PacketRunVerificationController do
     })
   end
 
+  defp render_error(conn, {:error, {:observation_idempotency_conflict, observation_id}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: %{
+        code: "idempotency_conflict",
+        detail: "The observation source idempotency key conflicts with different input.",
+        observation_id: observation_id
+      }
+    })
+  end
+
   defp render_error(conn, {:error, {:not_found, _resource, id}}) do
     conn
     |> put_status(:unprocessable_entity)

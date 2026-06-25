@@ -177,6 +177,16 @@ packet-run-verification flow.
   per-step operation-correlated packet, run, observation, candidate, evidence,
   or verification result records
 
+#### Scenario: Composite observation source replay conflicts
+
+- **WHEN** a packet-run-verification orchestration request reuses an observation
+  source identity and idempotency key that already belongs to a different flow
+  step, work run, check, status, freshness, trust basis, or graph linkage
+- **THEN** the shared API context MUST reject the request as an idempotency
+  conflict before creating packet, run, evidence, or verification-result records
+  and MUST allow a corrected retry with the same flow identity when no durable
+  flow step has been consumed
+
 #### Scenario: Composite flow identity is reused with different input
 
 - **WHEN** a packet-run-verification orchestration request reuses a flow
