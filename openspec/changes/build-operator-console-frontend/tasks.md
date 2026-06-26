@@ -1,9 +1,10 @@
 ## 1. Frontend Foundation
 
-- [ ] 1.1 Add a minimal React frontend source tree and package scripts that run inside the project Nix shell.
-- [ ] 1.2 Add typed API-client helpers for the existing operator workflow JSON endpoints.
-- [ ] 1.3 Add shared UI primitives, status vocabulary helpers, and sample test fixtures for operator workflow projections.
-- [ ] 1.4 Add frontend tests for API-client loading, success, empty, and error states.
+- [ ] 1.1 Extract implementation tokens and component inventory from `assets/operator-console-concept.png`.
+- [ ] 1.2 Add a minimal React frontend source tree and package scripts that run inside the project Nix shell.
+- [ ] 1.3 Add typed API-client helpers for the existing operator workflow JSON endpoints.
+- [ ] 1.4 Add shared UI primitives, status vocabulary helpers, and sample test fixtures for operator workflow projections.
+- [ ] 1.5 Add frontend tests for API-client loading, success, empty, and error states.
 
 ## 2. Phoenix App Shell
 
@@ -24,6 +25,7 @@
 
 - [ ] 4.1 Add focused component tests for inbox selection, item detail, packet readiness, run state, and verification outcome.
 - [ ] 4.2 Add frontend build or type-check verification and document the command in the change summary.
-- [ ] 4.3 Run OpenSpec validation for the change and the project specs.
-- [ ] 4.4 Run project formatting and focused backend/frontend tests needed for the changed surfaces.
-- [ ] 4.5 Update the implementation summary with verification evidence and any deferred follow-up work.
+- [ ] 4.3 Capture rendered desktop and narrow screenshots and compare them against `assets/operator-console-concept.png`.
+- [ ] 4.4 Run OpenSpec validation for the change and the project specs.
+- [ ] 4.5 Run project formatting and focused backend/frontend tests needed for the changed surfaces.
+- [ ] 4.6 Update the implementation summary with verification evidence and any deferred follow-up work.

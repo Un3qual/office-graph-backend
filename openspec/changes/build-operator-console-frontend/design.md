@@ -69,6 +69,12 @@ and verification outcome. The visual system should be quiet, dense enough for
 repeated use, and tailored to triage and verification rather than promotional
 positioning.
 
+Initial visual concept: `assets/operator-console-concept.png`. Treat it as the
+primary-screen direction for layout density, region hierarchy, status accents,
+and non-marketing product posture. During implementation, code-native text and
+controls may adapt exact copy to the real workflow projection, but the console
+should preserve the concept's workbench structure.
+
 Alternatives considered:
 - Multi-page navigation: deferred until there are more product surfaces.
 - Card-heavy overview dashboard: rejected because the operator's primary job
@@ -89,19 +95,18 @@ Alternatives considered:
 
 ## Risks / Trade-offs
 
-- Frontend dependency footprint grows from zero to a real toolchain →
+- Frontend dependency footprint grows from zero to a real toolchain ->
   Mitigation: keep dependencies minimal and aligned with Node from the project
   flake.
-- Backend API shapes may be convenient for tests but awkward for operators →
+- Backend API shapes may be convenient for tests but awkward for operators ->
   Mitigation: consume existing projections first and only add backend fields
   when a concrete UI requirement exposes a contract gap.
-- The first UI could drift into broad platform navigation → Mitigation: keep
+- The first UI could drift into broad platform navigation -> Mitigation: keep
   the route and navigation scoped to the operator workflow loop and explicitly
   defer other surfaces.
-- Visual design approval is needed before high-fidelity implementation →
-  Mitigation: generate or capture a full primary-screen concept before coding
-  the React surface, then implement from that design system rather than
-  improvising a generic dashboard.
+- Visual design could still drift during implementation -> Mitigation: use the
+  committed primary-screen concept as the design target, then verify rendered
+  browser screenshots against it before handoff.
 
 ## Migration Plan
 
