@@ -1,32 +1,32 @@
 ## 1. Scope And Acceptance
 
-- [ ] 1.1 Confirm the first operator workflow starts from manual intake and
+- [x] 1.1 Confirm the first operator workflow starts from manual intake and
   ends at verified completion through existing packet, run, evidence, and
   verification primitives.
-- [ ] 1.2 Confirm this change does not add provider webhooks or polling, full
+- [x] 1.2 Confirm this change does not add provider webhooks or polling, full
   agent runtime execution, broad React UI polish, full graph canvas, generic
   ordered placement, collaborative rich text, mobile, or workflow-builder
   behavior.
 - [ ] 1.3 Confirm GraphQL and JSON API must expose equivalent operator
   workflow state and command outcomes through shared public functions.
-- [ ] 1.4 Confirm projection reads are query-backed and authorization-filtered
+- [x] 1.4 Confirm projection reads are query-backed and authorization-filtered
   rather than persisted as a new workflow aggregate or render cache.
 
 ## 2. Projection Contract
 
-- [ ] 2.1 Define an `OfficeGraph.Projections` public API for operator workflow
+- [x] 2.1 Define an `OfficeGraph.Projections` public API for operator workflow
   inbox rows, item detail, packet readiness, run/evidence state, and
   verification outcome.
-- [ ] 2.2 Implement query-backed projection assembly over manual intake
+- [x] 2.2 Implement query-backed projection assembly over manual intake
   events, proposed graph changes, graph items, work packets, work runs,
   observations, evidence candidates, evidence items, and verification results.
-- [ ] 2.3 Include typed identifiers, graph identities, operation watermarks,
+- [x] 2.3 Include typed identifiers, graph identities, operation watermarks,
   lifecycle summaries, readiness or blocker reasons, allowed next actions,
   empty states, and stale markers in projection structs or maps.
-- [ ] 2.4 Enforce organization, workspace, authorization, sensitivity, and
+- [x] 2.4 Enforce organization, workspace, authorization, sensitivity, and
   tombstone filtering before any projection returns mixed graph or typed
   records.
-- [ ] 2.5 Add projection-level tests for pending intake, applied triage,
+- [x] 2.5 Add projection-level tests for pending intake, applied triage,
   not-actionable rows, packet-ready rows, awaiting-evidence runs, verified
   runs, and missing or failed evidence states.
 
