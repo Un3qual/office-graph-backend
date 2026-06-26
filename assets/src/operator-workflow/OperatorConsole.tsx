@@ -10,6 +10,7 @@ import {
   type PacketReadinessInput,
   type VerificationOutcome
 } from "./api";
+import { listSummary, shortId } from "./presentation";
 import { actionLabel, formatWorkflowStatus } from "./status";
 
 type Loadable<T> =
@@ -189,7 +190,9 @@ function InboxContent({
               key={row.normalized_event_id}
               onClick={() => onSelect(row.normalized_event_id)}
             >
-              <span className="row-title">{row.normalized_event_id}</span>
+              <span className="row-title" title={row.normalized_event_id}>
+                {shortId(row.normalized_event_id)}
+              </span>
               <span className="row-source">{row.source.identity}</span>
               <StatusBadge status={row.status} />
               <span className="row-meta">
@@ -197,7 +200,9 @@ function InboxContent({
                   ? `Blockers ${row.blocker_reasons.join(", ")}`
                   : `Actions ${row.allowed_next_actions.map(actionLabel).join(", ") || "None"}`}
               </span>
-              <span className="row-meta">Watermark {row.source_watermark ?? "none"}</span>
+              <span className="row-meta" title={row.source_watermark ?? "none"}>
+                Watermark {shortId(row.source_watermark)}
+              </span>
             </button>
           ))}
         </div>
@@ -272,7 +277,12 @@ function DetailContent({
         </div>
         <div>
           <dt>Graph links</dt>
-          <dd>{selectedItem.graph_links.map((link) => link.title).join(", ") || "None"}</dd>
+          <dd title={selectedItem.graph_links.map((link) => link.title).join(", ")}>
+            {listSummary(
+              selectedItem.graph_links.map((link) => link.title),
+              2
+            )}
+          </dd>
         </div>
         <div>
           <dt>Audit trace</dt>
@@ -312,7 +322,10 @@ function ReadinessPanel({
             ["Autonomy", formatWorkflowStatus(input?.autonomy_posture ?? "")],
             [
               "Source references",
-              readiness.data.source_links.map((link) => link.title).join(", ") || "None"
+              listSummary(
+                readiness.data.source_links.map((link) => link.title),
+                2
+              )
             ],
             ["Required", String(readiness.data.required_checks.length)],
             ["Blockers", readiness.data.blocker_reasons.join(", ") || "None"],

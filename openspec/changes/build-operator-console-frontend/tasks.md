@@ -24,8 +24,8 @@
 ## 4. Verification And Handoff
 
 - [x] 4.1 Add focused component tests for inbox selection, item detail, packet readiness, run state, and verification outcome.
-- [ ] 4.2 Add frontend build or type-check verification and document the command in the change summary.
-- [ ] 4.3 Capture rendered desktop and narrow screenshots and compare them against `assets/operator-console-concept.png`.
-- [ ] 4.4 Run OpenSpec validation for the change and the project specs.
-- [ ] 4.5 Run project formatting and focused backend/frontend tests needed for the changed surfaces.
-- [ ] 4.6 Update the implementation summary with verification evidence and any deferred follow-up work.
+- [x] 4.2 Add frontend build or type-check verification and document the command in the change summary.
+- [x] 4.3 Capture rendered desktop and narrow screenshots and compare them against `assets/operator-console-concept.png`.
+- [x] 4.4 Run OpenSpec validation for the change and the project specs.
+- [x] 4.5 Run project formatting and focused backend/frontend tests needed for the changed surfaces.
+- [x] 4.6 Update the implementation summary with verification evidence and any deferred follow-up work.
