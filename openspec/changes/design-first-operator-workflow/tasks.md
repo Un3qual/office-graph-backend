@@ -72,19 +72,19 @@
 - [x] 5.2 Run focused tests for projections, operator workflow commands,
   GraphQL/JSON API parity, authorization filtering, idempotency, and
   verification evidence behavior.
-- [ ] 5.3 Run the backend verification gate from inside the Nix shell,
+- [x] 5.3 Run the backend verification gate from inside the Nix shell,
   including compile, format, Boundary, architecture conformance, tests, and
   OpenSpec validation.
 - [x] 5.4 Update OpenSpec task checkboxes and add an implementation summary
   mapping each `operator-workflow` requirement to code and tests before
   archiving.
-- [ ] 5.5 Commit along the way after projection/API contract work, command
+- [x] 5.5 Commit along the way after projection/API contract work, command
   orchestration, API parity tests, and final verification.
 
 ## 6. OpenSpec Validation
 
-- [ ] 6.1 Run `openspec status --change design-first-operator-workflow`.
-- [ ] 6.2 Run `openspec validate design-first-operator-workflow --strict`.
-- [ ] 6.3 Run `openspec validate --changes --strict`.
-- [ ] 6.4 Fix any schema, delta, task-formatting, or validation issues
+- [x] 6.1 Run `openspec status --change design-first-operator-workflow`.
+- [x] 6.2 Run `openspec validate design-first-operator-workflow --strict`.
+- [x] 6.3 Run `openspec validate --changes --strict`.
+- [x] 6.4 Fix any schema, delta, task-formatting, or validation issues
   reported by OpenSpec.

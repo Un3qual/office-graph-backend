@@ -63,4 +63,8 @@
 - `mix test test/office_graph/projections/operator_workflow_test.exs`
 - `mix test test/office_graph_web/operator_workflow_api_test.exs`
 - `mix test test/office_graph/projections/operator_workflow_test.exs test/office_graph_web/operator_workflow_api_test.exs test/office_graph_web/packet_run_verification_api_test.exs test/office_graph/work_packets/work_packet_run_verification_test.exs test/office_graph/work_graph/walking_skeleton_test.exs`
+- `MIX_ENV=test mix verify`
+- `openspec status --change design-first-operator-workflow`
 - `openspec validate design-first-operator-workflow --strict`
+- `openspec validate --changes --strict`
+- `openspec validate --specs --strict`
