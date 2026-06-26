@@ -28,3 +28,8 @@ office_graph-*.tar
 # Project-local Mix/Hex homes avoid incompatible user-global archives.
 /.mix/
 /.hex/
+
+# Frontend dependencies and generated assets.
+/node_modules/
+/coverage/
+/priv/static/assets/operator/

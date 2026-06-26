@@ -1,10 +1,10 @@
 ## 1. Frontend Foundation
 
-- [ ] 1.1 Extract implementation tokens and component inventory from `assets/operator-console-concept.png`.
-- [ ] 1.2 Add a minimal React frontend source tree and package scripts that run inside the project Nix shell.
-- [ ] 1.3 Add typed API-client helpers for the existing operator workflow JSON endpoints.
-- [ ] 1.4 Add shared UI primitives, status vocabulary helpers, and sample test fixtures for operator workflow projections.
-- [ ] 1.5 Add frontend tests for API-client loading, success, empty, and error states.
+- [x] 1.1 Extract implementation tokens and component inventory from `assets/operator-console-concept.png`.
+- [x] 1.2 Add a minimal React frontend source tree and package scripts that run inside the project Nix shell.
+- [x] 1.3 Add typed API-client helpers for the existing operator workflow JSON endpoints.
+- [x] 1.4 Add shared UI primitives, status vocabulary helpers, and sample test fixtures for operator workflow projections.
+- [x] 1.5 Add frontend tests for API-client loading, success, empty, and error states.
 
 ## 2. Phoenix App Shell
 
