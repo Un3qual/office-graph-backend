@@ -14,16 +14,16 @@
 
 ## 3. Operator Console Workflow UI
 
-- [ ] 3.1 Implement the console shell with inbox/list and selected-detail regions.
-- [ ] 3.2 Render inbox rows with source summary, actionability, status, blockers, allowed next actions, watermark, loading, empty, and error states.
-- [ ] 3.3 Render selected item detail with typed identity, source context, proposed-change status, affected graph links, traces, and safe next actions.
-- [ ] 3.4 Render packet readiness with objective, source references, context summary, success criteria, autonomy posture, required checks, blockers, and disabled/enabled handoff affordances.
-- [ ] 3.5 Render run state and verification outcome with lifecycle, required checks, evidence state, accepted evidence, policy or actor basis, and failure reason codes.
-- [ ] 3.6 Add responsive behavior for desktop and narrow viewports without introducing mobile-specific product scope.
+- [x] 3.1 Implement the console shell with inbox/list and selected-detail regions.
+- [x] 3.2 Render inbox rows with source summary, actionability, status, blockers, allowed next actions, watermark, loading, empty, and error states.
+- [x] 3.3 Render selected item detail with typed identity, source context, proposed-change status, affected graph links, traces, and safe next actions.
+- [x] 3.4 Render packet readiness with objective, source references, context summary, success criteria, autonomy posture, required checks, blockers, and disabled/enabled handoff affordances.
+- [x] 3.5 Render run state and verification outcome with lifecycle, required checks, evidence state, accepted evidence, policy or actor basis, and failure reason codes.
+- [x] 3.6 Add responsive behavior for desktop and narrow viewports without introducing mobile-specific product scope.
 
 ## 4. Verification And Handoff
 
-- [ ] 4.1 Add focused component tests for inbox selection, item detail, packet readiness, run state, and verification outcome.
+- [x] 4.1 Add focused component tests for inbox selection, item detail, packet readiness, run state, and verification outcome.
 - [ ] 4.2 Add frontend build or type-check verification and document the command in the change summary.
 - [ ] 4.3 Capture rendered desktop and narrow screenshots and compare them against `assets/operator-console-concept.png`.
 - [ ] 4.4 Run OpenSpec validation for the change and the project specs.

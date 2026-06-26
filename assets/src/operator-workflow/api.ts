@@ -153,6 +153,8 @@ export function createOperatorWorkflowApi({ fetcher = fetch }: { fetcher?: Fetch
   };
 }
 
+export type OperatorWorkflowApi = ReturnType<typeof createOperatorWorkflowApi>;
+
 async function request<T>(fetcher: Fetcher, path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetcher(path, {
     headers: { accept: "application/json" },
