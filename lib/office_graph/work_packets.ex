@@ -63,7 +63,7 @@ defmodule OfficeGraph.WorkPackets do
           )
 
         {:ok, packet_result} ->
-          packet_result
+          replay_packet_result!(packet_result, attrs)
 
         {:error, error} ->
           Repo.rollback(error)
@@ -238,13 +238,68 @@ defmodule OfficeGraph.WorkPackets do
 
   defp read_current_version(packet) do
     WorkPacketVersion
-    |> Ash.Query.filter(id == ^packet.current_version_id)
+    |> Ash.Query.filter(
+      id == ^packet.current_version_id and work_packet_id == ^packet.id and
+        organization_id == ^packet.organization_id and workspace_id == ^packet.workspace_id
+    )
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, nil} -> {:error, {:not_found, WorkPacketVersion, packet.current_version_id}}
-      {:ok, version} -> {:ok, version}
-      {:error, error} -> {:error, error}
+      {:ok, nil} ->
+        {:error, {:packet_current_version_mismatch, packet.id, packet.current_version_id}}
+
+      {:ok, version} ->
+        {:ok, version}
+
+      {:error, error} ->
+        {:error, error}
     end
+  end
+
+  defp replay_packet_result!(
+         %{
+           packet: packet,
+           version: version,
+           source_references: source_references,
+           required_checks: required_checks
+         } =
+           packet_result,
+         attrs
+       ) do
+    if same_packet_replay?(packet, version, source_references, required_checks, attrs) do
+      packet_result
+    else
+      Repo.rollback({:work_packet_operation_conflict, packet.id})
+    end
+  end
+
+  defp same_packet_replay?(packet, version, source_references, required_checks, attrs) do
+    packet.title == attrs[:title] and
+      packet.state == packet_lifecycle_state(attrs) and
+      version.work_packet_id == packet.id and
+      version.operation_id == packet.operation_id and
+      version.version_number == 1 and
+      version.lifecycle_state == packet_lifecycle_state(attrs) and
+      version.objective == attrs[:objective] and
+      version.context_summary == attrs[:context_summary] and
+      version.requirements == attrs[:requirements] and
+      version.success_criteria == attrs[:success_criteria] and
+      version.autonomy_posture == attrs[:autonomy_posture] and
+      source_graph_item_ids(source_references) ==
+        MapSet.new(Map.get(attrs, :source_graph_item_ids, [])) and
+      required_check_ids(required_checks) ==
+        MapSet.new(Map.get(attrs, :verification_check_ids, []))
+  end
+
+  defp source_graph_item_ids(source_references) do
+    source_references
+    |> Enum.map(& &1.graph_item_id)
+    |> MapSet.new()
+  end
+
+  defp required_check_ids(required_checks) do
+    required_checks
+    |> Enum.map(& &1.verification_check_id)
+    |> MapSet.new()
   end
 
   defp lock_operation!(operation_id) do

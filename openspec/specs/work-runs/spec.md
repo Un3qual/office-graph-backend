@@ -117,6 +117,14 @@ as the first execution path.
 - **THEN** Office Graph MUST reject the command without creating a work run
   and MUST return an explainable validation or authorization error
 
+#### Scenario: Work run start replay input changes
+
+- **WHEN** a work-run start operation idempotency key is replayed after a work
+  run exists with a different packet version, source surface, reason, or
+  authority posture
+- **THEN** Office Graph MUST reject the replay as an operation conflict instead
+  of returning the work run created for different start input
+
 #### Scenario: Run required checks match the selected packet contract
 
 - **WHEN** a run required-check link is created directly or copied from a

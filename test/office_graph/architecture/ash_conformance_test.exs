@@ -227,8 +227,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       create: {:create, :evidence_link}
     },
     OfficeGraph.WorkGraph.EvidenceItem => %{
-      read: {:read, :skeleton_read},
-      create: {:create, :evidence_link}
+      read: {:read, :skeleton_read}
     },
     OfficeGraph.WorkGraph.VerificationResult => %{
       read: {:read, :skeleton_read}

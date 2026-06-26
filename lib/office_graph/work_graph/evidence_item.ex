@@ -45,6 +45,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,

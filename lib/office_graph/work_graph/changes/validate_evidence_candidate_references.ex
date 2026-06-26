@@ -156,12 +156,22 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
     if row_exists?(
          """
          SELECT 1
-         FROM execution_observations
-         WHERE id = $1::uuid
-           AND work_run_id = $2::uuid
-           AND verification_check_id = $3::uuid
-           AND organization_id = $4::uuid
-           AND workspace_id = $5::uuid
+         FROM execution_observations AS observation
+         JOIN verification_checks AS verification_check
+           ON verification_check.id = $3::uuid
+          AND verification_check.organization_id = $4::uuid
+          AND verification_check.workspace_id = $5::uuid
+         WHERE observation.id = $1::uuid
+           AND observation.work_run_id = $2::uuid
+           AND observation.organization_id = $4::uuid
+           AND observation.workspace_id = $5::uuid
+           AND (
+             observation.verification_check_id = verification_check.id
+             OR (
+               observation.verification_check_id IS NULL
+               AND observation.graph_item_id = verification_check.graph_item_id
+             )
+           )
          LIMIT 1
          """,
          [

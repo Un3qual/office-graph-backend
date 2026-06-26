@@ -133,6 +133,15 @@ first packet-run-verification slice.
   the candidate artifact graph item when an artifact is present, and MUST record
   audit and revision trace rows for the accepted evidence and verification result
 
+#### Scenario: Accepted evidence is command-owned
+
+- **WHEN** accepted evidence is linked to a candidate, work run, acceptance
+  operation, accepted actor, policy basis, and timestamp
+- **THEN** Office Graph MUST derive those accepted-evidence links through the
+  evidence acceptance command instead of exposing a simple resource create that
+  can bypass candidate validation, verification-result creation, audit traces,
+  graph relationships, or run lifecycle updates
+
 #### Scenario: Runless candidate is accepted
 
 - **WHEN** policy or an authorized actor accepts passed evidence for a candidate

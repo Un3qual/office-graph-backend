@@ -258,7 +258,7 @@ defmodule OfficeGraph.Runs do
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
 
-      case existing_run_result(session_context, operation) do
+      case existing_run_result(session_context, operation, packet_version, attrs) do
         {:ok, nil} ->
           packet_version =
             case reload_packet_version(session_context, packet_version) do
@@ -619,7 +619,7 @@ defmodule OfficeGraph.Runs do
     |> Ash.read!(authorize?: false)
   end
 
-  defp existing_run_result(session_context, operation) do
+  defp existing_run_result(session_context, operation, packet_version, attrs) do
     Run
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
@@ -633,13 +633,31 @@ defmodule OfficeGraph.Runs do
 
       {:ok, run} ->
         with {:ok, required_checks} <- read_run_required_checks(run) do
-          {:ok, %{run: run, required_checks: required_checks}}
+          replay_run_result!(%{run: run, required_checks: required_checks}, packet_version, attrs)
         end
 
       {:error, error} ->
         {:error, error}
     end
   end
+
+  defp replay_run_result!(%{run: run} = run_result, packet_version, attrs) do
+    if same_run_replay?(run, packet_version, attrs) do
+      {:ok, run_result}
+    else
+      Repo.rollback({:work_run_operation_conflict, run.id})
+    end
+  end
+
+  defp same_run_replay?(run, packet_version, attrs) do
+    run.work_packet_version_id == packet_version_id(packet_version) and
+      run.authority_posture == attrs[:authority_posture] and
+      run.source_surface == attrs[:source_surface] and
+      run.reason == attrs[:reason]
+  end
+
+  defp packet_version_id(%{id: id}), do: id
+  defp packet_version_id(_packet_version), do: nil
 
   defp reload_packet_version(_session_context, nil), do: {:error, :missing_packet_version}
 

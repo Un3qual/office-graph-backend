@@ -299,6 +299,117 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work packet operation replay rejects changed packet input" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-operation-input-conflict"
+      )
+
+    attrs = %{
+      title: "Replay guarded packet",
+      objective: "Create a packet once.",
+      context_summary: "Packet replay conflict context.",
+      requirements: "Keep operation replays stable.",
+      success_criteria: "The original packet facts are preserved.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [first_check.graph_item_id],
+      verification_check_ids: [first_check.id]
+    }
+
+    assert {:ok, packet_result} = WorkPackets.create_packet(bootstrap.session, operation, attrs)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-operation-input-conflict"
+      )
+
+    packet_id = packet_result.packet.id
+
+    assert {:error, {:work_packet_operation_conflict, ^packet_id}} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, %{
+               attrs
+               | source_graph_item_ids: [second_check.graph_item_id],
+                 verification_check_ids: [second_check.id]
+             })
+  end
+
+  test "work packet replay validates current version ownership" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-current-version-mismatch"
+      )
+
+    attrs = %{
+      title: "Current version guarded packet",
+      objective: "Create the guarded packet.",
+      context_summary: "Current-version replay context.",
+      requirements: "Replay must load this packet version.",
+      success_criteria: "The current version belongs to the packet.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [first_check.graph_item_id],
+      verification_check_ids: [first_check.id]
+    }
+
+    assert {:ok, packet_result} = WorkPackets.create_packet(bootstrap.session, operation, attrs)
+    {:ok, other_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    forge_packet_current_version!(packet_result.packet.id, other_packet.version.id)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-current-version-mismatch"
+      )
+
+    packet_id = packet_result.packet.id
+    other_version_id = other_packet.version.id
+
+    assert {:error, {:packet_current_version_mismatch, ^packet_id, ^other_version_id}} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
+  end
+
+  test "work run start operation replay rejects changed run input" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_packet} = create_ready_packet(bootstrap.session, [first_check])
+    {:ok, second_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "work-run-operation-input-conflict"
+      )
+
+    attrs = %{
+      source_surface: "test",
+      reason: "Start the selected packet once.",
+      authority_posture: "human_supervised"
+    }
+
+    assert {:ok, run_result} =
+             Runs.start_run(bootstrap.session, operation, first_packet.version, attrs)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "work-run-operation-input-conflict"
+      )
+
+    run_id = run_result.run.id
+
+    assert {:error, {:work_run_operation_conflict, ^run_id}} =
+             Runs.start_run(bootstrap.session, replay_operation, second_packet.version, %{
+               attrs
+               | reason: "Changed packet target."
+             })
+  end
+
   test "work run start rejects malformed ready packet versions without execution links" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -653,11 +764,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
   test "domain-owned packet-run create actions are private" do
     for resource <- [
+          WorkPacket,
           Run,
           RunRequiredCheck,
           ExecutionObservation,
           WorkPacketVersion,
-          EvidenceCandidate
+          EvidenceCandidate,
+          EvidenceItem
         ] do
       action = Ash.Resource.Info.action(resource, :create)
 
@@ -1395,6 +1508,53 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, summary} = Runs.get_summary(bootstrap.session, run_result.run.id)
     assert [%{state: "pending"}] = summary.required_checks
     assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
+  end
+
+  test "graph-only observations can back matching evidence candidates" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "graph-only-candidate-observation"
+      )
+
+    assert {:ok, observation_result} =
+             Runs.record_observation(bootstrap.session, observation_operation, run_result.run, %{
+               source_kind: "human",
+               source_identity: "manual:graph-only-candidate-observation",
+               idempotency_key: "graph-only-candidate-observation",
+               observed_status: "passed",
+               normalized_status: "succeeded",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               graph_item_id: verification_check.graph_item_id,
+               rationale: "Graph item identifies the required check."
+             })
+
+    assert observation_result.observation.verification_check_id == nil
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: "graph-only-candidate-observation"
+      )
+
+    assert {:ok, candidate} =
+             Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+               work_run_id: run_result.run.id,
+               verification_check_id: verification_check.id,
+               execution_observation_id: observation_result.observation.id,
+               claim: "Graph-only observations can become candidates.",
+               source_kind: "human",
+               source_identity: "manual:graph-only-candidate-observation",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               sensitivity: "internal"
+             })
+
+    assert candidate.execution_observation_id == observation_result.observation.id
+    assert candidate.verification_check_id == verification_check.id
   end
 
   test "evidence candidate operation replay rejects changed candidate input" do
@@ -2376,6 +2536,17 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       WHERE run_id = $1::uuid AND verification_check_id = $2::uuid
       """,
       [db_uuid(run_id), db_uuid(verification_check_id)]
+    )
+  end
+
+  defp forge_packet_current_version!(packet_id, version_id) do
+    Repo.query!(
+      """
+      UPDATE work_packets
+      SET current_version_id = $1::uuid
+      WHERE id = $2::uuid
+      """,
+      [db_uuid(version_id), db_uuid(packet_id)]
     )
   end
 

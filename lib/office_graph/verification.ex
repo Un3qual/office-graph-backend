@@ -328,12 +328,18 @@ defmodule OfficeGraph.Verification do
   end
 
   defp validate_observation_belongs(observation, work_run, verification_check) do
-    if observation.work_run_id == work_run.id and
-         observation.verification_check_id == verification_check.id do
+    if observation_matches_candidate_check?(observation, work_run, verification_check) do
       :ok
     else
       {:error, {:observation_not_for_candidate_run, observation.id}}
     end
+  end
+
+  defp observation_matches_candidate_check?(observation, work_run, verification_check) do
+    observation.work_run_id == work_run.id and
+      (observation.verification_check_id == verification_check.id or
+         (is_nil(observation.verification_check_id) and
+            observation.graph_item_id == verification_check.graph_item_id))
   end
 
   defp fetch_scoped(resource, session_context, id) do

@@ -37,6 +37,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
     end
 
     create :create do
+      public? false
+
       accept [
         :id,
         :organization_id,

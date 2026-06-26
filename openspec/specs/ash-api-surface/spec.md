@@ -141,13 +141,14 @@ shared domain actions and Ash-owned API surfaces.
 
 #### Scenario: Domain-owned packet-run and evidence creates are not exposed as simple resource creates
 
-- **WHEN** packet-version readiness, work-run lifecycle, run required checks,
-  execution observations, or evidence candidates require command-owned
-  derivation, operation validation, idempotency, evidence-acceptance rules, or
-  packet-contract checks
+- **WHEN** packet creation, packet-version readiness, work-run lifecycle, run
+  required checks, execution observations, evidence candidates, or accepted
+  evidence require command-owned derivation, operation validation, idempotency,
+  evidence-acceptance rules, or packet-contract checks
 - **THEN** Office Graph MUST keep those create actions private to the owning
   domain command and MUST not expose generated public resource creates that let
-  callers choose lifecycle state, candidate state, or child links directly
+  callers choose lifecycle state, candidate state, accepted-evidence state, or
+  child links directly
 
 #### Scenario: Orchestration command spans domains
 
@@ -214,6 +215,22 @@ packet-run-verification flow.
 - **THEN** the shared API context MUST reject the request as an idempotency
   conflict instead of replaying prior durable packet, run, observation,
   candidate, evidence, verification result, or summary records
+
+#### Scenario: Work packet operation replay conflicts
+
+- **WHEN** a work-packet create operation is replayed with a different title,
+  lifecycle-driving packet fields, source graph items, or verification checks
+- **THEN** the work-packet domain MUST reject the replay as an operation
+  conflict instead of returning a packet version recorded for a different
+  packet contract
+
+#### Scenario: Work run start operation replay conflicts
+
+- **WHEN** a work-run start operation is replayed with a different packet
+  version, authority posture, source surface, or reason
+- **THEN** the runs domain MUST reject the replay as an operation conflict
+  instead of returning a run started for a different packet contract or start
+  intent
 
 #### Scenario: Evidence candidate operation replay conflicts
 

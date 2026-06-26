@@ -160,6 +160,21 @@ slice.
 - **THEN** Office Graph MUST treat the version as not ready at work-run start
   time and MUST reject the command without creating a run
 
+#### Scenario: Packet replay input changes
+
+- **WHEN** a work-packet create operation idempotency key is replayed after the
+  packet and first version exist with different packet fields, source graph
+  items, or required verification checks
+- **THEN** Office Graph MUST reject the replay as an operation conflict instead
+  of returning a stale packet contract
+
+#### Scenario: Packet current version pointer is invalid
+
+- **WHEN** a packet operation replay loads a current version pointer that does
+  not belong to the packet and its scope
+- **THEN** Office Graph MUST reject the replay before returning that version's
+  source references or required checks
+
 #### Scenario: Packet is missing verification expectations
 
 - **WHEN** a packet version lacks required checks, success criteria, or an

@@ -168,6 +168,14 @@ candidate without treating the observation as accepted evidence by default.
   references the observation, target check, claim, trust basis, freshness
   state, source, and operation correlation
 
+#### Scenario: Graph-only observation targets a check graph item
+
+- **WHEN** an observation for a work run omits a verification check id but links
+  to the graph item for a required verification check
+- **THEN** Office Graph MUST allow an evidence candidate for that same required
+  check to reference the observation while still rejecting unrelated graph-only
+  observations
+
 #### Scenario: Observation is stale or untrusted
 
 - **WHEN** an observation is stale, untrusted, unauthenticated, unrelated to
