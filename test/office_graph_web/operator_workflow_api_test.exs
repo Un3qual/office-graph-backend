@@ -1,0 +1,323 @@
+defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
+  use OfficeGraphWeb.ConnCase, async: false
+
+  alias OfficeGraph.Foundation
+  alias OfficeGraph.Operations
+  alias OfficeGraph.Runs
+  alias OfficeGraph.Verification
+  alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
+
+  test "GraphQL and JSON expose equivalent operator inbox and item detail", %{conn: conn} do
+    intake =
+      conn
+      |> post(~p"/api/manual-intake", %{
+        source_identity: "manual:api-inbox",
+        replay_identity: "paste:api-inbox",
+        body: "Investigate API inbox state and prove it with accepted evidence."
+      })
+      |> json_response(200)
+
+    json_inbox =
+      conn
+      |> get(~p"/api/operator-workflow/inbox")
+      |> json_response(200)
+
+    graphql_inbox =
+      graphql(
+        conn,
+        """
+        query Inbox {
+          operatorInbox {
+            empty
+            sourceWatermark
+            rows {
+              status
+              allowedNextActions
+              blockerReasons
+              operationWatermark
+              source { identity replayIdentity outcome }
+              proposedChangeStatus { pending applied rejected total }
+            }
+          }
+        }
+        """,
+        %{}
+      )
+
+    assert json_inbox["empty"] == false
+    assert graphql_inbox["empty"] == false
+    assert [json_row] = json_inbox["rows"]
+    assert [graphql_row] = graphql_inbox["rows"]
+    assert json_row["status"] == graphql_row["status"]
+    assert json_row["allowed_next_actions"] == graphql_row["allowedNextActions"]
+    assert json_row["blocker_reasons"] == graphql_row["blockerReasons"]
+    assert json_row["operation_watermark"] == graphql_row["operationWatermark"]
+    assert json_row["source"]["identity"] == graphql_row["source"]["identity"]
+    assert json_row["proposed_change_status"]["pending"] == 4
+    assert graphql_row["proposedChangeStatus"]["pending"] == 4
+
+    ids = Enum.map(intake["proposed_changes"], & &1["id"])
+
+    _applied =
+      conn
+      |> post(~p"/api/proposed-changes/apply", %{ids: ids})
+      |> json_response(200)
+
+    event_id = intake["normalized_event"]["id"]
+
+    json_item =
+      conn
+      |> get(~p"/api/operator-workflow/items/#{event_id}")
+      |> json_response(200)
+
+    graphql_item =
+      graphql(
+        conn,
+        """
+        query Item($id: ID!) {
+          operatorWorkflowItem(id: $id) {
+            status
+            allowedNextActions
+            blockerReasons
+            graphLinks { type id graphItemId state }
+            graphRelationships { relationshipType }
+            auditTrace { resourceCount }
+            revisionTrace { resourceCount }
+          }
+        }
+        """,
+        %{id: event_id}
+      )
+
+    assert json_item["status"] == "ready_for_packet"
+    assert graphql_item["status"] == "ready_for_packet"
+    assert json_item["allowed_next_actions"] == graphql_item["allowedNextActions"]
+
+    assert Enum.map(json_item["graph_links"], & &1["type"]) ==
+             Enum.map(graphql_item["graphLinks"], & &1["type"])
+
+    assert Enum.map(json_item["graph_relationships"], & &1["relationship_type"]) ==
+             Enum.map(graphql_item["graphRelationships"], & &1["relationshipType"])
+
+    assert json_item["audit_trace"]["resource_count"] ==
+             graphql_item["auditTrace"]["resourceCount"]
+
+    assert json_item["revision_trace"]["resource_count"] ==
+             graphql_item["revisionTrace"]["resourceCount"]
+  end
+
+  test "GraphQL and JSON expose equivalent packet readiness and run state", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    readiness_input = %{
+      title: "Ready API packet",
+      objective: "Resolve the selected verification check.",
+      context_summary: "A triaged item is ready for API execution.",
+      requirements: "Use the linked graph item.",
+      success_criteria: "Accepted passing evidence exists.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [verification_check.graph_item_id],
+      verification_check_ids: [verification_check.id]
+    }
+
+    json_readiness =
+      conn
+      |> post(~p"/api/operator-workflow/packet-readiness", readiness_input)
+      |> json_response(200)
+
+    graphql_readiness =
+      graphql(
+        conn,
+        """
+        query Readiness($input: OperatorPacketReadinessInput!) {
+          operatorPacketReadiness(input: $input) {
+            status
+            ready
+            allowedNextActions
+            blockerReasons
+            requiredChecks { id graphItemId state }
+          }
+        }
+        """,
+        %{input: camelize_keys(readiness_input)}
+      )
+
+    assert json_readiness["status"] == graphql_readiness["status"]
+    assert json_readiness["ready"] == graphql_readiness["ready"]
+    assert json_readiness["allowed_next_actions"] == graphql_readiness["allowedNextActions"]
+    assert json_readiness["blocker_reasons"] == graphql_readiness["blockerReasons"]
+
+    assert hd(json_readiness["required_checks"])["id"] ==
+             hd(graphql_readiness["requiredChecks"])["id"]
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "operator-api-run"
+      )
+
+    {:ok, _candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "operator-api-run"
+      )
+
+    json_run_state =
+      conn
+      |> get(~p"/api/operator-workflow/runs/#{run_result.run.id}")
+      |> json_response(200)
+
+    graphql_run_state =
+      graphql(
+        conn,
+        """
+        query RunState($id: ID!) {
+          operatorRunState(id: $id) {
+            status
+            allowedNextActions
+            run { id aggregateState verificationState }
+            missingEvidence { verificationCheckId reason }
+            evidenceCandidates { id state verificationCheckId }
+          }
+        }
+        """,
+        %{id: run_result.run.id}
+      )
+
+    assert json_run_state["status"] == "awaiting_evidence_acceptance"
+    assert graphql_run_state["status"] == "awaiting_evidence_acceptance"
+    assert json_run_state["allowed_next_actions"] == graphql_run_state["allowedNextActions"]
+    assert json_run_state["run"]["id"] == graphql_run_state["run"]["id"]
+
+    assert hd(json_run_state["missing_evidence"])["reason"] ==
+             hd(graphql_run_state["missingEvidence"])["reason"]
+
+    assert hd(json_run_state["evidence_candidates"])["id"] ==
+             hd(graphql_run_state["evidenceCandidates"])["id"]
+  end
+
+  defp graphql(conn, query, variables) do
+    response = raw_graphql(conn, query, variables)
+
+    assert response["errors"] in [nil, []]
+    response["data"] |> Map.values() |> hd()
+  end
+
+  defp raw_graphql(conn, query, variables) do
+    conn
+    |> post(~p"/graphql", %{query: query, variables: variables})
+    |> json_response(200)
+  end
+
+  defp camelize_keys(map) do
+    Map.new(map, fn {key, value} -> {camelize_key(key), value} end)
+  end
+
+  defp camelize_key(key) do
+    key
+    |> Atom.to_string()
+    |> Phoenix.Naming.camelize(:lower)
+  end
+
+  defp create_required_verification_check(session) do
+    {:ok, operation} = Operations.start_operation(session, :proposed_change_apply)
+
+    with {:ok, %{signal: signal}} <-
+           WorkGraph.create_signal(session, operation, %{
+             title: "Operator API signal",
+             body: "Operator API signal body."
+           }),
+         {:ok, %{task: task}} <-
+           WorkGraph.create_task(session, operation, signal, %{
+             title: "Operator API task",
+             body: "Operator API task body."
+           }),
+         {:ok, %{review_finding: review_finding}} <-
+           WorkGraph.create_review_finding(session, operation, task, %{
+             title: "Operator API finding",
+             body: "Operator API finding body."
+           }),
+         {:ok, %{verification_check: verification_check}} <-
+           WorkGraph.create_verification_check(session, operation, review_finding, %{
+             title: "Operator API check",
+             body: "Operator API check body."
+           }) do
+      {:ok, verification_check}
+    end
+  end
+
+  defp create_ready_run(session, verification_check) do
+    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
+
+    {:ok, packet_result} =
+      WorkPackets.create_packet(session, packet_operation, %{
+        title: "Ready operator API packet",
+        objective: "Run selected API work.",
+        context_summary: "Ready API context.",
+        requirements: "Complete selected API work.",
+        success_criteria: "Required API checks pass.",
+        autonomy_posture: "human_supervised",
+        source_graph_item_ids: [verification_check.graph_item_id],
+        verification_check_ids: [verification_check.id]
+      })
+
+    {:ok, run_operation} = Operations.start_operation(session, :work_run_start)
+
+    with {:ok, run_result} <-
+           Runs.start_run(session, run_operation, packet_result.version, %{
+             source_surface: "test",
+             reason: "Execute ready API packet.",
+             authority_posture: "human_supervised"
+           }) do
+      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
+    end
+  end
+
+  defp record_observation(session, run, verification_check, opts) do
+    key = Keyword.fetch!(opts, :key)
+
+    {:ok, operation} =
+      Operations.start_operation(session, :execution_observation_record,
+        idempotency_key: "observation-operation:#{key}"
+      )
+
+    Runs.record_observation(session, operation, run, %{
+      source_kind: "human",
+      source_identity: "manual:#{key}",
+      idempotency_key: "observation:#{key}",
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Human confirmed #{key}."
+    })
+  end
+
+  defp create_evidence_candidate(session, run, verification_check, observation, opts) do
+    key = Keyword.fetch!(opts, :key)
+
+    {:ok, operation} =
+      Operations.start_operation(session, :evidence_candidate_create,
+        idempotency_key: "candidate-operation:#{key}"
+      )
+
+    Verification.create_evidence_candidate(session, operation, %{
+      work_run_id: run.id,
+      verification_check_id: verification_check.id,
+      execution_observation_id: observation.id,
+      claim: "Evidence candidate #{key}.",
+      source_kind: "human",
+      source_identity: "manual:#{key}",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      sensitivity: "internal"
+    })
+  end
+end

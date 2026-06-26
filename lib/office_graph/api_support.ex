@@ -8,6 +8,7 @@ defmodule OfficeGraph.ApiSupport do
       OfficeGraph.Foundation,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
+      OfficeGraph.Projections,
       OfficeGraph.Repo,
       OfficeGraph.ProposedChanges,
       OfficeGraph.Runs,
@@ -20,6 +21,7 @@ defmodule OfficeGraph.ApiSupport do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
+  alias OfficeGraph.Projections
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs
@@ -108,6 +110,40 @@ defmodule OfficeGraph.ApiSupport do
          :ok <- validate_packet_run_evidence_result(input),
          :ok <- validate_packet_run_passed_evidence_input(input) do
       execute_packet_run_verification_transaction(bootstrap.session, input)
+    end
+  end
+
+  def read_operator_inbox(params \\ %{}) do
+    with {:ok, session_context} <- read_session_context(params) do
+      Projections.operator_inbox(session_context)
+    end
+  end
+
+  def read_operator_workflow_item(params) do
+    with {:ok, normalized_event_id} <- required_id(params, :normalized_event_id),
+         {:ok, session_context} <- read_session_context(params) do
+      Projections.operator_workflow_item(session_context, normalized_event_id)
+    end
+  end
+
+  def read_operator_packet_readiness(params) do
+    with {:ok, input} <- packet_readiness_input(params),
+         {:ok, session_context} <- read_session_context(params) do
+      Projections.packet_readiness(session_context, input)
+    end
+  end
+
+  def read_operator_run_state(params) do
+    with {:ok, run_id} <- required_id(params, :run_id),
+         {:ok, session_context} <- read_session_context(params) do
+      Projections.operator_run_state(session_context, run_id)
+    end
+  end
+
+  def read_operator_verification_outcome(params) do
+    with {:ok, run_id} <- required_id(params, :run_id),
+         {:ok, session_context} <- read_session_context(params) do
+      Projections.verification_outcome(session_context, run_id)
     end
   end
 
@@ -231,6 +267,21 @@ defmodule OfficeGraph.ApiSupport do
     end
   end
 
+  defp read_session_context(params) do
+    case value(params, :session_context) do
+      nil ->
+        with {:ok, bootstrap} <- bootstrap_local_api_owner() do
+          {:ok, bootstrap.session}
+        end
+
+      session_context when is_map(session_context) ->
+        {:ok, session_context}
+
+      _other ->
+        {:error, {:invalid_field, :session_context}}
+    end
+  end
+
   defp required_id(params, key) do
     case value(params, key) do
       value when is_binary(value) ->
@@ -270,6 +321,29 @@ defmodule OfficeGraph.ApiSupport do
       value when is_binary(value) -> {:ok, value}
       nil -> {:ok, nil}
       _other -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp packet_readiness_input(params) do
+    with {:ok, source_graph_item_ids} <- optional_id_list(params, :source_graph_item_ids),
+         {:ok, verification_check_ids} <- optional_id_list(params, :verification_check_ids),
+         {:ok, title} <- optional_string(params, :title),
+         {:ok, objective} <- optional_string(params, :objective),
+         {:ok, context_summary} <- optional_string(params, :context_summary),
+         {:ok, requirements} <- optional_string(params, :requirements),
+         {:ok, success_criteria} <- optional_string(params, :success_criteria),
+         {:ok, autonomy_posture} <- optional_string(params, :autonomy_posture) do
+      {:ok,
+       %{
+         title: title,
+         objective: objective,
+         context_summary: context_summary,
+         requirements: requirements,
+         success_criteria: success_criteria,
+         autonomy_posture: autonomy_posture,
+         source_graph_item_ids: source_graph_item_ids,
+         verification_check_ids: verification_check_ids
+       }}
     end
   end
 

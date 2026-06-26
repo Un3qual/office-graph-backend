@@ -7,7 +7,7 @@
   agent runtime execution, broad React UI polish, full graph canvas, generic
   ordered placement, collaborative rich text, mobile, or workflow-builder
   behavior.
-- [ ] 1.3 Confirm GraphQL and JSON API must expose equivalent operator
+- [x] 1.3 Confirm GraphQL and JSON API must expose equivalent operator
   workflow state and command outcomes through shared public functions.
 - [x] 1.4 Confirm projection reads are query-backed and authorization-filtered
   rather than persisted as a new workflow aggregate or render cache.
@@ -32,10 +32,10 @@
 
 ## 3. Operator Commands
 
-- [ ] 3.1 Add shared `OfficeGraph.ApiSupport` functions for reading operator
+- [x] 3.1 Add shared `OfficeGraph.ApiSupport` functions for reading operator
   workflow projections without local bootstrap behavior leaking into
   production-only paths.
-- [ ] 3.2 Reuse existing domain commands for manual intake submission,
+- [x] 3.2 Reuse existing domain commands for manual intake submission,
   proposed-change application, packet creation, work-run start, observation
   recording, evidence candidate creation or acceptance, and verification
   completion.
@@ -51,16 +51,16 @@
 
 ## 4. GraphQL And JSON API
 
-- [ ] 4.1 Add GraphQL query types and resolvers for operator inbox, workflow
+- [x] 4.1 Add GraphQL query types and resolvers for operator inbox, workflow
   item detail, packet readiness, run/evidence state, and verification outcome.
-- [ ] 4.2 Add JSON API routes, controller actions, and serializers for the same
+- [x] 4.2 Add JSON API routes, controller actions, and serializers for the same
   operator workflow projections and commands.
-- [ ] 4.3 Ensure GraphQL and JSON call the same public projection and command
+- [x] 4.3 Ensure GraphQL and JSON call the same public projection and command
   functions and differ only by transport envelope, pagination or filtering
   syntax, and error shape.
-- [ ] 4.4 Add API parity tests proving both transports expose equivalent
+- [x] 4.4 Add API parity tests proving both transports expose equivalent
   business state, allowed next actions, blocker reasons, and error outcomes.
-- [ ] 4.5 Document any frontend-facing status vocabulary, empty-state
+- [x] 4.5 Document any frontend-facing status vocabulary, empty-state
   semantics, source watermark, and refetch or stale-marker behavior in the
   implementation summary or API tests.
 
