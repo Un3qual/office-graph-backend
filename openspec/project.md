@@ -58,11 +58,21 @@ decisions into this file or into formal OpenSpec specs.
   software review/fix/verification as the first deep proving workflow.
   Department-specific workflow packs are an expansion pattern, not the first
   product surface.
+- First buyer, daily user, and metric: target AI-forward company leadership,
+  operations leadership, AI/platform leadership, or department leaders who own
+  governed human-agent execution across teams; the daily user is a
+  cross-functional work owner or agent operator who turns messy signals into
+  work packets, work runs, and evidence-backed decisions; the flagship metric
+  is packet-backed verified completion rate across selected cross-functional
+  workflows. Software review/fix/verification remains the first high-fidelity
+  proving workflow, but it must not make the buyer, user, or metric
+  engineering-only.
 - Linear is not a concern for the initial planning slice.
 - OpenSpec is only the workflow for building Office Graph. Office Graph product
   features are not inherently OpenSpec features.
-- Retire GraphPatch as product language. Keep the underlying safety pattern as
-  structured proposed graph changes that apply through validated domain actions.
+- Retire GraphPatch and `proposed_graph_change` as product language. Keep the
+  underlying safety pattern as structured change proposals that apply through
+  validated domain actions.
 - Backend extensibility is a first-order requirement. New capabilities should
   feel like natural additions to the domain model rather than late add-ons that
   require broad rewrites.
@@ -155,9 +165,14 @@ decisions into this file or into formal OpenSpec specs.
 - MVP frame: agent-governed company work graph. The graph is the system of
   record, the internal runtime makes the graph active, and department packs are
   later extensions over shared primitives.
+- First buyer/user/metric frame: AI-forward cross-functional leaders buy
+  governed human-agent execution; cross-functional work owners and agent
+  operators use it daily; the flagship metric is packet-backed verified
+  completion rate across selected workflows.
 - Early proving workflow: software teams delegating work to humans and agents,
   including PR review comments, fixes, commits, Sentry events, CI results, and
-  code-review evidence.
+  code-review evidence. This is the first deep proof point, not a restriction
+  on the company-wide product frame.
 - Core loop: signal -> question -> decision -> work packet or execution package
   -> human or agent run -> evidence -> verification -> reusable context.
 - Signal sources should eventually include anything an organization uses:
@@ -265,7 +280,7 @@ Locked or strongly preferred technical direction:
 - Evidence: proof or counterproof attached to a check, task, run, or
   requirement. Examples include a merged PR, passing CI run, Sentry quiet
   period, human approval, test result, or review decision.
-- Proposed graph change: a structured mutation proposal to the graph. Agents may
+- Change proposal: a structured mutation proposal to the graph. Agents may
   propose changes, but validation, permissions, and domain actions decide what
   becomes true.
 - External reference: a typed link between an Office Graph record and a record
@@ -284,7 +299,7 @@ Locked or strongly preferred technical direction:
   human-only handling.
 - Agent runtime: Office Graph's managed environment for graph-aware agents that
   can converse about selected graph items, run automatic reviews, produce
-  findings, propose graph changes, and perform approved tool actions.
+  findings, create change proposals, and perform approved tool actions.
 - Automatic agent: an agent attached to a graph item, workflow, trigger, or
   completion event. Examples include code review, security review, spec review,
   plan review, finance review, campaign review, or brand review agents.

@@ -36,7 +36,7 @@ Office Graph SHALL include an executable test for the full first product loop.
 
 - **WHEN** the test suite executes the primary walking-skeleton scenario
 - **THEN** it MUST prove bootstrap, manual intake, raw archive/idempotency,
-  proposed change validation/application, task creation, review finding
+  change proposal validation/application, task creation, review finding
   creation, required verification check creation, evidence linking,
   verification result creation, and verified completion
 
@@ -72,8 +72,8 @@ Office Graph SHALL test duplicate manual intake handling.
 - **WHEN** the same manual intake source identity and replay identity are
   submitted more than once
 - **THEN** the test suite MUST prove Office Graph does not create duplicate
-  signals, tasks, review findings, checks, evidence, artifacts, or proposed
-  changes unless an explicit conflict/review path is selected
+  signals, tasks, review findings, checks, evidence, artifacts, or change
+  proposals unless an explicit conflict/review path is selected
 
 ### Requirement: API Smoke Tests
 

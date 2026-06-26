@@ -14,7 +14,7 @@ models, and model classes may receive particular categories of data.
 #### Scenario: Model call is prepared
 
 - **WHEN** Office Graph prepares a model call for an agent, embedded
-  conversation, review, summarization, or proposed graph change
+  conversation, review, summarization, or change proposal
 - **THEN** the system must evaluate organization AI provider policy against
   resource sensitivity labels, data categories, tool context, requested model,
   provider terms, and retention settings

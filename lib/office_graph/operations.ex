@@ -15,6 +15,11 @@ defmodule OfficeGraph.Operations do
     proposed_change_apply: "proposed_change.apply",
     evidence_link: "evidence.link",
     verification_complete: "verification.complete",
+    work_packet_create: "work_packet.create",
+    work_run_start: "work_run.start",
+    execution_observation_record: "execution_observation.record",
+    evidence_candidate_create: "evidence_candidate.create",
+    evidence_accept: "evidence.accept",
     skeleton_read: "skeleton.read"
   }
 
@@ -69,11 +74,15 @@ defmodule OfficeGraph.Operations do
     |> Ash.Changeset.for_create(:create, operation_attrs)
     |> Ash.create(
       authorize?: false,
+      return_notifications?: true,
       upsert?: not is_nil(idempotency_key),
       upsert_identity: :unique_idempotency_key,
       upsert_fields: []
     )
     |> case do
+      {:ok, operation, _notifications} ->
+        {:ok, operation}
+
       {:ok, operation} ->
         {:ok, operation}
 

@@ -9,10 +9,14 @@ defmodule OfficeGraph.Content do
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Repo
 
+  require Ash.Query
+
   @document_operation_capabilities %{
     "manual_intake.submit" => :manual_intake_submit,
     "proposed_change.apply" => :proposed_change_apply,
-    "verification.complete" => :verification_complete
+    "verification.complete" => :verification_complete,
+    "work_packet.create" => :work_packet_create,
+    "evidence.accept" => :evidence_accept
   }
   @document_operation_actions Map.keys(@document_operation_capabilities)
 
@@ -54,6 +58,29 @@ defmodule OfficeGraph.Content do
         {:ok, document} -> {:ok, document}
         {:error, error} -> {:error, error}
       end
+    end
+  end
+
+  def plain_text_for_document(session_context, document_id) do
+    Document
+    |> Ash.Query.filter(id == ^document_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok,
+       %{
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         plain_text: plain_text
+       }}
+      when organization_id == session_context.organization_id and
+             workspace_id == session_context.workspace_id ->
+        {:ok, plain_text}
+
+      {:ok, _missing_or_cross_scope} ->
+        {:error, {:not_found, Document, document_id}}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

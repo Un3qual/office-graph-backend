@@ -4,7 +4,20 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.{Foundation, Integrations, Operations, Repo, Tenancy}
+
+  alias OfficeGraph.{
+    ApiSupport,
+    Foundation,
+    Integrations,
+    Operations,
+    Repo,
+    Runs,
+    Tenancy,
+    Verification
+  }
+
+  alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   test "manual intake retries recover proposed changes after proposed-change creation fails" do
     suffix = System.unique_integer([:positive])
@@ -524,6 +537,834 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "work packet creation is idempotent under operation replay races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "work-packet-create-race-#{suffix}"
+    workspace_slug = "work-packet-create-race-workspace-#{suffix}"
+    owner_email = "work-packet-create-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, packet_operation, attrs} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Work Packet Create Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Work Packet Create Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Work Packet Create Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "packet-#{suffix}")
+
+          {:ok, packet_operation} =
+            Operations.start_operation(bootstrap.session, :work_packet_create,
+              idempotency_key: "work-packet-create-race-#{suffix}"
+            )
+
+          install_work_packet_insert_barrier!(packet_operation.id)
+
+          attrs = %{
+            title: "Concurrent packet #{suffix}",
+            objective: "Create one packet for one operation.",
+            context_summary: "Concurrent packet creation context.",
+            requirements: "Serialize packet creation.",
+            success_criteria: "Only one packet is created.",
+            autonomy_posture: "human_supervised",
+            source_graph_item_ids: [verification_check.graph_item_id],
+            verification_check_ids: [verification_check.id]
+          }
+
+          {bootstrap, packet_operation, attrs}
+        end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              WorkPackets.create_packet(bootstrap.session, packet_operation, attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.packet.id == second.packet.id
+      assert first.version.id == second.version.id
+
+      assert {1, 1} =
+               with_unboxed_connection(fn ->
+                 packet_creation_counts(packet_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_work_packet_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "work run creation is idempotent under operation replay races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "work-run-create-race-#{suffix}"
+    workspace_slug = "work-run-create-race-workspace-#{suffix}"
+    owner_email = "work-run-create-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, packet_version, run_operation} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Work Run Create Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Work Run Create Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Work Run Create Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "run-#{suffix}")
+
+          {:ok, packet_result} =
+            create_concurrency_ready_packet(bootstrap.session, [verification_check], suffix)
+
+          {:ok, run_operation} =
+            Operations.start_operation(bootstrap.session, :work_run_start,
+              idempotency_key: "work-run-create-race-#{suffix}"
+            )
+
+          install_work_run_insert_barrier!(run_operation.id)
+
+          {bootstrap, packet_result.version, run_operation}
+        end)
+
+      attrs = %{
+        source_surface: "concurrency_test",
+        reason: "Create one run for one operation.",
+        authority_posture: "human_supervised"
+      }
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Runs.start_run(bootstrap.session, run_operation, packet_version, attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.run.id == second.run.id
+
+      assert {1, 1} =
+               with_unboxed_connection(fn ->
+                 run_creation_counts(run_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_work_run_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "evidence candidate creation is idempotent under operation replay races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-candidate-create-race-#{suffix}"
+    workspace_slug = "evidence-candidate-create-race-workspace-#{suffix}"
+    owner_email = "evidence-candidate-create-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, candidate_operation, attrs} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Candidate Create Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Candidate Create Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Candidate Create Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "candidate-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [verification_check], suffix)
+
+          {:ok, observation_result} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              verification_check,
+              "candidate-#{suffix}"
+            )
+
+          {:ok, candidate_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+              idempotency_key: "evidence-candidate-create-race-#{suffix}"
+            )
+
+          install_evidence_candidate_insert_barrier!(candidate_operation.id)
+
+          attrs = %{
+            work_run_id: run_result.run.id,
+            verification_check_id: verification_check.id,
+            execution_observation_id: observation_result.observation.id,
+            claim: "Concurrent evidence candidate #{suffix}.",
+            source_kind: "provider_check",
+            source_identity: "provider:evidence-candidate-create-race-#{suffix}",
+            freshness_state: "fresh",
+            trust_basis: "signed_provider_payload",
+            sensitivity: "internal"
+          }
+
+          {bootstrap, candidate_operation, attrs}
+        end)
+
+      results =
+        1..2
+        |> Enum.map(fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Verification.create_evidence_candidate(
+                bootstrap.session,
+                candidate_operation,
+                attrs
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.id == second.id
+
+      assert 1 =
+               with_unboxed_connection(fn ->
+                 evidence_candidate_creation_count(candidate_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_evidence_candidate_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "evidence acceptance replays after concurrent candidate locking" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-accept-race-#{suffix}"
+    workspace_slug = "evidence-accept-race-workspace-#{suffix}"
+    owner_email = "evidence-accept-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, candidate, acceptance_operation} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Accept Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Accept Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Accept Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "accept-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [verification_check], suffix)
+
+          {:ok, observation_result} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              verification_check,
+              "accept-#{suffix}"
+            )
+
+          {:ok, candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              verification_check,
+              observation_result.observation,
+              "accept-#{suffix}"
+            )
+
+          {:ok, acceptance_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_accept,
+              idempotency_key: "evidence-accept-race-#{suffix}"
+            )
+
+          install_evidence_item_insert_barrier!(candidate.id)
+
+          {bootstrap, candidate, acceptance_operation}
+        end)
+
+      results =
+        1..2
+        |> Enum.map(fn _index ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Verification.accept_evidence_candidate(
+                bootstrap.session,
+                acceptance_operation,
+                candidate,
+                %{
+                  title: "Concurrent accepted evidence",
+                  body: "Concurrent accepted evidence body.",
+                  result: "passed",
+                  acceptance_policy_basis: "owner_acceptance"
+                }
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.evidence_item.id == second.evidence_item.id
+      assert first.verification_result.id == second.verification_result.id
+
+      assert {1, 1} =
+               with_unboxed_connection(fn ->
+                 evidence_acceptance_counts(candidate.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_evidence_item_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "evidence acceptance replays one operation across different candidate locks" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-accept-operation-race-#{suffix}"
+    workspace_slug = "evidence-accept-operation-race-workspace-#{suffix}"
+    owner_email = "evidence-accept-operation-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, first_candidate, second_candidate, acceptance_operation} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Accept Operation Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Accept Operation Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Accept Operation Race Owner"
+            )
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(bootstrap.session, "accept-first-#{suffix}")
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(bootstrap.session, "accept-second-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [first_check, second_check], suffix)
+
+          {:ok, first_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              "accept-first-#{suffix}"
+            )
+
+          {:ok, second_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              "accept-second-#{suffix}"
+            )
+
+          {:ok, first_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              first_observation.observation,
+              "accept-first-#{suffix}"
+            )
+
+          {:ok, second_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              second_observation.observation,
+              "accept-second-#{suffix}"
+            )
+
+          {:ok, acceptance_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_accept,
+              idempotency_key: "evidence-accept-operation-race-#{suffix}"
+            )
+
+          install_evidence_item_operation_insert_barrier!(acceptance_operation.id)
+
+          {bootstrap, first_candidate, second_candidate, acceptance_operation}
+        end)
+
+      results =
+        [first_candidate, second_candidate]
+        |> Enum.with_index(1)
+        |> Enum.map(fn {candidate, index} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Verification.accept_evidence_candidate(
+                bootstrap.session,
+                acceptance_operation,
+                candidate,
+                %{
+                  title: "Concurrent operation accepted evidence #{index}",
+                  body: "Concurrent operation accepted evidence body #{index}.",
+                  result: "passed",
+                  acceptance_policy_basis: "owner_acceptance"
+                }
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      successes = for {:ok, accepted} <- results, do: accepted
+      conflicts = for {:error, {:evidence_acceptance_operation_conflict, id}} <- results, do: id
+
+      assert [accepted] = successes
+      assert [accepted.evidence_item.id] == conflicts
+
+      assert {1, 1} =
+               with_unboxed_connection(fn ->
+                 evidence_acceptance_operation_counts(acceptance_operation.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_evidence_item_operation_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "packet run API rolls back partial flow state when concurrent observation keys conflict" do
+    suffix = System.unique_integer([:positive])
+    shared_source_identity = "provider:api-observation-race-#{suffix}"
+    shared_observation_key = "api-observation-race-#{suffix}"
+
+    try do
+      {first_attrs, second_attrs} =
+        with_unboxed_connection(fn ->
+          cleanup_work_run_verification_scope!("office-graph")
+          cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+
+          {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "api-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "api-observation-race-second-#{suffix}"
+            )
+
+          install_execution_observation_insert_barrier!(shared_observation_key)
+
+          {
+            packet_run_flow_attrs(
+              "api-observation-race-first-#{suffix}",
+              first_check,
+              shared_source_identity,
+              shared_observation_key
+            ),
+            packet_run_flow_attrs(
+              "api-observation-race-second-#{suffix}",
+              second_check,
+              shared_source_identity,
+              shared_observation_key
+            )
+          }
+        end)
+
+      results =
+        [first_attrs, second_attrs]
+        |> Enum.map(fn attrs ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              {attrs, ApiSupport.execute_packet_run_verification(attrs)}
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [{_successful_attrs, {:ok, summary}}] =
+               Enum.filter(results, fn {_attrs, result} -> match?({:ok, _summary}, result) end)
+
+      assert summary.run.aggregate_state == "verified"
+
+      assert [{failed_attrs, {:error, _error}}] =
+               Enum.filter(results, fn {_attrs, result} -> match?({:error, _error}, result) end)
+
+      assert {0, 0, 0} =
+               with_unboxed_connection(fn ->
+                 packet_run_flow_state_counts(failed_attrs.flow_identity)
+               end)
+
+      corrected_attrs =
+        Map.put(
+          failed_attrs,
+          :observation_idempotency_key,
+          "api-observation-race-corrected-#{suffix}"
+        )
+
+      assert {:ok, corrected_summary} =
+               with_unboxed_connection(fn ->
+                 ApiSupport.execute_packet_run_verification(corrected_attrs)
+               end)
+
+      assert corrected_summary.run.aggregate_state == "verified"
+    after
+      with_unboxed_connection(fn ->
+        drop_execution_observation_insert_barrier!()
+        cleanup_work_run_verification_scope!("office-graph")
+        cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+      end)
+    end
+  end
+
+  test "standalone observation recording serializes source idempotency replays" do
+    suffix = System.unique_integer([:positive])
+    shared_source_identity = "provider:standalone-observation-race-#{suffix}"
+    shared_observation_key = "standalone-observation-race-#{suffix}"
+
+    try do
+      {bootstrap, first_check, second_check, first_run, second_run, first_operation,
+       second_operation} =
+        with_unboxed_connection(fn ->
+          cleanup_work_run_verification_scope!("office-graph")
+          cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+
+          {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "standalone-observation-race-second-#{suffix}"
+            )
+
+          {:ok, first_run} =
+            create_concurrency_ready_run(
+              bootstrap.session,
+              [first_check],
+              "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_run} =
+            create_concurrency_ready_run(
+              bootstrap.session,
+              [second_check],
+              "standalone-observation-race-second-#{suffix}"
+            )
+
+          {:ok, first_operation} =
+            Operations.start_operation(bootstrap.session, :execution_observation_record,
+              idempotency_key: "standalone-observation-race-first-#{suffix}"
+            )
+
+          {:ok, second_operation} =
+            Operations.start_operation(bootstrap.session, :execution_observation_record,
+              idempotency_key: "standalone-observation-race-second-#{suffix}"
+            )
+
+          install_execution_observation_insert_barrier!(shared_observation_key)
+
+          {bootstrap, first_check, second_check, first_run, second_run, first_operation,
+           second_operation}
+        end)
+
+      first_attrs =
+        standalone_observation_attrs(first_check, shared_source_identity, shared_observation_key)
+
+      second_attrs =
+        standalone_observation_attrs(second_check, shared_source_identity, shared_observation_key)
+
+      results =
+        [
+          {first_operation, first_run.run, first_attrs},
+          {second_operation, second_run.run, second_attrs}
+        ]
+        |> Enum.map(fn {operation, run, attrs} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Runs.record_observation(bootstrap.session, operation, run, attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [successful] = for({:ok, result} <- results, do: result)
+
+      assert [successful.observation.id] ==
+               for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 observation_source_key_count(shared_source_identity, shared_observation_key)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_execution_observation_insert_barrier!()
+        cleanup_work_run_verification_scope!("office-graph")
+        cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+      end)
+    end
+  end
+
+  test "runless evidence acceptance follows completion lock order under direct completion races" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "runless-completion-race-#{suffix}"
+    workspace_slug = "runless-completion-race-workspace-#{suffix}"
+    owner_email = "runless-completion-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, verification_check, candidate, acceptance_operation, completion_operation} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Runless Completion Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Runless Completion Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Runless Completion Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "runless-completion-race-#{suffix}"
+            )
+
+          {:ok, candidate_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+              idempotency_key: "runless-completion-race-candidate-#{suffix}"
+            )
+
+          {:ok, candidate} =
+            Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+              verification_check_id: verification_check.id,
+              claim: "Runless candidate races with direct completion.",
+              source_kind: "human_note",
+              source_identity: "manual:runless-completion-race-#{suffix}",
+              freshness_state: "fresh",
+              trust_basis: "owner_attested",
+              sensitivity: "internal"
+            })
+
+          {:ok, acceptance_operation} =
+            Operations.start_operation(bootstrap.session, :evidence_accept,
+              idempotency_key: "runless-completion-race-accept-#{suffix}"
+            )
+
+          {:ok, completion_operation} =
+            Operations.start_operation(bootstrap.session, :verification_complete,
+              idempotency_key: "runless-completion-race-complete-#{suffix}"
+            )
+
+          install_verification_result_insert_barrier!(verification_check.id)
+
+          {bootstrap, verification_check, candidate, acceptance_operation, completion_operation}
+        end)
+
+      results =
+        [
+          fn ->
+            Verification.accept_evidence_candidate(
+              bootstrap.session,
+              acceptance_operation,
+              candidate,
+              %{
+                title: "Runless race evidence",
+                body: "Runless candidate evidence accepted in a race.",
+                result: "passed",
+                acceptance_policy_basis: "owner_acceptance"
+              }
+            )
+          end,
+          fn ->
+            Verification.complete_with_evidence(
+              bootstrap.session,
+              completion_operation,
+              verification_check,
+              %{
+                title: "Direct race evidence",
+                body: "Direct completion evidence accepted in a race.",
+                artifact_uri: "https://example.test/runless-completion-race/#{suffix}"
+              }
+            )
+          end
+        ]
+        |> Enum.map(fn fun ->
+          Task.async(fn ->
+            with_unboxed_connection(fun)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      successes = for {:ok, result} <- results, do: result
+      invalid_statuses = for {:error, {:invalid_verification_check_status, id}} <- results, do: id
+
+      assert [_success] = successes
+      assert [verification_check.id] == invalid_statuses
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 no_run_verification_result_count(verification_check.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_verification_result_insert_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "concurrent evidence acceptance verifies run once all required checks are satisfied" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "run-verification-race-#{suffix}"
+    workspace_slug = "run-verification-race-workspace-#{suffix}"
+    owner_email = "run-verification-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, run_id, first_candidate, second_candidate} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Run Verification Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Run Verification Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Run Verification Race Owner"
+            )
+
+          {:ok, first_check} =
+            create_concurrency_verification_check(bootstrap.session, "first-#{suffix}")
+
+          {:ok, second_check} =
+            create_concurrency_verification_check(bootstrap.session, "second-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [first_check, second_check], suffix)
+
+          {:ok, first_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              "first-#{suffix}"
+            )
+
+          {:ok, second_observation} =
+            record_concurrency_observation(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              "second-#{suffix}"
+            )
+
+          {:ok, first_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              first_check,
+              first_observation.observation,
+              "first-#{suffix}"
+            )
+
+          {:ok, second_candidate} =
+            create_concurrency_candidate(
+              bootstrap.session,
+              run_result.run,
+              second_check,
+              second_observation.observation,
+              "second-#{suffix}"
+            )
+
+          install_run_required_check_update_barrier!(run_result.run.id)
+
+          {bootstrap, run_result.run.id, first_candidate, second_candidate}
+        end)
+
+      results =
+        [first_candidate, second_candidate]
+        |> Enum.with_index(1)
+        |> Enum.map(fn {candidate, index} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              {:ok, operation} =
+                Operations.start_operation(bootstrap.session, :evidence_accept,
+                  idempotency_key: "run-verification-race-accept-#{suffix}-#{index}"
+                )
+
+              Verification.accept_evidence_candidate(bootstrap.session, operation, candidate, %{
+                title: "Concurrent evidence #{index}",
+                body: "Concurrent evidence body #{index}.",
+                result: "passed",
+                acceptance_policy_basis: "owner_acceptance"
+              })
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, _first_accepted}, {:ok, _second_accepted}] = results
+
+      with_unboxed_connection(fn ->
+        {:ok, summary} = Runs.get_summary(bootstrap.session, run_id)
+
+        assert Enum.all?(summary.required_checks, &(&1.state == "satisfied"))
+        assert summary.run.aggregate_state == "verified"
+        assert summary.run.verification_state == "verified"
+      end)
+    after
+      with_unboxed_connection(fn ->
+        drop_run_required_check_update_barrier!()
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
   test "manual intake proposed change creation is idempotent under absent-set races" do
     suffix = System.unique_integer([:positive])
     organization_id = Ecto.UUID.generate()
@@ -624,6 +1465,150 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
         Sandbox.checkin(Repo)
       end
     end
+  end
+
+  defp create_concurrency_verification_check(session, label) do
+    {:ok, operation} = Operations.start_operation(session, :proposed_change_apply)
+
+    with {:ok, %{signal: signal}} <-
+           WorkGraph.create_signal(session, operation, %{
+             title: "Concurrency signal #{label}",
+             body: "Concurrency signal body #{label}."
+           }),
+         {:ok, %{task: task}} <-
+           WorkGraph.create_task(session, operation, signal, %{
+             title: "Concurrency task #{label}",
+             body: "Concurrency task body #{label}."
+           }),
+         {:ok, %{review_finding: review_finding}} <-
+           WorkGraph.create_review_finding(session, operation, task, %{
+             title: "Concurrency finding #{label}",
+             body: "Concurrency finding body #{label}."
+           }),
+         {:ok, %{verification_check: verification_check}} <-
+           WorkGraph.create_verification_check(session, operation, review_finding, %{
+             title: "Concurrency check #{label}",
+             body: "Concurrency check body #{label}."
+           }) do
+      {:ok, verification_check}
+    end
+  end
+
+  defp create_concurrency_ready_run(session, verification_checks, suffix) do
+    with {:ok, packet_result} <-
+           create_concurrency_ready_packet(session, verification_checks, suffix),
+         {:ok, run_operation} <-
+           Operations.start_operation(session, :work_run_start,
+             idempotency_key: "run-verification-race-run-#{suffix}"
+           ) do
+      Runs.start_run(session, run_operation, packet_result.version, %{
+        source_surface: "concurrency_test",
+        reason: "Exercise concurrent evidence acceptance.",
+        authority_posture: "human_supervised"
+      })
+    end
+  end
+
+  defp create_concurrency_ready_packet(session, verification_checks, suffix) do
+    {:ok, packet_operation} =
+      Operations.start_operation(session, :work_packet_create,
+        idempotency_key: "run-verification-race-packet-#{suffix}"
+      )
+
+    WorkPackets.create_packet(session, packet_operation, %{
+      title: "Concurrency packet #{suffix}",
+      objective: "Run concurrent evidence acceptance.",
+      context_summary: "Concurrent acceptance context.",
+      requirements: "Complete both required checks.",
+      success_criteria: "Both checks have accepted evidence.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+      verification_check_ids: Enum.map(verification_checks, & &1.id)
+    })
+  end
+
+  defp record_concurrency_observation(session, run, verification_check, key) do
+    {:ok, operation} =
+      Operations.start_operation(session, :execution_observation_record,
+        idempotency_key: "run-verification-race-observation-operation-#{key}"
+      )
+
+    Runs.record_observation(session, operation, run, %{
+      source_kind: "provider_check",
+      source_identity: "provider:run-verification-race-#{key}",
+      idempotency_key: "run-verification-race-observation-#{key}",
+      observed_status: "success",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider check #{key} succeeded."
+    })
+  end
+
+  defp packet_run_flow_attrs(label, verification_check, source_identity, observation_key) do
+    %{
+      flow_identity: "packet-run-#{label}",
+      verification_check_id: verification_check.id,
+      source_graph_item_id: verification_check.graph_item_id,
+      packet_title: "Verify #{label} readiness",
+      objective: "Confirm #{label} has passing evidence.",
+      context_summary: "#{label} context collected from the graph.",
+      requirements: "Review #{label} blockers.",
+      success_criteria: "The required verification check has accepted evidence.",
+      autonomy_posture: "human_supervised",
+      source_surface: "concurrency_test",
+      reason: "Execute #{label} packet.",
+      authority_posture: "human_supervised",
+      observation_source_kind: "provider_check",
+      observation_source_identity: source_identity,
+      observation_idempotency_key: observation_key,
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      observation_rationale: "Provider confirmed #{label} passed.",
+      evidence_claim: "#{label} passed.",
+      evidence_title: "#{label} check passed",
+      evidence_body: "The #{label} check passed.",
+      evidence_result: "passed",
+      acceptance_policy_basis: "owner_acceptance"
+    }
+  end
+
+  defp standalone_observation_attrs(verification_check, source_identity, observation_key) do
+    %{
+      source_kind: "provider_check",
+      source_identity: source_identity,
+      idempotency_key: observation_key,
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Provider confirmed the standalone observation."
+    }
+  end
+
+  defp create_concurrency_candidate(session, run, verification_check, observation, key) do
+    {:ok, operation} =
+      Operations.start_operation(session, :evidence_candidate_create,
+        idempotency_key: "run-verification-race-candidate-#{key}"
+      )
+
+    Verification.create_evidence_candidate(session, operation, %{
+      work_run_id: run.id,
+      verification_check_id: verification_check.id,
+      execution_observation_id: observation.id,
+      claim: "Concurrency evidence candidate #{key}.",
+      source_kind: "provider_check",
+      source_identity: "provider:run-verification-race-#{key}",
+      freshness_state: "fresh",
+      trust_basis: "signed_provider_payload",
+      sensitivity: "internal"
+    })
   end
 
   defp insert_minimal_session_scope!(
@@ -902,6 +1887,143 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
           AND idempotency_key = $2
         """,
         [db_uuid(organization_id), idempotency_key]
+      )
+
+    count
+  end
+
+  defp packet_creation_counts(operation_id) do
+    %{rows: [[packet_count, version_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM work_packets WHERE operation_id = $1::uuid),
+          (SELECT count(*) FROM work_packet_versions WHERE operation_id = $1::uuid)
+        """,
+        [db_uuid(operation_id)]
+      )
+
+    {packet_count, version_count}
+  end
+
+  defp run_creation_counts(operation_id) do
+    %{rows: [[run_count, required_check_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM runs WHERE operation_id = $1::uuid),
+          (SELECT count(*)
+           FROM run_required_checks
+           WHERE run_id IN (SELECT id FROM runs WHERE operation_id = $1::uuid))
+        """,
+        [db_uuid(operation_id)]
+      )
+
+    {run_count, required_check_count}
+  end
+
+  defp evidence_candidate_creation_count(operation_id) do
+    %{rows: [[candidate_count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM evidence_candidates
+        WHERE operation_id = $1::uuid
+        """,
+        [db_uuid(operation_id)]
+      )
+
+    candidate_count
+  end
+
+  defp evidence_acceptance_counts(candidate_id) do
+    %{rows: [[evidence_item_count, verification_result_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM evidence_items WHERE candidate_id = $1::uuid),
+          (SELECT count(*)
+           FROM verification_results
+           WHERE evidence_item_id IN (
+             SELECT id FROM evidence_items WHERE candidate_id = $1::uuid
+           ))
+        """,
+        [db_uuid(candidate_id)]
+      )
+
+    {evidence_item_count, verification_result_count}
+  end
+
+  defp evidence_acceptance_operation_counts(operation_id) do
+    %{rows: [[evidence_item_count, verification_result_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM evidence_items WHERE acceptance_operation_id = $1::uuid),
+          (SELECT count(*)
+           FROM verification_results
+           WHERE evidence_item_id IN (
+             SELECT id FROM evidence_items WHERE acceptance_operation_id = $1::uuid
+           ))
+        """,
+        [db_uuid(operation_id)]
+      )
+
+    {evidence_item_count, verification_result_count}
+  end
+
+  defp packet_run_flow_state_counts(flow_identity) do
+    operation_key_pattern = "packet-run-verification:#{flow_identity}:%"
+
+    %{rows: [[operation_count, packet_count, run_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*)
+           FROM operation_correlations
+           WHERE idempotency_key LIKE $1),
+          (SELECT count(*)
+           FROM work_packets
+           WHERE operation_id IN (
+             SELECT id FROM operation_correlations WHERE idempotency_key LIKE $1
+           )),
+          (SELECT count(*)
+           FROM runs
+           WHERE operation_id IN (
+             SELECT id FROM operation_correlations WHERE idempotency_key LIKE $1
+           ))
+        """,
+        [operation_key_pattern]
+      )
+
+    {operation_count, packet_count, run_count}
+  end
+
+  defp observation_source_key_count(source_identity, idempotency_key) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM execution_observations
+        WHERE source_identity = $1
+          AND idempotency_key = $2
+        """,
+        [source_identity, idempotency_key]
+      )
+
+    count
+  end
+
+  defp no_run_verification_result_count(verification_check_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM verification_results
+        WHERE verification_check_id = $1::uuid
+          AND work_run_id IS NULL
+        """,
+        [db_uuid(verification_check_id)]
       )
 
     count
@@ -1275,6 +2397,469 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
   end
 
+  defp install_work_packet_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_work_packet_insert_barrier ON work_packets"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_packet_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_work_packet_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98101, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98102, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98102, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98101, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98102, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98102, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_work_packet_insert_barrier
+    BEFORE INSERT ON work_packets
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_work_packet_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_work_packet_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_work_packet_insert_barrier ON work_packets"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_packet_insert_barrier()")
+  end
+
+  defp install_work_run_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_work_run_insert_barrier ON runs")
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_run_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_work_run_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98201, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98202, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98202, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98201, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98202, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98202, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_work_run_insert_barrier
+    BEFORE INSERT ON runs
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_work_run_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_work_run_insert_barrier! do
+    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_work_run_insert_barrier ON runs")
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_run_insert_barrier()")
+  end
+
+  defp install_evidence_candidate_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_candidate_insert_barrier ON evidence_candidates"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_candidate_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_evidence_candidate_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98251, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98252, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98252, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98251, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98252, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98252, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_evidence_candidate_insert_barrier
+    BEFORE INSERT ON evidence_candidates
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_evidence_candidate_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_evidence_candidate_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_candidate_insert_barrier ON evidence_candidates"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_candidate_insert_barrier()")
+  end
+
+  defp install_evidence_item_insert_barrier!(candidate_id) do
+    %{rows: [[quoted_candidate_id]]} = Repo.query!("SELECT quote_literal($1)", [candidate_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_item_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_evidence_item_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      candidate_hash integer := hashtext(NEW.candidate_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.candidate_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98301, candidate_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98302, candidate_hash) THEN
+              PERFORM pg_advisory_unlock(98302, candidate_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98301, candidate_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98302, candidate_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98302, candidate_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_evidence_item_insert_barrier
+    BEFORE INSERT ON evidence_items
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_evidence_item_insert_barrier(#{quoted_candidate_id})
+    """)
+  end
+
+  defp drop_evidence_item_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_evidence_item_insert_barrier()")
+  end
+
+  defp install_evidence_item_operation_insert_barrier!(operation_id) do
+    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_operation_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_evidence_item_operation_insert_barrier()"
+    )
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_evidence_item_operation_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      operation_hash integer := hashtext(NEW.acceptance_operation_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.acceptance_operation_id = TG_ARGV[0]::uuid THEN
+        IF pg_try_advisory_lock(98351, operation_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98352, operation_hash) THEN
+              PERFORM pg_advisory_unlock(98352, operation_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98351, operation_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98352, operation_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98352, operation_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_evidence_item_operation_insert_barrier
+    BEFORE INSERT ON evidence_items
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_evidence_item_operation_insert_barrier(#{quoted_operation_id})
+    """)
+  end
+
+  defp drop_evidence_item_operation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_operation_insert_barrier ON evidence_items"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_evidence_item_operation_insert_barrier()"
+    )
+  end
+
+  defp install_run_required_check_update_barrier!(run_id) do
+    %{rows: [[quoted_run_id]]} = Repo.query!("SELECT quote_literal($1)", [run_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_run_required_check_update_barrier ON run_required_checks"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_run_required_check_update_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_run_required_check_update_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      run_hash integer := hashtext(NEW.run_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.run_id::text = TG_ARGV[0]
+         AND OLD.state IS DISTINCT FROM NEW.state
+         AND NEW.state = 'satisfied' THEN
+        IF pg_try_advisory_lock(98001, run_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98002, run_hash) THEN
+              PERFORM pg_advisory_unlock(98002, run_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98001, run_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98002, run_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98002, run_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_run_required_check_update_barrier
+    AFTER UPDATE ON run_required_checks
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_run_required_check_update_barrier(#{quoted_run_id})
+    """)
+  end
+
+  defp drop_run_required_check_update_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_run_required_check_update_barrier ON run_required_checks"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_run_required_check_update_barrier()")
+  end
+
+  defp install_execution_observation_insert_barrier!(idempotency_key) do
+    %{rows: [[quoted_idempotency_key]]} =
+      Repo.query!("SELECT quote_literal($1)", [idempotency_key])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_execution_observation_insert_barrier ON execution_observations"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_execution_observation_insert_barrier()"
+    )
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_execution_observation_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      key_hash integer := hashtext(NEW.idempotency_key);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.idempotency_key = TG_ARGV[0] THEN
+        IF pg_try_advisory_lock(98101, key_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98102, key_hash) THEN
+              PERFORM pg_advisory_unlock(98102, key_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98101, key_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98102, key_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98102, key_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_execution_observation_insert_barrier
+    BEFORE INSERT ON execution_observations
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_execution_observation_insert_barrier(#{quoted_idempotency_key})
+    """)
+  end
+
+  defp drop_execution_observation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_execution_observation_insert_barrier ON execution_observations"
+    )
+
+    Repo.query!(
+      "DROP FUNCTION IF EXISTS office_graph_test_execution_observation_insert_barrier()"
+    )
+  end
+
+  defp install_verification_result_insert_barrier!(verification_check_id) do
+    %{rows: [[quoted_check_id]]} =
+      Repo.query!("SELECT quote_literal($1)", [verification_check_id])
+
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_verification_result_insert_barrier ON verification_results"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_verification_result_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_verification_result_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      check_hash integer := hashtext(NEW.verification_check_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.verification_check_id::text = TG_ARGV[0]
+         AND NEW.work_run_id IS NULL THEN
+        IF pg_try_advisory_lock(98201, check_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98202, check_hash) THEN
+              PERFORM pg_advisory_unlock(98202, check_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98201, check_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98202, check_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98202, check_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_verification_result_insert_barrier
+    BEFORE INSERT ON verification_results
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_verification_result_insert_barrier(#{quoted_check_id})
+    """)
+  end
+
+  defp drop_verification_result_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_verification_result_insert_barrier ON verification_results"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_verification_result_insert_barrier()")
+  end
+
   defp install_tenancy_insert_barrier! do
     Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_tenancy_race_barrier ON organizations")
 
@@ -1547,6 +3132,8 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   end
 
   defp cleanup_committed_scope!(organization_id, principal_ids, source_identities) do
+    cleanup_work_run_verification_scope_by_id!(organization_id)
+
     Repo.query!("DELETE FROM proposed_graph_changes WHERE organization_id = $1::uuid", [
       db_uuid(organization_id)
     ])
@@ -1596,6 +3183,376 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end)
 
     Repo.query!("DELETE FROM organizations WHERE id = $1::uuid", [db_uuid(organization_id)])
+  end
+
+  defp cleanup_work_run_verification_scope!(organization_slug) do
+    Repo.query!(
+      """
+      DELETE FROM verification_results
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM evidence_items
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM evidence_candidates
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM execution_observations
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM run_required_checks
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM runs
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_version_required_checks
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_version_sources
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_versions
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packets
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM artifacts
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM verification_checks
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM review_findings
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM tasks
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM signals
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM graph_relationships
+      WHERE source_item_id IN (
+        SELECT gi.id
+        FROM graph_items gi
+        JOIN organizations o ON o.id = gi.organization_id
+        WHERE o.slug = $1
+      )
+      OR target_item_id IN (
+        SELECT gi.id
+        FROM graph_items gi
+        JOIN organizations o ON o.id = gi.organization_id
+        WHERE o.slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM graph_items
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM documents
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM audit_records
+      WHERE operation_id IN (
+        SELECT oc.id
+        FROM operation_correlations oc
+        JOIN organizations o ON o.id = oc.organization_id
+        WHERE o.slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM revisions
+      WHERE operation_id IN (
+        SELECT oc.id
+        FROM operation_correlations oc
+        JOIN organizations o ON o.id = oc.organization_id
+        WHERE o.slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM authorization_decisions
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM operation_correlations
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+  end
+
+  defp cleanup_work_run_verification_scope_by_id!(organization_id) do
+    Repo.query!(
+      """
+      DELETE FROM verification_results
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM evidence_items
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM evidence_candidates
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM execution_observations
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM run_required_checks
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM runs
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_version_required_checks
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_version_sources
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packet_versions
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM work_packets
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM artifacts
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM verification_checks
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM review_findings
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM tasks
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM signals
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM graph_relationships
+      WHERE source_item_id IN (
+        SELECT id FROM graph_items WHERE organization_id = $1::uuid
+      )
+      OR target_item_id IN (
+        SELECT id FROM graph_items WHERE organization_id = $1::uuid
+      )
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM graph_items
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM documents
+      WHERE organization_id = $1::uuid
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM audit_records
+      WHERE operation_id IN (
+        SELECT id FROM operation_correlations WHERE organization_id = $1::uuid
+      )
+      """,
+      [db_uuid(organization_id)]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM revisions
+      WHERE operation_id IN (
+        SELECT id FROM operation_correlations WHERE organization_id = $1::uuid
+      )
+      """,
+      [db_uuid(organization_id)]
+    )
   end
 
   defp drop_source_insert_barrier! do

@@ -21,7 +21,7 @@ first executable work loop.
 - **THEN** they MUST include only the organization, workspace, initiative,
   principal, role assignment, graph identity, graph relationship, raw archive,
   signal, task, review finding, verification check, evidence, artifact,
-  operation correlation, revision, audit, proposed change, work packet, run,
+  operation correlation, revision, audit, change proposal, work packet, run,
   run event, and verification result records needed to execute and trace the
   walking skeleton
 
@@ -78,7 +78,7 @@ correlation, typed revision records, and audit records where required.
 
 #### Scenario: Sensitive or state-changing action occurs
 
-- **WHEN** bootstrap, proposed-change application, verification completion, or
+- **WHEN** bootstrap, change-proposal application, verification completion, or
   another policy-sensitive walking-skeleton action changes product state
 - **THEN** the action MUST record operation correlation and the relevant typed
   revision, authorization decision, or audit record needed to explain the

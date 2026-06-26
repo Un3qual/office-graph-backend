@@ -13,6 +13,7 @@ defmodule OfficeGraph.WorkGraph.Domain do
     resource OfficeGraph.WorkGraph.ReviewFinding
     resource OfficeGraph.WorkGraph.VerificationCheck
     resource OfficeGraph.WorkGraph.Artifact
+    resource OfficeGraph.WorkGraph.EvidenceCandidate
     resource OfficeGraph.WorkGraph.EvidenceItem
     resource OfficeGraph.WorkGraph.VerificationResult
   end

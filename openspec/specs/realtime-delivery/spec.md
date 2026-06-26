@@ -16,7 +16,7 @@ controllers as the application realtime bus.
 #### Scenario: Domain state changes
 
 - **WHEN** a graph item, work packet, run, verification check, evidence item,
-  conversation, projection, proposed change, or agent runtime state changes
+  conversation, projection, change proposal, or agent runtime state changes
 - **THEN** the owning domain or projection layer MUST publish a typed event
   through the realtime boundary after authorization-relevant durable state is
   committed

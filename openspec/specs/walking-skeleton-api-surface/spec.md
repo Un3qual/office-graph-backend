@@ -17,7 +17,7 @@ domain actions.
 #### Scenario: API mutation creates skeleton state
 
 - **WHEN** a GraphQL mutation or JSON API request submits manual intake,
-  applies a proposed change, links evidence, or completes verification
+  applies a change proposal, links evidence, or completes verification
 - **THEN** both API surfaces MUST call the same public context/domain action
   and produce equivalent authorization, validation, operation correlation,
   revision, and audit behavior
@@ -30,7 +30,7 @@ walking skeleton.
 #### Scenario: GraphQL client exercises the skeleton
 
 - **WHEN** a GraphQL client bootstraps or authenticates as the local owner,
-  submits intake, reviews proposed changes, applies accepted changes, adds
+  submits intake, reviews change proposals, applies accepted changes, adds
   evidence, and verifies completion
 - **THEN** the schema MUST expose the minimum typed operations and result
   shapes needed for that flow without introducing broad projection, agent
@@ -65,7 +65,7 @@ relationship-aware authorization.
 #### Scenario: Client requests graph or loop state
 
 - **WHEN** an API client reads signals, tasks, review findings, verification
-  checks, evidence, artifacts, proposed changes, or graph relationships
+  checks, evidence, artifacts, change proposals, or graph relationships
 - **THEN** the response MUST include only records the authenticated principal
   may see, using restricted placeholders or redaction only where the active
   policy allows summary disclosure
@@ -77,8 +77,9 @@ and conflict outcomes from both API surfaces.
 
 #### Scenario: API request cannot be applied
 
-- **WHEN** a request fails validation, authorization, idempotency, proposed
-  change validation, optimistic conflict checks, or lifecycle transition rules
+- **WHEN** a request fails validation, authorization, idempotency,
+  change-proposal validation, optimistic conflict checks, or lifecycle
+  transition rules
 - **THEN** GraphQL and JSON API responses MUST expose a structured error or
   conflict shape with enough safe detail for a client or test to understand
   the failed requirement

@@ -76,7 +76,7 @@ expansion pattern rather than the first product surface.
   node-scoped agent conversations.
 - The MVP direction is an agent-governed company work graph with a software
   review/fix/verification proving workflow. The internal agent runtime,
-  permissions, runs, proposed changes, and review governance are core
+  permissions, runs, change proposals, and review governance are core
   infrastructure from the beginning, while reusable department packs are a
   later expansion pattern.
 - Authorization will use a hybrid enterprise model: RBAC for coarse roles,
@@ -96,8 +96,9 @@ expansion pattern rather than the first product surface.
 - Linear does not need to be considered for the first planning slice.
 - OpenSpec is the workflow for building Office Graph, not a concept that
   Office Graph product features depend on.
-- Retire GraphPatch as product language. Keep the safety pattern as structured
-  proposed graph changes applied through validated domain actions.
+- Retire GraphPatch and `proposed_graph_change` as product language. Keep the
+  safety pattern as structured change proposals applied through validated
+  domain actions.
 - Backend extensibility is a first-order requirement. The architecture should
   support long-term goals without large rewrites or tacked-on feature seams.
 - Base database schemas should be provider-neutral and relational wherever a
@@ -117,23 +118,28 @@ expansion pattern rather than the first product surface.
   primitives. Avoid premature package splitting, but keep boundaries clean
   enough that extraction stays practical.
 
-## Current Working Assumptions
+## Current Working Direction
 
-Stable enough to guide discussion:
+Locked enough to guide OpenSpec work:
 
-- First buyer hypothesis: company leadership, operations leadership,
+- First buyer: AI-forward company leadership, operations leadership,
   AI/platform leadership, or department leaders who need governed
-  human-agent work across teams.
-- First daily users may include tech leads, design leads, marketing leads,
-  social/media managers, finance operators, and AI operations owners.
-- First workflow should be one concrete departmental loop, likely software
-  review/fix/verification because it is easiest to model precisely now.
+  human-agent execution across teams.
+- First daily user: cross-functional work owners and agent operators such as
+  operations owners, tech leads, design leads, marketing leads, social/media
+  managers, finance operators, and AI operations owners who turn ambiguous
+  signals into work packets, work runs, decisions, and evidence.
+- Flagship success metric: packet-backed verified completion rate across
+  selected cross-functional workflows, not engineering-only agent throughput.
+- First deep proving workflow: software review/fix/verification because it is
+  easiest to model precisely now, while preserving a department-neutral buyer,
+  user, and success metric.
 - MVP should integrate with existing systems before trying to replace them.
 - The graph should exist from the beginning, but the UI should start with
   practical projections such as inboxes, queues, packets, and verification
   views rather than a full arbitrary graph editor.
 - Agents must not directly mutate durable graph state without passing through
-  validated domain actions or structured proposed graph changes.
+  validated domain actions or structured change proposals.
 - Verification should be evidence-based: a task is not done merely because an
   agent says it is done.
 
@@ -260,7 +266,7 @@ with explicit writes:
 
 Office Graph should copy the shape, not the product specifics: GraphQL may
 offer polymorphic reads and shared interfaces, while durable writes still enter
-through typed domain actions, proposed graph changes, or narrow configuration
+through typed domain actions, change proposals, or narrow configuration
 commands.
 
 ### Interface Consequences
@@ -362,7 +368,7 @@ Recommended first formal change after discovery:
 
 - `define-office-graph-foundation`: establish the company-wide product frame,
   first proving workflows, core loop, vocabulary, graph ontology, work packet
-  concept, agent runtime posture, proposed graph change safety model,
+  concept, agent runtime posture, change proposal safety model,
   evidence-based verification model, enterprise constraints, and backend
   architecture boundaries before application code is generated.
 
@@ -382,7 +388,7 @@ Role of each option:
 
 - Option A is the wedge: concrete value, dogfooding, and a crisp demo.
 - Option C is the engine: graph-aware agents, tool permissions, runs,
-  proposed changes, automatic reviews, and auditability.
+  change proposals, automatic reviews, and auditability.
 - Option B is the expansion grammar: department-specific workflow packs and
   projections later, not a broad template platform in the first build.
 
@@ -442,7 +448,7 @@ Use this as the expansion pattern, not the first deep build.
 ### Option C: Agent Runtime And Review Governance Platform
 
 Center v1 on the internal agent runtime: automatic agents, tool permissions,
-parallel runs, coordinator agents, review gates, findings, proposed changes,
+parallel runs, coordinator agents, review gates, findings, change proposals,
 and run provenance across graph items.
 
 Strengths:
@@ -467,19 +473,19 @@ ground the first implementation in one concrete workflow.
 
 Questions to answer:
 
-- Is the first buyer company leadership, AI/platform leadership, operations,
-  engineering leadership, design leadership, marketing leadership, finance
-  leadership, or a founder/COO/CTO at AI-forward teams?
-- Is the first daily user a department lead, AI agent operator, operations
-  owner, tech lead, design lead, marketing lead, social media manager, finance
-  operator, or platform engineer?
+- The first buyer is AI-forward company leadership, operations leadership,
+  AI/platform leadership, or department leaders who need governed
+  human-agent execution across teams.
+- The first daily user is a cross-functional work owner or agent operator such
+  as an operations owner, tech lead, design lead, marketing lead, social media
+  manager, finance operator, or AI operations owner.
 - Which first departmental workflow proves the general system best: software
   review/fix loops, Sentry/incident triage, design review, campaign planning,
   social approvals, finance anomaly handling, or manual cross-functional
   intake?
-- Should the first promise be "time to agent-ready", "agent success uplift",
-  "review/fix throughput", "triage time saved", "verified completion",
-  "governed delegation", or "reusable organizational context"?
+- The first promise is packet-backed verified completion across selected
+  cross-functional workflows, with software review/fix/verification as the
+  first high-fidelity proving workflow.
 - Which existing product is augmented first: GitHub, Sentry, Jira, Slack,
   Google Drive, Figma, Notion, spreadsheets, social tools, finance systems,
   Cursor/Codex/Claude Code, or email?
@@ -554,7 +560,7 @@ Questions to answer:
 - What metadata is mandatory: why it matters, recommended answer, impact of
   each option, source evidence, risk of proceeding, blocked nodes, confidence?
 - What exactly is the "Tinder-like" approval flow approving: questions,
-  proposed tasks, proposed graph changes, prompt/context choices, work packets,
+  proposed tasks, change proposals, prompt/context choices, work packets,
   review findings, fix proposals, or agent autonomy policies?
 - Which micro-approvals can be single gesture and which need full review?
 - How does feedback from approvals tune future suggestions?
@@ -566,14 +572,14 @@ Discussion output:
 - Approval queue semantics.
 - Feedback loop rules.
 
-### 5. Proposed Graph Changes And AI Mutation Safety
+### 5. Change Proposals And AI Mutation Safety
 
 Questions to answer:
 
-- What operations can a proposed graph change contain in MVP?
+- What operations can a change proposal contain in MVP?
 - Are agent-generated changes proposed, auto-applied below a risk threshold, or
   always reviewed by a human?
-- What validation rules are mandatory before a proposed change can apply?
+- What validation rules are mandatory before a change proposal can apply?
 - Should change application happen through Ash actions, a graph service, raw
   Ecto transactions, or a hybrid?
 - How are temp IDs resolved, duplicates detected, and invalid cycles rejected?
@@ -583,8 +589,8 @@ Questions to answer:
 
 Discussion output:
 
-- Internal proposed-change operation schema.
-- Proposed-change lifecycle.
+- Internal change-proposal operation schema.
+- Change-proposal lifecycle.
 - Validation and authorization rules.
 - Transaction and audit model.
 
@@ -658,8 +664,8 @@ Questions to answer:
   coding/design/automation tool?
 - How are smaller models restricted to structured output while parent agents or
   trusted runtime components hold tool access?
-- How are agent prompts, model choices, tool calls, outputs, findings,
-  proposed graph changes, and human approvals stored?
+- How are agent prompts, model choices, tool calls, outputs, findings, change
+  proposals, and human approvals stored?
 - Can agents run at parent graph levels to detect cross-child conflicts, such
   as two spec sections passing review independently but failing integration
   review together?
@@ -705,7 +711,7 @@ Questions to answer:
   scoped references?
 - What context should an embedded agent receive when a user chats from a
   selected signal, question, task, work packet, run, or failed check?
-- Can embedded agents directly propose graph changes, or must they route
+- Can embedded agents directly create change proposals, or must they route
   through task-specific domain actions?
 - What actions should be available through conversational commands rather than
   forms?
@@ -1040,7 +1046,7 @@ Questions to answer:
 - Which concepts from this file are stable enough to move into formal specs?
 - Should the first change be design-only or include Phoenix/Ash scaffolding?
 - Should initial specs be capability-oriented around graph, ingestion,
-  proposed graph changes, agent runtime, work packets, verification, and
+  change proposals, agent runtime, work packets, verification, and
   governance?
 - What naming convention should be used for capabilities and changes?
 - What validation commands should every change run before it is accepted?
@@ -1060,7 +1066,7 @@ Discussion output:
 This was the first formal change order proposed during discovery. It remains
 useful history, but the plan-review remediation lane below supersedes it for
 current execution order because governance, identity, authorization,
-authentication, ingestion, proposed changes, and code organization decisions
+authentication, ingestion, change proposals, and code organization decisions
 now block safe backend code generation.
 
 1. `define-office-graph-foundation`
@@ -1127,7 +1133,7 @@ resolved:
 - canonical spec ownership and promotion policy
 - first executable walking skeleton
 - ingestion semantics
-- proposed graph change semantics
+- change proposal semantics
 - code organization and Boundary decisions
 
 Ownership note: `design-identity-and-authorization-schema` owns durable
@@ -1139,7 +1145,7 @@ external identities, and bootstrap the first organization/owner.
 The `design-persistence-model` statement that no migration-blocking persistence
 questions remain is superseded by this cross-change readiness gate. Persistence
 may have no remaining persistence-only blockers while first migration readiness
-is still blocked by identity, authorization, ingestion, proposed-change,
+is still blocked by identity, authorization, ingestion, change-proposal,
 walking-skeleton, or code-organization decisions.
 
 The first backend target is a narrow walking skeleton, not a maximal first
@@ -1159,7 +1165,7 @@ organization, one workspace, one initiative, one authenticated principal, one
 role assignment, one graph identity per graph-addressable resource, one audit
 record for a sensitive action, one operation correlation record, and one typed
 revision path. It also needs skeletal `work_packets`, `runs`, `run_events`,
-`proposed_graph_changes`, and `verification_results` records only to the
+change proposal records and `verification_results` records only to the
 extent required to prove the loop; full runtime behavior belongs to later
 dedicated changes.
 
@@ -1208,8 +1214,8 @@ have one canonical owner before promotion into durable specs:
 | Agent effective permission formula | `design-enterprise-governance/specs/authorization-governance` | foundation, agent runtime, work packets |
 | Edges do not grant access | `design-work-graph-core/specs/graph-relationships` plus `design-enterprise-governance/specs/tenancy` | persistence, projections |
 | JSON storage policy | `design-persistence-model/specs/json-storage-policy` | revision/audit, integrations |
-| Ingestion adapter contract | `design-ingestion-and-integrations/specs/provider-adapter-contract` | persistence, code organization, proposed changes |
-| Proposed graph change lifecycle | `design-proposed-graph-changes` | ingestion, agent runtime, work packets, code organization |
+| Ingestion adapter contract | `design-ingestion-and-integrations/specs/provider-adapter-contract` | persistence, code organization, change proposals |
+| Change proposal lifecycle | `design-proposed-graph-changes` | ingestion, agent runtime, work packets, code organization |
 | Check/evidence/verification vocabulary | `design-runs-and-verification` when created | foundation, governance, persistence |
 
 `define-office-graph-foundation` is durable product framing. It should not be
@@ -1287,7 +1293,7 @@ Verification vocabulary for future specs:
   part of a larger run.
 - Build the internal agent runtime as a core capability, but scope the first
   runtime carefully around graph-aware conversations, automatic reviews,
-  proposed changes, and approved tool actions.
+  change proposals, and approved tool actions.
 - Keep authentication/identity, authorization, integration primitives,
   revision/audit primitives, and the agent runtime decoupled from
   Office Graph-specific product semantics where practical.
@@ -1311,7 +1317,7 @@ Likely MVP screens:
   canvas.
 - Node Chat: embedded agent conversations attached to selected graph items.
 - Agent Run View: internal-agent, human, external-agent, and integration run
-  state with tool calls, outputs, proposed changes, and approvals.
+  state with tool calls, outputs, change proposals, and approvals.
 - Verification View: checks, evidence, monitoring state, PR/CI/Sentry status,
   review state, and waivers.
 - Settings/Integrations: organization, repo/project connections, credentials,
@@ -1361,7 +1367,7 @@ within at least one concrete department workflow.
 6. Define revision history, audit, and soft deletion architecture.
 7. Define code organization, bounded contexts, and Boundary dependency rules.
 8. Identify future library extraction candidates and their dependency rules.
-9. Define question, decision, proposed graph change, and micro-approval
+9. Define question, decision, change proposal, and micro-approval
    semantics.
 10. Define internal agent runtime scope, agent attachment rules, and tool
    permissions.

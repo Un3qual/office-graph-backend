@@ -13,5 +13,6 @@ defmodule OfficeGraphWeb.Router do
     post "/manual-intake", WalkingSkeletonController, :manual_intake
     post "/proposed-changes/apply", WalkingSkeletonController, :apply_proposed_changes
     post "/verification/complete", WalkingSkeletonController, :complete_verification
+    post "/packet-run-verification/execute", PacketRunVerificationController, :execute
   end
 end

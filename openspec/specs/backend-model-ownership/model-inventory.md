@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 40 tables.
+Derived from committed migrations; expected count: 46 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -40,10 +40,16 @@ Derived from committed migrations; expected count: 40 tables.
 | `review_findings` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.ReviewFinding` |
 | `verification_checks` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.VerificationCheck` |
 | `artifacts` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Artifact` |
+| `evidence_candidates` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.EvidenceCandidate` |
 | `evidence_items` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.EvidenceItem` |
 | `verification_results` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.VerificationResult` |
 | `work_packets` | `OfficeGraph.WorkPackets.Domain` | `OfficeGraph.WorkPackets.WorkPacket` |
+| `work_packet_versions` | `OfficeGraph.WorkPackets.Domain` | `OfficeGraph.WorkPackets.WorkPacketVersion` |
+| `work_packet_version_sources` | `OfficeGraph.WorkPackets.Domain` | `OfficeGraph.WorkPackets.WorkPacketSourceReference` |
+| `work_packet_version_required_checks` | `OfficeGraph.WorkPackets.Domain` | `OfficeGraph.WorkPackets.WorkPacketRequiredCheck` |
 | `runs` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.Run` |
+| `run_required_checks` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.RunRequiredCheck` |
+| `execution_observations` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.ExecutionObservation` |
 | `run_events` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.RunEvent` |
 | `proposed_graph_changes` | `OfficeGraph.ProposedChanges.Domain` | `OfficeGraph.ProposedChanges.ProposedGraphChange` |
 
@@ -51,34 +57,34 @@ Derived from committed migrations; expected count: 40 tables.
 
 These resources are accepted or active design commitments that are not yet
 implemented in committed migrations. They remain separate from the implemented
-40-table inventory so the architecture gate does not treat the walking skeleton
+46-table inventory so the architecture gate does not treat the walking skeleton
 as the complete MVP persistence model.
 
 | Table | Owning domain | Canonical Ash resource | Source | Implementation status |
 | --- | --- | --- | --- | --- |
-| `requirements` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Requirement` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `questions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Question` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `decisions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Decision` | `openspec/specs/graph-items/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Repository` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `repository_refs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.RepositoryRef` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `commits` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Commit` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `pull_requests` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.PullRequest` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewThread` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewComment` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.CheckRun` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Issue` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `observability_issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityIssue` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `observability_events` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityEvent` | `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `rich_text_documents` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDocument` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `rich_text_blocks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextBlock` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `rich_text_block_versions` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextBlockVersion` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
-| `rich_text_spans` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextSpan` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
-| `rich_text_mark_types` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextMarkType` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
-| `rich_text_marks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextMark` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
-| `rich_text_references` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextReference` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
-| `rich_text_document_revisions` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDocumentRevision` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `rich_text_quote_snapshots` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSnapshot` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented; owns pinned snapshot metadata, source authorization context, and quote freshness state |
-| `rich_text_quote_selection_segments` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSelectionSegment` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md`; `openspec/changes/design-persistence-model/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `rich_text_derived_plain_texts` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDerivedPlainText` | `openspec/changes/design-persistence-model/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented; owns revision-tied derived plain text for search, fallback display, and agent context |
+| `requirements` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Requirement` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `questions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Question` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `decisions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Decision` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Repository` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `repository_refs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.RepositoryRef` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `commits` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Commit` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `pull_requests` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.PullRequest` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewThread` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewComment` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.CheckRun` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Issue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `observability_issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityIssue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `observability_events` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityEvent` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
+| `rich_text_documents` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDocument` | `openspec/specs/portable-rich-text-persistence/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_blocks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextBlock` | `openspec/specs/portable-rich-text-persistence/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_block_versions` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextBlockVersion` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_spans` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextSpan` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_mark_types` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextMarkType` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_marks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextMark` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_references` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextReference` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented |
+| `rich_text_document_revisions` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDocumentRevision` | `openspec/specs/portable-rich-text-persistence/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_quote_snapshots` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSnapshot` | `openspec/specs/portable-rich-text-persistence/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented; owns pinned snapshot metadata, source authorization context, and quote freshness state |
+| `rich_text_quote_selection_segments` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextQuoteSelectionSegment` | `openspec/specs/portable-rich-text-persistence/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
+| `rich_text_derived_plain_texts` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.RichTextDerivedPlainText` | `openspec/specs/portable-rich-text-persistence/spec.md` | Planned - not implemented; owns revision-tied derived plain text for search, fallback display, and agent context |

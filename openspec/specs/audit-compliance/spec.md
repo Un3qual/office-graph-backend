@@ -20,8 +20,7 @@ events, run events, external sync events, and raw payload archives.
 
 #### Scenario: Agent run occurs
 
-- **WHEN** an agent run produces run events, tool calls, findings, or proposed
-  graph changes
+- **WHEN** an agent run produces run events, tool calls, findings, or change proposals
 - **THEN** run events must not replace required audit records for sensitive
   tool use, credential use, external writes, waivers, approvals, or exports
 

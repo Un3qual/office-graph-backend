@@ -45,6 +45,69 @@ defmodule OfficeGraphWeb.Schema do
     field :verification_check, :loop_resource
   end
 
+  object :packet_run_packet do
+    field :id, non_null(:id)
+    field :title, non_null(:string)
+    field :state, non_null(:string)
+  end
+
+  object :packet_run_packet_version do
+    field :id, non_null(:id)
+    field :version_number, non_null(:integer)
+    field :lifecycle_state, non_null(:string)
+    field :objective, non_null(:string)
+  end
+
+  object :packet_run_run do
+    field :id, non_null(:id)
+    field :aggregate_state, non_null(:string)
+    field :execution_state, non_null(:string)
+    field :verification_state, non_null(:string)
+  end
+
+  object :packet_run_required_check do
+    field :id, non_null(:id)
+    field :verification_check_id, non_null(:id)
+    field :state, non_null(:string)
+  end
+
+  object :packet_run_observation do
+    field :id, non_null(:id)
+    field :normalized_status, non_null(:string)
+    field :source_kind, non_null(:string)
+    field :source_identity, non_null(:string)
+  end
+
+  object :packet_run_evidence_item do
+    field :id, non_null(:id)
+    field :state, non_null(:string)
+    field :candidate_id, :id
+    field :work_run_id, :id
+  end
+
+  object :packet_run_verification_result do
+    field :id, non_null(:id)
+    field :result, non_null(:string)
+    field :work_run_id, :id
+    field :work_packet_version_id, :id
+  end
+
+  object :packet_run_missing_evidence do
+    field :verification_check_id, non_null(:id)
+    field :reason, non_null(:string)
+  end
+
+  object :packet_run_summary do
+    field :packet, non_null(:packet_run_packet)
+    field :packet_version, non_null(:packet_run_packet_version)
+    field :run, non_null(:packet_run_run)
+    field :required_checks, non_null(list_of(non_null(:packet_run_required_check)))
+    field :observations, non_null(list_of(non_null(:packet_run_observation)))
+    field :evidence_items, non_null(list_of(non_null(:packet_run_evidence_item)))
+    field :verification_results, non_null(list_of(non_null(:packet_run_verification_result)))
+    field :missing_evidence, non_null(list_of(non_null(:packet_run_missing_evidence)))
+  end
+
   input_object :manual_intake_input do
     field :source_identity, non_null(:string)
     field :replay_identity, non_null(:string)
@@ -60,6 +123,34 @@ defmodule OfficeGraphWeb.Schema do
     field :title, non_null(:string)
     field :body, non_null(:string)
     field :artifact_uri, :string
+  end
+
+  input_object :execute_packet_run_verification_input do
+    field :flow_identity, non_null(:string)
+    field :verification_check_id, non_null(:id)
+    field :source_graph_item_id, non_null(:id)
+    field :packet_title, non_null(:string)
+    field :objective, non_null(:string)
+    field :context_summary, non_null(:string)
+    field :requirements, non_null(:string)
+    field :success_criteria, non_null(:string)
+    field :autonomy_posture, non_null(:string)
+    field :source_surface, non_null(:string)
+    field :reason, non_null(:string)
+    field :authority_posture, non_null(:string)
+    field :observation_source_kind, non_null(:string)
+    field :observation_source_identity, non_null(:string)
+    field :observation_idempotency_key, non_null(:string)
+    field :observed_status, non_null(:string)
+    field :normalized_status, non_null(:string)
+    field :freshness_state, non_null(:string)
+    field :trust_basis, non_null(:string)
+    field :observation_rationale, non_null(:string)
+    field :evidence_claim, non_null(:string)
+    field :evidence_title, non_null(:string)
+    field :evidence_body, non_null(:string)
+    field :evidence_result, non_null(:string)
+    field :acceptance_policy_basis, non_null(:string)
   end
 
   query do
@@ -108,6 +199,17 @@ defmodule OfficeGraphWeb.Schema do
         end
       end)
     end
+
+    field :execute_packet_run_verification, non_null(:packet_run_summary) do
+      arg(:input, non_null(:execute_packet_run_verification_input))
+
+      resolve(fn %{input: input}, _ ->
+        case ApiSupport.execute_packet_run_verification(input) do
+          {:ok, summary} -> {:ok, summary}
+          error -> graphql_error(error)
+        end
+      end)
+    end
   end
 
   defp graphql_error({:error, :forbidden}) do
@@ -150,10 +252,33 @@ defmodule OfficeGraphWeb.Schema do
      extensions: %{code: "missing_verification_check", verification_check_id: id}}
   end
 
+  defp graphql_error({:error, {:packet_run_flow_idempotency_conflict, flow_identity}}) do
+    {:error,
+     message: "The packet-run-verification flow identity conflicts with different input.",
+     extensions: %{code: "idempotency_conflict", flow_identity: flow_identity}}
+  end
+
+  defp graphql_error({:error, {:observation_idempotency_conflict, observation_id}}) do
+    {:error,
+     message: "The observation source idempotency key conflicts with different input.",
+     extensions: %{code: "idempotency_conflict", observation_id: observation_id}}
+  end
+
   defp graphql_error({:error, {:invalid_verification_check_status, id}}) do
     {:error,
      message: "A verification check is no longer required.",
      extensions: %{code: "invalid_verification_check_status", verification_check_id: id}}
+  end
+
+  defp graphql_error({:error, {:packet_version_not_ready, id}}) do
+    {:error,
+     message: "The packet version is not ready for execution.",
+     extensions: %{code: "packet_version_not_ready", packet_version_id: id}}
+  end
+
+  defp graphql_error({:error, {:not_found, _resource, id}}) do
+    {:error,
+     message: "A referenced record could not be found.", extensions: %{code: "not_found", id: id}}
   end
 
   defp graphql_error({:error, {:missing_field, field}}) do
