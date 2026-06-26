@@ -1,13 +1,16 @@
 ## Why
 
-Office Graph already narrowed MVP ordering to domain-owned task-list and rich
-text block ordering, but reusable ordered placement still needs an
-implementation design before shared APIs, migrations, position-key libraries,
-rebalance jobs, projections, or strategy extensions are built.
+Office Graph still wants ordered placement deferred from the current execution
+path. MVP ordering remains limited to domain-owned task-list and rich text
+block ordering only if a later accepted implementation change needs them.
+Reusable ordered placement needs guardrails now so future work does not drift
+into polymorphic storage, dense ordinal writes, or generic graph mutation APIs.
 
 ## What Changes
 
-- Define the reusable ordered placement implementation contract for explicit
+- Record that no first product surface currently justifies generic
+  graph-addressable placement tables or shared ordering APIs.
+- Define the reusable ordered placement guardrails for explicit
   placement scope, collection identity, concrete owner/item references,
   membership lifecycle, and strategy selection.
 - Define sortable position-key generation, insertion and move commands,
@@ -19,9 +22,10 @@ rebalance jobs, projections, or strategy extensions are built.
   history, audit records, domain events, realtime updates, and future
   migrations from v1 domain-owned ordering.
 - Explicitly defer product code, database migrations, Ash resources, GraphQL
-  and JSON API command shapes, Oban jobs, render caches, grid placement,
-  swimlanes, topological ordering, and strategy-specific extension tables
-  until later implementation tasks.
+  and JSON API command shapes, position-key libraries, Oban jobs, render
+  caches, grid placement, swimlanes, topological ordering,
+  graph-addressable placement tables, and strategy-specific extension tables
+  until later accepted OpenSpec changes select concrete product semantics.
 
 ## Capabilities
 
@@ -51,7 +55,7 @@ rebalance jobs, projections, or strategy extensions are built.
   Ash actions, Ecto migrations, position-key utilities, command validation,
   repair/rebalance jobs, derived ordinal projections, realtime updates,
   revisions, audit records, and migration backfills.
-- Provides the acceptance contract later implementation work must satisfy
-  before generic ordered placement behavior becomes shared infrastructure.
+- Provides guardrails later implementation work must satisfy before generic
+  ordered placement behavior can become shared infrastructure.
 - Does not implement application code, database migrations, APIs, background
   jobs, frontend behavior, render caches, or storage infrastructure.

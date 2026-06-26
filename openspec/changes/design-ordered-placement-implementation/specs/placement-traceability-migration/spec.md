@@ -1,12 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Placement Operations Are Correlated
-Office Graph SHALL link every placement-changing command to an operation
-correlation record.
+Office Graph SHALL defer placement-changing command implementation until a
+later accepted ordering change, and any future placement-changing command SHALL
+link to an operation correlation record.
 
 #### Scenario: Placement command succeeds
-- **WHEN** a command inserts, moves, deletes, restores, rebalances, repairs, or
-  backfills placement state
+- **WHEN** a later accepted ordering implementation inserts, moves, deletes,
+  restores, rebalances, repairs, or backfills placement state
 - **THEN** every placement version, typed aggregate revision, domain event,
   realtime invalidation event, change proposal result, and derived projection
   update created by that command MUST reference the same operation correlation

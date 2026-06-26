@@ -34,6 +34,25 @@ local owner or item references.
 - **THEN** the domain MUST use typed placement tables or fields with concrete
   domain foreign keys while preserving the shared placement contract
 
+### Requirement: Generic Placement Storage Is Deferred
+Office Graph SHALL defer generic ordered placement storage and broad shared
+ordering APIs until a later accepted change selects a concrete product
+surface.
+
+#### Scenario: No generic ordering surface is selected
+- **WHEN** current planning has not accepted a product surface that requires
+  graph-addressable cross-domain ordered membership
+- **THEN** Office Graph MUST NOT add generic placement tables, generic reorder
+  APIs, ordering background jobs, persisted ordinal caches, or ordering
+  migrations for that surface
+
+#### Scenario: Generic ordering surface is selected later
+- **WHEN** a later product surface is proposed for generic ordered placement
+- **THEN** the proposal MUST identify the storage owner, typed domain command
+  boundary, allowed callers, migration shape, uniqueness strategy, lifecycle
+  model, projection contract, and operation/revision/audit traceability before
+  implementation begins
+
 ### Requirement: Placement Commands Own Insertions And Moves
 Office Graph SHALL route placement writes through domain-owned commands that
 validate placement intent before writing durable order state.

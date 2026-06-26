@@ -1,17 +1,21 @@
 ## ADDED Requirements
 
 ### Requirement: Position Keys Are Opaque Sortable Values
-Office Graph SHALL use opaque lexicographically sortable fractional position
-keys as the first reusable manual ordering strategy.
+Office Graph SHALL defer reusable position-key implementation until a later
+accepted ordering change, and that future change SHALL use opaque
+lexicographically sortable fractional position keys as the first reusable
+manual ordering strategy.
 
 #### Scenario: Position key is persisted
-- **WHEN** a placement version stores a manual ordering position
+- **WHEN** a later accepted ordering implementation stores a reusable manual
+  ordering position
 - **THEN** the position key MUST use a fixed ASCII alphabet, bytewise sortable
   comparison semantics, a documented maximum length, and no dependency on
   floating-point precision
 
 #### Scenario: API client reorders an item
-- **WHEN** a client, agent, integration, or generated UI requests a reorder
+- **WHEN** a later accepted ordering implementation allows a client, agent,
+  integration, or generated UI to request a reorder
 - **THEN** it MUST express relative move intent or an opaque placement cursor
   rather than generating durable position keys itself
 

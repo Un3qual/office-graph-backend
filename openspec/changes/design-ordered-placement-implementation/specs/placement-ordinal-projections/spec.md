@@ -1,13 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Dense Ordinals Are Derived State
-Office Graph SHALL derive dense ordinals, display indexes, slide numbers,
-card positions, and list numbers from durable placement order instead of
-treating them as source-of-truth write values.
+Office Graph SHALL defer ordered projection implementation until a later
+accepted ordering change, and any future implementation SHALL derive dense
+ordinals, display indexes, slide numbers, card positions, and list numbers
+from durable placement order instead of treating them as source-of-truth write
+values.
 
 #### Scenario: Ordered list is displayed
-- **WHEN** a UI, API, agent context package, export, or projection displays an
-  ordered collection
+- **WHEN** a later accepted ordering implementation displays an ordered
+  collection through a UI, API, agent context package, export, or projection
 - **THEN** Office Graph MUST derive display ordinals from current active
   placement order and MUST preserve placement identity separately from the
   visible ordinal

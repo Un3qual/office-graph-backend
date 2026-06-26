@@ -6,11 +6,12 @@ correlation, and make rich text and ordered placement revision-ready. It also
 narrows the first schema to explicit task-list ordering and rich text block
 ordering while preserving a path to later shared placement behavior.
 
-This change designs that later shared placement path. It assumes the first
-backend cut may already contain domain-owned task and rich text ordering
-records. The implementation design must therefore wrap or migrate from those
-records without replacing them with a weak generic `owner_type`/`item_type`
-model.
+This change records guardrails for that later shared placement path, but it
+does not make ordered placement the next active planning or implementation
+lane. No first product surface currently justifies generic graph-addressable
+placement tables. Any future ordering implementation must therefore arrive
+through a later accepted OpenSpec change instead of being pulled into the
+current backend or product slice.
 
 ## Goals / Non-Goals
 
@@ -66,7 +67,29 @@ Alternatives considered:
   but weak for nested structures, membership lifecycle, history, and future
   shared command semantics.
 
-### 2. Use a shared contract with concrete storage families
+### 2. Defer generic storage until a concrete product surface exists
+
+Generic graph-addressable placement tables should not be introduced for the
+current slice. They become appropriate only when an accepted product surface
+requires one ordered collection to hold graph-addressable items across typed
+domains and when typed placement tables would create worse duplication or
+weaker semantics.
+
+Until then, task-list ordering, rich text block ordering, and any near-term
+manual ordering should remain domain-owned, skeletal, or deferred. The shared
+contract can exist as design guidance, but storage, public APIs, position-key
+libraries, projection caches, jobs, and migrations require a later accepted
+change that names the product surface and proves the need.
+
+Alternatives considered:
+
+- **Pick a generic surface now:** This would force storage and API decisions
+  before the product surface has proved it needs cross-domain ordering.
+- **Delete the future contract entirely:** This avoids current planning work
+  but loses useful guardrails against polymorphic owner/item storage and raw
+  ordinal writes when ordering returns.
+
+### 3. Use a shared contract with concrete storage families
 
 The reusable graph-addressable storage family should be shaped around:
 
@@ -101,7 +124,7 @@ Alternatives considered:
   foreign keys but duplicates conflict, rebalance, revision, and projection
   behavior.
 
-### 3. Make domain commands own insertion and moves
+### 4. Make domain commands own insertion and moves
 
 Placement writes should be explicit domain commands such as insert task in
 workstream list, move rich text block, move gallery photo, or reorder section.
@@ -128,13 +151,14 @@ Alternatives considered:
 - **Use dense ordinal commands as the write contract:** Easy for UI forms, but
   fragile under concurrency and filtered views.
 
-### 4. Use opaque lexicographic fractional position keys first
+### 5. Use opaque lexicographic fractional position keys first
 
-The first reusable strategy should use lexicographically sortable fractional
-strings generated over a fixed ASCII alphabet and compared with bytewise
-database semantics. Keys are internal ordering values, not user-facing
-numbers. APIs may expose opaque placement cursors or relative placement
-references, but clients should not depend on key format.
+If a later accepted change introduces reusable manual ordering, the first
+reusable strategy should use lexicographically sortable fractional strings
+generated over a fixed ASCII alphabet and compared with bytewise database
+semantics. Keys are internal ordering values, not user-facing numbers. APIs may
+expose opaque placement cursors or relative placement references, but clients
+should not depend on key format.
 
 Insertion generates a key between neighboring active siblings under the same
 collection and parent. Prepend and append use the same generator with one
@@ -156,7 +180,7 @@ Alternatives considered:
 - **Provider-specific order tokens:** Useful for import provenance, but not a
   stable Office Graph ordering strategy.
 
-### 5. Enforce uniqueness and conflicts at the placement boundary
+### 6. Enforce uniqueness and conflicts at the placement boundary
 
 Active placement uniqueness should prevent two active memberships for the
 same item in a collection unless the collection kind explicitly allows
@@ -181,7 +205,7 @@ Alternatives considered:
 - **Last-write-wins:** Simple but loses user intent and undermines audit and
   revision history.
 
-### 6. Treat rebalance and repair as domain operations
+### 7. Treat rebalance and repair as domain operations
 
 Rebalancing rewrites position keys for active siblings while preserving their
 relative order. It should operate within one collection and parent range, use
@@ -204,7 +228,7 @@ Alternatives considered:
 - **Manual-only repair:** Safer but leaves recoverable mechanical corruption
   unresolved for too long.
 
-### 7. Derive ordinals and ordered projections from placement truth
+### 8. Derive ordinals and ordered projections from placement truth
 
 Dense ordinals, list numbers, card indexes, slide numbers, and display row
 numbers are derived from current active placement order. They are not durable
@@ -228,7 +252,7 @@ Alternatives considered:
 - **Expose absolute hidden-aware list positions:** Useful for debugging but
   risks leaking restricted siblings.
 
-### 8. Link placement operations to operation, revision, audit, and events
+### 9. Link placement operations to operation, revision, audit, and events
 
 Every placement-changing command should create or reuse one operation
 correlation record. Placement version rows, typed aggregate revisions, domain
@@ -250,9 +274,9 @@ Alternatives considered:
 - **Only store current placement:** Fast but cannot explain moves,
   rebalances, conflicts, or repair.
 
-### 9. Migrate from v1 ordering additively
+### 10. Migrate from v1 ordering additively
 
-The first implementation should not replace task-list and rich text block
+Any future implementation should not replace task-list and rich text block
 ordering records just to introduce shared behavior. Instead, it should:
 
 1. Introduce shared position-key value types, validation, and command
@@ -299,8 +323,8 @@ Alternatives considered:
 
 ## Migration Plan
 
-This change does not create migrations. Later implementation work should be
-additive:
+This change does not create migrations and does not select ordering as the next
+implementation lane. Later accepted implementation work should be additive:
 
 1. Add shared key and command primitives without changing storage.
 2. Add missing compatibility fields to v1 domain-owned ordering tables.
@@ -316,8 +340,9 @@ or superseded by explicit repair operations rather than destructive rewrites.
 
 ## Open Questions
 
-- Which product surface first justifies generic graph-addressable placement
-  tables instead of typed domain-owned placement tables?
+- Which later product surface, if any, first justifies generic
+  graph-addressable placement tables instead of typed domain-owned placement
+  tables?
 - Which PostgreSQL collation or explicit bytewise comparison mechanism will be
   used for position keys in migrations?
 - Which surfaces need persisted ordinal read models rather than query-backed
