@@ -26,29 +26,35 @@
 ## 2. API Surface Stabilization
 
 - [ ] 2.1 Split `OfficeGraphWeb.Schema` into root schema composition plus focused
-  modules for walking-skeleton commands, operator projections, packet-run
-  verification command, shared objects, inputs, and error mapping without route
-  or behavior changes.
-- [ ] 2.2 Extract shared GraphQL and JSON error mapping so controllers and
-  resolvers do not duplicate stable error codes and safe details.
-- [ ] 2.3 Keep existing GraphQL/JSON parity tests green while modularizing the
-  schema and error presentation.
-- [ ] 2.4 Identify the first safe AshGraphql/AshJsonApi read-only resource
+  `OfficeGraphWeb.GraphQL.*` modules organized transport first, capability
+  second, and purpose third, without route or behavior changes.
+- [ ] 2.2 Move JSON API controllers and serializers into focused
+  `OfficeGraphWeb.JsonApi.*` modules organized transport first, capability
+  second, and purpose third, without route or behavior changes.
+- [ ] 2.3 Keep GraphQL and JSON API transport-specific `common` helpers
+  separate; do not create a generic `OfficeGraphWeb.Api` dumping ground for
+  errors, params, serializers, or resolver behavior.
+- [ ] 2.4 Extract transport-specific error mapping so JSON API controllers and
+  GraphQL resolvers do not duplicate stable error codes and safe details while
+  still presenting transport-appropriate envelopes.
+- [ ] 2.5 Keep existing GraphQL/JSON parity tests green while modularizing the
+  transport modules and error presentation.
+- [ ] 2.6 Identify the first safe AshGraphql/AshJsonApi read-only resource
   surfaces for WorkGraph, WorkPackets, and Runs.
-- [ ] 2.5 Mount or compose generated AshGraphql reads for the selected resources
+- [ ] 2.7 Mount or compose generated AshGraphql reads for the selected resources
   without exposing private lifecycle creates or updates.
-- [ ] 2.6 Mount AshJsonApi for the selected resource reads on a versioned or
+- [ ] 2.8 Mount AshJsonApi for the selected resource reads on a versioned or
   temporary migration path, keeping existing `/api` compatibility endpoints
   live.
-- [ ] 2.7 Add generated API tests proving actor scope, capability checks,
+- [ ] 2.9 Add generated API tests proving actor scope, capability checks,
   structured errors, and parity with current compatibility reads where parity is
   required.
-- [ ] 2.8 Promote packet-run-verification orchestration out of
+- [ ] 2.10 Promote packet-run-verification orchestration out of
   `OfficeGraph.ApiSupport` into an accepted owning domain command boundary.
-- [ ] 2.9 Change both GraphQL and JSON packet-run-verification entrypoints to
+- [ ] 2.11 Change both GraphQL and JSON packet-run-verification entrypoints to
   call the owning command boundary and keep transport code limited to context
   loading and error mapping.
-- [ ] 2.10 Add retirement tasks for compatibility endpoints that have generated
+- [ ] 2.12 Add retirement tasks for compatibility endpoints that have generated
   or command/projection replacements.
 
 ## 3. Ash And Domain Cleanup

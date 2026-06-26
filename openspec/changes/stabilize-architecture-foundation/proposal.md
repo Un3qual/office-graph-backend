@@ -17,6 +17,9 @@ architecture instead of normalizing the current walking-skeleton shortcuts.
 - Require the current manual GraphQL/JSON API code to be treated as a
   compatibility layer with explicit exceptions, retirement conditions, and
   generated Ash API migration milestones.
+- Require GraphQL and JSON API transport code to live in separate folders and
+  module namespaces under `OfficeGraphWeb`, organized transport first,
+  capability second, and purpose third.
 - Require domain/resource cleanup to burn down direct Ecto and `authorize?:
   false` exceptions through public Ash/domain commands rather than expanding
   transport-adjacent orchestration modules.

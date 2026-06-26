@@ -20,6 +20,38 @@ and JSON API surfaces that remain during Ash API migration.
   exception, integration/webhook exception, or temporary compatibility path and
   MUST prove why generated Ash API declarations are not the default path
 
+### Requirement: API Modules Are Transport-Separated By Capability
+
+Office Graph SHALL keep GraphQL and JSON API code in separate transport
+namespaces under the Phoenix web boundary.
+
+#### Scenario: Manual API code is modularized
+
+- **WHEN** manual GraphQL or JSON API compatibility code is split out of the
+  current walking-skeleton files
+- **THEN** GraphQL modules MUST live under `OfficeGraphWeb.GraphQL.*` and
+  `lib/office_graph_web/graphql/`, JSON API modules MUST live under
+  `OfficeGraphWeb.JsonApi.*` and `lib/office_graph_web/json_api/`, and modules
+  MUST NOT mix Absinthe schema/resolver code with JSON API controller or
+  serializer code
+
+#### Scenario: API capability module is added
+
+- **WHEN** a new GraphQL or JSON API module is added
+- **THEN** it MUST be organized transport first, capability second, and purpose
+  third; capability folders MAY represent bounded domains or durable custom
+  command/projection surfaces, while purpose files such as `types`, `queries`,
+  `mutations`, `resolvers`, `controller`, and `serializer` MUST stay inside the
+  relevant capability folder
+
+#### Scenario: API helper is shared
+
+- **WHEN** API behavior is shared by more than one endpoint or field
+- **THEN** transport-specific helpers MUST live under that transport's `common`
+  namespace, while domain behavior, command ownership, and projection contracts
+  MUST live under `OfficeGraph.*` rather than a generic shared
+  `OfficeGraphWeb.Api` namespace
+
 ### Requirement: Generated Ash Resource Reads Come First
 
 Office Graph SHALL introduce generated AshGraphql and AshJsonApi resource

@@ -118,8 +118,8 @@ API cleanup should proceed in stages:
 
 1. Add guard tests and exception ledgers for manual GraphQL root fields,
    Phoenix JSON resource endpoints, and custom command/projection routes.
-2. Modularize the existing GraphQL schema and shared error mapping without
-   changing routes or behavior.
+2. Modularize the existing GraphQL schema and JSON API code into separate
+   transport namespaces without changing routes or behavior.
 3. Mount/read from AshGraphql and AshJsonApi for safe read-only or simple
    resource surfaces on WorkGraph, WorkPackets, and Runs.
 4. Promote composite command behavior out of `OfficeGraph.ApiSupport` into an
@@ -132,10 +132,92 @@ Custom transport code remains valid for commands and projections that span
 domains or need a non-resource envelope. It must stay thin: context loading,
 calling public domain commands, and transport-specific error presentation.
 
+GraphQL and JSON API code should remain transport-separated under
+`OfficeGraphWeb`, not promoted to independent root application namespaces. The
+locked organization rule is transport first, capability second, purpose third:
+
+```text
+lib/office_graph_web/
+  graphql/
+    schema.ex
+    root_query.ex
+    root_mutation.ex
+    common/
+      errors.ex
+      scalars.ex
+    work_graph/
+      types.ex
+      queries.ex
+      mutations.ex
+      resolvers.ex
+    work_packets/
+      types.ex
+      queries.ex
+      mutations.ex
+      resolvers.ex
+    runs/
+      types.ex
+      queries.ex
+      mutations.ex
+      resolvers.ex
+    verification/
+      types.ex
+      queries.ex
+      mutations.ex
+      resolvers.ex
+    operator_workflow/
+      types.ex
+      queries.ex
+      resolvers.ex
+    packet_run_verification/
+      types.ex
+      mutations.ex
+      resolvers.ex
+    compatibility/
+
+  json_api/
+    common/
+      errors.ex
+      params.ex
+    work_graph/
+      controller.ex
+      serializer.ex
+    work_packets/
+      controller.ex
+      serializer.ex
+    runs/
+      controller.ex
+      serializer.ex
+    verification/
+      controller.ex
+      serializer.ex
+    operator_workflow/
+      controller.ex
+      serializer.ex
+    packet_run_verification/
+      controller.ex
+      serializer.ex
+    compatibility/
+```
+
+The matching module roots are `OfficeGraphWeb.GraphQL.*` and
+`OfficeGraphWeb.JsonApi.*`. Capability folders may represent a bounded domain
+such as WorkPackets or Runs, or a durable custom command/projection surface
+such as OperatorWorkflow or PacketRunVerification. Transport-shared helpers
+belong under that transport's `common` namespace. Domain behavior, command
+ownership, and projection contracts belong under `OfficeGraph.*`, not under a
+generic `OfficeGraphWeb.Api` namespace.
+
 Alternative considered: immediately replace `/graphql` and `/api` with
 generated Ash APIs. Rejected because current commands span multiple domains,
 some resource actions are intentionally private, and compatibility tests still
 provide useful smoke coverage.
+
+Alternative considered: create top-level API roots such as `OfficeGraphGQL` or
+`OfficeGraphRestApi`. Rejected because these APIs are presentation/transport
+concerns inside the Phoenix web boundary, not separate bounded contexts or OTP
+apps. If the APIs later become independently packaged applications, that can
+be revisited.
 
 ### 4. Treat Exception Ledgers As Burn-Down Lists
 
