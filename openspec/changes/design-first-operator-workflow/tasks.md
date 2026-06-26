@@ -39,13 +39,13 @@
   proposed-change application, packet creation, work-run start, observation
   recording, evidence candidate creation or acceptance, and verification
   completion.
-- [ ] 3.3 Add or refine command orchestration only where the operator workflow
+- [x] 3.3 Add or refine command orchestration only where the operator workflow
   needs a stable one-step handoff, while preserving idempotency, operation
   correlation, authorization, audit, and revision boundaries.
-- [ ] 3.4 Return structured validation, authorization, idempotency conflict,
+- [x] 3.4 Return structured validation, authorization, idempotency conflict,
   stale-state, not-ready, missing-evidence, failed-check, and lifecycle errors
   with policy-safe details.
-- [ ] 3.5 Add tests proving commands reject unauthorized scope crossings,
+- [x] 3.5 Add tests proving commands reject unauthorized scope crossings,
   duplicate replay conflicts, not-ready packet starts, unrelated evidence, and
   verification without accepted evidence.
 
@@ -66,16 +66,16 @@
 
 ## 5. Verification And Handoff
 
-- [ ] 5.1 Add or update end-to-end tests for
+- [x] 5.1 Add or update end-to-end tests for
   `manual intake -> inbox triage -> apply proposed changes -> packet handoff
   -> run observation -> evidence acceptance -> verified completion`.
-- [ ] 5.2 Run focused tests for projections, operator workflow commands,
+- [x] 5.2 Run focused tests for projections, operator workflow commands,
   GraphQL/JSON API parity, authorization filtering, idempotency, and
   verification evidence behavior.
 - [ ] 5.3 Run the backend verification gate from inside the Nix shell,
   including compile, format, Boundary, architecture conformance, tests, and
   OpenSpec validation.
-- [ ] 5.4 Update OpenSpec task checkboxes and add an implementation summary
+- [x] 5.4 Update OpenSpec task checkboxes and add an implementation summary
   mapping each `operator-workflow` requirement to code and tests before
   archiving.
 - [ ] 5.5 Commit along the way after projection/API contract work, command

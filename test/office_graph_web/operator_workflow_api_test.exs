@@ -8,6 +8,79 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
+  test "JSON API exposes the complete operator workflow from intake to verified run", %{
+    conn: conn
+  } do
+    intake =
+      conn
+      |> post(~p"/api/manual-intake", %{
+        source_identity: "manual:api-e2e",
+        replay_identity: "paste:api-e2e",
+        body: "Investigate API e2e state and prove it with accepted evidence."
+      })
+      |> json_response(200)
+
+    inbox =
+      conn
+      |> get(~p"/api/operator-workflow/inbox")
+      |> json_response(200)
+
+    assert hd(inbox["rows"])["status"] == "pending_triage"
+
+    ids = Enum.map(intake["proposed_changes"], & &1["id"])
+
+    _applied =
+      conn
+      |> post(~p"/api/proposed-changes/apply", %{ids: ids})
+      |> json_response(200)
+
+    event_id = intake["normalized_event"]["id"]
+
+    item =
+      conn
+      |> get(~p"/api/operator-workflow/items/#{event_id}")
+      |> json_response(200)
+
+    assert item["status"] == "ready_for_packet"
+    verification_link = Enum.find(item["graph_links"], &(&1["type"] == "verification_check"))
+
+    readiness =
+      conn
+      |> post(~p"/api/operator-workflow/packet-readiness", %{
+        title: "Verify API e2e workflow",
+        objective: "Resolve the API e2e verification check.",
+        context_summary: "Manual intake has been triaged into graph work.",
+        requirements: "Use the linked verification check as the required check.",
+        success_criteria: "The required check has accepted passing evidence.",
+        autonomy_posture: "human_supervised",
+        source_graph_item_ids: [verification_link["graph_item_id"]],
+        verification_check_ids: [verification_link["id"]]
+      })
+      |> json_response(200)
+
+    assert readiness["status"] == "packet_ready"
+
+    summary =
+      conn
+      |> post(
+        ~p"/api/packet-run-verification/execute",
+        flow_attrs("api-e2e", verification_link["id"], verification_link["graph_item_id"])
+      )
+      |> json_response(200)
+
+    assert summary["run"]["verification_state"] == "verified"
+
+    run_state =
+      conn
+      |> get(~p"/api/operator-workflow/runs/#{summary["run"]["id"]}")
+      |> json_response(200)
+
+    assert run_state["status"] == "verified"
+    assert run_state["allowed_next_actions"] == []
+    assert run_state["missing_evidence"] == []
+    assert hd(run_state["verification_results"])["result"] == "passed"
+  end
+
   test "GraphQL and JSON expose equivalent operator inbox and item detail", %{conn: conn} do
     intake =
       conn
@@ -222,6 +295,36 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     key
     |> Atom.to_string()
     |> Phoenix.Naming.camelize(:lower)
+  end
+
+  defp flow_attrs(label, verification_check_id, source_graph_item_id) do
+    %{
+      flow_identity: "operator-workflow-#{label}-#{System.unique_integer([:positive])}",
+      verification_check_id: verification_check_id,
+      source_graph_item_id: source_graph_item_id,
+      packet_title: "Verify #{label} readiness",
+      objective: "Confirm #{label} work has passing evidence.",
+      context_summary: "#{label} work came from the operator workflow.",
+      requirements: "Review #{label} blockers and record evidence.",
+      success_criteria: "The required verification check has accepted evidence.",
+      autonomy_posture: "human_supervised",
+      source_surface: "operator_workflow_api",
+      reason: "Execute #{label} operator workflow.",
+      authority_posture: "human_supervised",
+      observation_source_kind: "human",
+      observation_source_identity: "manual:#{label}",
+      observation_idempotency_key: "observation:#{label}",
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      observation_rationale: "Human confirmed #{label}.",
+      evidence_claim: "#{label} passed.",
+      evidence_title: "#{label} evidence",
+      evidence_body: "#{label} evidence body.",
+      evidence_result: "passed",
+      acceptance_policy_basis: "owner_acceptance"
+    }
   end
 
   defp create_required_verification_check(session) do
