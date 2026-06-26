@@ -8,9 +8,9 @@
 
 ## 2. Phoenix App Shell
 
-- [ ] 2.1 Add a Phoenix route/controller path that serves the React app shell without using LiveView.
-- [ ] 2.2 Configure compiled frontend asset serving through the existing Phoenix static asset model.
-- [ ] 2.3 Add backend tests that verify the console route returns the app shell and asset references.
+- [x] 2.1 Add a Phoenix route/controller path that serves the React app shell without using LiveView.
+- [x] 2.2 Configure compiled frontend asset serving through the existing Phoenix static asset model.
+- [x] 2.3 Add backend tests that verify the console route returns the app shell and asset references.
 
 ## 3. Operator Console Workflow UI
 

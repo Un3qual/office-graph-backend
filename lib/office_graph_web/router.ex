@@ -7,6 +7,10 @@ defmodule OfficeGraphWeb.Router do
 
   forward "/graphql", Absinthe.Plug, schema: OfficeGraphWeb.Schema
 
+  scope "/", OfficeGraphWeb do
+    get "/operator", OperatorConsoleController, :index
+  end
+
   scope "/api", OfficeGraphWeb do
     pipe_through :api
 
