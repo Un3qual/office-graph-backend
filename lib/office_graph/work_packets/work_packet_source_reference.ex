@@ -32,6 +32,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
     defaults [:read]
 
     create :create do
+      public? false
+
       accept [
         :id,
         :work_packet_version_id,

@@ -141,9 +141,10 @@ shared domain actions and Ash-owned API surfaces.
 
 #### Scenario: Domain-owned packet-run and evidence creates are not exposed as simple resource creates
 
-- **WHEN** packet creation, packet-version readiness, work-run lifecycle, run
-  required checks, execution observations, evidence candidates, or accepted
-  evidence require command-owned derivation, operation validation, idempotency,
+- **WHEN** packet creation, packet-version readiness, packet source links,
+  packet required-check links, work-run lifecycle, run required checks,
+  execution observations, evidence candidates, or accepted evidence require
+  command-owned derivation, operation validation, idempotency,
   evidence-acceptance rules, or packet-contract checks
 - **THEN** Office Graph MUST keep those create actions private to the owning
   domain command and MUST not expose generated public resource creates that let

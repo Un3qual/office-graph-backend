@@ -117,6 +117,13 @@ as the first execution path.
 - **THEN** Office Graph MUST reject the command without creating a work run
   and MUST return an explainable validation or authorization error
 
+#### Scenario: Run authority stays within the packet autonomy envelope
+
+- **WHEN** an actor attempts to start or replay a work run with an authority
+  posture outside the selected packet version's allowed autonomy posture
+- **THEN** Office Graph MUST reject the command without creating or returning a
+  work run for that authority
+
 #### Scenario: Work run start replay input changes
 
 - **WHEN** a work-run start operation idempotency key is replayed after a work

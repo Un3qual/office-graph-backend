@@ -59,6 +59,14 @@ why completion was accepted, rejected, waived, stale, or partial.
   actor or policy basis, relevant work run or observations, operation
   correlation, timestamp, and resulting verification state
 
+#### Scenario: Direct completion records decision basis
+
+- **WHEN** a direct verification completion records accepted evidence without a
+  work run or evidence candidate
+- **THEN** Office Graph MUST still populate the verification result's target,
+  actor, policy basis, operation correlation, timestamp, accepted evidence, and
+  resulting verification state
+
 #### Scenario: Verification becomes stale
 
 - **WHEN** accepted evidence, source observations, work packet versions,

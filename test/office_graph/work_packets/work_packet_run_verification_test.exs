@@ -410,6 +410,30 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work run start rejects authority outside the packet autonomy envelope" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "work-run-authority-envelope"
+      )
+
+    version_id = packet_result.version.id
+
+    assert {:error,
+            {:work_run_authority_posture_mismatch, ^version_id, "fully_autonomous",
+             "human_supervised"}} =
+             Runs.start_run(bootstrap.session, operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "Reject escalated authority.",
+               authority_posture: "fully_autonomous"
+             })
+
+    refute run_for_operation?(operation.id)
+  end
+
   test "work run start rejects malformed ready packet versions without execution links" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -760,6 +784,18 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
 
     assert Exception.message(error) =~ "work_packet_version_id"
+  end
+
+  test "packet contract join creates are private" do
+    for resource <- [
+          WorkPacketSourceReference,
+          WorkPacketRequiredCheck
+        ] do
+      action = Ash.Resource.Info.action(resource, :create)
+
+      refute action.public?,
+             "#{inspect(resource)}.create must stay behind the packet creation command"
+    end
   end
 
   test "domain-owned packet-run create actions are private" do
@@ -1429,6 +1465,35 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert summary.run.aggregate_state == "verified"
     assert summary.run.execution_state == "completed"
     assert summary.run.verification_state == "verified"
+  end
+
+  test "direct verification completion records decision metadata" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "direct-completion-decision-metadata"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               operation,
+               verification_check,
+               %{
+                 title: "Direct completion evidence",
+                 body: "Direct completion evidence body.",
+                 artifact_uri: "https://example.test/direct-completion"
+               }
+             )
+
+    assert completed.verification_result.work_run_id == nil
+    assert completed.verification_result.work_packet_version_id == nil
+    assert completed.verification_result.target_graph_item_id == verification_check.graph_item_id
+    assert completed.verification_result.actor_principal_id == bootstrap.session.principal_id
+    assert completed.verification_result.policy_basis == "verification_complete"
+    assert completed.verification_result.recorded_at != nil
   end
 
   test "runless evidence candidates can be accepted without updating a work run" do
@@ -2420,6 +2485,12 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   defp accepted_evidence_for_candidate?(candidate_id) do
     EvidenceItem
     |> Ash.Query.filter(candidate_id == ^candidate_id)
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp run_for_operation?(operation_id) do
+    Run
+    |> Ash.Query.filter(operation_id == ^operation_id)
     |> Ash.exists?(authorize?: false)
   end
 

@@ -37,6 +37,7 @@ defmodule OfficeGraph.WorkGraph do
   @proposed_change_apply_action "proposed_change.apply"
   @verification_complete_action "verification.complete"
   @evidence_accept_action "evidence.accept"
+  @direct_verification_policy_basis "verification_complete"
 
   def get_verification_check(session_context, id) do
     VerificationCheck
@@ -290,6 +291,8 @@ defmodule OfficeGraph.WorkGraph do
       evidence_id = Ecto.UUID.generate()
       evidence_graph_item_id = Ecto.UUID.generate()
       verification_result_id = Ecto.UUID.generate()
+      now = DateTime.utc_now()
+      policy_basis = attrs[:policy_basis] || @direct_verification_policy_basis
 
       graph_transaction(fn ->
         {verification_check, review_finding, task, task_review_findings, task_verification_checks} =
@@ -347,6 +350,10 @@ defmodule OfficeGraph.WorkGraph do
               verification_check_id: verification_check.id,
               artifact_id: artifact.id,
               body_document_id: evidence_document.id,
+              accepted_by_principal_id: session_context.principal_id,
+              acceptance_operation_id: operation.id,
+              acceptance_policy_basis: policy_basis,
+              accepted_at: now,
               title: attrs[:title]
             },
             session_context
@@ -379,6 +386,11 @@ defmodule OfficeGraph.WorkGraph do
               verification_check_id: verification_check.id,
               evidence_item_id: evidence_item.id,
               operation_id: operation.id,
+              target_graph_item_id: verification_check.graph_item_id,
+              actor_principal_id: session_context.principal_id,
+              policy_basis: policy_basis,
+              reason: attrs[:reason],
+              recorded_at: now,
               result: "passed"
             }
           )

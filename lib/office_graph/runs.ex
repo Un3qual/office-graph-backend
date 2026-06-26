@@ -258,14 +258,19 @@ defmodule OfficeGraph.Runs do
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
 
+      packet_version =
+        case reload_packet_version(session_context, packet_version) do
+          {:ok, packet_version} -> packet_version
+          {:error, error} -> Repo.rollback(error)
+        end
+
+      case validate_run_authority(packet_version, attrs) do
+        :ok -> :ok
+        {:error, error} -> Repo.rollback(error)
+      end
+
       case existing_run_result(session_context, operation, packet_version, attrs) do
         {:ok, nil} ->
-          packet_version =
-            case reload_packet_version(session_context, packet_version) do
-              {:ok, packet_version} -> packet_version
-              {:error, error} -> Repo.rollback(error)
-            end
-
           case validate_packet_version_ready(packet_version) do
             :ok -> :ok
             {:error, error} -> Repo.rollback(error)
@@ -686,6 +691,18 @@ defmodule OfficeGraph.Runs do
 
   defp validate_packet_version_ready(%{id: id}), do: {:error, {:packet_version_not_ready, id}}
   defp validate_packet_version_ready(_packet_version), do: {:error, :missing_packet_version}
+
+  defp validate_run_authority(packet_version, attrs) do
+    requested_authority = attrs[:authority_posture]
+
+    if requested_authority == packet_version.autonomy_posture do
+      :ok
+    else
+      {:error,
+       {:work_run_authority_posture_mismatch, packet_version.id, requested_authority,
+        packet_version.autonomy_posture}}
+    end
+  end
 
   defp persisted_packet_version_ready?(packet_version) do
     present?(packet_version.objective) and

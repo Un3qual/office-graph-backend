@@ -175,6 +175,14 @@ slice.
 - **THEN** Office Graph MUST reject the replay before returning that version's
   source references or required checks
 
+#### Scenario: Packet contract links are command-owned
+
+- **WHEN** packet source links or packet required-check links are created for a
+  packet version
+- **THEN** Office Graph MUST keep those links behind the packet creation
+  command and MUST NOT expose simple public resource creates that can mutate a
+  ready or handed-off packet contract
+
 #### Scenario: Packet is missing verification expectations
 
 - **WHEN** a packet version lacks required checks, success criteria, or an
