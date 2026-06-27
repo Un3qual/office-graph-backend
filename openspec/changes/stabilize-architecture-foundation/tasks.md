@@ -42,14 +42,14 @@
   still presenting transport-appropriate envelopes.
 - [x] 2.5 Keep existing GraphQL/JSON parity tests green while modularizing the
   transport modules and error presentation.
-- [ ] 2.6 Identify the first safe AshGraphql/AshJsonApi read-only resource
+- [x] 2.6 Identify the first safe AshGraphql/AshJsonApi read-only resource
   surfaces for WorkGraph, WorkPackets, and Runs.
-- [ ] 2.7 Mount or compose generated AshGraphql reads for the selected resources
+- [x] 2.7 Mount or compose generated AshGraphql reads for the selected resources
   without exposing private lifecycle creates or updates.
-- [ ] 2.8 Mount AshJsonApi for the selected resource reads under `/api/v1`,
+- [x] 2.8 Mount AshJsonApi for the selected resource reads under `/api/v1`,
   keeping existing `/api` migration endpoints live only while desired callers
   still need them.
-- [ ] 2.9 Add generated API tests proving actor scope, capability checks,
+- [x] 2.9 Add generated API tests proving actor scope, capability checks,
   structured errors, and behavior parity with current migration reads where
   safety requires parity.
 - [ ] 2.10 Split packet-run-verification orchestration out of

@@ -22,6 +22,25 @@ AshJsonApi replacements are introduced.
 | Operator workflow JSON API | `lib/office_graph_web/json_api/operator_workflow/controller.ex`, `lib/office_graph_web/json_api/operator_workflow/serializer.ex` | Operator inbox, item, readiness, run state, and verification outcome are projection endpoints for the current console. |
 | Router API scope | `lib/office_graph_web/router.ex` | `/graphql` is mounted manually and JSON routes remain under `/api` until `/api/v1` AshJsonApi migration begins. |
 
+## Generated API Read Inventory
+
+Generated AshGraphql reads now compose into `OfficeGraphWeb.GraphQL.Schema` for
+the first safe resource surfaces:
+
+- `OfficeGraph.WorkGraph.Signal` via `listSignals`;
+- `OfficeGraph.WorkPackets.WorkPacket` via `listWorkPackets`;
+- `OfficeGraph.Runs.Run` via `listWorkRuns`.
+
+Generated AshJsonApi reads mount under `/api/v1` through
+`OfficeGraphWeb.JsonApi.Router`:
+
+- `GET /api/v1/signals`;
+- `GET /api/v1/work-packets`;
+- `GET /api/v1/work-runs`.
+
+The legacy `/api` routes remain compatibility and migration surfaces only.
+Generated lifecycle writes are not mounted.
+
 ## Domain And Database Exception Inventory
 
 Direct database mutation and transaction exceptions are already tracked in the

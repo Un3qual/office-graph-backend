@@ -5,7 +5,26 @@ defmodule OfficeGraphWeb.Router do
     plug :accepts, ["json"]
   end
 
-  forward "/graphql", Absinthe.Plug, schema: OfficeGraphWeb.GraphQL.Schema
+  pipeline :graphql do
+    plug OfficeGraphWeb.LocalApiOwnerPlug
+    plug AshGraphql.Plug
+  end
+
+  pipeline :generated_json_api do
+    plug OfficeGraphWeb.LocalApiOwnerPlug
+  end
+
+  scope "/" do
+    pipe_through :graphql
+
+    forward "/graphql", Absinthe.Plug, schema: Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+  end
+
+  scope "/" do
+    pipe_through :generated_json_api
+
+    forward "/api/v1", OfficeGraphWeb.JsonApi.Router
+  end
 
   scope "/", OfficeGraphWeb do
     get "/operator", OperatorConsoleController, :index

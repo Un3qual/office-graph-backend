@@ -1,6 +1,13 @@
 defmodule OfficeGraphWeb.GraphQL.Schema do
   use Absinthe.Schema
 
+  use AshGraphql,
+    domains: [
+      OfficeGraph.WorkGraph.Domain,
+      OfficeGraph.WorkPackets.Domain,
+      OfficeGraph.Runs.Domain
+    ]
+
   import_types(OfficeGraphWeb.GraphQL.Common.Queries)
   import_types(OfficeGraphWeb.GraphQL.Compatibility.Types)
   import_types(OfficeGraphWeb.GraphQL.Compatibility.Mutations)

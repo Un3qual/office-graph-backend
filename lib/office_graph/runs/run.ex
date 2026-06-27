@@ -43,7 +43,7 @@ defmodule OfficeGraph.Runs.Run do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
     end
 
     create :create do

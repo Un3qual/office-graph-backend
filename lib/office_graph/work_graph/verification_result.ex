@@ -132,7 +132,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
   end
 
   graphql do
-    type :verification_result
+    type :work_graph_verification_result
   end
 
   json_api do

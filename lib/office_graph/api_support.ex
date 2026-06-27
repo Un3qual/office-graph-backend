@@ -259,7 +259,7 @@ defmodule OfficeGraph.ApiSupport do
     end
   end
 
-  defp bootstrap_local_api_owner do
+  def bootstrap_local_api_owner do
     if Application.get_env(:office_graph, :allow_local_api_owner_bootstrap, false) do
       Foundation.bootstrap_local_owner([])
     else
