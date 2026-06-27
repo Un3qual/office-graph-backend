@@ -9,9 +9,10 @@ workflow vocabulary.
 
 - **WHEN** an API contract, UI projection, UI label, product spec, or operator
   workflow names first-spine concepts
-- **THEN** it MUST use the canonical concepts Signal, Change Proposal, Work
-  Item, Work Packet, Run, Check, Evidence, and Verification unless an accepted
-  spec introduces a more specific user-facing concept
+- **THEN** it MUST use the canonical concepts Signal, Work Item, Work Packet,
+  Run, Check, Evidence, and Verification unless an accepted spec introduces a
+  more specific user-facing concept, and it MUST use Change Proposal only when
+  proposed mutation review is a real workflow
 
 #### Scenario: Work is prepared for execution
 
@@ -60,6 +61,20 @@ API, UI, or spec contracts.
 - **THEN** new API and UI layers MUST translate it to the canonical product
   term and MUST include a migration or retirement task if the legacy name would
   otherwise become durable public vocabulary
+
+#### Scenario: Normal domain command is modeled
+
+- **WHEN** a human or trusted backend workflow performs a normal domain command
+- **THEN** the design MUST NOT force that command through a Change Proposal
+  record unless the workflow requires pending review, rejection, approval,
+  untrusted generated input, or pre-application audit semantics
+
+#### Scenario: Change Proposal storage is retained
+
+- **WHEN** a Change Proposal or legacy `proposed_graph_changes` storage object
+  remains in the implementation
+- **THEN** it MUST be treated as a narrow safety/audit mechanism for proposed
+  mutations rather than a generic product-facing mutation layer
 
 ### Requirement: Evidence Candidate Is Internal Unless Promoted
 

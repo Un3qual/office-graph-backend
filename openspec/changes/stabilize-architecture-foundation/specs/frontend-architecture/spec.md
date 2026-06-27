@@ -25,6 +25,12 @@ adding additional product routes beyond the first operator console.
 Office Graph SHALL keep shared visual primitives separate from workflow-specific
 status and domain mapping logic.
 
+#### Scenario: Frontend tooling is configured
+
+- **WHEN** JavaScript package, build, typecheck, or test tooling is configured
+- **THEN** package metadata, lockfiles, Vite config, TypeScript config, Vitest
+  setup, and frontend scripts MUST live under `assets` and MUST use pnpm
+
 #### Scenario: Shared component is added
 
 - **WHEN** a shared UI component such as a badge, button, panel, pane header,
@@ -49,13 +55,13 @@ client interfaces rather than direct ad hoc fetch calls inside components.
 
 - **WHEN** a feature route or panel reads an Office Graph projection
 - **THEN** the feature MUST call a typed projection client or hook that returns
-  a frontend view model independent of whether the underlying transport is JSON
-  API or GraphQL
+  a frontend view model independent of GraphQL response shape, temporary JSON
+  migration shapes, or future socket/live invalidation payloads
 
 #### Scenario: Transport adapter changes
 
-- **WHEN** a projection moves from a JSON adapter to a GraphQL adapter or adds a
-  second adapter for parity
+- **WHEN** a projection moves from a temporary JSON adapter to the GraphQL
+  product adapter or adds socket/live invalidation
 - **THEN** component props and rendering logic MUST remain stable unless the
   projection contract itself changes through OpenSpec
 
@@ -68,8 +74,9 @@ state in the React app.
 
 - **WHEN** backend projection data is read by multiple routes, panels, or
   realtime invalidation paths
-- **THEN** the frontend MUST use an explicit query/cache layer for loading,
-  deduplication, cancellation, stale markers, refetching, and error state
+- **THEN** the frontend MUST use an explicit query/cache layer such as TanStack
+  Query for loading, deduplication, cancellation, stale markers, refetching,
+  and error state
 
 #### Scenario: Local UI selection is needed
 
@@ -86,9 +93,9 @@ build artifacts that exist and can execute.
 #### Scenario: Frontend verification runs
 
 - **WHEN** frontend verification runs locally or in CI
-- **THEN** it MUST use project-local dependencies, run typecheck, run unit or
-  component tests, build the app, and verify that the app shell references
-  generated asset files present under the Phoenix static path
+- **THEN** it MUST use project-local pnpm dependencies under `assets`, run
+  typecheck, run unit or component tests, build the app, and verify that the app
+  shell references generated asset files present under the Phoenix static path
 
 #### Scenario: App shell route is tested
 

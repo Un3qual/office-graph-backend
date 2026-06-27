@@ -4,7 +4,10 @@ Office Graph is past the point where the walking skeleton can safely keep
 absorbing feature work. The accepted specs already set the direction:
 AshGraphql and AshJsonApi are the default API posture, bounded contexts own
 domain behavior, React is the product UI, LiveView is forbidden, and UI
-surfaces should read through explicit projection contracts.
+surfaces should read through explicit projection contracts. The product
+frontend should use GraphQL as its normal API; REST/JSON API exists for
+customer integrations, and socket/live transport is internal-only when
+realtime workflow needs it.
 
 The implementation does not yet match that posture. The live GraphQL API is a
 single hand-written `OfficeGraphWeb.Schema`; JSON endpoints are Phoenix
@@ -16,8 +19,10 @@ has started without a durable routing, data-fetching, component, or design
 system foundation.
 
 The conceptual model has also become too broad for the first product spine.
-The stable MVP loop is simple: messy signal, change proposal, work item, work
-packet, run, check, evidence, verification, reusable context. Backend
+The stable MVP loop is simple: messy signal, work item, work packet, run,
+check, evidence, verification, reusable context. If a proposed-mutation safety
+workflow remains in current scope, the user-facing term is Change Proposal, not
+proposed graph change or GraphPatch. Backend
 infrastructure such as graph identity, operation correlation, raw archives,
 execution observations, evidence candidates, audit records, revisions, and
 policy bundles remains valuable, but it should not automatically become
@@ -54,7 +59,9 @@ changes must follow.
   Private lifecycle actions must stay private unless a later spec explicitly
   makes them safe public actions.
 - Do not remove the existing walking-skeleton or operator-console endpoints
-  until compatibility tests and replacement clients exist.
+  before replacement clients and gates exist for any desired caller. Backwards
+  compatibility is not a goal; preserving old contracts is only useful while
+  they keep current development smoke value.
 - Do not split the application into microservices or separate frontend/backend
   deployables.
 - Do not implement full identity provider flows, SCIM UI, rich text quote
@@ -86,7 +93,6 @@ The MVP product spine is:
 
 ```text
 Signal
-  -> Change Proposal
   -> Work Item
   -> Work Packet
   -> Run
@@ -98,8 +104,8 @@ Signal
 `Work Packet` is the user-facing execution contract. `Run` is the user-facing
 attempt to execute that contract. `Evidence` is user-facing with explicit
 states such as suggested, accepted, rejected, and stale. `Verification` is the
-decision over checks and evidence. `Change Proposal` is the only accepted
-product term for proposed domain mutations.
+decision over checks and evidence. If proposed domain mutations remain a
+current workflow, `Change Proposal` is the only accepted product term for them.
 
 Infrastructure concepts can still exist in storage and audit paths, but they
 should be hidden behind projection contracts by default. This means
@@ -112,7 +118,7 @@ because the storage model is typed. Rejected because it makes the operator
 experience and API contracts reflect implementation mechanics instead of the
 work loop.
 
-### 3. Migrate APIs By Compatibility, Not Big Bang
+### 3. Migrate APIs With Ledgers, Not Big Bang
 
 API cleanup should proceed in stages:
 
@@ -121,12 +127,15 @@ API cleanup should proceed in stages:
 2. Modularize the existing GraphQL schema and JSON API code into separate
    transport namespaces without changing routes or behavior.
 3. Mount/read from AshGraphql and AshJsonApi for safe read-only or simple
-   resource surfaces on WorkGraph, WorkPackets, and Runs.
+   resource surfaces on WorkGraph, WorkPackets, and Runs. AshJsonApi mounts
+   under `/api/v1`.
 4. Promote composite command behavior out of `OfficeGraph.ApiSupport` into an
    owning domain command module.
-5. Migrate clients/tests from compatibility routes to generated or explicitly
-   documented command/projection APIs.
-6. Retire compatibility endpoints after parity and client migration.
+5. Migrate internal clients/tests to GraphQL generated reads or explicitly
+   documented command/projection APIs. Keep JSON API for customer integration
+   contracts rather than product frontend needs.
+6. Retire compatibility endpoints as soon as replacement behavior is proven and
+   no desired caller remains.
 
 Custom transport code remains valid for commands and projections that span
 domains or need a non-resource envelope. It must stay thin: context loading,
@@ -248,22 +257,27 @@ Phoenix app shell
     -> feature route/container
       -> projection hooks
         -> query cache
-          -> JSON adapter now
-          -> GraphQL adapter when stable
+          -> GraphQL adapter
+          -> socket/live invalidation when needed
 shared tokens -> shared UI primitives -> feature components
 ```
 
 The first frontend implementation change should:
 
 - promote concept tokens to CSS custom properties;
+- move frontend package/tooling files under `assets` and switch verification to
+  pnpm;
 - create generic shared primitives such as badge, button, panel, pane header,
   nav rail, text field, and empty state;
 - split the 500-line operator console into route/container, query hooks,
   workbench layout, inbox, detail, readiness, run, and verification panels;
-- introduce a projection-client interface so JSON and future GraphQL adapters
-  return the same frontend view model;
+- introduce a projection-client interface so temporary JSON compatibility
+  adapters can be replaced by the GraphQL product adapter without changing
+  components;
 - add a query cache for server state once more than one route or realtime
-  invalidation exists;
+  invalidation exists, with TanStack Query as the leading candidate;
+- evaluate TanStack, StyleX, and React Aria with a small foundation spike
+  before broad UI refactors;
 - make app-shell verification fail when built assets are missing.
 
 Routing should stay minimal until a second real product route exists. Inert
@@ -275,6 +289,11 @@ Alternative considered: add Relay/Apollo, a global store, and a full design
 system package now. Rejected because backend API contracts are still in motion
 and the current UI needs a small rescue, not a platform rebuild.
 
+Alternative considered: keep root-level `package.json`, Vite, TypeScript, and
+lock files. Rejected because frontend tooling should be contained under
+`assets` alongside the React application rather than making the Phoenix project
+root look like a JavaScript application root.
+
 ### 6. Verification Gates Come Before Refactors
 
 Before large code movement, add gates that catch new drift:
@@ -284,8 +303,8 @@ Before large code movement, add gates that catch new drift:
   unless documented as exceptions.
 - Domain architecture tests that reject new direct database exceptions or broad
   `authorize?: false` paths without ledger coverage.
-- Frontend verification that uses project-local dependencies and catches a
-  missing built app shell.
+- Frontend verification that uses project-local dependencies under `assets`,
+  runs through pnpm, and catches a missing built app shell.
 - Parity tests that keep existing GraphQL and JSON compatibility surfaces
   aligned while generated Ash surfaces are introduced.
 
@@ -298,8 +317,9 @@ the drift while cleanup happens incrementally.
 - API migration could expose unsafe lifecycle writes through generated Ash
   APIs -> Keep generated public surfaces read-only/simple first and require
   explicit specs before public creates/updates.
-- Compatibility endpoints could live forever -> Require retirement conditions,
-  client migration tasks, and tests proving replacement parity before archive.
+- Compatibility endpoints could live forever -> Treat ledgers as migration
+  burn-down lists, require replacement/removal targets, and do not keep old
+  contracts merely for backwards compatibility.
 - Domain cleanup could remove important transaction/idempotency safety -> Treat
   exception retirement as behavior-preserving refactors with regression tests
   for replay, concurrency, authorization, and partial-commit prevention.
@@ -320,30 +340,28 @@ the drift while cleanup happens incrementally.
    exception ledgers for current manual API, domain, and frontend gaps.
 3. Second implementation change: modularize existing API schema/error
    presentation without route or behavior changes.
-4. Third implementation change: establish frontend foundation and reliable
-   frontend verification without adding new product screens.
+4. Third implementation change: establish frontend foundation, move JavaScript
+   tooling under `assets`, switch to pnpm, and make reliable frontend
+   verification work without adding new product screens.
 5. Fourth implementation change: introduce safe generated Ash read surfaces and
-   adapter tests while retaining compatibility routes.
+   GraphQL projection-client tests while retaining only migration routes that
+   still have development value.
 6. Later implementation changes: move composite command ownership out of
    `OfficeGraph.ApiSupport`, burn down domain exception entries, migrate
    clients, and retire compatibility endpoints.
 
 Rollback is straightforward for the planning artifact: revert this change. For
 later implementation, each stage must keep current tests passing and avoid
-removing compatibility endpoints until replacements are proven.
+removing migration endpoints until replacements are proven for desired callers.
 
 ## Open Questions
 
-- Which URL should host strict AshJsonApi during migration: existing `/api`, a
-  new `/api/v1`, or a temporary `/jsonapi` mount?
-- Should the operator console keep JSON as the default adapter until projection
-  contracts stabilize, or should GraphQL become the dogfood path as soon as a
-  generated schema is available?
 - Which domain owns the cross-cutting packet-run-verification command:
   WorkPackets, Runs, Verification, a new WorkExecution context, or an
   OperatorWorkflow command boundary?
-- Should packet readiness become a backend-projected command affordance instead
-  of a frontend-assembled POST input?
-- How aggressive should the first vocabulary migration be for
-  `proposed_graph_changes`: code/database rename now, or API/UI rename first
-  with storage rename later?
+- Does the Change Proposal / `proposed_graph_changes` safety object remain in
+  current MVP scope, narrow to a future agent-generated mutation workflow, or
+  get deleted/deferred until that workflow is real?
+- Should evidence candidate mechanics remain entirely internal and project as
+  Evidence states, or does a dedicated operator review queue require a separate
+  user-facing concept?

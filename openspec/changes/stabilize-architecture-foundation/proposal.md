@@ -14,8 +14,8 @@ architecture instead of normalizing the current walking-skeleton shortcuts.
 
 - Define an architecture stabilization roadmap for API, domain, frontend, and
   product vocabulary remediation before the next large product feature.
-- Require the current manual GraphQL/JSON API code to be treated as a
-  compatibility layer with explicit exceptions, retirement conditions, and
+- Require the current manual GraphQL/JSON API code to be treated as migration
+  debt with explicit exceptions, deletion or retirement conditions, and
   generated Ash API migration milestones.
 - Require GraphQL and JSON API transport code to live in separate folders and
   module namespaces under `OfficeGraphWeb`, organized transport first,
@@ -23,16 +23,18 @@ architecture instead of normalizing the current walking-skeleton shortcuts.
 - Require domain/resource cleanup to burn down direct Ecto and `authorize?:
   false` exceptions through public Ash/domain commands rather than expanding
   transport-adjacent orchestration modules.
-- Define a frontend architecture foundation covering design tokens,
-  components, routing, state management, data fetching, generated API types,
-  testing, and feature boundaries before additional product screens are added.
+- Define a frontend architecture foundation covering pnpm-based tooling under
+  `assets`, design tokens, components, routing, state management, GraphQL data
+  fetching, generated API types, testing, and feature boundaries before
+  additional product screens are added.
 - Establish canonical MVP product vocabulary so operator-facing APIs and UI
-  expose a smaller spine: Signal, Change Proposal, Work Item, Work Packet, Run,
-  Check, Evidence, and Verification.
-- Preserve enterprise requirements as backend guardrails while deferring broad
-  UI/API exposure for SCIM, rich text quote models, explicit grants, agent
-  execution internals, and other non-spine concepts until a workflow requires
-  them.
+  expose a smaller spine: Signal, Work Item, Work Packet, Run, Check, Evidence,
+  and Verification, with Change Proposal used only when proposed mutation
+  review is a real workflow.
+- Preserve enterprise requirements as backend guardrails while requiring
+  workflow justification before broad UI/API exposure for SCIM, rich text quote
+  models, explicit grants, agent execution internals, and other non-spine
+  concepts.
 - Add verification gates that prevent new manual API surfaces, new frontend
   feature sprawl, or new direct database exceptions without an accepted
   exception and retirement condition.
@@ -77,9 +79,11 @@ architecture instead of normalizing the current walking-skeleton shortcuts.
   `OfficeGraph.WorkGraph`, `OfficeGraph.WorkPackets`, `OfficeGraph.Runs`,
   `OfficeGraph.Verification`, resource/domain modules, architecture tests, and
   `assets/src/**`.
-- Affected APIs: future GraphQL and JSON API surfaces must prefer AshGraphql
-  and AshJsonApi for resource operations, with custom transport code limited to
-  documented command/projection exceptions.
+- Affected APIs: product frontend work should use GraphQL, customer
+  integrations should use REST/JSON API under `/api/v1`, and future GraphQL and
+  JSON API surfaces must prefer AshGraphql and AshJsonApi for resource
+  operations, with custom transport code limited to documented
+  command/projection exceptions.
 - Affected frontend: future UI changes must first establish component, routing,
   state/data, and API typing conventions instead of extending the single
   operator console component shape.

@@ -42,17 +42,19 @@ when the UI needs to start or continue workflow actions.
   defaults, validation hints, and target identities so the frontend does not
   reconstruct domain relationships from raw projection internals
 
-### Requirement: Projection Clients Hide Transport Shape
+### Requirement: Projection Clients Hide GraphQL And Realtime Shape
 
-Office Graph SHALL keep frontend projection clients stable across JSON and
-GraphQL transport differences.
+Office Graph SHALL keep frontend projection clients stable across GraphQL
+response shapes, temporary JSON migration shapes, and future socket/live
+realtime invalidation payloads.
 
-#### Scenario: Projection is exposed through both transports
+#### Scenario: Projection is exposed through migration and product transports
 
-- **WHEN** both JSON API and GraphQL expose an operator-facing projection
-- **THEN** frontend projection clients MUST normalize transport-specific field
-  naming, pagination, error envelopes, and relationship shapes into a single
-  feature view model
+- **WHEN** both temporary JSON API and GraphQL expose an operator-facing
+  projection during migration
+- **THEN** frontend projection clients MUST normalize field naming, pagination,
+  error envelopes, and relationship shapes into a single feature view model,
+  with GraphQL as the desired product frontend transport
 
 #### Scenario: Realtime update arrives
 

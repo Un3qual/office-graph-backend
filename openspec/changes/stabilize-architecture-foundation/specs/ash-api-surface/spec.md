@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
-### Requirement: Manual API Compatibility Ledger
+### Requirement: Manual API Migration Ledger
 
-Office Graph SHALL maintain a compatibility ledger for hand-written GraphQL
-and JSON API surfaces that remain during Ash API migration.
+Office Graph SHALL maintain a migration ledger for hand-written GraphQL and
+JSON API surfaces that remain during Ash API migration.
 
 #### Scenario: Manual API surface remains live
 
@@ -11,7 +11,7 @@ and JSON API surfaces that remain during Ash API migration.
   transport-specific resolver remains live after stabilization begins
 - **THEN** the implementation MUST document the owning capability, reason it
   cannot yet be generated through AshGraphql or AshJsonApi, replacement target,
-  parity tests, and retirement condition
+  safety/parity tests, and deletion or retirement condition
 
 #### Scenario: New manual API surface is proposed
 
@@ -57,6 +57,18 @@ namespaces under the Phoenix web boundary.
 Office Graph SHALL introduce generated AshGraphql and AshJsonApi resource
 surfaces for safe reads before exposing generated lifecycle writes.
 
+#### Scenario: Product frontend reads Office Graph data
+
+- **WHEN** the React product frontend reads resource-shaped or projection data
+- **THEN** it MUST use GraphQL as the normal product API, while REST/JSON API
+  remains a customer integration surface and not the preferred internal UI
+  transport
+
+#### Scenario: JSON API resource reads are mounted
+
+- **WHEN** generated AshJsonApi resource reads are exposed during stabilization
+- **THEN** they MUST mount under `/api/v1`
+
 #### Scenario: Resource surface is migrated
 
 - **WHEN** a WorkGraph, WorkPackets, Runs, or Verification resource read is
@@ -93,9 +105,9 @@ generated Ash APIs do not fit.
   NOT infer business semantics from raw resource type strings or private table
   structure
 
-### Requirement: API Migration Maintains Parity
+### Requirement: API Migration Preserves Safety Behavior
 
-Office Graph SHALL preserve GraphQL and JSON API parity while migrating from
+Office Graph SHALL preserve safety-critical behavior while migrating from
 manual compatibility surfaces to generated Ash surfaces and custom command
 exceptions.
 
@@ -105,5 +117,6 @@ exceptions.
   manual compatibility endpoint
 - **THEN** tests MUST prove equivalent authorization behavior, operation
   context, validation errors, idempotency semantics, durable state changes, and
-  safe structured error shapes for both GraphQL and JSON API where both
-  transports are supported
+  safe structured error shapes for every desired transport, without requiring
+  old response envelopes or field names unless a customer-facing contract
+  explicitly preserves them
