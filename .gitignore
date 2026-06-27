@@ -33,6 +33,6 @@ office_graph-*.tar
 /.hex/
 
 # Frontend dependencies and generated assets.
-/node_modules/
-/coverage/
+/assets/node_modules/
+/assets/coverage/
 /priv/static/assets/operator/

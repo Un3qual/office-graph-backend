@@ -1,27 +1,27 @@
 ## 1. Baseline And Guardrails
 
-- [ ] 1.1 Re-run OpenSpec discovery and confirm no other active change owns API,
+- [x] 1.1 Re-run OpenSpec discovery and confirm no other active change owns API,
   domain, frontend, or concept stabilization scope.
-- [ ] 1.2 Add or update a stabilization inventory documenting current manual
+- [x] 1.2 Add or update a stabilization inventory documenting current manual
   GraphQL fields, Phoenix JSON routes, serializers, `OfficeGraph.ApiSupport`
   commands, direct database exceptions, broad `authorize?: false` paths, and
   frontend architecture gaps.
-- [ ] 1.3 Add an API migration ledger entry for each existing manual
+- [x] 1.3 Add an API migration ledger entry for each existing manual
   GraphQL/JSON surface that remains live, including owner, reason, replacement
   target, safety/parity tests, and deletion or retirement condition.
-- [ ] 1.4 Add architecture conformance coverage that fails when new manual API
+- [x] 1.4 Add architecture conformance coverage that fails when new manual API
   resource surfaces are added without ledger coverage.
-- [ ] 1.5 Add architecture conformance coverage that fails when new direct
+- [x] 1.5 Add architecture conformance coverage that fails when new direct
   database mutation paths, raw SQL paths, or broad authorization bypasses are
   added without exception-ledger coverage.
-- [ ] 1.6 Fix or document frontend verification prerequisites so the project uses
+- [x] 1.6 Fix or document frontend verification prerequisites so the project uses
   local dependencies and does not accidentally run a system TypeScript compiler.
-- [ ] 1.7 Move JavaScript package/tooling files under `assets`, switch frontend
+- [x] 1.7 Move JavaScript package/tooling files under `assets`, switch frontend
   dependency management from npm/package-lock to pnpm, and update scripts to run
   from the project Nix shell.
-- [ ] 1.8 Add app-shell verification proving `/operator` references built asset
+- [x] 1.8 Add app-shell verification proving `/operator` references built asset
   paths that the frontend build can produce.
-- [ ] 1.9 Run baseline verification:
+- [x] 1.9 Run baseline verification:
   `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate stabilize-architecture-foundation --strict`,
   `nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance`,
   frontend verification, and focused API/frontend tests.

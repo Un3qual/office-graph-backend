@@ -8,8 +8,10 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
+  @api_migration_ledger "openspec/changes/stabilize-architecture-foundation/api-migration-ledger.md"
   @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
+  @stabilization_inventory "openspec/changes/stabilize-architecture-foundation/stabilization-inventory.md"
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
@@ -290,6 +292,111 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   }
 
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
+
+  test "stabilization inventory documents current API domain and frontend debt" do
+    assert File.exists?(@stabilization_inventory),
+           "Expected stabilization inventory at #{@stabilization_inventory}"
+
+    inventory = File.read!(@stabilization_inventory)
+
+    for required_text <- [
+          "## Active OpenSpec Scope",
+          "## Manual API Surface Inventory",
+          "## Domain And Database Exception Inventory",
+          "## Broad Authorization Bypass Inventory",
+          "## Frontend Architecture Gap Inventory",
+          "OfficeGraphWeb.Schema",
+          "OfficeGraph.ApiSupport",
+          "assets/package.json"
+        ] do
+      assert inventory =~ required_text,
+             "#{@stabilization_inventory} must document #{inspect(required_text)}"
+    end
+  end
+
+  test "manual GraphQL and JSON API surfaces are covered by migration ledger entries" do
+    unledgered =
+      manual_api_surfaces()
+      |> Enum.reject(&api_migration_ledger_approves_surface?(api_migration_ledger_entries(), &1))
+
+    assert unledgered == [],
+           """
+           Found manual API surfaces without migration ledger coverage.
+           Each surface must record owner, reason, replacement target, safety/parity tests, and retirement condition in #{@api_migration_ledger}.
+
+           #{format_api_surfaces(unledgered)}
+           """
+  end
+
+  test "manual API migration ledger entries still point to current surfaces" do
+    current_surface_ids =
+      manual_api_surfaces()
+      |> MapSet.new(& &1.id)
+
+    stale =
+      for entry <- api_migration_ledger_entries(),
+          not MapSet.member?(current_surface_ids, entry.id) do
+        entry.id
+      end
+
+    assert stale == [],
+           "#{@api_migration_ledger} contains surface ids with no matching current manual API surface:\n#{format_errors(stale)}"
+  end
+
+  test "manual API migration ledger records required approval metadata" do
+    errors =
+      @api_migration_ledger
+      |> File.read!()
+      |> api_migration_ledger_metadata_errors()
+
+    assert errors == [],
+           """
+           #{@api_migration_ledger} entries must document owner, capability, exception class, reason, replacement target, safety/parity tests, and retirement condition:
+           #{format_errors(errors)}
+           """
+  end
+
+  test "broad Ash authorization bypasses are explicitly ledgered" do
+    unapproved =
+      ash_authorization_bypasses()
+      |> Enum.reject(&auth_bypass_ledger_approves_operation?(auth_bypass_ledger_entries(), &1))
+
+    assert unapproved == [],
+           """
+           Found authorize?: false call sites without explicit exception ledger approval.
+           Each approval must document the file, function, bypass scope, reason, verification, and retirement condition in #{@architecture_exception_ledger}.
+
+           #{format_auth_bypasses(unapproved)}
+           """
+  end
+
+  test "authorization bypass ledger entries still point to current code" do
+    current_tuples =
+      ash_authorization_bypasses()
+      |> MapSet.new(&{&1.path, &1.function})
+
+    missing =
+      for entry <- auth_bypass_ledger_entries(),
+          not MapSet.member?(current_tuples, {entry.path, entry.function}) do
+        "#{entry.path} #{entry.function}"
+      end
+
+    assert missing == [],
+           "#{@architecture_exception_ledger} contains authorization bypass entries with no matching current code:\n#{format_errors(missing)}"
+  end
+
+  test "authorization bypass ledger records required approval metadata" do
+    errors =
+      @architecture_exception_ledger
+      |> File.read!()
+      |> auth_bypass_ledger_metadata_errors()
+
+    assert errors == [],
+           """
+           #{@architecture_exception_ledger} authorization bypass entries must document owner, approved functions, bypass scope, approving spec, reason, verification coverage, and retirement condition:
+           #{format_errors(errors)}
+           """
+  end
 
   @tag :scanner_contract
   test "direct Ecto scanner reports proposed-change transaction boundaries" do
@@ -1185,6 +1292,200 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.sort_by(&{&1.path, &1.line, &1.operation})
   end
 
+  defp ash_authorization_bypasses do
+    "lib/office_graph/**/*.ex"
+    |> Path.wildcard()
+    |> Enum.flat_map(&scan_file_for_ash_authorization_bypasses/1)
+    |> Enum.uniq_by(&{&1.path, &1.function})
+    |> Enum.sort_by(&{&1.path, &1.function})
+  end
+
+  defp scan_file_for_ash_authorization_bypasses(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({nil, []}, fn {line, line_number}, {current_function, bypasses} ->
+      current_function = function_name(line) || current_function
+
+      bypasses =
+        if line =~ "authorize?: false" do
+          [
+            %{
+              path: path,
+              line: line_number,
+              function: current_function,
+              source: String.trim(line)
+            }
+            | bypasses
+          ]
+        else
+          bypasses
+        end
+
+      {current_function, bypasses}
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp manual_api_surfaces do
+    graphql_root_surfaces() ++ json_api_route_surfaces() ++ json_serializer_surfaces()
+  end
+
+  defp graphql_root_surfaces do
+    "lib/office_graph_web/schema.ex"
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({nil, []}, fn {line, line_number}, {root_kind, surfaces} ->
+      cond do
+        Regex.match?(~r/^\s{2}query do$/, line) ->
+          {:query, surfaces}
+
+        Regex.match?(~r/^\s{2}mutation do$/, line) ->
+          {:mutation, surfaces}
+
+        root_kind && Regex.match?(~r/^\s{2}end$/, line) ->
+          {nil, surfaces}
+
+        root_kind ->
+          case Regex.run(~r/^\s{4}field :([a-zA-Z0-9_!?]+)\b/, line) do
+            [_, field_name] ->
+              surface = %{
+                id: "graphql.#{root_kind}.#{field_name}",
+                type: "GraphQL #{root_kind}",
+                path: "lib/office_graph_web/schema.ex",
+                line: line_number
+              }
+
+              {root_kind, [surface | surfaces]}
+
+            _ ->
+              {root_kind, surfaces}
+          end
+
+        true ->
+          {root_kind, surfaces}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp json_api_route_surfaces do
+    "lib/office_graph_web/router.ex"
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({false, []}, fn {line, line_number}, {in_api_scope?, surfaces} ->
+      cond do
+        Regex.match?(~r/^\s{2}scope "\/api", OfficeGraphWeb do$/, line) ->
+          {true, surfaces}
+
+        in_api_scope? && Regex.match?(~r/^\s{2}end$/, line) ->
+          {false, surfaces}
+
+        in_api_scope? ->
+          case Regex.run(~r/^\s{4}(get|post|put|patch|delete)\s+"([^"]+)"/, line) do
+            [_, method, route] ->
+              surface = %{
+                id: "json.#{method}./api#{route}",
+                type: "JSON #{String.upcase(method)} route",
+                path: "lib/office_graph_web/router.ex",
+                line: line_number
+              }
+
+              {in_api_scope?, [surface | surfaces]}
+
+            _ ->
+              {in_api_scope?, surfaces}
+          end
+
+        true ->
+          {in_api_scope?, surfaces}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp json_serializer_surfaces do
+    "lib/office_graph_web/*_serializer.ex"
+    |> Path.wildcard()
+    |> Enum.map(fn path ->
+      source = File.read!(path)
+      module = source |> String.split("\n") |> Enum.find_value(&module_name/1)
+
+      %{
+        id: "serializer.#{module}",
+        type: "JSON serializer",
+        path: path,
+        line: 1
+      }
+    end)
+    |> Enum.sort_by(& &1.id)
+  end
+
+  defp api_migration_ledger_entries do
+    @api_migration_ledger
+    |> File.read!()
+    |> markdown_table_entries("Surface ID")
+    |> Enum.map(fn entry -> %{id: unbacktick(Map.fetch!(entry, "Surface ID"))} end)
+  end
+
+  defp api_migration_ledger_approves_surface?(entries, surface) do
+    Enum.any?(entries, &(&1.id == surface.id))
+  end
+
+  defp api_migration_ledger_metadata_errors(ledger) do
+    table_metadata_errors(ledger, "Surface ID", [
+      "Surface ID",
+      "Owner",
+      "Capability",
+      "Current surface",
+      "Exception class",
+      "Reason",
+      "Replacement target",
+      "Safety/parity tests",
+      "Retirement condition"
+    ])
+  end
+
+  defp auth_bypass_ledger_entries do
+    @architecture_exception_ledger
+    |> File.read!()
+    |> ledger_section("## Authorization Bypass Ledger")
+    |> markdown_table_entries("File")
+    |> Enum.flat_map(fn entry ->
+      path = unbacktick(Map.fetch!(entry, "File"))
+
+      entry
+      |> Map.fetch!("Approved functions")
+      |> backticked_values()
+      |> Enum.map(&%{path: path, function: &1})
+    end)
+  end
+
+  defp auth_bypass_ledger_approves_operation?(entries, bypass) do
+    Enum.any?(entries, &(&1.path == bypass.path and &1.function == bypass.function))
+  end
+
+  defp auth_bypass_ledger_metadata_errors(ledger) do
+    ledger
+    |> ledger_section("## Authorization Bypass Ledger")
+    |> table_metadata_errors("File", [
+      "File",
+      "Owner",
+      "Approved functions",
+      "Bypass scope",
+      "Approving spec",
+      "Reason",
+      "Verification coverage",
+      "Retirement condition"
+    ])
+  end
+
   defp scan_file_for_direct_ecto_operations(path) do
     path
     |> File.read!()
@@ -1278,6 +1579,80 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "|"))
     |> Enum.map(&markdown_table_cells/1)
     |> Enum.reject(&markdown_separator_row?/1)
+  end
+
+  defp markdown_table_entries(markdown, required_header) do
+    case markdown_table_rows(markdown) do
+      [] ->
+        []
+
+      [header | data_rows] ->
+        if required_header in header do
+          Enum.map(data_rows, fn row ->
+            header
+            |> Enum.zip(row ++ List.duplicate("", max(length(header) - length(row), 0)))
+            |> Map.new()
+          end)
+        else
+          []
+        end
+    end
+  end
+
+  defp table_metadata_errors(markdown, required_header, required_headers) do
+    rows = markdown_table_rows(markdown)
+
+    case rows do
+      [] ->
+        ["missing table with #{required_header} column"]
+
+      [header | data_rows] ->
+        if required_header in header do
+          missing_headers = required_headers -- header
+
+          row_errors =
+            data_rows
+            |> Enum.with_index(1)
+            |> Enum.flat_map(fn {row, row_number} ->
+              for header_name <- required_headers,
+                  blank?(table_cell(row, header, header_name)) do
+                "row #{row_number} missing #{header_name}"
+              end
+            end)
+
+          Enum.map(missing_headers, &"missing required column #{&1}") ++ row_errors
+        else
+          ["missing table with #{required_header} column"]
+        end
+    end
+  end
+
+  defp ledger_section(markdown, heading) do
+    markdown
+    |> String.split("\n")
+    |> Enum.drop_while(&(&1 != heading))
+    |> case do
+      [] ->
+        ""
+
+      [_heading | section_lines] ->
+        section_lines
+        |> Enum.take_while(&(not String.starts_with?(&1, "## ")))
+        |> Enum.join("\n")
+    end
+  end
+
+  defp unbacktick(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("`")
+    |> String.trim_trailing("`")
+  end
+
+  defp backticked_values(value) do
+    ~r/`([^`]+)`/
+    |> Regex.scan(value, capture: :all_but_first)
+    |> List.flatten()
   end
 
   defp markdown_table_cells(line) do
@@ -1410,6 +1785,20 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     operations
     |> Enum.map_join("\n", fn operation ->
       "  #{operation.path}:#{operation.line} #{operation.function || "<module>"} #{operation.operation} #{operation.source}"
+    end)
+  end
+
+  defp format_auth_bypasses(bypasses) do
+    bypasses
+    |> Enum.map_join("\n", fn bypass ->
+      "  #{bypass.path}:#{bypass.line} #{bypass.function || "<module>"} #{bypass.source}"
+    end)
+  end
+
+  defp format_api_surfaces(surfaces) do
+    surfaces
+    |> Enum.map_join("\n", fn surface ->
+      "  #{surface.path}:#{surface.line} #{surface.id} #{surface.type}"
     end)
   end
 end

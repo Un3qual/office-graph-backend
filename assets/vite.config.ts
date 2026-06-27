@@ -5,12 +5,12 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "priv/static",
+    outDir: "../priv/static",
     emptyOutDir: false,
     sourcemap: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "assets/src/main.tsx")
+        main: resolve(__dirname, "src/main.tsx")
       },
       output: {
         entryFileNames: "assets/operator/[name].js",

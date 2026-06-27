@@ -75,12 +75,14 @@ defmodule OfficeGraph.MixProject do
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
+      "frontend.verify": ["cmd --cd assets pnpm run verify"],
       "boundary.check": ["compile --force --warnings-as-errors"],
       verify: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
         "architecture.conformance",
+        "frontend.verify",
         "test"
       ],
       precommit: [
@@ -89,6 +91,7 @@ defmodule OfficeGraph.MixProject do
         "format --check-formatted",
         "boundary.check",
         "architecture.conformance",
+        "frontend.verify",
         "test"
       ]
     ]
