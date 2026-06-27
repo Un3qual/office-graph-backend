@@ -64,7 +64,7 @@
 
 ## 3. Ash And Domain Cleanup
 
-- [ ] 3.1 Add modeled Ash relationships to the first WorkGraph resources that
+- [x] 3.1 Add modeled Ash relationships to the first WorkGraph resources that
   currently carry only raw UUID references, starting with graph item, signal,
   task, review finding, verification check, artifact, evidence item, evidence
   candidate, and verification result.

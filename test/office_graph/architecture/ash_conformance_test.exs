@@ -291,6 +291,66 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
+  @expected_work_graph_relationships %{
+    OfficeGraph.WorkGraph.GraphItem => %{
+      outgoing_relationships:
+        {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :source_item_id},
+      incoming_relationships:
+        {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :target_item_id}
+    },
+    OfficeGraph.WorkGraph.GraphRelationship => %{
+      source_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :source_item_id, :id},
+      target_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_item_id, :id}
+    },
+    OfficeGraph.WorkGraph.Signal => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.Task => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.ReviewFinding => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.VerificationCheck => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      review_finding: {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id},
+      description_document:
+        {:belongs_to, OfficeGraph.Content.Document, :description_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.Artifact => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.WorkGraph.EvidenceCandidate => %{
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      artifact: {:belongs_to, OfficeGraph.WorkGraph.Artifact, :artifact_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id}
+    },
+    OfficeGraph.WorkGraph.EvidenceItem => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      artifact: {:belongs_to, OfficeGraph.WorkGraph.Artifact, :artifact_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id},
+      candidate: {:belongs_to, OfficeGraph.WorkGraph.EvidenceCandidate, :candidate_id, :id},
+      acceptance_operation:
+        {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :acceptance_operation_id, :id}
+    },
+    OfficeGraph.WorkGraph.VerificationResult => %{
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      evidence_item: {:belongs_to, OfficeGraph.WorkGraph.EvidenceItem, :evidence_item_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      target_graph_item:
+        {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_graph_item_id, :id}
+    }
+  }
+
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
 
   test "stabilization inventory documents current API domain and frontend debt" do
@@ -773,6 +833,24 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
         assert same_scope_reference_validation(action) == expected_references,
                "#{inspect(resource)} #{inspect(action.name)} must validate same-scope references #{inspect(expected_references)}"
+      end
+    end
+  end
+
+  test "WorkGraph resources model safe raw UUID references as Ash relationships" do
+    for {resource, expected_relationships} <- @expected_work_graph_relationships do
+      for {name, {type, destination, source_attribute, destination_attribute}} <-
+            expected_relationships do
+        relationship = Ash.Resource.Info.relationship(resource, name)
+
+        assert relationship,
+               "#{inspect(resource)} must define relationship #{inspect(name)}"
+
+        assert relationship.type == type
+        assert relationship.destination == destination
+        assert relationship.source_attribute == source_attribute
+        assert relationship.destination_attribute == destination_attribute
+        refute relationship.public?
       end
     end
   end

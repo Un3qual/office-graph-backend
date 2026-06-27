@@ -59,6 +59,20 @@ burning down direct transaction and authorization-bypass entries inside the
 owning domains while keeping transport code to context loading plus error
 mapping.
 
+## WorkGraph Relationship Inventory
+
+WorkGraph resources now define internal Ash relationships for the first safe
+raw UUID references. The initial relationship pass covers graph item links,
+document references, parent WorkGraph records, evidence candidate/evidence item
+links, verification result links, and operation correlation references. These
+relationships are intentionally not public so generated API reads do not expose
+new infrastructure-shaped relationship fields by default.
+
+Cross-domain references from WorkGraph evidence records into Runs,
+WorkPackets, and Identity remain raw UUIDs for now. They are deferred to the
+domain cleanup tasks that resolve evidence acceptance ownership and remove
+dependency-cycle risks.
+
 ## Broad Authorization Bypass Inventory
 
 Many internal Ash reads and writes currently use `authorize?: false`. The
