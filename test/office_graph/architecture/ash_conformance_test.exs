@@ -351,6 +351,73 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
+  @expected_work_packets_relationships %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      current_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id},
+      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      source_references:
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketSourceReference, :id,
+         :work_packet_version_id},
+      required_checks:
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+    }
+  }
+
+  @expected_work_packets_reference_validations %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      create: [operation_id: OfficeGraph.Operations.OperationCorrelation],
+      set_current_version: [current_version_id: OfficeGraph.WorkPackets.WorkPacketVersion]
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      create: [
+        work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
+        operation_id: OfficeGraph.Operations.OperationCorrelation
+      ]
+    },
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      create: [
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+      ]
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      create: [
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
+      ]
+    }
+  }
+
+  @expected_work_packets_create_defaults %{
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      source_kind: "graph_item",
+      rationale: "packet_source",
+      visibility: "full",
+      sensitivity: "internal"
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      requirement_kind: "required",
+      state: "pending"
+    }
+  }
+
   @expected_work_graph_internal_modules [
     OfficeGraph.WorkGraph.Queries,
     OfficeGraph.WorkGraph.ProposalCommands,
@@ -845,19 +912,46 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   test "WorkGraph resources model safe raw UUID references as Ash relationships" do
-    for {resource, expected_relationships} <- @expected_work_graph_relationships do
-      for {name, {type, destination, source_attribute, destination_attribute}} <-
-            expected_relationships do
-        relationship = Ash.Resource.Info.relationship(resource, name)
+    assert_relationship_contracts!(@expected_work_graph_relationships)
+  end
 
-        assert relationship,
-               "#{inspect(resource)} must define relationship #{inspect(name)}"
+  test "WorkPackets resources model safe raw UUID references as Ash relationships" do
+    assert_relationship_contracts!(@expected_work_packets_relationships)
+  end
 
-        assert relationship.type == type
-        assert relationship.destination == destination
-        assert relationship.source_attribute == source_attribute
-        assert relationship.destination_attribute == destination_attribute
-        refute relationship.public?
+  test "WorkPackets action contracts validate references through Ash changes" do
+    for {resource, expected_by_action} <- @expected_work_packets_reference_validations do
+      for {action_name, expected_references} <- expected_by_action do
+        action = Ash.Resource.Info.action(resource, action_name)
+
+        assert action,
+               "#{inspect(resource)} must define action #{inspect(action_name)}"
+
+        assert same_scope_reference_validation(action) == expected_references,
+               "#{inspect(resource)} #{inspect(action_name)} must validate same-scope references #{inspect(expected_references)}"
+      end
+    end
+  end
+
+  test "WorkPacket create does not accept current version assignment" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :create)
+
+    refute :current_version_id in create_action.accept
+  end
+
+  test "WorkPackets child create actions own fixed packet contract attributes" do
+    for {resource, expected_defaults} <- @expected_work_packets_create_defaults do
+      create_action = Ash.Resource.Info.action(resource, :create)
+
+      assert create_action,
+             "#{inspect(resource)} must define create action"
+
+      for {attribute, expected_value} <- expected_defaults do
+        refute attribute in create_action.accept,
+               "#{inspect(resource)} create must not accept fixed #{inspect(attribute)} from callers"
+
+        assert fixed_attribute_change(create_action, attribute) == expected_value,
+               "#{inspect(resource)} create must set #{inspect(attribute)} to #{inspect(expected_value)}"
       end
     end
   end
@@ -1407,6 +1501,24 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.filter(&(&1.type == action_type))
   end
 
+  defp assert_relationship_contracts!(expected_relationships_by_resource) do
+    for {resource, expected_relationships} <- expected_relationships_by_resource do
+      for {name, {type, destination, source_attribute, destination_attribute}} <-
+            expected_relationships do
+        relationship = Ash.Resource.Info.relationship(resource, name)
+
+        assert relationship,
+               "#{inspect(resource)} must define relationship #{inspect(name)}"
+
+        assert relationship.type == type
+        assert relationship.destination == destination
+        assert relationship.source_attribute == source_attribute
+        assert relationship.destination_attribute == destination_attribute
+        refute relationship.public?
+      end
+    end
+  end
+
   defp capability_policy?(resource, action_name, action_type, capability) do
     resource
     |> Ash.Policy.Info.policies()
@@ -1500,6 +1612,18 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     Enum.find_value(changes, fn
       %Ash.Resource.Change{change: {ValidateSameScopeReferences, opts}} ->
         Keyword.fetch!(opts, :references)
+
+      _change ->
+        nil
+    end)
+  end
+
+  defp fixed_attribute_change(%{changes: changes}, attribute) do
+    Enum.find_value(changes, fn
+      %Ash.Resource.Change{
+        change: {Ash.Resource.Change.SetAttribute, [value: value, attribute: ^attribute]}
+      } ->
+        value
 
       _change ->
         nil

@@ -31,6 +31,22 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      define_attribute? false
+    end
+
+    belongs_to :current_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :current_version_id
+      define_attribute? false
+    end
+
+    has_many :versions, OfficeGraph.WorkPackets.WorkPacketVersion do
+      destination_attribute :work_packet_id
+    end
+  end
+
   actions do
     read :read do
       primary? true
@@ -44,15 +60,27 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
         :organization_id,
         :workspace_id,
         :operation_id,
-        :current_version_id,
         :title,
         :state
       ]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
     end
 
     update :set_current_version do
       public? false
+      require_atomic? false
       accept [:current_version_id, :state]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                current_version_id: OfficeGraph.WorkPackets.WorkPacketVersion
+              ]}
+
+      change OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion
     end
   end
 

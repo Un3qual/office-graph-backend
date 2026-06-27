@@ -72,7 +72,7 @@
   preserving its public boundary and current behavior.
 - [x] 3.3 Move duplicated WorkGraph open-state, same-scope, graph-item, and
   lifecycle validation into one Ash action/change location per invariant.
-- [ ] 3.4 Add relationships and richer action contracts for WorkPackets packet,
+- [x] 3.4 Add relationships and richer action contracts for WorkPackets packet,
   version, source reference, and required-check resources.
 - [ ] 3.5 Refactor packet creation/readiness so stable resource invariants live
   in Ash actions/changes and replay/idempotency remains in a narrow command

@@ -28,8 +28,13 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   end
 
   defp target_scope(changeset) do
-    organization_id = Map.get(changeset.attributes || %{}, :organization_id)
-    workspace_id = Map.get(changeset.attributes || %{}, :workspace_id)
+    organization_id =
+      Map.get(changeset.attributes || %{}, :organization_id) ||
+        Map.get(changeset.data || %{}, :organization_id)
+
+    workspace_id =
+      Map.get(changeset.attributes || %{}, :workspace_id) ||
+        Map.get(changeset.data || %{}, :workspace_id)
 
     if is_nil(organization_id) or is_nil(workspace_id) do
       :error

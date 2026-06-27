@@ -26,6 +26,20 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :work_packet_version_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+      source_attribute :verification_check_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     defaults [:read]
 
@@ -37,10 +51,11 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
         :work_packet_version_id,
         :verification_check_id,
         :organization_id,
-        :workspace_id,
-        :requirement_kind,
-        :state
+        :workspace_id
       ]
+
+      change set_attribute(:requirement_kind, "required")
+      change set_attribute(:state, "pending")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [

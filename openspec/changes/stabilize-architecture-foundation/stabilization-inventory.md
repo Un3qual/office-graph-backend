@@ -73,6 +73,23 @@ WorkPackets, and Identity remain raw UUIDs for now. They are deferred to the
 domain cleanup tasks that resolve evidence acceptance ownership and remove
 dependency-cycle risks.
 
+## WorkPackets Relationship And Contract Inventory
+
+WorkPackets resources now define internal Ash relationships for the first safe
+raw UUID references. The pass covers packet operation/current-version/version
+links, version packet/operation/source/check links, source-reference graph-item
+links, and required-check verification-check links. These relationships remain
+non-public so generated API reads do not expose new infrastructure-shaped
+relationship fields by default.
+
+WorkPackets create and update actions now own more of the packet contract:
+packet create no longer accepts `current_version_id`, source-reference create
+derives the fixed graph-item source fields, required-check create derives the
+fixed required/pending fields, and current-version updates validate that the
+selected version belongs to the packet and target scope. Packet readiness and
+idempotent packet creation still live in the narrow command layer and remain
+queued for the next WorkPackets cleanup task.
+
 ## WorkGraph Command Organization
 
 `OfficeGraph.WorkGraph` is now a thin public facade. Internal reads live in

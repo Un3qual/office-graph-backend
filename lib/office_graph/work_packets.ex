@@ -123,11 +123,7 @@ defmodule OfficeGraph.WorkPackets do
             work_packet_version_id: version.id,
             graph_item_id: graph_item_id,
             organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            source_kind: "graph_item",
-            rationale: "packet_source",
-            visibility: "full",
-            sensitivity: "internal"
+            workspace_id: session_context.workspace_id
           }
         )
       end)
@@ -143,9 +139,7 @@ defmodule OfficeGraph.WorkPackets do
             work_packet_version_id: version.id,
             verification_check_id: verification_check_id,
             organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            requirement_kind: "required",
-            state: "pending"
+            workspace_id: session_context.workspace_id
           }
         )
       end)

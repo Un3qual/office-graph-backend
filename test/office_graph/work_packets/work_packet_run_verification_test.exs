@@ -375,6 +375,24 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
   end
 
+  test "direct packet current-version updates reject versions from another packet" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_packet} = create_ready_packet(bootstrap.session, [first_check])
+    {:ok, second_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    assert {:error, error} =
+             first_packet.packet
+             |> Ash.Changeset.for_update(:set_current_version, %{
+               current_version_id: second_packet.version.id,
+               state: "ready"
+             })
+             |> Ash.update(authorize?: false)
+
+    assert Exception.message(error) =~ "current_version_id"
+  end
+
   test "work run start operation replay rejects changed run input" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
@@ -453,7 +471,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           organization_id: bootstrap.session.organization_id,
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
-          current_version_id: version_id,
           title: "Malformed ready packet",
           state: "ready"
         },
@@ -481,6 +498,16 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         action: :create,
         authorize?: false
       )
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{
+        current_version_id: version_id,
+        state: "ready"
+      })
+      |> Ash.update(authorize?: false)
+
+    assert packet.current_version_id == version_id
 
     {:ok, run_operation} =
       Operations.start_operation(bootstrap.session, :work_run_start,
@@ -737,9 +764,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  work_packet_version_id: foreign_packet.version.id,
                  verification_check_id: verification_check.id,
                  organization_id: first_scope.session.organization_id,
-                 workspace_id: first_scope.session.workspace_id,
-                 requirement_kind: "required",
-                 state: "pending"
+                 workspace_id: first_scope.session.workspace_id
                },
                actor: first_scope.session,
                action: :create
@@ -773,11 +798,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  work_packet_version_id: foreign_packet.version.id,
                  graph_item_id: verification_check.graph_item_id,
                  organization_id: first_scope.session.organization_id,
-                 workspace_id: first_scope.session.workspace_id,
-                 source_kind: "graph_item",
-                 rationale: "packet_source",
-                 visibility: "full",
-                 sensitivity: "internal"
+                 workspace_id: first_scope.session.workspace_id
                },
                actor: first_scope.session,
                action: :create
