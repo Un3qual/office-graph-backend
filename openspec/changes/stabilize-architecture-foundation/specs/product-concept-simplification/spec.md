@@ -11,8 +11,9 @@ workflow vocabulary.
   workflow names first-spine concepts
 - **THEN** it MUST use the canonical concepts Signal, Work Item, Work Packet,
   Run, Check, Evidence, and Verification unless an accepted spec introduces a
-  more specific user-facing concept, and it MUST use Change Proposal only when
-  proposed mutation review is a real workflow
+  more specific user-facing concept, and it MUST NOT introduce ChangeProposal as
+  current MVP vocabulary until proposed mutation review is a real workflow for
+  typed domain commands
 
 #### Scenario: Work is prepared for execution
 
@@ -48,12 +49,14 @@ contracts unless the operator must act on them.
 Office Graph SHALL prevent retired or overlapping terms from spreading into new
 API, UI, or spec contracts.
 
-#### Scenario: New contract describes proposed mutation
+#### Scenario: Current contract describes proposed mutation
 
 - **WHEN** a new product contract, UI label, or API field describes a proposed
-  mutation to graph or domain state
-- **THEN** it MUST use Change Proposal terminology and MUST NOT introduce
-  `GraphPatch`, `proposed_graph_change`, or equivalent legacy product language
+  mutation before a real proposed-mutation review workflow exists
+- **THEN** it MUST NOT introduce ChangeProposal, `GraphPatch`,
+  `proposed_graph_change`, or equivalent product language, and it MUST model the
+  workflow as a normal domain command, Signal, draft Work Item, triage record,
+  or Evidence state as appropriate
 
 #### Scenario: Legacy storage name remains
 
@@ -69,18 +72,25 @@ API, UI, or spec contracts.
   record unless the workflow requires pending review, rejection, approval,
   untrusted generated input, or pre-application audit semantics
 
-#### Scenario: Change Proposal storage is retained
+#### Scenario: Future proposal workflow is introduced
 
-- **WHEN** a Change Proposal or legacy `proposed_graph_changes` storage object
-  remains in the implementation
-- **THEN** it MUST be treated as a narrow safety/audit mechanism for proposed
-  mutations rather than a generic product-facing mutation layer
+- **WHEN** a later accepted spec introduces full proposal functionality
+- **THEN** ChangeProposal MUST propose typed domain command input, MUST validate
+  against the owning domain command before approval/application, MUST apply by
+  invoking the owning domain command, and MUST NOT mutate the graph projection
+  as the source of truth
+
+#### Scenario: Legacy proposed graph change storage remains
+
+- **WHEN** legacy `proposed_graph_changes` storage remains during migration
+- **THEN** new API and UI surfaces MUST treat it as temporary compatibility or
+  raw suggestion input, MUST NOT expose it as generic graph mutation product
+  state, and MUST include retirement or replacement work
 
 ### Requirement: Evidence Candidate Is Internal Unless Promoted
 
-Office Graph SHALL model evidence candidate mechanics as backend
-infrastructure unless an accepted workflow requires operators to review
-suggested evidence directly.
+Office Graph SHALL model suggested, accepted, rejected, stale, and missing
+evidence as Evidence states in product-facing contracts.
 
 #### Scenario: Operator reviews evidence
 
@@ -96,6 +106,14 @@ suggested evidence directly.
 - **THEN** it MAY preserve distinct durable records for audit and idempotency,
   but API and UI projections MUST expose the simpler Evidence and Verification
   product concepts by default
+
+#### Scenario: Evidence acceptance rules are modeled
+
+- **WHEN** evidence is suggested, accepted, rejected, marked stale, or used to
+  satisfy or fail a check
+- **THEN** Verification MUST own evidence acceptance, check satisfaction,
+  verification-result recording, and recomputation rules, while Runs owns run
+  lifecycle state updates through explicit commands
 
 ### Requirement: Expansion Concepts Require Workflow Justification
 

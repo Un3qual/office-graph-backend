@@ -29,8 +29,10 @@ architecture instead of normalizing the current walking-skeleton shortcuts.
   additional product screens are added.
 - Establish canonical MVP product vocabulary so operator-facing APIs and UI
   expose a smaller spine: Signal, Work Item, Work Packet, Run, Check, Evidence,
-  and Verification, with Change Proposal used only when proposed mutation
-  review is a real workflow.
+  and Verification. Generic `ProposedGraphChange` / GraphPatch semantics are
+  removed or deferred from current MVP scope; future ChangeProposal
+  functionality must propose typed domain commands rather than graph projection
+  mutations.
 - Preserve enterprise requirements as backend guardrails while requiring
   workflow justification before broad UI/API exposure for SCIM, rich text quote
   models, explicit grants, agent execution internals, and other non-spine

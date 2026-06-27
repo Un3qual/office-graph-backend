@@ -20,13 +20,14 @@ system foundation.
 
 The conceptual model has also become too broad for the first product spine.
 The stable MVP loop is simple: messy signal, work item, work packet, run,
-check, evidence, verification, reusable context. If a proposed-mutation safety
-workflow remains in current scope, the user-facing term is Change Proposal, not
-proposed graph change or GraphPatch. Backend
-infrastructure such as graph identity, operation correlation, raw archives,
-execution observations, evidence candidates, audit records, revisions, and
-policy bundles remains valuable, but it should not automatically become
-operator-facing API or UI vocabulary.
+check, evidence, verification, reusable context. Generic proposed graph changes
+are not part of the current MVP because the graph is a projection/read model,
+not the source of truth for writes. Future proposal functionality must be
+modeled as ChangeProposal records for typed domain commands, not GraphPatch or
+projection mutation records. Backend infrastructure such as graph identity,
+operation correlation, raw archives, execution observations, evidence
+candidates, audit records, revisions, and policy bundles remains valuable, but
+it should not automatically become operator-facing API or UI vocabulary.
 
 This change is planning and governance work. It intentionally does not rewrite
 runtime behavior. It defines the sequence and gates that later implementation
@@ -104,8 +105,9 @@ Signal
 `Work Packet` is the user-facing execution contract. `Run` is the user-facing
 attempt to execute that contract. `Evidence` is user-facing with explicit
 states such as suggested, accepted, rejected, and stale. `Verification` is the
-decision over checks and evidence. If proposed domain mutations remain a
-current workflow, `Change Proposal` is the only accepted product term for them.
+decision over checks and evidence. Change Proposal is deferred from current MVP
+scope until a real proposed-mutation review workflow exists; when it returns,
+it proposes typed domain commands rather than graph projection changes.
 
 Infrastructure concepts can still exist in storage and audit paths, but they
 should be hidden behind projection contracts by default. This means
@@ -117,6 +119,41 @@ Alternative considered: expose every typed backend record as a product concept
 because the storage model is typed. Rejected because it makes the operator
 experience and API contracts reflect implementation mechanics instead of the
 work loop.
+
+### 2.1 Defer Generic Proposal Machinery
+
+Approach 2 is accepted for the proposed graph change / evidence candidate
+simplification.
+
+Current stabilization should remove or defer generic `ProposedGraphChange` and
+GraphPatch semantics from the product model. Manual intake should create a
+Signal, draft Work Item, or triage record through normal domain commands unless
+an accepted workflow requires approval/rejection before applying a generated or
+untrusted suggestion.
+
+If full proposal functionality is added later, the path is:
+
+```text
+ChangeProposal
+  -> proposes typed domain command input
+  -> validates against owning domain command
+  -> previews effect for review when needed
+  -> approval applies owning domain command
+  -> graph projection reflects resulting domain state
+```
+
+This preserves the safety pattern without making the graph projection the write
+model. Generic `payload` fields may remain only as raw imported input,
+suggestion input, or temporary compatibility data; product-queryable proposal
+data must be promoted to typed command inputs or typed proposal fields.
+
+Evidence follows the same simplification: Evidence is the product concept, and
+suggested, accepted, rejected, stale, and missing evidence are states in API/UI
+projections. Separate evidence-candidate storage may remain internally for
+provenance, replay, or migration, but it must not be exposed as the default
+operator noun. Verification owns evidence acceptance, check satisfaction,
+verification result recording, and recomputation rules; Runs owns run lifecycle
+state.
 
 ### 3. Migrate APIs With Ledgers, Not Big Bang
 
@@ -332,6 +369,10 @@ the drift while cleanup happens incrementally.
 - Vocabulary simplification could hide useful audit details -> Keep
   infrastructure details available in debug/audit surfaces, but do not make
   them the default product model.
+- Deferring generic ChangeProposal machinery could delay future agent/integration
+  review workflows -> Keep a clear future path for typed proposed domain
+  commands, but do not build a generic graph patch engine before that workflow
+  exists.
 - OpenSpec artifacts could become another layer of stale documentation -> Pair
   every stabilization requirement with a verification gate or implementation
   task so drift is caught by commands, not memory.
@@ -353,6 +394,10 @@ the drift while cleanup happens incrementally.
    orchestration out of `OfficeGraph.ApiSupport`, burn down domain exception
    entries, migrate clients to durable command/projection surfaces, and retire
    compatibility endpoints.
+7. Product simplification implementation changes: remove or defer
+   `ProposedGraphChange` / GraphPatch product exposure, convert evidence
+   candidate projections to Evidence states, and document the future
+   ChangeProposal path as typed proposed domain commands.
 
 Rollback is straightforward for the planning artifact: revert this change. For
 later implementation, each stage must keep current tests passing and avoid
@@ -360,9 +405,7 @@ removing migration endpoints until replacements are proven for desired callers.
 
 ## Open Questions
 
-- Does the Change Proposal / `proposed_graph_changes` safety object remain in
-  current MVP scope, narrow to a future agent-generated mutation workflow, or
-  get deleted/deferred until that workflow is real?
-- Should evidence candidate mechanics remain entirely internal and project as
-  Evidence states, or does a dedicated operator review queue require a separate
-  user-facing concept?
+The remaining open questions are limited to structured error vocabulary,
+frontend routing depth, frontend stack spike details, and exact guard command
+names. Change Proposal / `proposed_graph_changes` and evidence candidate
+simplification are no longer open: approach 2 is accepted.

@@ -85,10 +85,11 @@
   Verification, then keep evidence acceptance, verification result recording,
   required-check satisfaction, and run-state recomputation behind one command
   path.
-- [ ] 3.9 Classify `RunEvent.payload`, `ProposedGraphChange.payload`,
-  `EvidenceItem.visibility_constraints`, and similar map fields as raw/debug
-  metadata, temporary compatibility payload, or product-queryable data that must
-  be promoted.
+- [ ] 3.9 Classify `RunEvent.payload`, legacy `ProposedGraphChange.payload`,
+  `EvidenceItem.visibility_constraints`, and similar map fields. Treat
+  `ProposedGraphChange.payload` as temporary raw/suggestion/compatibility input
+  unless a later accepted ChangeProposal workflow promotes typed command inputs
+  or typed proposal fields.
 - [ ] 3.10 Burn down at least one architecture exception ledger entry per domain
   cleanup stage or explicitly narrow the entry and update its retirement
   condition.
@@ -132,19 +133,20 @@
   concepts to backend infrastructure concepts.
 - [ ] 5.2 Update API and UI planning docs so Signal, Work Item, Work Packet,
   Run, Check, Evidence, and Verification are the default MVP product spine,
-  with Change Proposal used only when proposed mutation review is a real
-  workflow.
+  with ChangeProposal deferred until proposed mutation review is a real
+  workflow for typed domain commands.
 - [ ] 5.3 Stop introducing `proposed_graph_change`, `GraphPatch`, execution
   package, agent-ready block, operation correlation, evidence candidate, and
   verification result as default operator-facing product nouns.
-- [ ] 5.4 Decide whether the Change Proposal / `proposed_graph_changes` safety
-  object remains in current MVP scope, narrows to a future agent-generated
-  mutation workflow, or is deleted/deferred until that workflow is real.
+- [ ] 5.4 Remove or defer `ProposedGraphChange` / GraphPatch product exposure
+  from current MVP scope, and document the future ChangeProposal path as typed
+  proposed domain commands that apply through owning domain actions.
 - [ ] 5.5 Update operator projections so infrastructure records appear as trace,
   audit, or debug details rather than primary user-facing nouns.
 - [ ] 5.6 Model evidence candidate behavior in API/UI projections as Evidence
-  with explicit state unless a later workflow requires a dedicated evidence
-  review concept; do not expose EvidenceCandidate as a default product noun.
+  with explicit state; keep separate evidence-candidate storage internal or
+  transitional unless a later accepted workflow creates a dedicated review
+  queue.
 - [ ] 5.7 Add proposal checklist guidance requiring workflow justification before
   promoting planned concepts such as questions, decisions, rich text quotes,
   SCIM group mapping, explicit grants, agent executions, graph conversations,

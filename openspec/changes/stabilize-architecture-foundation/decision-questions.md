@@ -60,6 +60,23 @@ These are now accepted unless a later OpenSpec change reopens them.
   operator projections should still use a small product spine and hide
   infrastructure records behind trace/debug/audit fields unless the operator
   has a real action to take.
+- Approach 2 is accepted for Change Proposal, proposed graph changes, map/json
+  proposal payloads, and evidence candidate simplification:
+  `ProposedGraphChange` / generic graph patch semantics are removed or deferred
+  from the current MVP. Future proposal functionality must model typed proposed
+  domain commands, not mutations to the graph projection.
+- The graph remains a read/projection surface. Domain commands mutate canonical
+  resources; graph projections reflect those mutations afterward.
+- Manual intake should create a Signal, draft Work Item, or triage record
+  through normal domain actions unless a real proposal approval/rejection
+  workflow exists.
+- Evidence is the product concept. Suggested, accepted, rejected, stale, and
+  missing evidence are states of Evidence in API/UI projections. Any durable
+  evidence-candidate storage is internal/transitional and must not become the
+  default product noun.
+- Verification owns evidence acceptance, check satisfaction, verification
+  result recording, and recomputation rules. Runs owns run lifecycle state and
+  receives updates through explicit commands.
 - During stabilization, breaking changes are allowed. The product is not near
   release, so backwards compatibility must not preserve bad internal contracts.
 - Compatibility ledgers are drift-control tools, not promises to keep old APIs.
@@ -67,40 +84,6 @@ These are now accepted unless a later OpenSpec change reopens them.
   it.
 
 ## Discussion Still Needed
-
-### 5, 15, 22. Do we need Change Proposal / proposed graph change at all?
-
-This is the biggest concept-simplification question.
-
-The useful safety pattern is valid: untrusted agents, generated UI, or
-integrations should not directly mutate truth tables when a proposed mutation
-needs validation, authorization, approval, idempotency, and audit before it
-becomes true.
-
-The overcomplicated part is making "proposed graph change" feel like a default
-product concept or a generic mutation layer for everything.
-
-Simpler posture to discuss:
-
-- Normal human/backend commands mutate domain state directly through owning Ash
-  actions or domain commands.
-- A "Change Proposal" record exists only when a suggestion must remain pending,
-  reviewable, rejectable, or auditable before application.
-- It is not required for every graph edit, packet action, run action, evidence
-  action, or verification action.
-- If the current `ProposedGraphChange` resource mostly exists for a future
-  agent-generated mutation workflow, we can demote it from current MVP UI/API
-  scope or remove/defer it until that workflow is real.
-- If it remains, avoid generic queryable `payload` as product data. Promote
-  stable fields into typed columns/actions, and treat payload as temporary
-  proposal input or trace data.
-- EvidenceCandidate should follow the same simplification instinct: default UI
-  should show Evidence with state (`suggested`, `accepted`, `rejected`,
-  `stale`, `missing`) unless operators need a distinct candidate-review queue.
-
-Decision still needed: keep Change Proposal as a narrow safety/audit object,
-delete/defer it for now, or keep only the product term while redesigning the
-storage/resource shape.
 
 ### 7. What "API parity" means if backwards compatibility does not matter
 
@@ -154,28 +137,6 @@ Decision still needed: define the first code vocabulary. Good starting set:
 `unauthorized`, `forbidden`, `not_found`, `validation_failed`,
 `conflict`, `idempotency_conflict`, `stale_state`, `unsupported_action`,
 `rate_limited`, and `internal_error`.
-
-### 12. Evidence acceptance and recomputation ownership
-
-This asks which boundary guarantees the whole evidence-to-verification update
-is correct.
-
-The command often needs to:
-
-- validate an evidence candidate or direct evidence input;
-- accept or reject evidence;
-- satisfy or fail a check;
-- write a verification result;
-- recompute parent completion state;
-- update run-required-check or run state when the evidence belongs to a run.
-
-My recommendation: Verification owns evidence acceptance, check satisfaction,
-verification result creation, and recomputation rules. Runs owns run lifecycle
-state. The packet-run-verification command owner from question 3 can coordinate
-the call, but it should not duplicate Verification's rules.
-
-Decision still needed: confirm whether Verification is the source of truth for
-these rules, with Runs receiving state updates through explicit commands.
 
 ### 16. Routing before a second product route
 
@@ -255,8 +216,10 @@ commands real and reliable.
    smaller Ash-shaped domain commands; keep any one-shot surface temporary and
    delete it after clients move to durable commands.
 4. Packet readiness affordance: answered. Backend projection owns it.
-5. `proposed_graph_changes` rename/concept: open. Discuss whether the concept
-   remains, narrows, or is removed/deferred.
+5. `proposed_graph_changes` rename/concept: answered. Remove/defer generic
+   `ProposedGraphChange` / graph patch semantics from current MVP. Future
+   ChangeProposal work proposes typed domain commands, not graph projection
+   mutations.
 6. Generated Ash reads: answered directionally. Most resource-shaped reads
    should be generated/mechanical once Ash declarations are correct.
 7. API parity: explained above. Safety/behavior parity matters; old response
@@ -267,13 +230,15 @@ commands real and reliable.
    that Ash generation cannot express.
 10. Generated writes: answered. Not in current stabilization scope.
 11. Exception burn-down: answered. Do all categories, sequenced by risk.
-12. Evidence acceptance/recomputation: open. Recommendation is Verification
-   owns rules; Runs owns run lifecycle.
+12. Evidence acceptance/recomputation: answered. Verification owns evidence
+   acceptance, check satisfaction, verification result recording, and
+   recomputation rules; Runs owns run lifecycle state.
 13. Raw UUID relationships: answered. All real domain links should become Ash
    relationships over time.
 14. Validations into Ash actions: answered. All stable invariants should move.
-15. Map/JSON promotion: answered with one open concept question. Promote all
-   queryable product data; resolve proposed graph/change proposal first.
+15. Map/JSON promotion: answered. Promote all queryable product data; generic
+   proposal payloads can exist only as raw/suggestion/compatibility input, not
+   durable queryable product state.
 16. Routing: open. Decide whether selected inbox row state needs a URL now.
 17. Query/cache: answered directionally. Likely with realtime/websocket work,
    probably using TanStack Query.
@@ -286,7 +251,9 @@ commands real and reliable.
    nouns.
 21. Infrastructure projection visibility: answered. Keep infrastructure behind
    trace/debug/audit fields by default.
-22. EvidenceCandidate: open as part of the same simplification discussion.
+22. EvidenceCandidate: answered. Project as Evidence states by default; any
+   separate evidence-candidate storage is internal/transitional unless a later
+   accepted workflow needs a dedicated review queue.
 23. Stabilization allowance: answered. Breaking changes are allowed; do not
    preserve bad contracts for compatibility.
 24. Gates: open. Need exact local/CI command set after guardrails exist.
