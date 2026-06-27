@@ -52,11 +52,13 @@
 - [ ] 2.9 Add generated API tests proving actor scope, capability checks,
   structured errors, and behavior parity with current migration reads where
   safety requires parity.
-- [ ] 2.10 Promote packet-run-verification orchestration out of
-  `OfficeGraph.ApiSupport` into an accepted owning domain command boundary.
-- [ ] 2.11 Change both GraphQL and JSON packet-run-verification entrypoints to
-  call the owning command boundary and keep transport code limited to context
-  loading and error mapping.
+- [ ] 2.10 Split packet-run-verification orchestration out of
+  `OfficeGraph.ApiSupport` into smaller Ash-shaped domain commands for packet
+  preparation, run start, observation recording, evidence
+  suggestion/acceptance, and verification recomputation.
+- [ ] 2.11 Keep any one-shot GraphQL or JSON packet-run-verification entrypoint
+  as temporary compatibility/workflow orchestration over those durable commands,
+  with transport code limited to context loading and error mapping.
 - [ ] 2.12 Add deletion or retirement tasks for manual endpoints that have
   generated or command/projection replacements.
 

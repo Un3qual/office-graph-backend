@@ -22,26 +22,28 @@ than transport-adjacent helper modules.
   domain command or document the helper as a temporary compatibility exception
   with retirement criteria
 
-### Requirement: Composite Command Owner Is Explicit
+### Requirement: Cross-Domain Workflows Prefer Durable Domain Commands
 
-Office Graph SHALL assign one owning command boundary for composite workflows
-that cross WorkPackets, Runs, Verification, WorkGraph, Operations, and
-Authorization.
+Office Graph SHALL decompose broad cross-domain workflow endpoints into durable
+domain commands before treating the endpoint as a stable API surface.
 
-#### Scenario: Packet-run-verification command is refactored
+#### Scenario: Packet-run-verification flow is refactored
 
 - **WHEN** the packet-run-verification flow is migrated out of transport support
   code
-- **THEN** the accepted design MUST name the owning boundary and keep all
-  transport surfaces calling that boundary instead of duplicating the command
-  sequence
+- **THEN** the implementation MUST split durable behavior into Ash-shaped
+  commands owned by the relevant domains for packet preparation, run start,
+  observation recording, evidence suggestion or acceptance, and verification
+  recomputation, while any one-shot endpoint MUST remain temporary
+  compatibility or workflow orchestration with retirement criteria
 
 #### Scenario: New cross-domain workflow is introduced
 
 - **WHEN** a new workflow coordinates records across multiple bounded contexts
-- **THEN** the proposal MUST name the command owner, allowed dependencies,
-  transaction boundary, idempotency basis, authorization contract, and
-  projection read contract before implementation
+- **THEN** the proposal MUST first identify the smallest durable domain
+  commands, their owners, allowed dependencies, transaction boundaries,
+  idempotency basis, authorization contracts, and projection read contracts
+  before introducing any one-shot orchestration surface
 
 ### Requirement: Domain Actions Own Lifecycle Transitions
 

@@ -129,8 +129,11 @@ API cleanup should proceed in stages:
 3. Mount/read from AshGraphql and AshJsonApi for safe read-only or simple
    resource surfaces on WorkGraph, WorkPackets, and Runs. AshJsonApi mounts
    under `/api/v1`.
-4. Promote composite command behavior out of `OfficeGraph.ApiSupport` into an
-   owning domain command module.
+4. Split packet-run-verification behavior out of `OfficeGraph.ApiSupport` into
+   smaller Ash-shaped domain commands for packet preparation, run start,
+   observation recording, evidence suggestion/acceptance, and verification
+   recomputation. Keep any one-shot packet-run-verification surface only as
+   temporary compatibility/workflow orchestration with a deletion path.
 5. Migrate internal clients/tests to GraphQL generated reads or explicitly
    documented command/projection APIs. Keep JSON API for customer integration
    contracts rather than product frontend needs.
@@ -346,9 +349,10 @@ the drift while cleanup happens incrementally.
 5. Fourth implementation change: introduce safe generated Ash read surfaces and
    GraphQL projection-client tests while retaining only migration routes that
    still have development value.
-6. Later implementation changes: move composite command ownership out of
-   `OfficeGraph.ApiSupport`, burn down domain exception entries, migrate
-   clients, and retire compatibility endpoints.
+6. Later implementation changes: split temporary one-shot workflow
+   orchestration out of `OfficeGraph.ApiSupport`, burn down domain exception
+   entries, migrate clients to durable command/projection surfaces, and retire
+   compatibility endpoints.
 
 Rollback is straightforward for the planning artifact: revert this change. For
 later implementation, each stage must keep current tests passing and avoid
@@ -356,9 +360,6 @@ removing migration endpoints until replacements are proven for desired callers.
 
 ## Open Questions
 
-- Which domain owns the cross-cutting packet-run-verification command:
-  WorkPackets, Runs, Verification, a new WorkExecution context, or an
-  OperatorWorkflow command boundary?
 - Does the Change Proposal / `proposed_graph_changes` safety object remain in
   current MVP scope, narrow to a future agent-generated mutation workflow, or
   get deleted/deferred until that workflow is real?

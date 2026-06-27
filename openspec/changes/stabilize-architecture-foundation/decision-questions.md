@@ -30,6 +30,12 @@ These are now accepted unless a later OpenSpec change reopens them.
 - Generated writes are not part of the current stabilization work. Writes that
   drive lifecycle, audit, verification, or cross-resource mutations stay behind
   explicit domain commands unless a later spec opens a specific action.
+- The current packet-run-verification one-shot flow is transitional. Durable
+  API commands should be split into smaller Ash-shaped command actions owned by
+  the real domains: packet preparation, run start, observation recording,
+  evidence suggestion/acceptance, and verification recomputation. Any one-shot
+  packet-run-verification surface remains temporary compatibility/workflow
+  orchestration with a deletion path.
 - All direct Ecto, raw SQL, broad `authorize?: false`, manual transaction, raw
   UUID relationship, and duplicated-validation debt is in scope to burn down.
   The work should still be sequenced so each stage stays reviewable.
@@ -61,40 +67,6 @@ These are now accepted unless a later OpenSpec change reopens them.
   it.
 
 ## Discussion Still Needed
-
-### 3. Packet-run-verification command owner
-
-The unresolved part is not "frontend or backend"; it is clearly backend. The
-question is which backend boundary owns the orchestration currently hidden in
-`OfficeGraph.ApiSupport`.
-
-The command crosses several facts:
-
-- WorkPackets owns packet readiness and required checks.
-- Runs owns execution attempts and run state.
-- Verification owns evidence acceptance, check satisfaction, and verification
-  results.
-- Operation/audit/idempotency behavior must remain consistent across all of
-  those writes.
-
-Reasonable options:
-
-- Put the command under `OfficeGraph.Runs` if the user action is primarily
-  "start or complete a run." This avoids a new concept, but Runs must call into
-  Verification cleanly.
-- Put the command under `OfficeGraph.Verification` if the user action is
-  primarily "accept evidence and decide verification." This is strong for
-  correctness, but run creation/readiness can feel misplaced.
-- Add a small backend command boundary such as `OfficeGraph.WorkExecution` for
-  cross-domain packet/run/verification workflows. This should be a command
-  facade, not a new product noun or table, if we use it.
-
-My current recommendation: use a small backend command boundary for the
-cross-domain workflow only if the command cannot sit cleanly in Runs. Do not
-create a new operator-facing concept.
-
-Decision still needed: choose `Runs`, `Verification`, or a narrow internal
-`WorkExecution` command facade.
 
 ### 5, 15, 22. Do we need Change Proposal / proposed graph change at all?
 
@@ -279,8 +251,9 @@ commands real and reliable.
 1. AshJsonApi path: answered. Use `/api/v1`.
 2. Operator console transport: answered. Use GraphQL. REST is for customer
    integrations. Socket/live is internal when needed.
-3. Packet-run-verification owner: open. Backend is settled; exact command
-   boundary is not.
+3. Packet-run-verification owner: answered. Split the one-shot flow into
+   smaller Ash-shaped domain commands; keep any one-shot surface temporary and
+   delete it after clients move to durable commands.
 4. Packet readiness affordance: answered. Backend projection owns it.
 5. `proposed_graph_changes` rename/concept: open. Discuss whether the concept
    remains, narrows, or is removed/deferred.
