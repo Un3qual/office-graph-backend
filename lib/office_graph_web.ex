@@ -1,5 +1,5 @@
 defmodule OfficeGraphWeb do
-  use Boundary, deps: [OfficeGraph], exports: [Endpoint, Router, Schema]
+  use Boundary, deps: [OfficeGraph], exports: [Endpoint, Router, GraphQL.Schema]
 
   @moduledoc """
   The entrypoint for defining your web interface, such

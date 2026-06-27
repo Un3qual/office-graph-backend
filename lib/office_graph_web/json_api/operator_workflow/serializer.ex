@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.OperatorWorkflowSerializer do
+defmodule OfficeGraphWeb.JsonApi.OperatorWorkflow.Serializer do
   @moduledoc false
 
   def inbox(inbox) do

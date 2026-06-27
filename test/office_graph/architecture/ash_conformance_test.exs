@@ -305,7 +305,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
           "## Domain And Database Exception Inventory",
           "## Broad Authorization Bypass Inventory",
           "## Frontend Architecture Gap Inventory",
-          "OfficeGraphWeb.Schema",
+          "OfficeGraphWeb.GraphQL.Schema",
           "OfficeGraph.ApiSupport",
           "assets/package.json"
         ] do
@@ -354,6 +354,101 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            #{@api_migration_ledger} entries must document owner, capability, exception class, reason, replacement target, safety/parity tests, and retirement condition:
            #{format_errors(errors)}
            """
+  end
+
+  test "manual GraphQL schema code is split under the GraphQL transport namespace" do
+    assert File.exists?("lib/office_graph_web/graphql/schema.ex"),
+           "Expected root GraphQL schema at lib/office_graph_web/graphql/schema.ex"
+
+    refute File.exists?("lib/office_graph_web/schema.ex"),
+           "Move the legacy monolithic schema into OfficeGraphWeb.GraphQL.* modules"
+
+    graphql_modules =
+      "lib/office_graph_web/graphql/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(&modules_in_file/1)
+
+    for {path, module} <- graphql_modules do
+      assert String.starts_with?(module, "OfficeGraphWeb.GraphQL."),
+             "#{path} defines #{module}; GraphQL code must use OfficeGraphWeb.GraphQL.*"
+    end
+
+    for required_path <- [
+          "lib/office_graph_web/graphql/schema.ex",
+          "lib/office_graph_web/graphql/common/errors.ex",
+          "lib/office_graph_web/graphql/common/queries.ex",
+          "lib/office_graph_web/graphql/compatibility/types.ex",
+          "lib/office_graph_web/graphql/compatibility/mutations.ex",
+          "lib/office_graph_web/graphql/operator_workflow/types.ex",
+          "lib/office_graph_web/graphql/operator_workflow/queries.ex",
+          "lib/office_graph_web/graphql/packet_run_verification/types.ex",
+          "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"
+        ] do
+      assert File.exists?(required_path),
+             "Expected GraphQL transport module file #{required_path}"
+    end
+  end
+
+  test "manual JSON API code is split under the JSON API transport namespace" do
+    old_json_api_paths =
+      [
+        "lib/office_graph_web/controllers/walking_skeleton_controller.ex",
+        "lib/office_graph_web/controllers/operator_workflow_controller.ex",
+        "lib/office_graph_web/controllers/packet_run_verification_controller.ex",
+        "lib/office_graph_web/walking_skeleton_serializer.ex",
+        "lib/office_graph_web/operator_workflow_serializer.ex",
+        "lib/office_graph_web/packet_run_verification_serializer.ex"
+      ]
+      |> Enum.filter(&File.exists?/1)
+
+    assert old_json_api_paths == [],
+           "Move manual JSON API controllers and serializers under lib/office_graph_web/json_api:\n#{format_errors(old_json_api_paths)}"
+
+    json_api_modules =
+      "lib/office_graph_web/json_api/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(&modules_in_file/1)
+
+    for {path, module} <- json_api_modules do
+      assert String.starts_with?(module, "OfficeGraphWeb.JsonApi."),
+             "#{path} defines #{module}; JSON API code must use OfficeGraphWeb.JsonApi.*"
+    end
+
+    for required_path <- [
+          "lib/office_graph_web/json_api/common/errors.ex",
+          "lib/office_graph_web/json_api/compatibility/controller.ex",
+          "lib/office_graph_web/json_api/compatibility/serializer.ex",
+          "lib/office_graph_web/json_api/operator_workflow/controller.ex",
+          "lib/office_graph_web/json_api/operator_workflow/serializer.ex",
+          "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
+          "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
+        ] do
+      assert File.exists?(required_path),
+             "Expected JSON API transport module file #{required_path}"
+    end
+  end
+
+  test "GraphQL and JSON API helpers stay transport-specific" do
+    generic_api_modules =
+      "lib/office_graph_web/api/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.concat(Path.wildcard("lib/office_graph_web/api.ex"))
+      |> Enum.filter(&File.exists?/1)
+
+    assert generic_api_modules == [],
+           "Do not create a generic OfficeGraphWeb.Api dumping ground:\n#{format_errors(generic_api_modules)}"
+
+    graphql_errors = "lib/office_graph_web/graphql/common/errors.ex"
+    json_errors = "lib/office_graph_web/json_api/common/errors.ex"
+
+    assert File.exists?(graphql_errors), "Expected #{graphql_errors}"
+    assert File.exists?(json_errors), "Expected #{json_errors}"
+
+    refute File.read!(graphql_errors) =~ "put_status",
+           "GraphQL error mapping must not know about Plug/Phoenix response envelopes"
+
+    refute File.read!(json_errors) =~ "extensions:",
+           "JSON API error mapping must not return Absinthe error envelopes"
   end
 
   test "broad Ash authorization bypasses are explicitly ledgered" do
@@ -1334,43 +1429,42 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   defp graphql_root_surfaces do
-    "lib/office_graph_web/schema.ex"
-    |> File.read!()
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.reduce({nil, []}, fn {line, line_number}, {root_kind, surfaces} ->
-      cond do
-        Regex.match?(~r/^\s{2}query do$/, line) ->
-          {:query, surfaces}
+    [
+      {:query, "lib/office_graph_web/graphql/common/queries.ex"},
+      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
+      {:mutation, "lib/office_graph_web/graphql/compatibility/mutations.ex"},
+      {:mutation, "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"}
+    ]
+    |> Enum.flat_map(fn {root_kind, path} ->
+      graphql_root_surfaces_in_file(root_kind, path)
+    end)
+  end
 
-        Regex.match?(~r/^\s{2}mutation do$/, line) ->
-          {:mutation, surfaces}
-
-        root_kind && Regex.match?(~r/^\s{2}end$/, line) ->
-          {nil, surfaces}
-
-        root_kind ->
-          case Regex.run(~r/^\s{4}field :([a-zA-Z0-9_!?]+)\b/, line) do
-            [_, field_name] ->
-              surface = %{
+  defp graphql_root_surfaces_in_file(root_kind, path) do
+    if File.exists?(path) do
+      path
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {line, line_number} ->
+        case Regex.run(~r/^\s{4}field :([a-zA-Z0-9_!?]+)\b/, line) do
+          [_, field_name] ->
+            [
+              %{
                 id: "graphql.#{root_kind}.#{field_name}",
                 type: "GraphQL #{root_kind}",
-                path: "lib/office_graph_web/schema.ex",
+                path: path,
                 line: line_number
               }
+            ]
 
-              {root_kind, [surface | surfaces]}
-
-            _ ->
-              {root_kind, surfaces}
-          end
-
-        true ->
-          {root_kind, surfaces}
-      end
-    end)
-    |> elem(1)
-    |> Enum.reverse()
+          _ ->
+            []
+        end
+      end)
+    else
+      []
+    end
   end
 
   defp json_api_route_surfaces do
@@ -1411,7 +1505,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   defp json_serializer_surfaces do
-    "lib/office_graph_web/*_serializer.ex"
+    "lib/office_graph_web/json_api/**/*/serializer.ex"
     |> Path.wildcard()
     |> Enum.map(fn path ->
       source = File.read!(path)
@@ -1425,6 +1519,18 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       }
     end)
     |> Enum.sort_by(& &1.id)
+  end
+
+  defp modules_in_file(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.flat_map(fn line ->
+      case module_name(line) do
+        nil -> []
+        module -> [{path, module}]
+      end
+    end)
   end
 
   defp api_migration_ledger_entries do

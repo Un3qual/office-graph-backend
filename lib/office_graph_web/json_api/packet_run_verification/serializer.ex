@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.PacketRunVerificationSerializer do
+defmodule OfficeGraphWeb.JsonApi.PacketRunVerification.Serializer do
   @moduledoc false
 
   def summary(summary) do

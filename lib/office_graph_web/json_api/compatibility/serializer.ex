@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.WalkingSkeletonSerializer do
+defmodule OfficeGraphWeb.JsonApi.Compatibility.Serializer do
   @moduledoc false
 
   def intake(intake) do

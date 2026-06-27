@@ -16,10 +16,10 @@ AshJsonApi replacements are introduced.
 
 | Area | Current files | Notes |
 | --- | --- | --- |
-| GraphQL root schema | `lib/office_graph_web/schema.ex` | `OfficeGraphWeb.Schema` contains root query and mutation fields, object types, input types, resolver calls, and error mapping in one module. |
-| Walking skeleton JSON API | `lib/office_graph_web/controllers/walking_skeleton_controller.ex`, `lib/office_graph_web/walking_skeleton_serializer.ex` | Manual intake, proposed change application, and verification completion remain custom compatibility surfaces. |
-| Packet-run-verification JSON API | `lib/office_graph_web/controllers/packet_run_verification_controller.ex`, `lib/office_graph_web/packet_run_verification_serializer.ex` | One-shot workflow endpoint remains a compatibility wrapper over broad orchestration. |
-| Operator workflow JSON API | `lib/office_graph_web/controllers/operator_workflow_controller.ex`, `lib/office_graph_web/operator_workflow_serializer.ex` | Operator inbox, item, readiness, run state, and verification outcome are projection endpoints for the current console. |
+| GraphQL root schema | `lib/office_graph_web/graphql/schema.ex`, `lib/office_graph_web/graphql/**` | `OfficeGraphWeb.GraphQL.Schema` composes transport-specific query, mutation, type, and error modules by capability. |
+| Walking skeleton JSON API | `lib/office_graph_web/json_api/compatibility/controller.ex`, `lib/office_graph_web/json_api/compatibility/serializer.ex` | Manual intake, proposed change application, and verification completion remain custom compatibility surfaces. |
+| Packet-run-verification JSON API | `lib/office_graph_web/json_api/packet_run_verification/controller.ex`, `lib/office_graph_web/json_api/packet_run_verification/serializer.ex` | One-shot workflow endpoint remains a compatibility wrapper over broad orchestration. |
+| Operator workflow JSON API | `lib/office_graph_web/json_api/operator_workflow/controller.ex`, `lib/office_graph_web/json_api/operator_workflow/serializer.ex` | Operator inbox, item, readiness, run state, and verification outcome are projection endpoints for the current console. |
 | Router API scope | `lib/office_graph_web/router.ex` | `/graphql` is mounted manually and JSON routes remain under `/api` until `/api/v1` AshJsonApi migration begins. |
 
 ## Domain And Database Exception Inventory

@@ -28,19 +28,19 @@
 
 ## 2. API Surface Stabilization
 
-- [ ] 2.1 Split `OfficeGraphWeb.Schema` into root schema composition plus focused
+- [x] 2.1 Split `OfficeGraphWeb.Schema` into root schema composition plus focused
   `OfficeGraphWeb.GraphQL.*` modules organized transport first, capability
   second, and purpose third, without route or behavior changes.
-- [ ] 2.2 Move JSON API controllers and serializers into focused
+- [x] 2.2 Move JSON API controllers and serializers into focused
   `OfficeGraphWeb.JsonApi.*` modules organized transport first, capability
   second, and purpose third, without route or behavior changes.
-- [ ] 2.3 Keep GraphQL and JSON API transport-specific `common` helpers
+- [x] 2.3 Keep GraphQL and JSON API transport-specific `common` helpers
   separate; do not create a generic `OfficeGraphWeb.Api` dumping ground for
   errors, params, serializers, or resolver behavior.
-- [ ] 2.4 Extract transport-specific error mapping so JSON API controllers and
+- [x] 2.4 Extract transport-specific error mapping so JSON API controllers and
   GraphQL resolvers do not duplicate stable error codes and safe details while
   still presenting transport-appropriate envelopes.
-- [ ] 2.5 Keep existing GraphQL/JSON parity tests green while modularizing the
+- [x] 2.5 Keep existing GraphQL/JSON parity tests green while modularizing the
   transport modules and error presentation.
 - [ ] 2.6 Identify the first safe AshGraphql/AshJsonApi read-only resource
   surfaces for WorkGraph, WorkPackets, and Runs.
