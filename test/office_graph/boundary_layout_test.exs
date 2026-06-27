@@ -21,6 +21,7 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.WorkPackets,
     OfficeGraph.Runs,
     OfficeGraph.Verification,
+    OfficeGraph.PacketRunVerification,
     OfficeGraph.ProposedChanges,
     OfficeGraph.AgentRuntime,
     OfficeGraph.Projections,

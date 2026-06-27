@@ -49,11 +49,15 @@ WorkGraph, Integrations, Identity, Tenancy, Authorization, ProposedChanges,
 Content, `OfficeGraph.ApiSupport`, WorkPackets, Runs, Verification, and the
 WorkGraph evidence-candidate validation change.
 
-`OfficeGraph.ApiSupport` is the main transport-adjacent orchestration risk. It
-loads local owner context, validates request input, starts operations, coordinates
-packet/run/observation/evidence/verification behavior, and reads projections.
-Later stabilization work should move durable behavior into owning domains and
-leave transport code as thin context loading plus error mapping.
+`OfficeGraph.ApiSupport` remains a compatibility facade for manual transport
+surfaces. Packet-run-verification parsing and local owner bootstrap now delegate
+to `OfficeGraph.PacketRunVerification`, which owns the composite workflow
+transaction, flow digest replay guard, step-key namespace, and sequencing across
+packet preparation, run start, observation recording, evidence suggestion,
+evidence acceptance, and summary reads. Later stabilization work should keep
+burning down direct transaction and authorization-bypass entries inside the
+owning domains while keeping transport code to context loading plus error
+mapping.
 
 ## Broad Authorization Bypass Inventory
 
