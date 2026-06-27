@@ -73,6 +73,18 @@ WorkPackets, and Identity remain raw UUIDs for now. They are deferred to the
 domain cleanup tasks that resolve evidence acceptance ownership and remove
 dependency-cycle risks.
 
+## WorkGraph Command Organization
+
+`OfficeGraph.WorkGraph` is now a thin public facade. Internal reads live in
+`OfficeGraph.WorkGraph.Queries`, proposal-application graph writes live in
+`OfficeGraph.WorkGraph.ProposalCommands`, verification lifecycle writes live in
+`OfficeGraph.WorkGraph.VerificationCommands`, and shared transaction/Ash helper
+behavior lives in `OfficeGraph.WorkGraph.CommandSupport`.
+
+The split preserves the current public `OfficeGraph.WorkGraph` function surface
+so existing API, projection, proposal, packet-run, and test callers do not
+churn while the internals are prepared for the validation cleanup tasks.
+
 ## Broad Authorization Bypass Inventory
 
 Many internal Ash reads and writes currently use `authorize?: false`. The

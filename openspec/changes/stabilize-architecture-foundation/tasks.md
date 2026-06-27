@@ -68,7 +68,7 @@
   currently carry only raw UUID references, starting with graph item, signal,
   task, review finding, verification check, artifact, evidence item, evidence
   candidate, and verification result.
-- [ ] 3.2 Split `OfficeGraph.WorkGraph` into focused command/query modules while
+- [x] 3.2 Split `OfficeGraph.WorkGraph` into focused command/query modules while
   preserving its public boundary and current behavior.
 - [ ] 3.3 Move duplicated WorkGraph open-state, same-scope, graph-item, and
   lifecycle validation into one Ash action/change location per invariant.

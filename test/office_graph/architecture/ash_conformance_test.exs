@@ -351,6 +351,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
+  @expected_work_graph_internal_modules [
+    OfficeGraph.WorkGraph.Queries,
+    OfficeGraph.WorkGraph.ProposalCommands,
+    OfficeGraph.WorkGraph.VerificationCommands,
+    OfficeGraph.WorkGraph.CommandSupport
+  ]
+
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
 
   test "stabilization inventory documents current API domain and frontend debt" do
@@ -855,6 +862,27 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "WorkGraph public boundary delegates to focused command and query modules" do
+    for module <- @expected_work_graph_internal_modules do
+      assert Code.ensure_loaded?(module), "#{inspect(module)} must exist"
+    end
+
+    source = File.read!("lib/office_graph/work_graph.ex")
+
+    assert source =~ "defdelegate get_verification_check"
+    assert source =~ "to: Queries"
+    assert source =~ "defdelegate create_signal"
+    assert source =~ "defdelegate create_task"
+    assert source =~ "defdelegate create_review_finding"
+    assert source =~ "defdelegate create_verification_check"
+    assert source =~ "to: ProposalCommands"
+    assert source =~ "defdelegate complete_verification"
+    assert source =~ "defdelegate satisfy_verification_check_from_evidence"
+    assert source =~ "to: VerificationCommands"
+    refute source =~ "Repo.transaction"
+    refute source =~ "Ash."
+  end
+
   test "same-scope reference validation uses Ash for all configured references" do
     source = File.read!("lib/office_graph/work_graph/changes/validate_same_scope_references.ex")
 
@@ -864,7 +892,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   test "verification completion centralizes parent-before-child lock acquisition" do
-    source = File.read!("lib/office_graph/work_graph.ex")
+    source = File.read!("lib/office_graph/work_graph/verification_commands.ex")
 
     assert source =~ "lock_completion_graph!(session_context, verification_check.id)"
     assert source =~ "lock_review_findings_for_task!("
