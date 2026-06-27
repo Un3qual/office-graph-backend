@@ -124,9 +124,6 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
           |> Support.ash_get_for_update(task.id)
           |> Support.unwrap_ash()
 
-        Support.validate_scope!(session_context, task)
-        Support.validate_open_task!(task)
-
         document = Support.create_document!(session_context, operation, attrs[:body] || "")
 
         graph_item =
@@ -180,9 +177,6 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
           ReviewFinding
           |> Support.ash_get_for_update(review_finding.id)
           |> Support.unwrap_ash()
-
-        Support.validate_scope!(session_context, review_finding)
-        Support.validate_open_review_finding!(review_finding)
 
         document = Support.create_document!(session_context, operation, attrs[:body] || "")
 

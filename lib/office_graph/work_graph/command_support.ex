@@ -132,12 +132,6 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
     end
   end
 
-  def validate_open_task!(%{lifecycle_state: "open"}), do: :ok
-
-  def validate_open_task!(task) do
-    Repo.rollback({:invalid_task_status, task.id})
-  end
-
   def validate_open_review_finding!(%{lifecycle_state: "open"}), do: :ok
 
   def validate_open_review_finding!(review_finding) do

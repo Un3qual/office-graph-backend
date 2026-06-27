@@ -664,7 +664,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     completed = complete_verification!(bootstrap)
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
-    assert {:error, {:invalid_review_finding_status, finding_id}} =
+    assert {:error, error} =
              WorkGraph.create_verification_check(
                bootstrap.session,
                operation,
@@ -675,7 +675,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                }
              )
 
-    assert finding_id == completed.review_finding.id
+    assert %Ash.Changeset{errors: errors} = error
+    assert invalid_attribute_error?(errors, :review_finding_id, "open review finding")
 
     check_count =
       VerificationCheckResource
@@ -690,13 +691,14 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     completed = complete_verification!(bootstrap)
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
 
-    assert {:error, {:invalid_task_status, task_id}} =
+    assert {:error, error} =
              WorkGraph.create_review_finding(bootstrap.session, operation, completed.task, %{
                title: "Late review finding",
                body: "Completed tasks must not receive new review findings."
              })
 
-    assert task_id == completed.task.id
+    assert %Ash.Changeset{errors: errors} = error
+    assert invalid_attribute_error?(errors, :task_id, "open task")
 
     finding_count =
       ReviewFindingResource
@@ -1454,5 +1456,15 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       {:ok, _document} -> true
       {:error, _error} -> false
     end
+  end
+
+  defp invalid_attribute_error?(errors, field, message_fragment) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{field: ^field, message: message} ->
+        String.contains?(message, message_fragment)
+
+      _error ->
+        false
+    end)
   end
 end

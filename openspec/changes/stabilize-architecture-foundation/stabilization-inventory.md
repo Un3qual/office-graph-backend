@@ -85,6 +85,19 @@ The split preserves the current public `OfficeGraph.WorkGraph` function surface
 so existing API, projection, proposal, packet-run, and test callers do not
 churn while the internals are prepared for the validation cleanup tasks.
 
+## WorkGraph Validation Ownership
+
+Proposal command modules now reload persisted parents only to create stable
+graph relationships. They no longer pre-validate parent scope or open-state
+before child creates. Those invariants are owned by the Ash create actions
+through `ValidateSameScopeReferences`, `ReviewFinding.ValidateOpenTask`, and
+`VerificationCheck.ValidateOpenReviewFinding`.
+
+Verification completion still owns its transaction-scoped lifecycle
+recomputation and parent lock ordering in `VerificationCommands`; evidence
+acceptance and run-coupled recomputation are deferred to the later ownership
+cleanup tasks.
+
 ## Broad Authorization Bypass Inventory
 
 Many internal Ash reads and writes currently use `authorize?: false`. The

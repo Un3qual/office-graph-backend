@@ -70,7 +70,7 @@
   candidate, and verification result.
 - [x] 3.2 Split `OfficeGraph.WorkGraph` into focused command/query modules while
   preserving its public boundary and current behavior.
-- [ ] 3.3 Move duplicated WorkGraph open-state, same-scope, graph-item, and
+- [x] 3.3 Move duplicated WorkGraph open-state, same-scope, graph-item, and
   lifecycle validation into one Ash action/change location per invariant.
 - [ ] 3.4 Add relationships and richer action contracts for WorkPackets packet,
   version, source reference, and required-check resources.

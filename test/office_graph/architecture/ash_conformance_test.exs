@@ -883,6 +883,29 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     refute source =~ "Ash."
   end
 
+  test "WorkGraph proposal commands rely on Ash create changes for parent validation" do
+    proposal_source = File.read!("lib/office_graph/work_graph/proposal_commands.ex")
+    review_finding_source = File.read!("lib/office_graph/work_graph/review_finding.ex")
+    verification_check_source = File.read!("lib/office_graph/work_graph/verification_check.ex")
+
+    refute proposal_source =~ "Support.validate_scope!(session_context, task)"
+    refute proposal_source =~ "Support.validate_scope!(session_context, review_finding)"
+    refute proposal_source =~ "Support.validate_open_task!"
+    refute proposal_source =~ "Support.validate_open_review_finding!"
+
+    assert review_finding_source =~
+             "OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences"
+
+    assert review_finding_source =~
+             "OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask"
+
+    assert verification_check_source =~
+             "OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences"
+
+    assert verification_check_source =~
+             "OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding"
+  end
+
   test "same-scope reference validation uses Ash for all configured references" do
     source = File.read!("lib/office_graph/work_graph/changes/validate_same_scope_references.ex")
 
