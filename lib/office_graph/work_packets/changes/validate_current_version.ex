@@ -14,7 +14,7 @@ defmodule OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion do
     with {:ok, packet_id, organization_id, workspace_id} <- packet_scope(changeset),
          {:ok, version} <- fetch_current_version(current_version_id),
          :ok <- validate_version_owner(version, packet_id, organization_id, workspace_id) do
-      changeset
+      sync_packet_state(changeset, version)
     else
       {:error, field, message} ->
         Ash.Changeset.add_error(changeset, field: field, message: message)
@@ -68,6 +68,10 @@ defmodule OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion do
   defp validate_version_owner(_version, _packet_id, _organization_id, _workspace_id) do
     {:error, :current_version_id,
      "current_version_id must reference a version owned by the packet"}
+  end
+
+  defp sync_packet_state(changeset, version) do
+    Ash.Changeset.force_change_attribute(changeset, :state, version.lifecycle_state)
   end
 
   defp format_error(%{__exception__: true} = error), do: Exception.message(error)

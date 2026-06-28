@@ -83,12 +83,14 @@ non-public so generated API reads do not expose new infrastructure-shaped
 relationship fields by default.
 
 WorkPackets create and update actions now own more of the packet contract:
-packet create no longer accepts `current_version_id`, source-reference create
-derives the fixed graph-item source fields, required-check create derives the
-fixed required/pending fields, and current-version updates validate that the
-selected version belongs to the packet and target scope. Packet readiness and
-idempotent packet creation still live in the narrow command layer and remain
-queued for the next WorkPackets cleanup task.
+packet create no longer accepts `current_version_id` or caller-selected state
+and derives draft state, source-reference create derives the fixed graph-item
+source fields, required-check create derives the fixed required/pending fields,
+version create derives `draft`/`ready` lifecycle state from packet readiness
+inputs, and current-version updates validate that the selected version belongs
+to the packet and target scope while syncing packet state from that version.
+Idempotent replay, operation locking, and the packet creation transaction
+remain in the narrow command layer.
 
 ## WorkGraph Command Organization
 

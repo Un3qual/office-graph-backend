@@ -59,6 +59,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
     create :create do
       public? false
 
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
+
       accept [
         :id,
         :work_packet_id,
@@ -66,7 +69,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
         :workspace_id,
         :operation_id,
         :version_number,
-        :lifecycle_state,
         :objective,
         :context_summary,
         :requirements,
@@ -79,6 +81,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
                 work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
+
+      change OfficeGraph.WorkPackets.Changes.DeriveVersionLifecycleState
     end
   end
 

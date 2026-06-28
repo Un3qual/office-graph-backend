@@ -60,9 +60,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
         :organization_id,
         :workspace_id,
         :operation_id,
-        :title,
-        :state
+        :title
       ]
+
+      change set_attribute(:state, "draft")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
@@ -73,7 +74,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
     update :set_current_version do
       public? false
       require_atomic? false
-      accept [:current_version_id, :state]
+      accept [:current_version_id]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [

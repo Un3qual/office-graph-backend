@@ -406,6 +406,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   }
 
   @expected_work_packets_create_defaults %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      state: "draft"
+    },
     OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
       source_kind: "graph_item",
       rationale: "packet_source",
@@ -937,6 +940,31 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     create_action = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :create)
 
     refute :current_version_id in create_action.accept
+  end
+
+  test "WorkPackets lifecycle actions derive packet and version state" do
+    packet_create = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :create)
+
+    packet_update =
+      Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :set_current_version)
+
+    version_create = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacketVersion, :create)
+
+    refute :state in packet_create.accept
+    assert fixed_attribute_change(packet_create, :state) == "draft"
+
+    refute :state in packet_update.accept
+    assert action_change?(packet_update, OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion)
+
+    refute :lifecycle_state in version_create.accept
+
+    assert MapSet.new(action_argument_names(version_create)) ==
+             MapSet.new([:source_graph_item_ids, :verification_check_ids])
+
+    assert action_change?(
+             version_create,
+             OfficeGraph.WorkPackets.Changes.DeriveVersionLifecycleState
+           )
   end
 
   test "WorkPackets child create actions own fixed packet contract attributes" do
@@ -1627,6 +1655,17 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
       _change ->
         nil
+    end)
+  end
+
+  defp action_argument_names(%{arguments: arguments}) do
+    Enum.map(arguments, & &1.name)
+  end
+
+  defp action_change?(%{changes: changes}, change_module) do
+    Enum.any?(changes, fn
+      %Ash.Resource.Change{change: {^change_module, _opts}} -> true
+      _change -> false
     end)
   end
 

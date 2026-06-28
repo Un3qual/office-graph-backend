@@ -375,6 +375,165 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
   end
 
+  test "direct packet creates derive draft state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-packet-create-derived-state"
+      )
+
+    assert {:ok, packet} =
+             Ash.create(
+               WorkPacket,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: operation.id,
+                 title: "Direct packet create derives state"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert packet.state == "draft"
+  end
+
+  test "direct packet version creates derive readiness and packet updates sync selected version state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-version-readiness-packet"
+      )
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct readiness packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-version-readiness-version"
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: version_operation.id,
+          version_number: 1,
+          objective: "Create a ready version.",
+          context_summary: "Readiness derives from version facts.",
+          requirements: "Use packet contract inputs.",
+          success_criteria: "Source and check references are present.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, updated_packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version.id})
+      |> Ash.update(authorize?: false)
+
+    assert updated_packet.current_version_id == version.id
+    assert updated_packet.state == "ready"
+  end
+
+  test "direct packet version creates derive draft state from missing readiness inputs" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-version-packet"
+      )
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct draft packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-version"
+      )
+
+    assert {:ok, version} =
+             Ash.create(
+               WorkPacketVersion,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_id: packet.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: version_operation.id,
+                 version_number: 1,
+                 objective: "Create a draft version.",
+                 context_summary: "Draft derives from missing readiness inputs.",
+                 requirements: "Do not let callers force readiness.",
+                 success_criteria: nil,
+                 autonomy_posture: "human_supervised"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert version.lifecycle_state == "draft"
+
+    assert {:error, error} =
+             Ash.create(
+               WorkPacketVersion,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_id: packet.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: version_operation.id,
+                 version_number: 2,
+                 objective: "Create a forced-ready version.",
+                 context_summary: "Callers cannot force readiness.",
+                 requirements: "Reject lifecycle input.",
+                 success_criteria: nil,
+                 autonomy_posture: "human_supervised",
+                 lifecycle_state: "ready"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert Exception.message(error) =~ "No such input `lifecycle_state`"
+  end
+
   test "direct packet current-version updates reject versions from another packet" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
@@ -385,8 +544,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert {:error, error} =
              first_packet.packet
              |> Ash.Changeset.for_update(:set_current_version, %{
-               current_version_id: second_packet.version.id,
-               state: "ready"
+               current_version_id: second_packet.version.id
              })
              |> Ash.update(authorize?: false)
 
@@ -454,6 +612,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
   test "work run start rejects malformed ready packet versions without execution links" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
 
     {:ok, packet_operation} =
       Operations.start_operation(bootstrap.session, :work_packet_create,
@@ -471,8 +630,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           organization_id: bootstrap.session.organization_id,
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
-          title: "Malformed ready packet",
-          state: "ready"
+          title: "Malformed ready packet"
         },
         action: :create,
         authorize?: false
@@ -488,12 +646,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
           version_number: 1,
-          lifecycle_state: "ready",
           objective: "Malformed ready packet version.",
           context_summary: "Missing source and required-check rows.",
           requirements: "Should not be executable.",
-          success_criteria: nil,
-          autonomy_posture: "human_supervised"
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
         },
         action: :create,
         authorize?: false
@@ -502,8 +661,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, packet} =
       packet
       |> Ash.Changeset.for_update(:set_current_version, %{
-        current_version_id: version_id,
-        state: "ready"
+        current_version_id: version_id
       })
       |> Ash.update(authorize?: false)
 

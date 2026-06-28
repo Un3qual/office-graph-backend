@@ -26,7 +26,6 @@ defmodule OfficeGraph.WorkPackets do
   require Ash.Query
 
   @work_packet_create_action "work_packet.create"
-  @allowed_autonomy_postures MapSet.new(["human_supervised"])
 
   def create_packet(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- validate_operation_context(session_context, operation),
@@ -40,13 +39,12 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   def ready_for_execution_attrs?(attrs) when is_map(attrs) do
-    packet_ready?(attrs)
+    OfficeGraph.WorkPackets.Readiness.ready?(attrs)
   end
 
   defp create_packet_records(session_context, operation, attrs) do
     packet_id = Ecto.UUID.generate()
     version_id = Ecto.UUID.generate()
-    lifecycle_state = packet_lifecycle_state(attrs)
 
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
@@ -58,8 +56,7 @@ defmodule OfficeGraph.WorkPackets do
             operation,
             attrs,
             packet_id,
-            version_id,
-            lifecycle_state
+            version_id
           )
 
         {:ok, packet_result} ->
@@ -77,8 +74,7 @@ defmodule OfficeGraph.WorkPackets do
          operation,
          attrs,
          packet_id,
-         version_id,
-         lifecycle_state
+         version_id
        ) do
     packet =
       ash_create!(
@@ -88,8 +84,7 @@ defmodule OfficeGraph.WorkPackets do
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
-          title: attrs[:title],
-          state: lifecycle_state
+          title: attrs[:title]
         }
       )
 
@@ -103,12 +98,13 @@ defmodule OfficeGraph.WorkPackets do
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
           version_number: 1,
-          lifecycle_state: lifecycle_state,
           objective: attrs[:objective],
           context_summary: attrs[:context_summary],
           requirements: attrs[:requirements],
           success_criteria: attrs[:success_criteria],
-          autonomy_posture: attrs[:autonomy_posture]
+          autonomy_posture: attrs[:autonomy_posture],
+          source_graph_item_ids: Map.get(attrs, :source_graph_item_ids, []),
+          verification_check_ids: Map.get(attrs, :verification_check_ids, [])
         }
       )
 
@@ -147,8 +143,7 @@ defmodule OfficeGraph.WorkPackets do
     packet =
       packet
       |> Ash.Changeset.for_update(:set_current_version, %{
-        current_version_id: version.id,
-        state: lifecycle_state
+        current_version_id: version.id
       })
       |> ash_update!()
 
@@ -159,21 +154,6 @@ defmodule OfficeGraph.WorkPackets do
       required_checks: required_checks
     }
   end
-
-  defp packet_lifecycle_state(attrs) do
-    if packet_ready?(attrs), do: "ready", else: "draft"
-  end
-
-  defp packet_ready?(attrs) do
-    present?(attrs[:objective]) and
-      present?(attrs[:success_criteria]) and
-      MapSet.member?(@allowed_autonomy_postures, attrs[:autonomy_posture]) and
-      not Enum.empty?(Map.get(attrs, :source_graph_item_ids, [])) and
-      not Enum.empty?(Map.get(attrs, :verification_check_ids, []))
-  end
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: false
 
   defp validate_operation_context(session_context, operation)
        when is_map(session_context) and is_map(operation) do
@@ -268,11 +248,10 @@ defmodule OfficeGraph.WorkPackets do
 
   defp same_packet_replay?(packet, version, source_references, required_checks, attrs) do
     packet.title == attrs[:title] and
-      packet.state == packet_lifecycle_state(attrs) and
+      packet.state == version.lifecycle_state and
       version.work_packet_id == packet.id and
       version.operation_id == packet.operation_id and
       version.version_number == 1 and
-      version.lifecycle_state == packet_lifecycle_state(attrs) and
       version.objective == attrs[:objective] and
       version.context_summary == attrs[:context_summary] and
       version.requirements == attrs[:requirements] and

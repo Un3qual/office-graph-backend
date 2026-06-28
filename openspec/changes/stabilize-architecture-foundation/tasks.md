@@ -74,7 +74,7 @@
   lifecycle validation into one Ash action/change location per invariant.
 - [x] 3.4 Add relationships and richer action contracts for WorkPackets packet,
   version, source reference, and required-check resources.
-- [ ] 3.5 Refactor packet creation/readiness so stable resource invariants live
+- [x] 3.5 Refactor packet creation/readiness so stable resource invariants live
   in Ash actions/changes and replay/idempotency remains in a narrow command
   layer.
 - [ ] 3.6 Add relationships and richer action contracts for Runs run,
