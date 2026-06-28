@@ -90,7 +90,7 @@
   `ProposedGraphChange.payload` as temporary raw/suggestion/compatibility input
   unless a later accepted ChangeProposal workflow promotes typed command inputs
   or typed proposal fields.
-- [ ] 3.10 Burn down at least one architecture exception ledger entry per domain
+- [x] 3.10 Burn down at least one architecture exception ledger entry per domain
   cleanup stage or explicitly narrow the entry and update its retirement
   condition.
 

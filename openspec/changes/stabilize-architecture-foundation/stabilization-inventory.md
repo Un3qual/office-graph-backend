@@ -152,6 +152,16 @@ resources. Similar metadata maps remain allowed only for provenance, replay,
 trace, raw import, or content-rendering details; product-queryable domain data
 must move to typed fields, child resources, or typed command inputs.
 
+## Domain Cleanup Ledger Burn-Down
+
+The domain cleanup pass narrowed the Runs exception ledger instead of leaving
+the original broad accepted-evidence helpers in place. `OfficeGraph.Runs` now
+approves one accepted-result lifecycle hook,
+`apply_accepted_verification_result/2`, instead of public helpers for marking
+required checks satisfied or forcing run verification state. The Verification
+ledger now records that Verification owns the accepted evidence pass/fail rule
+and delegates only run lifecycle mutation to Runs.
+
 ## Broad Authorization Bypass Inventory
 
 Many internal Ash reads and writes currently use `authorize?: false`. The
