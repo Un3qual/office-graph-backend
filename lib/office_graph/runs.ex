@@ -188,7 +188,6 @@ defmodule OfficeGraph.Runs do
 
   defp create_observation(session_context, operation, run, attrs) do
     attrs = normalize_observation_attrs(attrs)
-    now = DateTime.utc_now()
 
     Repo.transaction(fn ->
       maybe_lock_observation_idempotency_key!(session_context, attrs)
@@ -201,7 +200,7 @@ defmodule OfficeGraph.Runs do
 
           case existing_observation(session_context, attrs) do
             {:ok, nil} ->
-              create_observation!(session_context, operation, run, attrs, now)
+              create_observation!(session_context, operation, run, attrs)
 
             {:ok, observation} ->
               replay_source_observation!(observation, run, attrs)
@@ -220,7 +219,7 @@ defmodule OfficeGraph.Runs do
     |> normalize_transaction_result()
   end
 
-  defp create_observation!(session_context, operation, run, attrs, now) do
+  defp create_observation!(session_context, operation, run, attrs) do
     observation =
       ash_create!(
         ExecutionObservation,
@@ -238,7 +237,6 @@ defmodule OfficeGraph.Runs do
           observed_status: attrs[:observed_status],
           normalized_status: attrs[:normalized_status],
           source_recorded_at: attrs[:source_recorded_at],
-          ingested_at: now,
           freshness_state: attrs[:freshness_state],
           trust_basis: attrs[:trust_basis],
           rationale: attrs[:rationale],
@@ -253,7 +251,6 @@ defmodule OfficeGraph.Runs do
 
   defp create_run_records(session_context, operation, packet_version, attrs) do
     run_id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
 
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
@@ -284,8 +281,7 @@ defmodule OfficeGraph.Runs do
             packet_version,
             attrs,
             required_checks,
-            run_id,
-            now
+            run_id
           )
 
         {:ok, run_result} ->
@@ -304,8 +300,7 @@ defmodule OfficeGraph.Runs do
          packet_version,
          attrs,
          required_checks,
-         run_id,
-         now
+         run_id
        ) do
     run =
       ash_create!(
@@ -321,12 +316,7 @@ defmodule OfficeGraph.Runs do
           objective: packet_version.objective,
           authority_posture: attrs[:authority_posture],
           source_surface: attrs[:source_surface],
-          reason: attrs[:reason],
-          state: "running",
-          aggregate_state: "running",
-          execution_state: "pending",
-          verification_state: "unverified",
-          started_at: now
+          reason: attrs[:reason]
         }
       )
 
@@ -339,8 +329,7 @@ defmodule OfficeGraph.Runs do
             run_id: run.id,
             verification_check_id: required_check.verification_check_id,
             organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            state: "pending"
+            workspace_id: session_context.workspace_id
           }
         )
       end)

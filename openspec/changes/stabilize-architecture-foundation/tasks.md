@@ -77,7 +77,7 @@
 - [x] 3.5 Refactor packet creation/readiness so stable resource invariants live
   in Ash actions/changes and replay/idempotency remains in a narrow command
   layer.
-- [ ] 3.6 Add relationships and richer action contracts for Runs run,
+- [x] 3.6 Add relationships and richer action contracts for Runs run,
   run-required-check, execution-observation, and run-event resources.
 - [ ] 3.7 Consolidate duplicated run/check/observation validation so wrappers and
   Ash changes do not own the same invariant twice.

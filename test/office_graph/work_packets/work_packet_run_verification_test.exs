@@ -1020,13 +1020,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  objective: packet_result.version.objective,
                  authority_posture: "human_supervised",
                  source_surface: "test",
-                 reason: "Direct creates cannot choose terminal lifecycle.",
-                 state: "verified",
-                 aggregate_state: "verified",
-                 execution_state: "completed",
-                 verification_state: "verified",
-                 started_at: DateTime.add(completed_at, -3600, :second),
-                 completed_at: completed_at
+                 reason: "Direct creates derive their initial lifecycle."
                },
                actor: bootstrap.session,
                action: :create
@@ -1038,6 +1032,40 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert run.verification_state == "unverified"
     assert is_nil(run.completed_at)
     assert DateTime.compare(run.started_at, completed_at) != :lt
+  end
+
+  test "direct run creates reject caller supplied lifecycle state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-create-rejects-lifecycle-input"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_packet_id: packet_result.packet.id,
+                 work_packet_version_id: packet_result.version.id,
+                 operation_id: run_operation.id,
+                 initiator_principal_id: bootstrap.session.principal_id,
+                 objective: packet_result.version.objective,
+                 authority_posture: "human_supervised",
+                 source_surface: "test",
+                 reason: "Direct creates cannot choose terminal lifecycle.",
+                 state: "verified"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "No such input `state`"
   end
 
   test "direct run required-check creates reject checks outside the run packet contract" do
@@ -1054,8 +1082,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  run_id: run_result.run.id,
                  verification_check_id: unrelated_check.id,
                  organization_id: bootstrap.session.organization_id,
-                 workspace_id: bootstrap.session.workspace_id,
-                 state: "pending"
+                 workspace_id: bootstrap.session.workspace_id
                },
                actor: bootstrap.session,
                action: :create
@@ -1079,6 +1106,30 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  run_id: run_result.run.id,
                  verification_check_id: verification_check.id,
                  organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert required_check.state == "pending"
+  end
+
+  test "direct run required-check creates reject caller supplied state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    delete_run_required_check!(run_result.run.id, verification_check.id)
+
+    assert {:error, error} =
+             Ash.create(
+               RunRequiredCheck,
+               %{
+                 id: Ecto.UUID.generate(),
+                 run_id: run_result.run.id,
+                 verification_check_id: verification_check.id,
+                 organization_id: bootstrap.session.organization_id,
                  workspace_id: bootstrap.session.workspace_id,
                  state: "satisfied"
                },
@@ -1086,7 +1137,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                action: :create
              )
 
-    assert required_check.state == "pending"
+    assert Exception.message(error) =~ "No such input `state`"
   end
 
   test "observation recording validates run check and graph references" do
@@ -1229,7 +1280,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-foreign-run-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not link foreign runs.",
@@ -1269,7 +1319,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-unrequired-check-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not attach unrelated checks.",
@@ -1308,7 +1357,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-unrelated-graph-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not attach unrelated graph items.",
@@ -1319,6 +1367,45 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
 
     assert Exception.message(error) =~ "graph_item_id"
+  end
+
+  test "direct observation creates reject caller supplied ingestion time" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "direct-observation-rejects-ingested-at"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               ExecutionObservation,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_run_id: run_result.run.id,
+                 operation_id: operation.id,
+                 verification_check_id: verification_check.id,
+                 graph_item_id: verification_check.graph_item_id,
+                 source_kind: "human",
+                 source_identity: "manual:direct-observation-rejects-ingested-at",
+                 idempotency_key: "direct-observation-rejects-ingested-at",
+                 observed_status: "passed",
+                 normalized_status: "succeeded",
+                 ingested_at: DateTime.add(DateTime.utc_now(), -3600, :second),
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 rationale: "Direct creates cannot spoof ingestion time.",
+                 metadata: %{}
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "No such input `ingested_at`"
   end
 
   test "direct evidence candidate creates reject checks outside the run packet contract" do

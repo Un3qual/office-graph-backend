@@ -421,6 +421,66 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
+  @expected_runs_relationships %{
+    OfficeGraph.Runs.Run => %{
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      initiator_principal:
+        {:belongs_to, OfficeGraph.Identity.Principal, :initiator_principal_id, :id},
+      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id},
+      execution_observations:
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id},
+      events: {:has_many, OfficeGraph.Runs.RunEvent, :id, :run_id}
+    },
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+    },
+    OfficeGraph.Runs.ExecutionObservation => %{
+      work_run: {:belongs_to, OfficeGraph.Runs.Run, :work_run_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.Runs.RunEvent => %{
+      run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id}
+    }
+  }
+
+  @expected_runs_reference_validations %{
+    OfficeGraph.Runs.Run => %{
+      create: [
+        work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        operation_id: OfficeGraph.Operations.OperationCorrelation
+      ]
+    },
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      create: [
+        run_id: OfficeGraph.Runs.Run,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
+      ]
+    },
+    OfficeGraph.Runs.ExecutionObservation => %{
+      create: [
+        work_run_id: OfficeGraph.Runs.Run,
+        operation_id: OfficeGraph.Operations.OperationCorrelation,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+      ]
+    }
+  }
+
+  @expected_runs_create_defaults %{
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      state: "pending"
+    }
+  }
+
   @expected_work_graph_internal_modules [
     OfficeGraph.WorkGraph.Queries,
     OfficeGraph.WorkGraph.ProposalCommands,
@@ -969,6 +1029,74 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   test "WorkPackets child create actions own fixed packet contract attributes" do
     for {resource, expected_defaults} <- @expected_work_packets_create_defaults do
+      create_action = Ash.Resource.Info.action(resource, :create)
+
+      assert create_action,
+             "#{inspect(resource)} must define create action"
+
+      for {attribute, expected_value} <- expected_defaults do
+        refute attribute in create_action.accept,
+               "#{inspect(resource)} create must not accept fixed #{inspect(attribute)} from callers"
+
+        assert fixed_attribute_change(create_action, attribute) == expected_value,
+               "#{inspect(resource)} create must set #{inspect(attribute)} to #{inspect(expected_value)}"
+      end
+    end
+  end
+
+  test "Runs resources model safe raw UUID references as Ash relationships" do
+    assert_relationship_contracts!(@expected_runs_relationships)
+  end
+
+  test "Runs action contracts validate references through Ash changes" do
+    for {resource, expected_by_action} <- @expected_runs_reference_validations do
+      for {action_name, expected_references} <- expected_by_action do
+        action = Ash.Resource.Info.action(resource, action_name)
+
+        assert action,
+               "#{inspect(resource)} must define action #{inspect(action_name)}"
+
+        assert same_scope_reference_validation(action) == expected_references,
+               "#{inspect(resource)} #{inspect(action_name)} must validate same-scope references #{inspect(expected_references)}"
+      end
+    end
+  end
+
+  test "Run create derives initial lifecycle state" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.Run, :create)
+
+    for attribute <- [
+          :state,
+          :aggregate_state,
+          :execution_state,
+          :verification_state,
+          :started_at,
+          :completed_at
+        ] do
+      refute attribute in create_action.accept,
+             "Run.create must not accept caller-supplied #{inspect(attribute)}"
+    end
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.DeriveRunInitialLifecycle)
+  end
+
+  test "ExecutionObservation create derives ingestion time" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
+
+    refute :ingested_at in create_action.accept
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.DeriveObservationIngestedAt)
+  end
+
+  test "RunEvent create remains a private run-scoped append action" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.RunEvent, :create)
+
+    refute create_action.public?
+    assert :run_id in create_action.accept
+  end
+
+  test "Runs child create actions own fixed run contract attributes" do
+    for {resource, expected_defaults} <- @expected_runs_create_defaults do
       create_action = Ash.Resource.Info.action(resource, :create)
 
       assert create_action,

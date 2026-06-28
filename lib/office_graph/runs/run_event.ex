@@ -24,6 +24,14 @@ defmodule OfficeGraph.Runs.RunEvent do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :run, OfficeGraph.Runs.Run do
+      source_attribute :run_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     read :read do
       primary? true
@@ -31,6 +39,8 @@ defmodule OfficeGraph.Runs.RunEvent do
     end
 
     create :create do
+      public? false
+
       accept [:id, :run_id, :event_type, :payload]
     end
   end

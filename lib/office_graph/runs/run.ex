@@ -40,6 +40,41 @@ defmodule OfficeGraph.Runs.Run do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :work_packet, OfficeGraph.WorkPackets.WorkPacket do
+      source_attribute :work_packet_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :work_packet_version_id
+      define_attribute? false
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      define_attribute? false
+    end
+
+    belongs_to :initiator_principal, OfficeGraph.Identity.Principal do
+      source_attribute :initiator_principal_id
+      define_attribute? false
+    end
+
+    has_many :required_checks, OfficeGraph.Runs.RunRequiredCheck do
+      destination_attribute :run_id
+    end
+
+    has_many :execution_observations, OfficeGraph.Runs.ExecutionObservation do
+      destination_attribute :work_run_id
+    end
+
+    has_many :events, OfficeGraph.Runs.RunEvent do
+      destination_attribute :run_id
+    end
+  end
+
   actions do
     read :read do
       primary? true
@@ -60,13 +95,7 @@ defmodule OfficeGraph.Runs.Run do
         :objective,
         :authority_posture,
         :source_surface,
-        :reason,
-        :aggregate_state,
-        :execution_state,
-        :verification_state,
-        :started_at,
-        :completed_at,
-        :state
+        :reason
       ]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,

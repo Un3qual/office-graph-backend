@@ -92,6 +92,25 @@ to the packet and target scope while syncing packet state from that version.
 Idempotent replay, operation locking, and the packet creation transaction
 remain in the narrow command layer.
 
+## Runs Relationship And Contract Inventory
+
+Runs resources now define internal Ash relationships for their safe raw UUID
+references. The pass covers run packet/version/operation/initiator links, run
+required-check and observation children, run events, required-check run/check
+links, observation run/operation/check/graph-item links, and run-event run
+links. These relationships remain non-public so generated API reads do not
+expose new infrastructure-shaped relationship fields by default.
+
+Runs create actions now own stable run contract fields: run create derives the
+initial lifecycle fields, required-check create derives pending state,
+observation create derives ingestion time, and run-event create remains a
+private append action. Command code still owns operation locking, transaction
+boundaries, replay/idempotency comparisons, packet readiness revalidation,
+observation reference validation, required-check satisfaction, and run
+verification recomputation. Follow-up cleanup should consolidate duplicated
+run/check/observation validation and resolve evidence acceptance ownership
+without spreading those invariants back into transport code.
+
 ## WorkGraph Command Organization
 
 `OfficeGraph.WorkGraph` is now a thin public facade. Internal reads live in

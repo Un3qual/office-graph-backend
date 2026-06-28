@@ -41,6 +41,30 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :work_run, OfficeGraph.Runs.Run do
+      source_attribute :work_run_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+      source_attribute :verification_check_id
+      define_attribute? false
+    end
+
+    belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :graph_item_id
+      define_attribute? false
+    end
+  end
+
   actions do
     defaults [:read]
 
@@ -61,7 +85,6 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
         :observed_status,
         :normalized_status,
         :source_recorded_at,
-        :ingested_at,
         :freshness_state,
         :trust_basis,
         :rationale,
@@ -76,6 +99,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
                 graph_item_id: OfficeGraph.WorkGraph.GraphItem
               ]}
 
+      change OfficeGraph.Runs.Changes.DeriveObservationIngestedAt
       change OfficeGraph.Runs.Changes.ValidateObservationRunReferences
     end
   end
