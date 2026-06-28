@@ -1080,6 +1080,20 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert action_change?(create_action, OfficeGraph.Runs.Changes.DeriveRunInitialLifecycle)
   end
 
+  test "Run create owns run-start packet readiness and authority validation" do
+    source = File.read!("lib/office_graph/runs.ex")
+
+    refute source =~ "validate_packet_version_ready"
+    refute source =~ "validate_run_authority"
+    refute source =~ "persisted_packet_version_ready?"
+    refute source =~ "packet_has_source_reference?"
+    refute source =~ "packet_has_required_check?"
+
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.Run, :create)
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.ValidateRunStartContract)
+  end
+
   test "ExecutionObservation create derives ingestion time" do
     create_action = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
 
@@ -1093,6 +1107,23 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     refute create_action.public?
     assert :run_id in create_action.accept
+  end
+
+  test "Runs observation command delegates reference validation to Ash changes" do
+    source = File.read!("lib/office_graph/runs.ex")
+
+    refute source =~ "validate_observation_references!"
+    refute source =~ "defp validate_observation_references("
+    refute source =~ "defp validate_observation_verification_check"
+    refute source =~ "defp validate_observation_graph_item"
+    refute source =~ "defp validate_optional_graph_item"
+
+    observation_create = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
+
+    assert action_change?(
+             observation_create,
+             OfficeGraph.Runs.Changes.ValidateObservationRunReferences
+           )
   end
 
   test "Runs child create actions own fixed run contract attributes" do

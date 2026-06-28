@@ -105,6 +105,7 @@ defmodule OfficeGraph.Runs.Run do
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
 
+      change OfficeGraph.Runs.Changes.ValidateRunStartContract
       change OfficeGraph.Runs.Changes.DeriveRunInitialLifecycle
     end
 

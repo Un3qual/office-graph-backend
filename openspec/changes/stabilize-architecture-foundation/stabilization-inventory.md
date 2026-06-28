@@ -104,12 +104,15 @@ expose new infrastructure-shaped relationship fields by default.
 Runs create actions now own stable run contract fields: run create derives the
 initial lifecycle fields, required-check create derives pending state,
 observation create derives ingestion time, and run-event create remains a
-private append action. Command code still owns operation locking, transaction
-boundaries, replay/idempotency comparisons, packet readiness revalidation,
-observation reference validation, required-check satisfaction, and run
-verification recomputation. Follow-up cleanup should consolidate duplicated
-run/check/observation validation and resolve evidence acceptance ownership
-without spreading those invariants back into transport code.
+private append action. Run create now owns packet/version ownership, packet
+readiness, and authority-envelope validation; observation create now owns
+run/check/graph reference validation. `OfficeGraph.Runs` no longer
+pre-validates those same invariants before calling private Ash actions. Command
+code still owns persisted packet-version reload, operation locking,
+transaction boundaries, replay/idempotency comparisons, selected required-check
+copying, required-check satisfaction, and run verification recomputation.
+Follow-up cleanup should resolve evidence acceptance ownership without
+spreading those invariants back into transport code.
 
 ## WorkGraph Command Organization
 

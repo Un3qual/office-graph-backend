@@ -17,12 +17,11 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
-  alias OfficeGraph.WorkGraph.{EvidenceItem, GraphItem, VerificationCheck, VerificationResult}
+  alias OfficeGraph.WorkGraph.{EvidenceItem, VerificationResult}
 
   alias OfficeGraph.WorkPackets.{
     WorkPacket,
     WorkPacketRequiredCheck,
-    WorkPacketSourceReference,
     WorkPacketVersion
   }
 
@@ -30,7 +29,6 @@ defmodule OfficeGraph.Runs do
 
   @work_run_start_action "work_run.start"
   @execution_observation_record_action "execution_observation.record"
-  @allowed_packet_autonomy_postures MapSet.new(["human_supervised"])
 
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- validate_operation_context(session_context, operation),
@@ -196,8 +194,6 @@ defmodule OfficeGraph.Runs do
 
       case existing_observation_for_operation(session_context, operation) do
         {:ok, nil} ->
-          validate_observation_references!(session_context, run, attrs)
-
           case existing_observation(session_context, attrs) do
             {:ok, nil} ->
               create_observation!(session_context, operation, run, attrs)
@@ -261,18 +257,8 @@ defmodule OfficeGraph.Runs do
           {:error, error} -> Repo.rollback(error)
         end
 
-      case validate_run_authority(packet_version, attrs) do
-        :ok -> :ok
-        {:error, error} -> Repo.rollback(error)
-      end
-
       case existing_run_result(session_context, operation, packet_version, attrs) do
         {:ok, nil} ->
-          case validate_packet_version_ready(packet_version) do
-            :ok -> :ok
-            {:error, error} -> Repo.rollback(error)
-          end
-
           required_checks = packet_required_checks(packet_version)
 
           create_run_records!(
@@ -669,159 +655,6 @@ defmodule OfficeGraph.Runs do
   end
 
   defp reload_run(_session_context, _run), do: {:error, :missing_work_run}
-
-  defp validate_packet_version_ready(%{lifecycle_state: "ready"} = packet_version) do
-    if persisted_packet_version_ready?(packet_version) do
-      :ok
-    else
-      {:error, {:packet_version_not_ready, packet_version.id}}
-    end
-  end
-
-  defp validate_packet_version_ready(%{id: id}), do: {:error, {:packet_version_not_ready, id}}
-  defp validate_packet_version_ready(_packet_version), do: {:error, :missing_packet_version}
-
-  defp validate_run_authority(packet_version, attrs) do
-    requested_authority = attrs[:authority_posture]
-
-    if requested_authority == packet_version.autonomy_posture do
-      :ok
-    else
-      {:error,
-       {:work_run_authority_posture_mismatch, packet_version.id, requested_authority,
-        packet_version.autonomy_posture}}
-    end
-  end
-
-  defp persisted_packet_version_ready?(packet_version) do
-    present?(packet_version.objective) and
-      present?(packet_version.success_criteria) and
-      MapSet.member?(@allowed_packet_autonomy_postures, packet_version.autonomy_posture) and
-      packet_has_source_reference?(packet_version) and
-      packet_has_required_check?(packet_version)
-  end
-
-  defp packet_has_source_reference?(packet_version) do
-    WorkPacketSourceReference
-    |> Ash.Query.filter(
-      work_packet_version_id == ^packet_version.id and
-        organization_id == ^packet_version.organization_id and
-        workspace_id == ^packet_version.workspace_id
-    )
-    |> Ash.exists?(authorize?: false)
-  end
-
-  defp packet_has_required_check?(packet_version) do
-    WorkPacketRequiredCheck
-    |> Ash.Query.filter(
-      work_packet_version_id == ^packet_version.id and
-        organization_id == ^packet_version.organization_id and
-        workspace_id == ^packet_version.workspace_id
-    )
-    |> Ash.exists?(authorize?: false)
-  end
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: false
-
-  defp validate_observation_references(session_context, run, attrs) do
-    with {:ok, verification_check} <-
-           validate_observation_verification_check(
-             session_context,
-             run,
-             attrs[:verification_check_id]
-           ),
-         {:ok, graph_item} <-
-           validate_optional_graph_item(session_context, attrs[:graph_item_id]),
-         :ok <- validate_observation_graph_item(run, verification_check, graph_item) do
-      :ok
-    end
-  end
-
-  defp validate_observation_references!(session_context, run, attrs) do
-    case validate_observation_references(session_context, run, attrs) do
-      :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp validate_observation_verification_check(_session_context, _run, nil), do: {:ok, nil}
-
-  defp validate_observation_verification_check(session_context, run, verification_check_id) do
-    with {:ok, verification_check} <-
-           fetch_scoped(VerificationCheck, session_context, verification_check_id),
-         true <- run_requires_check?(run, verification_check.id) do
-      {:ok, verification_check}
-    else
-      false -> {:error, {:verification_check_not_required, run.id, verification_check_id}}
-      error -> error
-    end
-  end
-
-  defp validate_optional_graph_item(_session_context, nil), do: {:ok, nil}
-
-  defp validate_optional_graph_item(session_context, graph_item_id) do
-    fetch_scoped(GraphItem, session_context, graph_item_id)
-  end
-
-  defp validate_observation_graph_item(_run, nil, nil), do: :ok
-
-  defp validate_observation_graph_item(run, nil, graph_item) do
-    if graph_item_belongs_to_run?(run, graph_item.id) do
-      :ok
-    else
-      {:error, {:graph_item_not_required, run.id, graph_item.id}}
-    end
-  end
-
-  defp validate_observation_graph_item(_run, _verification_check, nil), do: :ok
-
-  defp validate_observation_graph_item(run, verification_check, graph_item) do
-    if graph_item.id == verification_check.graph_item_id do
-      :ok
-    else
-      {:error, {:graph_item_not_required, run.id, graph_item.id}}
-    end
-  end
-
-  defp graph_item_belongs_to_run?(run, graph_item_id) do
-    packet_source_graph_item?(run, graph_item_id) or
-      required_check_graph_item?(run, graph_item_id)
-  end
-
-  defp packet_source_graph_item?(run, graph_item_id) do
-    WorkPacketSourceReference
-    |> Ash.Query.filter(
-      work_packet_version_id == ^run.work_packet_version_id and graph_item_id == ^graph_item_id and
-        organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
-    )
-    |> Ash.exists?(authorize?: false)
-  end
-
-  defp required_check_graph_item?(run, graph_item_id) do
-    case read_run_required_checks(run) do
-      {:ok, required_checks} ->
-        Enum.any?(required_checks, fn required_check ->
-          check_id = required_check.verification_check_id
-
-          VerificationCheck
-          |> Ash.Query.filter(id == ^check_id and graph_item_id == ^graph_item_id)
-          |> Ash.exists?(authorize?: false)
-        end)
-
-      {:error, _error} ->
-        false
-    end
-  end
-
-  defp run_requires_check?(run, verification_check_id) do
-    RunRequiredCheck
-    |> Ash.Query.filter(
-      run_id == ^run.id and verification_check_id == ^verification_check_id and
-        organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
-    )
-    |> Ash.exists?(authorize?: false)
-  end
 
   defp read_run_required_checks(%Run{} = run) do
     RunRequiredCheck

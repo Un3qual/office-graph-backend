@@ -267,29 +267,38 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "draft-packet-run"
       )
 
-    assert {:error, {:packet_version_not_ready, packet_result.version.id}} ==
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
                source_surface: "test",
                reason: "Should be rejected.",
                authority_posture: "human_supervised"
              })
 
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
     stale_version = %{packet_result.version | lifecycle_state: "stale"}
     superseded_version = %{packet_result.version | lifecycle_state: "superseded"}
 
-    assert {:error, {:packet_version_not_ready, stale_version.id}} ==
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, stale_version, %{
                source_surface: "test",
                reason: "Stale versions cannot start runs.",
                authority_posture: "human_supervised"
              })
 
-    assert {:error, {:packet_version_not_ready, superseded_version.id}} ==
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, superseded_version, %{
                source_surface: "test",
                reason: "Superseded versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
 
     assert {:error, :missing_packet_version} ==
              Runs.start_run(bootstrap.session, run_operation, nil, %{
@@ -596,16 +605,14 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "work-run-authority-envelope"
       )
 
-    version_id = packet_result.version.id
-
-    assert {:error,
-            {:work_run_authority_posture_mismatch, ^version_id, "fully_autonomous",
-             "human_supervised"}} =
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, operation, packet_result.version, %{
                source_surface: "test",
                reason: "Reject escalated authority.",
                authority_posture: "fully_autonomous"
              })
+
+    assert Exception.message(error) =~ "authority_posture must match the packet autonomy posture"
 
     refute run_for_operation?(operation.id)
   end
@@ -672,12 +679,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "malformed-ready-packet-version-run"
       )
 
-    assert {:error, {:packet_version_not_ready, ^version_id}} =
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, version, %{
                source_surface: "test",
                reason: "Malformed ready versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
 
     refute run_exists_for_operation?(run_operation.id)
   end
@@ -1068,6 +1078,178 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert Exception.message(error) =~ "No such input `state`"
   end
 
+  test "direct run creates reject packet versions that are not ready" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-packet-run"
+      )
+
+    assert {:ok, packet_result} =
+             WorkPackets.create_packet(bootstrap.session, packet_operation, %{
+               title: "Direct incomplete packet",
+               objective: "Investigate incomplete packet behavior.",
+               context_summary: "Missing success criteria and required checks.",
+               requirements: "Find missing fields.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [],
+               verification_check_ids: []
+             })
+
+    assert packet_result.version.lifecycle_state == "draft"
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-draft-packet-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(bootstrap.session, packet_result, run_operation),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject malformed ready packet versions without execution links" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-malformed-ready-packet-version"
+      )
+
+    packet_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct malformed ready packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          version_number: 1,
+          objective: "Malformed ready packet version.",
+          context_summary: "Missing source and required-check rows.",
+          requirements: "Should not be executable.",
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version_id})
+      |> Ash.update(authorize?: false)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-malformed-ready-packet-version-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(
+                 bootstrap.session,
+                 %{packet: packet, version: version},
+                 run_operation
+               ),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject authority outside the packet autonomy envelope" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-authority-envelope"
+      )
+
+    attrs =
+      bootstrap.session
+      |> direct_run_attrs(packet_result, run_operation)
+      |> Map.put(:authority_posture, "fully_autonomous")
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               attrs,
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "authority_posture must match the packet autonomy posture"
+  end
+
+  test "direct run creates reject packet and version mismatches" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_packet} = create_ready_packet(bootstrap.session, [first_check])
+    {:ok, second_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-packet-version-mismatch"
+      )
+
+    attrs =
+      bootstrap.session
+      |> direct_run_attrs(
+        %{packet: first_packet.packet, version: second_packet.version},
+        run_operation
+      )
+      |> Map.put(:objective, second_packet.version.objective)
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               attrs,
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "work_packet_version_id must belong to work_packet_id"
+  end
+
   test "direct run required-check creates reject checks outside the run packet contract" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, required_check} = create_required_verification_check(bootstrap.session)
@@ -1163,7 +1345,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "foreign-observation-reference"
       )
 
-    assert {:error, :forbidden} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, foreign_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:foreign-observation-reference",
@@ -1177,16 +1359,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Foreign references are rejected."
              })
 
+    assert Exception.message(error) =~
+             "verification_check_id must reference an existing record in the target scope"
+
     {:ok, unrelated_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "unrequired-observation-reference"
       )
 
-    run_id = run.run.id
-    unrelated_check_id = unrelated_check.id
-    unrelated_graph_item_id = unrelated_check.graph_item_id
-
-    assert {:error, {:verification_check_not_required, ^run_id, ^unrelated_check_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, unrelated_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:unrequired-observation-reference",
@@ -1200,12 +1381,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Unrequired checks are rejected."
              })
 
+    assert Exception.message(error) =~
+             "verification_check_id must reference a required check for the run"
+
     {:ok, mismatched_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "mismatched-observation-reference"
       )
 
-    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, mismatched_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:mismatched-observation-reference",
@@ -1219,12 +1403,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Mismatched graph item is rejected."
              })
 
+    assert Exception.message(error) =~
+             "graph_item_id must match the verification check graph item"
+
     {:ok, graph_only_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "unrelated-graph-only-observation-reference"
       )
 
-    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, graph_only_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:unrelated-graph-only-observation-reference",
@@ -1236,6 +1423,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                graph_item_id: unrelated_check.graph_item_id,
                rationale: "Unrelated graph-item-only observations are rejected."
              })
+
+    assert Exception.message(error) =~
+             "graph_item_id must reference a graph item selected by the run"
 
     {:ok, summary} = Runs.get_summary(first_scope.session, run.run.id)
     assert summary.observations == []
@@ -2628,6 +2818,22 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
       verification_check_ids: Enum.map(verification_checks, & &1.id)
     })
+  end
+
+  defp direct_run_attrs(session, packet_result, operation) do
+    %{
+      id: Ecto.UUID.generate(),
+      organization_id: session.organization_id,
+      workspace_id: session.workspace_id,
+      work_packet_id: packet_result.packet.id,
+      work_packet_version_id: packet_result.version.id,
+      operation_id: operation.id,
+      initiator_principal_id: session.principal_id,
+      objective: packet_result.version.objective,
+      authority_posture: "human_supervised",
+      source_surface: "test",
+      reason: "Direct run create validates the packet contract."
+    }
   end
 
   defp record_observation(session, run, verification_check, opts \\ []) do
