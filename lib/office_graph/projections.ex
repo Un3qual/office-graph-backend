@@ -33,6 +33,8 @@ defmodule OfficeGraph.Projections do
     VerificationCheck
   }
 
+  alias OfficeGraph.WorkPackets.{WorkPacketRequiredCheck, WorkPacketSourceReference}
+
   require Ash.Query
 
   @allowed_autonomy_postures MapSet.new(["human_supervised"])
@@ -159,9 +161,12 @@ defmodule OfficeGraph.Projections do
 
   defp build_intake_row(session_context, event) do
     with {:ok, proposed_changes} <- read_proposed_changes(session_context, event),
-         {:ok, applied_projection} <- applied_projection(session_context, proposed_changes) do
+         {:ok, applied_projection} <- applied_projection(session_context, proposed_changes),
+         {:ok, run_links} <-
+           run_links_for_graph_links(session_context, applied_projection.graph_links) do
       status = intake_status(event, proposed_changes)
       reason_codes = intake_reason_codes(event, proposed_changes)
+      graph_links = applied_projection.graph_links ++ run_links
 
       {:ok,
        %{
@@ -181,7 +186,7 @@ defmodule OfficeGraph.Projections do
          allowed_next_actions: allowed_next_actions(status),
          operation_watermark: event.operation_id,
          source_watermark: event.operation_id,
-         graph_links: applied_projection.graph_links,
+         graph_links: graph_links,
          graph_relationships: applied_projection.graph_relationships,
          audit_trace: applied_projection.audit_trace,
          revision_trace: applied_projection.revision_trace
@@ -316,7 +321,10 @@ defmodule OfficeGraph.Projections do
   defp graph_relationships_for_links([]), do: {:ok, []}
 
   defp graph_relationships_for_links(graph_links) do
-    graph_item_ids = Enum.map(graph_links, & &1.graph_item_id)
+    graph_item_ids =
+      graph_links
+      |> Enum.map(& &1.graph_item_id)
+      |> Enum.reject(&is_nil/1)
 
     GraphRelationship
     |> Ash.Query.filter(source_item_id in ^graph_item_ids and target_item_id in ^graph_item_ids)
@@ -337,6 +345,97 @@ defmodule OfficeGraph.Projections do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  defp run_links_for_graph_links(_session_context, []), do: {:ok, []}
+
+  defp run_links_for_graph_links(session_context, graph_links) do
+    verification_check_ids =
+      graph_links
+      |> Enum.filter(&(&1.type == "verification_check"))
+      |> Enum.map(& &1.id)
+
+    source_graph_item_ids =
+      graph_links
+      |> Enum.map(& &1.graph_item_id)
+      |> Enum.reject(&is_nil/1)
+
+    with {:ok, check_version_ids} <-
+           work_packet_version_ids_for_checks(session_context, verification_check_ids),
+         {:ok, source_version_ids} <-
+           work_packet_version_ids_for_sources(session_context, source_graph_item_ids),
+         version_ids = version_intersection(check_version_ids, source_version_ids),
+         {:ok, runs} <- read_runs_for_versions(session_context, version_ids) do
+      {:ok, Enum.map(runs, &run_graph_link/1)}
+    end
+  end
+
+  defp work_packet_version_ids_for_checks(_session_context, []), do: {:ok, []}
+
+  defp work_packet_version_ids_for_checks(session_context, verification_check_ids) do
+    WorkPacketRequiredCheck
+    |> Ash.Query.filter(
+      verification_check_id in ^verification_check_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, checks} -> {:ok, Enum.map(checks, & &1.work_packet_version_id)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp work_packet_version_ids_for_sources(_session_context, []), do: {:ok, []}
+
+  defp work_packet_version_ids_for_sources(session_context, source_graph_item_ids) do
+    WorkPacketSourceReference
+    |> Ash.Query.filter(
+      graph_item_id in ^source_graph_item_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, sources} -> {:ok, Enum.map(sources, & &1.work_packet_version_id)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp version_intersection([], _source_version_ids), do: []
+  defp version_intersection(_check_version_ids, []), do: []
+
+  defp version_intersection(check_version_ids, source_version_ids) do
+    source_version_ids = MapSet.new(source_version_ids)
+
+    check_version_ids
+    |> Enum.filter(&MapSet.member?(source_version_ids, &1))
+    |> Enum.uniq()
+  end
+
+  defp read_runs_for_versions(_session_context, []), do: {:ok, []}
+
+  defp read_runs_for_versions(session_context, version_ids) do
+    Runs.Run
+    |> Ash.Query.filter(
+      work_packet_version_id in ^version_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp run_graph_link(run) do
+    %{
+      type: "work_run",
+      id: run.id,
+      graph_item_id: nil,
+      title: run.objective || "Work run",
+      state: run.aggregate_state || run.state
+    }
   end
 
   defp trace_summary(operation_id, trace_records) do
@@ -478,6 +577,8 @@ defmodule OfficeGraph.Projections do
   defp readiness_blockers(attrs) do
     [
       missing_string(attrs, :objective, "missing_objective"),
+      missing_string(attrs, :context_summary, "missing_context_summary"),
+      missing_string(attrs, :requirements, "missing_requirements"),
       missing_string(attrs, :success_criteria, "missing_success_criteria"),
       missing_list(attrs, :source_graph_item_ids, "missing_source_graph_items"),
       missing_list(attrs, :verification_check_ids, "missing_verification_checks"),
@@ -586,6 +687,11 @@ defmodule OfficeGraph.Projections do
             id: result.id,
             result: result.result,
             verification_check_id: result.verification_check_id,
+            evidence_item_id: result.evidence_item_id,
+            operation_id: result.operation_id,
+            actor_principal_id: result.actor_principal_id,
+            policy_basis: result.policy_basis,
+            target_graph_item_id: result.target_graph_item_id,
             work_run_id: result.work_run_id,
             work_packet_version_id: result.work_packet_version_id
           }
@@ -640,8 +746,11 @@ defmodule OfficeGraph.Projections do
     }
   end
 
-  defp missing_evidence_projection(%{verification_check_id: verification_check_id}) do
-    %{verification_check_id: verification_check_id, reason: "missing_evidence"}
+  defp missing_evidence_projection(%{
+         verification_check_id: verification_check_id,
+         reason: reason
+       }) do
+    %{verification_check_id: verification_check_id, reason: reason}
   end
 
   defp fetch_scoped(resource, session_context, id) do

@@ -209,6 +209,8 @@ defmodule OfficeGraph.PacketRunVerification do
   defp validate_ready_input(input) do
     ready_attrs = %{
       objective: input.objective,
+      context_summary: input.context_summary,
+      requirements: input.requirements,
       success_criteria: input.success_criteria,
       autonomy_posture: input.autonomy_posture,
       source_graph_item_ids: [input.source_graph_item_id],

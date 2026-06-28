@@ -60,8 +60,19 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "Evidence candidates"
     );
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Fresh");
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Owner attested");
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "manual:operator-console"
+    );
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "Operator console evidence is ready."
+    );
     expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
-      "missing_evidence"
+      "Owner acceptance"
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "missing_accepted_evidence"
     );
 
     expect(api.loadItem).toHaveBeenCalledWith("evt_1");
@@ -74,6 +85,71 @@ describe("OperatorConsole", () => {
     );
     expect(api.loadRunState).toHaveBeenCalledWith("run_1");
     expect(api.loadVerificationOutcome).toHaveBeenCalledWith("run_1");
+  });
+
+  it("requests readiness blockers even when graph links are missing", async () => {
+    const item = { ...selectedItemFixture(), graph_links: [] };
+    const blockedReadiness = {
+      ...samplePacketReadiness,
+      ready: false,
+      status: "blocked",
+      allowed_next_actions: [],
+      blocker_reasons: ["missing_source_graph_items", "missing_verification_checks"],
+      source_links: [],
+      required_checks: []
+    };
+    const api = {
+      loadInbox: vi.fn(async () => ({ ...sampleInbox, rows: [item] })),
+      loadItem: vi.fn(async () => item),
+      loadPacketReadiness: vi.fn(async () => blockedReadiness),
+      loadRunState: vi.fn(),
+      loadVerificationOutcome: vi.fn()
+    };
+
+    render(<OperatorConsole api={api} />);
+
+    expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
+    expect(api.loadPacketReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_graph_item_ids: [],
+        verification_check_ids: []
+      })
+    );
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "missing_source_graph_items, missing_verification_checks"
+    );
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "No run linked yet."
+    );
+    expect(api.loadRunState).not.toHaveBeenCalled();
+    expect(api.loadVerificationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("leaves run panels idle until the backend provides a run link", async () => {
+    const item = {
+      ...selectedItemFixture(),
+      graph_links: selectedItemFixture().graph_links.filter((link) => link.type !== "work_run")
+    };
+    const api = {
+      loadInbox: vi.fn(async () => ({ ...sampleInbox, rows: [item] })),
+      loadItem: vi.fn(async () => item),
+      loadPacketReadiness: vi.fn(async () => samplePacketReadiness),
+      loadRunState: vi.fn(),
+      loadVerificationOutcome: vi.fn()
+    };
+
+    render(<OperatorConsole api={api} />);
+
+    expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
+    expect(api.loadPacketReadiness).toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "No run linked yet."
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "No verification outcome selected."
+    );
+    expect(api.loadRunState).not.toHaveBeenCalled();
+    expect(api.loadVerificationOutcome).not.toHaveBeenCalled();
   });
 
   it("selects another inbox row", async () => {
@@ -147,7 +223,7 @@ function selectedItemFixture(): OperatorWorkflowItem {
       {
         type: "work_run",
         id: "run_1",
-        graph_item_id: "graph_run_1",
+        graph_item_id: null,
         title: "Console verification run",
         state: "running"
       }

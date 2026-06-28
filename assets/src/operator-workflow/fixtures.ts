@@ -77,13 +77,47 @@ export const sampleRunState: OperatorRunState = {
     verification_state: "pending"
   },
   required_checks: [{ id: "required_1", verification_check_id: "check_1", state: "open" }],
-  observations: [],
+  observations: [
+    {
+      id: "observation_1",
+      verification_check_id: "check_1",
+      graph_item_id: "graph_1",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      source_kind: "human",
+      source_identity: "manual:operator-console"
+    }
+  ],
   evidence_candidates: [
-    { id: "candidate_1", state: "proposed", verification_check_id: "check_1" }
+    {
+      id: "candidate_1",
+      verification_check_id: "check_1",
+      execution_observation_id: "observation_1",
+      claim: "Operator console evidence is ready.",
+      state: "candidate",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      source_kind: "human",
+      source_identity: "manual:operator-console"
+    }
   ],
   evidence_items: [],
-  verification_results: [],
-  missing_evidence: [{ verification_check_id: "check_1", reason: "missing_evidence" }]
+  verification_results: [
+    {
+      id: "result_1",
+      result: "passed",
+      verification_check_id: "check_1",
+      evidence_item_id: "evidence_1",
+      operation_id: "operation_1",
+      actor_principal_id: "principal_1",
+      policy_basis: "owner_acceptance",
+      target_graph_item_id: "graph_1",
+      work_run_id: "run_1",
+      work_packet_version_id: "version_1"
+    }
+  ],
+  missing_evidence: [{ verification_check_id: "check_1", reason: "missing_accepted_evidence" }]
 };
 
 export const sampleVerificationOutcome: VerificationOutcome = {
@@ -91,6 +125,6 @@ export const sampleVerificationOutcome: VerificationOutcome = {
   status: "awaiting_evidence_acceptance",
   source_watermark: "run_1",
   run: sampleRunState.run,
-  verification_results: [],
+  verification_results: sampleRunState.verification_results,
   missing_evidence: sampleRunState.missing_evidence
 };

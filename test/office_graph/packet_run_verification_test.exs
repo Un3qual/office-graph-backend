@@ -52,6 +52,21 @@ defmodule OfficeGraph.PacketRunVerificationTest do
     assert_summary_verified(summary, verification_check.id)
   end
 
+  test "domain command rejects missing context and requirements before durable flow writes" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session, "readiness")
+
+    for field <- [:context_summary, :requirements] do
+      attrs =
+        "readiness-#{field}"
+        |> flow_attrs(verification_check)
+        |> Map.put(field, " ")
+
+      assert {:error, {:invalid_packet_run_input, :packet_readiness}} =
+               PacketRunVerification.execute(bootstrap.session, attrs)
+    end
+  end
+
   defp assert_summary_verified(summary, verification_check_id) do
     assert summary.packet.state == "ready"
     assert summary.packet_version.lifecycle_state == "ready"

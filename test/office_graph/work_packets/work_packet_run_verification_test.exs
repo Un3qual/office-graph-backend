@@ -519,6 +519,16 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
     assert version.lifecycle_state == "draft"
 
+    refute WorkPackets.Readiness.ready?(%{
+             objective: "Create a context-blocked version.",
+             context_summary: "",
+             requirements: "",
+             success_criteria: "Accepted evidence exists.",
+             autonomy_posture: "human_supervised",
+             source_graph_item_ids: [Ecto.UUID.generate()],
+             verification_check_ids: [Ecto.UUID.generate()]
+           })
+
     assert {:error, error} =
              Ash.create(
                WorkPacketVersion,

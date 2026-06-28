@@ -78,7 +78,61 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert run_state["status"] == "verified"
     assert run_state["allowed_next_actions"] == []
     assert run_state["missing_evidence"] == []
-    assert hd(run_state["verification_results"])["result"] == "passed"
+
+    assert %{
+             "result" => "passed",
+             "evidence_item_id" => evidence_item_id,
+             "operation_id" => operation_id,
+             "actor_principal_id" => actor_principal_id,
+             "policy_basis" => "owner_acceptance",
+             "target_graph_item_id" => target_graph_item_id
+           } = hd(run_state["verification_results"])
+
+    assert is_binary(evidence_item_id)
+    assert is_binary(operation_id)
+    assert is_binary(actor_principal_id)
+    assert target_graph_item_id == verification_link["graph_item_id"]
+
+    json_outcome =
+      conn
+      |> get(~p"/api/operator-workflow/runs/#{summary["run"]["id"]}/verification-outcome")
+      |> json_response(200)
+
+    graphql_outcome =
+      graphql(
+        conn,
+        """
+        query Outcome($id: ID!) {
+          operatorVerificationOutcome(id: $id) {
+            status
+            run { id }
+            verificationResults {
+              id
+              result
+              evidenceItemId
+              operationId
+              actorPrincipalId
+              policyBasis
+              targetGraphItemId
+            }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{id: summary["run"]["id"]}
+      )
+
+    assert json_outcome["status"] == graphql_outcome["status"]
+    assert json_outcome["run"]["id"] == graphql_outcome["run"]["id"]
+    assert [json_result] = json_outcome["verification_results"]
+    assert [graphql_result] = graphql_outcome["verificationResults"]
+    assert json_result["id"] == graphql_result["id"]
+    assert json_result["result"] == graphql_result["result"]
+    assert json_result["evidence_item_id"] == graphql_result["evidenceItemId"]
+    assert json_result["operation_id"] == graphql_result["operationId"]
+    assert json_result["actor_principal_id"] == graphql_result["actorPrincipalId"]
+    assert json_result["policy_basis"] == graphql_result["policyBasis"]
+    assert json_result["target_graph_item_id"] == graphql_result["targetGraphItemId"]
   end
 
   test "GraphQL and JSON expose equivalent operator inbox and item detail", %{conn: conn} do
@@ -255,7 +309,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             allowedNextActions
             run { id aggregateState verificationState }
             missingEvidence { verificationCheckId reason }
-            evidenceCandidates { id state verificationCheckId }
+            evidenceCandidates { id state verificationCheckId executionObservationId }
           }
         }
         """,
@@ -272,6 +326,52 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert hd(json_run_state["evidence_candidates"])["id"] ==
              hd(graphql_run_state["evidenceCandidates"])["id"]
+
+    assert hd(json_run_state["evidence_candidates"])["execution_observation_id"] ==
+             hd(graphql_run_state["evidenceCandidates"])["executionObservationId"]
+  end
+
+  test "GraphQL operator run state permits evidence candidates without observations", %{
+    conn: conn
+  } do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        nil,
+        key: "operator-api-manual-candidate"
+      )
+
+    json_run_state =
+      conn
+      |> get(~p"/api/operator-workflow/runs/#{run_result.run.id}")
+      |> json_response(200)
+
+    candidate_id = candidate.id
+
+    graphql_run_state =
+      graphql(
+        conn,
+        """
+        query RunState($id: ID!) {
+          operatorRunState(id: $id) {
+            evidenceCandidates { id executionObservationId }
+          }
+        }
+        """,
+        %{id: run_result.run.id}
+      )
+
+    assert [%{"id" => ^candidate_id, "execution_observation_id" => nil}] =
+             json_run_state["evidence_candidates"]
+
+    assert [%{"id" => ^candidate_id, "executionObservationId" => nil}] =
+             graphql_run_state["evidenceCandidates"]
   end
 
   defp graphql(conn, query, variables) do
@@ -414,7 +514,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     Verification.create_evidence_candidate(session, operation, %{
       work_run_id: run.id,
       verification_check_id: verification_check.id,
-      execution_observation_id: observation.id,
+      execution_observation_id: observation && observation.id,
       claim: "Evidence candidate #{key}.",
       source_kind: "human",
       source_identity: "manual:#{key}",

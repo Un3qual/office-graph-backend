@@ -31,7 +31,7 @@ export type OperatorWorkflowItem = {
   graph_links: Array<{
     type: string;
     id: string;
-    graph_item_id: string;
+    graph_item_id: string | null;
     title: string;
     state: string | null;
   }>;
@@ -92,12 +92,60 @@ export type OperatorRunState = {
     execution_state: string;
     verification_state: string;
   };
-  required_checks: Array<Record<string, unknown>>;
-  observations: Array<Record<string, unknown>>;
-  evidence_candidates: Array<Record<string, unknown>>;
-  evidence_items: Array<Record<string, unknown>>;
-  verification_results: Array<Record<string, unknown>>;
-  missing_evidence: Array<Record<string, unknown>>;
+  required_checks: Array<{ id: string; verification_check_id: string; state: string }>;
+  observations: OperatorObservation[];
+  evidence_candidates: OperatorEvidenceCandidate[];
+  evidence_items: OperatorEvidenceItem[];
+  verification_results: OperatorVerificationResult[];
+  missing_evidence: OperatorMissingEvidence[];
+};
+
+export type OperatorObservation = {
+  id: string;
+  verification_check_id: string;
+  graph_item_id: string | null;
+  normalized_status: string;
+  freshness_state: string;
+  trust_basis: string;
+  source_kind: string;
+  source_identity: string;
+};
+
+export type OperatorEvidenceCandidate = {
+  id: string;
+  verification_check_id: string;
+  execution_observation_id: string | null;
+  claim: string;
+  state: string;
+  freshness_state: string;
+  trust_basis: string;
+  source_kind: string;
+  source_identity: string;
+};
+
+export type OperatorEvidenceItem = {
+  id: string;
+  state: string;
+  candidate_id: string | null;
+  work_run_id: string | null;
+};
+
+export type OperatorVerificationResult = {
+  id: string;
+  result: string;
+  verification_check_id: string;
+  evidence_item_id: string | null;
+  operation_id: string | null;
+  actor_principal_id: string | null;
+  policy_basis: string | null;
+  target_graph_item_id: string | null;
+  work_run_id: string | null;
+  work_packet_version_id: string | null;
+};
+
+export type OperatorMissingEvidence = {
+  verification_check_id: string;
+  reason: string;
 };
 
 export type VerificationOutcome = {

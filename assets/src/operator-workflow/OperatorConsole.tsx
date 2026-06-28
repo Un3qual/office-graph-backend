@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   createOperatorWorkflowApi,
+  type OperatorEvidenceCandidate,
   type OperatorInbox,
+  type OperatorObservation,
   type OperatorRunState,
+  type OperatorVerificationResult,
   type OperatorWorkflowApi,
   type OperatorWorkflowItem,
   type PacketReadiness,
@@ -351,7 +354,8 @@ function RunStatePanel({ runState }: { runState: Loadable<OperatorRunState> }) {
             ["Run ID", runState.data.run.id],
             ["Execution", formatWorkflowStatus(runState.data.run.execution_state)],
             ["Required checks", String(runState.data.required_checks.length)],
-            ["Evidence candidates", String(runState.data.evidence_candidates.length)],
+            ["Observations", formatObservationDetails(runState.data.observations)],
+            ["Evidence candidates", formatEvidenceCandidateDetails(runState.data.evidence_candidates)],
             ["Verification results", String(runState.data.verification_results.length)],
             [
               "Missing evidence",
@@ -379,6 +383,7 @@ function VerificationPanel({ verification }: { verification: Loadable<Verificati
             ["Status", formatWorkflowStatus(verification.data.status)],
             ["Run ID", verification.data.run.id],
             ["Accepted evidence", String(verification.data.verification_results.length)],
+            ["Results", formatVerificationResultDetails(verification.data.verification_results)],
             [
               "Missing evidence",
               verification.data.missing_evidence
@@ -412,10 +417,6 @@ function loadReadiness(
   isCancelled: () => boolean
 ) {
   const input = packetReadinessInput(item);
-
-  if (!input) {
-    return;
-  }
 
   setReadiness({ state: "loading" });
   api
@@ -475,15 +476,11 @@ function loadRun(
     });
 }
 
-function packetReadinessInput(item: OperatorWorkflowItem): PacketReadinessInput | null {
+function packetReadinessInput(item: OperatorWorkflowItem): PacketReadinessInput {
   const sourceLinks = item.graph_links.filter(
     (link) => link.graph_item_id && link.type !== "work_run"
   );
   const verificationChecks = item.graph_links.filter((link) => link.type === "verification_check");
-
-  if (sourceLinks.length === 0 || verificationChecks.length === 0) {
-    return null;
-  }
 
   return {
     title: `Prepare ${item.normalized_event_id}`,
@@ -492,9 +489,59 @@ function packetReadinessInput(item: OperatorWorkflowItem): PacketReadinessInput 
     requirements: "Use linked graph items and required verification checks.",
     success_criteria: "Required verification checks have accepted evidence.",
     autonomy_posture: "human_supervised",
-    source_graph_item_ids: sourceLinks.map((link) => link.graph_item_id),
+    source_graph_item_ids: sourceLinks.flatMap((link) =>
+      link.graph_item_id ? [link.graph_item_id] : []
+    ),
     verification_check_ids: verificationChecks.map((link) => link.id)
   };
+}
+
+function formatObservationDetails(observations: OperatorObservation[]) {
+  return listSummary(
+    observations.map((observation) =>
+      [
+        observation.id,
+        formatWorkflowStatus(observation.normalized_status),
+        formatWorkflowStatus(observation.freshness_state),
+        formatWorkflowStatus(observation.trust_basis),
+        observation.source_identity
+      ].join(" / ")
+    ),
+    2
+  );
+}
+
+function formatEvidenceCandidateDetails(candidates: OperatorEvidenceCandidate[]) {
+  return listSummary(
+    candidates.map((candidate) => {
+      const observationId = candidate.execution_observation_id ?? "no observation";
+
+      return [
+        candidate.id,
+        formatWorkflowStatus(candidate.state),
+        formatWorkflowStatus(candidate.freshness_state),
+        formatWorkflowStatus(candidate.trust_basis),
+        candidate.source_identity,
+        candidate.claim,
+        `Observation ${observationId}`
+      ].join(" / ");
+    }),
+    2
+  );
+}
+
+function formatVerificationResultDetails(results: OperatorVerificationResult[]) {
+  return listSummary(
+    results.map((result) =>
+      [
+        result.id,
+        formatWorkflowStatus(result.result),
+        `Evidence ${result.evidence_item_id ?? "none"}`,
+        `Policy ${formatWorkflowStatus(result.policy_basis ?? "none")}`
+      ].join(" / ")
+    ),
+    2
+  );
 }
 
 function errorMessage(error: unknown) {

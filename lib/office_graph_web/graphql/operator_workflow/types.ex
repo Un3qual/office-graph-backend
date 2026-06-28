@@ -133,7 +133,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   object :operator_evidence_candidate do
     field :id, non_null(:id)
     field :verification_check_id, non_null(:id)
-    field :execution_observation_id, non_null(:id)
+    field :execution_observation_id, :id
     field :claim, non_null(:string)
     field :state, non_null(:string)
     field :freshness_state, non_null(:string)
@@ -153,6 +153,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :id, non_null(:id)
     field :result, non_null(:string)
     field :verification_check_id, non_null(:id)
+    field :evidence_item_id, :id
+    field :operation_id, :id
+    field :actor_principal_id, :id
+    field :policy_basis, :string
+    field :target_graph_item_id, :id
     field :work_run_id, :id
     field :work_packet_version_id, :id
   end

@@ -9,6 +9,8 @@ defmodule OfficeGraph.WorkPackets.Readiness do
 
   def ready?(attrs) when is_map(attrs) do
     present?(attrs[:objective]) and
+      present?(attrs[:context_summary]) and
+      present?(attrs[:requirements]) and
       present?(attrs[:success_criteria]) and
       MapSet.member?(@allowed_autonomy_postures, attrs[:autonomy_posture]) and
       references_present?(Map.get(attrs, :source_graph_item_ids, [])) and

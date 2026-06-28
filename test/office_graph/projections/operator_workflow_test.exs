@@ -77,6 +77,21 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert detail.revision_trace.resource_count == 4
   end
 
+  test "operator workflow item links packet-backed runs for applied checks" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "run-linked-triage")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+    {:ok, run_result} = create_ready_run(bootstrap.session, applied.verification_check)
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert work_run_link = Enum.find(detail.graph_links, &(&1.type == "work_run"))
+    assert work_run_link.id == run_result.run.id
+    assert work_run_link.graph_item_id == nil
+    assert work_run_link.state == run_result.run.aggregate_state
+  end
+
   test "operator inbox presents duplicate intake as not actionable" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, accepted} = submit_manual_intake(bootstrap.session, "duplicate-intake")
@@ -136,6 +151,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     not_ready_attrs =
       Map.merge(ready_attrs, %{
         objective: "",
+        context_summary: "",
+        requirements: "",
         success_criteria: "",
         autonomy_posture: "fully_autonomous",
         source_graph_item_ids: [],
@@ -149,6 +166,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert not_ready.blocker_reasons == [
              "missing_objective",
+             "missing_context_summary",
+             "missing_requirements",
              "missing_success_criteria",
              "missing_source_graph_items",
              "missing_verification_checks",
@@ -168,7 +187,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert initial_state.allowed_next_actions == ["record_observation"]
 
     assert initial_state.missing_evidence == [
-             %{verification_check_id: verification_check.id, reason: "missing_evidence"}
+             %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
 
     {:ok, observation_result} =
@@ -190,8 +209,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert awaiting_evidence.status == "awaiting_evidence_acceptance"
     assert awaiting_evidence.allowed_next_actions == ["accept_evidence"]
-    assert [%{id: candidate_id, state: "candidate"}] = awaiting_evidence.evidence_candidates
+
+    assert [
+             %{
+               id: candidate_id,
+               state: "candidate",
+               freshness_state: "fresh",
+               trust_basis: "owner_attested",
+               execution_observation_id: observation_id
+             }
+           ] = awaiting_evidence.evidence_candidates
+
     assert candidate_id == candidate.id
+    assert observation_id == observation_result.observation.id
 
     {:ok, accepted} =
       accept_candidate(bootstrap.session, candidate, key: "operator-run-state", result: "passed")
@@ -204,8 +234,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert verified_state.missing_evidence == []
     assert [%{id: evidence_item_id, state: "accepted"}] = verified_state.evidence_items
     assert evidence_item_id == accepted.evidence_item.id
-    assert [%{id: result_id, result: "passed"}] = verified_state.verification_results
+
+    assert [
+             %{
+               id: result_id,
+               result: "passed",
+               evidence_item_id: evidence_item_id,
+               operation_id: operation_id,
+               actor_principal_id: actor_principal_id,
+               policy_basis: "owner_acceptance",
+               target_graph_item_id: target_graph_item_id
+             }
+           ] = verified_state.verification_results
+
     assert result_id == accepted.verification_result.id
+    assert evidence_item_id == accepted.evidence_item.id
+    assert operation_id == accepted.verification_result.operation_id
+    assert actor_principal_id == bootstrap.session.principal_id
+    assert target_graph_item_id == verification_check.graph_item_id
   end
 
   test "operator run state exposes failed evidence without completing the workflow" do
@@ -242,7 +288,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert failed_state.allowed_next_actions == []
 
     assert failed_state.missing_evidence == [
-             %{verification_check_id: verification_check.id, reason: "missing_evidence"}
+             %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
 
     assert [%{id: result_id, result: "failed"}] = failed_state.verification_results
