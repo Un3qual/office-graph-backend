@@ -110,9 +110,10 @@ run/check/graph reference validation. `OfficeGraph.Runs` no longer
 pre-validates those same invariants before calling private Ash actions. Command
 code still owns persisted packet-version reload, operation locking,
 transaction boundaries, replay/idempotency comparisons, selected required-check
-copying, required-check satisfaction, and run verification recomputation.
-Follow-up cleanup should resolve evidence acceptance ownership without
-spreading those invariants back into transport code.
+copying, and run lifecycle mutation. Accepted evidence outcomes now enter Runs
+through one narrow `apply_accepted_verification_result/2` hook owned by the
+Verification acceptance path; generic public helpers for satisfying required
+checks or forcing run verification state have been retired.
 
 ## WorkGraph Command Organization
 
@@ -136,8 +137,9 @@ through `ValidateSameScopeReferences`, `ReviewFinding.ValidateOpenTask`, and
 
 Verification completion still owns its transaction-scoped lifecycle
 recomputation and parent lock ordering in `VerificationCommands`; evidence
-acceptance and run-coupled recomputation are deferred to the later ownership
-cleanup tasks.
+acceptance owns its pass/fail rule in `OfficeGraph.Verification` and delegates
+only run lifecycle mutation to the narrow Runs hook when accepted evidence is
+run-backed.
 
 ## Broad Authorization Bypass Inventory
 

@@ -1126,6 +1126,22 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            )
   end
 
+  test "Verification owns accepted evidence recomputation through one Runs lifecycle hook" do
+    verification_source = File.read!("lib/office_graph/verification.ex")
+    runs_source = File.read!("lib/office_graph/runs.ex")
+
+    assert verification_source =~ "Runs.apply_accepted_verification_result"
+    refute verification_source =~ "Runs.satisfy_required_check_and_verify_run"
+    refute verification_source =~ "Runs.set_run_verification_failed"
+
+    assert runs_source =~ "def apply_accepted_verification_result("
+    refute runs_source =~ "def set_run_verified("
+    refute runs_source =~ "def set_run_verified_if_all_required_checks_satisfied("
+    refute runs_source =~ "def set_run_verification_failed("
+    refute runs_source =~ "def mark_required_check_satisfied("
+    refute runs_source =~ "def satisfy_required_check_and_verify_run("
+  end
+
   test "Runs child create actions own fixed run contract attributes" do
     for {resource, expected_defaults} <- @expected_runs_create_defaults do
       create_action = Ash.Resource.Info.action(resource, :create)

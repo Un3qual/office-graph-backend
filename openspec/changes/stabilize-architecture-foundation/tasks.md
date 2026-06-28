@@ -81,7 +81,7 @@
   run-required-check, execution-observation, and run-event resources.
 - [x] 3.7 Consolidate duplicated run/check/observation validation so wrappers and
   Ash changes do not own the same invariant twice.
-- [ ] 3.8 Resolve evidence acceptance ownership between WorkGraph, Runs, and
+- [x] 3.8 Resolve evidence acceptance ownership between WorkGraph, Runs, and
   Verification, then keep evidence acceptance, verification result recording,
   required-check satisfaction, and run-state recomputation behind one command
   path.

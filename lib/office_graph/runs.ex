@@ -94,59 +94,26 @@ defmodule OfficeGraph.Runs do
     end
   end
 
-  def set_run_verified(run) do
-    run
-    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
-      state: "verified",
-      aggregate_state: "verified",
-      execution_state: "completed",
-      verification_state: "verified",
-      completed_at: run.completed_at || DateTime.utc_now()
-    })
-    |> Ash.update(authorize?: false, return_notifications?: true)
-    |> unwrap_ash_result()
-  end
-
-  def set_run_verified_if_all_required_checks_satisfied(run) do
-    Repo.transaction(fn ->
-      locked_run = lock_run!(run.id)
-      required_checks = lock_required_checks_for_run!(locked_run.id)
-
-      maybe_set_run_verified!(locked_run, required_checks)
-    end)
-    |> normalize_transaction_result()
-  end
-
-  def set_run_verification_failed(run) do
-    run
-    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
-      state: "failed",
-      aggregate_state: "failed",
-      execution_state: run.execution_state || "completed",
-      verification_state: "failed",
-      completed_at: run.completed_at || DateTime.utc_now()
-    })
-    |> Ash.update(authorize?: false, return_notifications?: true)
-    |> unwrap_ash_result()
-  end
-
-  def mark_required_check_satisfied(run_id, verification_check_id) do
-    Repo.transaction(fn ->
-      _run = lock_run!(run_id)
-      mark_required_check_satisfied_in_locked_run!(run_id, verification_check_id)
-    end)
-    |> normalize_transaction_result()
-  end
-
-  def satisfy_required_check_and_verify_run(run, verification_check_id) do
+  def apply_accepted_verification_result(run, %{result: "passed"} = verification_result) do
     Repo.transaction(fn ->
       locked_run = lock_run!(run.id)
 
       _required_check =
-        mark_required_check_satisfied_in_locked_run!(locked_run.id, verification_check_id)
+        mark_required_check_satisfied_in_locked_run!(
+          locked_run.id,
+          verification_result.verification_check_id
+        )
 
       required_checks = lock_required_checks_for_run!(locked_run.id)
       maybe_set_run_verified!(locked_run, required_checks)
+    end)
+    |> normalize_transaction_result()
+  end
+
+  def apply_accepted_verification_result(run, %{result: "failed"}) do
+    Repo.transaction(fn ->
+      locked_run = lock_run!(run.id)
+      set_run_verification_failed!(locked_run)
     end)
     |> normalize_transaction_result()
   end
@@ -572,10 +539,29 @@ defmodule OfficeGraph.Runs do
   end
 
   defp set_run_verified!(run) do
-    case set_run_verified(run) do
-      {:ok, run} -> run
-      {:error, error} -> Repo.rollback(error)
-    end
+    run
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
+      state: "verified",
+      aggregate_state: "verified",
+      execution_state: "completed",
+      verification_state: "verified",
+      completed_at: run.completed_at || DateTime.utc_now()
+    })
+    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> unwrap_notification_result()
+  end
+
+  defp set_run_verification_failed!(run) do
+    run
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
+      state: "failed",
+      aggregate_state: "failed",
+      execution_state: run.execution_state || "completed",
+      verification_state: "failed",
+      completed_at: run.completed_at || DateTime.utc_now()
+    })
+    |> Ash.update!(authorize?: false, return_notifications?: true)
+    |> unwrap_notification_result()
   end
 
   defp run_failed?(run) do
@@ -798,10 +784,6 @@ defmodule OfficeGraph.Runs do
       {:error, error} -> Repo.rollback(error)
     end
   end
-
-  defp unwrap_ash_result({:ok, record, _notifications}), do: {:ok, record}
-  defp unwrap_ash_result({:ok, record}), do: {:ok, record}
-  defp unwrap_ash_result({:error, error}), do: {:error, error}
 
   defp unwrap_notification_result({record, _notifications}), do: record
   defp unwrap_notification_result(record), do: record
