@@ -85,7 +85,7 @@
   Verification, then keep evidence acceptance, verification result recording,
   required-check satisfaction, and run-state recomputation behind one command
   path.
-- [ ] 3.9 Classify `RunEvent.payload`, legacy `ProposedGraphChange.payload`,
+- [x] 3.9 Classify `RunEvent.payload`, legacy `ProposedGraphChange.payload`,
   `EvidenceItem.visibility_constraints`, and similar map fields. Treat
   `ProposedGraphChange.payload` as temporary raw/suggestion/compatibility input
   unless a later accepted ChangeProposal workflow promotes typed command inputs

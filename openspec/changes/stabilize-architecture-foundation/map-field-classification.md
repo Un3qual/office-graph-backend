@@ -1,0 +1,16 @@
+# Map Field Classification
+
+Ash `:map` attributes are allowed only when their role is explicit. They should
+not become untyped product state by default. Product-queryable domain data should
+move to typed attributes, typed child resources, or typed command inputs when a
+workflow needs stable filtering, validation, authorization, or API contracts.
+
+| Field | Classification | Current role | API/product posture | Promotion trigger |
+| --- | --- | --- | --- | --- |
+| `OfficeGraph.Content.DocumentMark.attrs` | portable content rendering attributes | Stores mark-specific rendering attributes for portable document marks. | Content infrastructure, not graph/workflow command input. | Promote recurring mark attributes into typed rich-text mark fields when editing, validation, indexing, or authorization needs field-level behavior. |
+| `OfficeGraph.Integrations.RawArchive.metadata` | raw import/source metadata | Stores source-adapter metadata next to raw archived intake content. | Integration provenance; callers should use typed normalized intake, external reference, or source fields for product workflows. | Promote provider metadata to typed integration fields when product queries, replay rules, retention, or authorization depend on individual keys. |
+| `OfficeGraph.Operations.OperationCorrelation.metadata` | operation trace/replay metadata | Stores internal operation context such as workflow digests used for replay validation. | Infrastructure trace metadata, not a product API contract. | Promote stable workflow metadata to typed operation fields when it needs indexing, cross-command validation, or external API guarantees. |
+| `OfficeGraph.ProposedChanges.ProposedGraphChange.payload` | temporary raw/suggestion/compatibility input | Stores legacy proposed graph change input while generic graph-patch proposals remain deferred. | Temporary compatibility data only; not the canonical write model for graph projections or product commands. | Replace with typed `ChangeProposal` command inputs or typed proposal fields if an accepted proposed-mutation review workflow is added. |
+| `OfficeGraph.Runs.ExecutionObservation.metadata` | observation provider/provenance metadata | Stores optional source-specific details for an execution observation. | Run/evidence infrastructure detail; product checks should rely on typed observation status, freshness, trust, run, and target fields. | Promote keys into typed observation/provider records when they affect verification rules, filtering, display, or authorization. |
+| `OfficeGraph.Runs.RunEvent.payload` | internal run event trace payload | Stores event-specific trace details for private run events. | Internal event log detail; not durable product state or a generated public command envelope. | Promote event variants to typed run-event resources or typed fields when events become user-facing, queryable, or policy-relevant. |
+| `OfficeGraph.WorkGraph.EvidenceItem.visibility_constraints` | visibility/policy envelope | Stores accepted-evidence visibility constraints while the visibility policy model is not yet typed. | Policy/control metadata; not evidence content or check result data. | Promote to typed visibility policy fields/resources when enforcement, generated API contracts, indexing, or customer integrations need stable keys. |

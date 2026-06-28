@@ -10,6 +10,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
   @api_migration_ledger "openspec/changes/stabilize-architecture-foundation/api-migration-ledger.md"
   @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
+  @map_field_classification "openspec/changes/stabilize-architecture-foundation/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "openspec/changes/stabilize-architecture-foundation/stabilization-inventory.md"
 
@@ -813,6 +814,20 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
            "Expected planned MVP inventory source references to point to existing files:\n#{format_errors(errors)}"
   end
 
+  test "map field classification covers every Ash map attribute" do
+    assert map_field_classification_entries() == map_attribute_fields()
+  end
+
+  test "map field classification records required metadata" do
+    errors =
+      @map_field_classification
+      |> File.read!()
+      |> map_field_classification_metadata_errors()
+
+    assert errors == [],
+           "#{@map_field_classification} rows must document classification, current role, API/product posture, and promotion trigger:\n#{format_errors(errors)}"
+  end
+
   test "all expected Ash domains are registered in application config" do
     expected_domains = expected_domains()
 
@@ -1461,6 +1476,49 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> File.read!()
     |> String.split("\n")
     |> Enum.find("", &String.starts_with?(&1, "| `#{table}` |"))
+  end
+
+  defp map_attribute_fields do
+    "lib/office_graph/**/*.ex"
+    |> Path.wildcard()
+    |> Enum.flat_map(&scan_file_for_map_attributes/1)
+    |> Enum.sort()
+  end
+
+  defp scan_file_for_map_attributes(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.reduce({nil, []}, fn line, {current_module, fields} ->
+      current_module = module_name(line) || current_module
+
+      fields =
+        case Regex.run(~r/^\s*attribute\s+:([a-zA-Z0-9_]+),\s+:map\b/, line) do
+          [_, field] when is_binary(current_module) -> ["#{current_module}.#{field}" | fields]
+          _other -> fields
+        end
+
+      {current_module, fields}
+    end)
+    |> elem(1)
+  end
+
+  defp map_field_classification_entries do
+    @map_field_classification
+    |> File.read!()
+    |> markdown_table_entries("Field")
+    |> Enum.map(fn entry -> entry |> Map.fetch!("Field") |> unbacktick() end)
+    |> Enum.sort()
+  end
+
+  defp map_field_classification_metadata_errors(markdown) do
+    table_metadata_errors(markdown, "Field", [
+      "Field",
+      "Classification",
+      "Current role",
+      "API/product posture",
+      "Promotion trigger"
+    ])
   end
 
   defp format_missing_tables(required_tables, actual_tables) do

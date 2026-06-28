@@ -141,6 +141,17 @@ acceptance owns its pass/fail rule in `OfficeGraph.Verification` and delegates
 only run lifecycle mutation to the narrow Runs hook when accepted evidence is
 run-backed.
 
+## Map Field Classification
+
+`map-field-classification.md` classifies every current Ash `:map` attribute so
+flexible storage fields remain intentional. `RunEvent.payload` is internal run
+event trace data, `ProposedGraphChange.payload` is temporary legacy
+raw/suggestion/compatibility input, and `EvidenceItem.visibility_constraints`
+is a visibility-policy envelope until policy rules need typed fields or
+resources. Similar metadata maps remain allowed only for provenance, replay,
+trace, raw import, or content-rendering details; product-queryable domain data
+must move to typed fields, child resources, or typed command inputs.
+
 ## Broad Authorization Bypass Inventory
 
 Many internal Ash reads and writes currently use `authorize?: false`. The
