@@ -36,3 +36,7 @@ office_graph-*.tar
 /assets/node_modules/
 /assets/coverage/
 /priv/static/assets/operator/
+/priv/static/cache_manifest.json
+/priv/static/*.gz
+/priv/static/*-*.ico
+/priv/static/*-*.txt

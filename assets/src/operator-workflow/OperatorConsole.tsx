@@ -319,10 +319,10 @@ function ReadinessPanel({
         <PanelRows
           rows={[
             ["Status", formatWorkflowStatus(readiness.data.status)],
-            ["Objective", input?.objective ?? "None"],
-            ["Context", input?.context_summary ?? "None"],
-            ["Success criteria", input?.success_criteria ?? "None"],
-            ["Autonomy", formatWorkflowStatus(input?.autonomy_posture ?? "")],
+            ["Objective", packetInputText(input?.objective)],
+            ["Context", packetInputText(input?.context_summary)],
+            ["Success criteria", packetInputText(input?.success_criteria)],
+            ["Autonomy", packetInputStatus(input?.autonomy_posture)],
             [
               "Source references",
               listSummary(
@@ -483,17 +483,19 @@ function packetReadinessInput(item: OperatorWorkflowItem): PacketReadinessInput 
   const verificationChecks = item.graph_links.filter((link) => link.type === "verification_check");
 
   return {
-    title: `Prepare ${item.normalized_event_id}`,
-    objective: `Resolve operator workflow item ${item.normalized_event_id}.`,
-    context_summary: `Source ${item.source.identity} produced ${item.status}.`,
-    requirements: "Use linked graph items and required verification checks.",
-    success_criteria: "Required verification checks have accepted evidence.",
-    autonomy_posture: "human_supervised",
     source_graph_item_ids: sourceLinks.flatMap((link) =>
       link.graph_item_id ? [link.graph_item_id] : []
     ),
     verification_check_ids: verificationChecks.map((link) => link.id)
   };
+}
+
+function packetInputText(value: string | undefined) {
+  return value && value.trim() !== "" ? value : "None";
+}
+
+function packetInputStatus(value: string | undefined) {
+  return value && value.trim() !== "" ? formatWorkflowStatus(value) : "None";
 }
 
 function formatObservationDetails(observations: OperatorObservation[]) {

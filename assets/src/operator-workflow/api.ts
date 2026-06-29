@@ -53,12 +53,12 @@ export type OperatorInbox = {
 };
 
 export type PacketReadinessInput = {
-  title: string;
-  objective: string;
-  context_summary: string;
-  requirements: string;
-  success_criteria: string;
-  autonomy_posture: string;
+  title?: string;
+  objective?: string;
+  context_summary?: string;
+  requirements?: string;
+  success_criteria?: string;
+  autonomy_posture?: string;
   source_graph_item_ids: string[];
   verification_check_ids: string[];
 };

@@ -34,6 +34,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     package_json = File.read!("assets/package.json")
     vite_config = File.read!("assets/vite.config.ts")
+    mix_project = File.read!("mix.exs")
 
     assert package_json =~ ~s("packageManager": "pnpm@)
     assert package_json =~ ~s("verify:app-shell")
@@ -42,6 +43,8 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert vite_config =~ ~s|resolve(__dirname, "src/main.tsx")|
     assert vite_config =~ ~s|entryFileNames: "assets/operator/[name].js"|
     assert vite_config =~ ~s|assetFileNames: "assets/operator/[name][extname]"|
+    assert mix_project =~ ~s("assets.deploy": ["assets.build", "phx.digest"])
+    assert mix_project =~ ~s(release: ["assets.deploy", "release"])
   end
 
   defp app_shell_asset_paths(html) do

@@ -49,13 +49,13 @@ describe("OperatorConsole", () => {
       "Revision trace"
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Resolve operator workflow item evt_1."
+      "None"
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
       "Run console verification"
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Human supervised"
+      "AutonomyNone"
     );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "Evidence candidates"
@@ -77,11 +77,10 @@ describe("OperatorConsole", () => {
 
     expect(api.loadItem).toHaveBeenCalledWith("evt_1");
     expect(api.loadPacketReadiness).toHaveBeenCalledWith(
-      expect.objectContaining({
-        autonomy_posture: "human_supervised",
+      {
         source_graph_item_ids: ["graph_1"],
         verification_check_ids: ["check_1"]
-      })
+      }
     );
     expect(api.loadRunState).toHaveBeenCalledWith("run_1");
     expect(api.loadVerificationOutcome).toHaveBeenCalledWith("run_1");
@@ -94,7 +93,15 @@ describe("OperatorConsole", () => {
       ready: false,
       status: "blocked",
       allowed_next_actions: [],
-      blocker_reasons: ["missing_source_graph_items", "missing_verification_checks"],
+      blocker_reasons: [
+        "missing_objective",
+        "missing_context_summary",
+        "missing_requirements",
+        "missing_success_criteria",
+        "missing_source_graph_items",
+        "missing_verification_checks",
+        "unsupported_autonomy_posture"
+      ],
       source_links: [],
       required_checks: []
     };
@@ -110,13 +117,13 @@ describe("OperatorConsole", () => {
 
     expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
     expect(api.loadPacketReadiness).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         source_graph_item_ids: [],
         verification_check_ids: []
-      })
+      }
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "missing_source_graph_items, missing_verification_checks"
+      "missing_objective, missing_context_summary, missing_requirements, missing_success_criteria, missing_source_graph_items, missing_verification_checks, unsupported_autonomy_posture"
     );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "No run linked yet."

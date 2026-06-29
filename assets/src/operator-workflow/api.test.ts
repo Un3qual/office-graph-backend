@@ -154,12 +154,6 @@ describe("operator workflow API client", () => {
       })
     );
     const input = {
-      title: "Verify operator console",
-      objective: "Confirm the console renders workflow state.",
-      context_summary: "The item came from manual intake.",
-      requirements: "Use the selected verification check.",
-      success_criteria: "The check has accepted evidence.",
-      autonomy_posture: "human_supervised",
       source_graph_item_ids: ["graph_1"],
       verification_check_ids: ["check_1"]
     };
