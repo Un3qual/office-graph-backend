@@ -163,6 +163,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               allowedNextActions
               blockerReasons
               operationWatermark
+              auditTrace { resourceCount resources { type id } }
+              revisionTrace { resourceCount resources { type id } }
               source { identity replayIdentity outcome }
               proposedChangeStatus { pending applied rejected total }
             }
@@ -180,6 +182,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert json_row["allowed_next_actions"] == graphql_row["allowedNextActions"]
     assert json_row["blocker_reasons"] == graphql_row["blockerReasons"]
     assert json_row["operation_watermark"] == graphql_row["operationWatermark"]
+    assert json_row["audit_trace"]["resource_count"] == 0
+    assert json_row["audit_trace"]["resources"] == []
+    assert graphql_row["auditTrace"]["resourceCount"] == 0
+    assert graphql_row["auditTrace"]["resources"] == []
+    assert json_row["revision_trace"]["resource_count"] == 0
+    assert json_row["revision_trace"]["resources"] == []
+    assert graphql_row["revisionTrace"]["resourceCount"] == 0
+    assert graphql_row["revisionTrace"]["resources"] == []
     assert json_row["source"]["identity"] == graphql_row["source"]["identity"]
     assert json_row["proposed_change_status"]["pending"] == 4
     assert graphql_row["proposedChangeStatus"]["pending"] == 4
@@ -372,6 +382,48 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert [%{"id" => ^candidate_id, "executionObservationId" => nil}] =
              graphql_run_state["evidenceCandidates"]
+  end
+
+  test "JSON operator workflow endpoints reject client-supplied session context maps", %{
+    conn: conn
+  } do
+    response =
+      conn
+      |> get(~p"/api/operator-workflow/inbox", %{
+        "session_context" => %{
+          "organization_id" => Ecto.UUID.generate(),
+          "workspace_id" => Ecto.UUID.generate()
+        }
+      })
+      |> json_response(422)
+
+    assert response["error"]["code"] == "validation_failed"
+    assert response["error"]["field"] == "session_context"
+  end
+
+  test "JSON operator workflow mutations reject client-supplied session context maps", %{
+    conn: conn
+  } do
+    response =
+      conn
+      |> post(~p"/api/operator-workflow/packet-readiness", %{
+        "title" => "Malformed session packet",
+        "objective" => "Reject forged session context.",
+        "context_summary" => "Malformed client params.",
+        "requirements" => "Do not trust client session maps.",
+        "success_criteria" => "Request is rejected before projection.",
+        "autonomy_posture" => "human_supervised",
+        "source_graph_item_ids" => [],
+        "verification_check_ids" => [],
+        "session_context" => %{
+          "organization_id" => Ecto.UUID.generate(),
+          "workspace_id" => Ecto.UUID.generate()
+        }
+      })
+      |> json_response(422)
+
+    assert response["error"]["code"] == "validation_failed"
+    assert response["error"]["field"] == "session_context"
   end
 
   defp graphql(conn, query, variables) do

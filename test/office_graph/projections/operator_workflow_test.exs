@@ -41,6 +41,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
            }
 
     assert row.graph_links == []
+    assert row.audit_trace == %{operation_id: nil, resource_count: 0, resources: []}
+    assert row.revision_trace == %{operation_id: nil, resource_count: 0, resources: []}
   end
 
   test "operator workflow item exposes applied graph links and traces" do

@@ -92,6 +92,8 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
 
   defp ready_for_run?(%{lifecycle_state: "ready"} = packet_version) do
     present?(packet_version.objective) and
+      present?(packet_version.context_summary) and
+      present?(packet_version.requirements) and
       present?(packet_version.success_criteria) and
       MapSet.member?(@allowed_packet_autonomy_postures, packet_version.autonomy_posture) and
       packet_has_source_reference?(packet_version) and

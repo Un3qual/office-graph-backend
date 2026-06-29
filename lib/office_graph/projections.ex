@@ -231,8 +231,8 @@ defmodule OfficeGraph.Projections do
     %{
       graph_links: [],
       graph_relationships: [],
-      audit_trace: %{operation_id: nil, resource_count: 0},
-      revision_trace: %{operation_id: nil, resource_count: 0}
+      audit_trace: %{operation_id: nil, resource_count: 0, resources: []},
+      revision_trace: %{operation_id: nil, resource_count: 0, resources: []}
     }
   end
 

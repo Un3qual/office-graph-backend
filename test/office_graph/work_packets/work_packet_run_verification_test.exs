@@ -702,6 +702,31 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     refute run_exists_for_operation?(run_operation.id)
   end
 
+  test "work run start rejects persisted ready packet versions missing execution context" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    blank_packet_execution_context!(packet_result.version.id)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "legacy-ready-packet-without-context-run"
+      )
+
+    assert {:error, error} =
+             Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "Persisted ready versions still need context.",
+               authority_posture: "human_supervised"
+             })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
+    refute run_exists_for_operation?(run_operation.id)
+  end
+
   test "work run start reloads the persisted packet version" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -3100,6 +3125,17 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       WHERE id = $2::uuid
       """,
       [db_uuid(version_id), db_uuid(packet_id)]
+    )
+  end
+
+  defp blank_packet_execution_context!(version_id) do
+    Repo.query!(
+      """
+      UPDATE work_packet_versions
+      SET context_summary = '', requirements = ''
+      WHERE id = $1::uuid
+      """,
+      [db_uuid(version_id)]
     )
   end
 

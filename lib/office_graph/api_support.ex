@@ -6,6 +6,7 @@ defmodule OfficeGraph.ApiSupport do
   use Boundary,
     deps: [
       OfficeGraph.Foundation,
+      OfficeGraph.Identity,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
       OfficeGraph.PacketRunVerification,
@@ -17,6 +18,7 @@ defmodule OfficeGraph.ApiSupport do
     exports: []
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Identity.SessionContext
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.PacketRunVerification
@@ -122,7 +124,7 @@ defmodule OfficeGraph.ApiSupport do
           {:ok, bootstrap.session}
         end
 
-      session_context when is_map(session_context) ->
+      %SessionContext{} = session_context ->
         {:ok, session_context}
 
       _other ->
