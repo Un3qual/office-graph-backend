@@ -1,7 +1,9 @@
 defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   use OfficeGraph.DataCase, async: false
 
+  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Projections
@@ -239,6 +241,32 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                state: "required"
              }
            ]
+
+    missing_title_attrs = Map.delete(ready_attrs, :title)
+
+    assert {:ok, missing_title} =
+             Projections.packet_readiness(bootstrap.session, missing_title_attrs)
+
+    assert missing_title.ready? == false
+    assert missing_title.status == "blocked"
+    assert missing_title.allowed_next_actions == []
+    assert missing_title.blocker_reasons == ["missing_title"]
+
+    assert {:ok, blank_title} =
+             Projections.packet_readiness(bootstrap.session, %{ready_attrs | title: " "})
+
+    assert blank_title.ready? == false
+    assert blank_title.status == "blocked"
+    assert blank_title.allowed_next_actions == []
+    assert blank_title.blocker_reasons == ["missing_title"]
+
+    read_only_session = create_read_only_session!(bootstrap)
+
+    assert {:ok, unauthorized} = Projections.packet_readiness(read_only_session, ready_attrs)
+    assert unauthorized.ready? == false
+    assert unauthorized.status == "blocked"
+    assert unauthorized.allowed_next_actions == []
+    assert unauthorized.blocker_reasons == ["missing_work_packet_create_capability"]
 
     {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
 
@@ -528,6 +556,87 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
            }) do
       {:ok, Map.put(run_result, :packet_version, packet_result.version)}
     end
+  end
+
+  defp create_read_only_session!(bootstrap) do
+    suffix = System.unique_integer([:positive])
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    role_id = Ecto.UUID.generate()
+
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: principal_id,
+          email: "operator-read-only-#{suffix}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: session_id,
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "operator_read_only_#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    capability = Ash.get!(Capability, %{key: "skeleton.read"}, authorize?: false)
+
+    role =
+      Ash.create!(
+        Role,
+        %{
+          id: role_id,
+          organization_id: bootstrap.organization.id,
+          key: "operator_read_only_#{suffix}",
+          name: "Operator Read Only #{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      RoleCapability,
+      %{
+        id: Ecto.UUID.generate(),
+        role_id: role.id,
+        capability_id: capability.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    Ash.create!(
+      RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: principal.id,
+        role_id: role.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new(["skeleton.read"])
+    }
   end
 
   defp start_run_for_packet_version(session, packet_version, key) do

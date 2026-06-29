@@ -208,6 +208,7 @@ defmodule OfficeGraph.PacketRunVerification do
 
   defp validate_ready_input(input) do
     ready_attrs = %{
+      title: input.packet_title,
       objective: input.objective,
       context_summary: input.context_summary,
       requirements: input.requirements,
@@ -217,12 +218,15 @@ defmodule OfficeGraph.PacketRunVerification do
       verification_check_ids: [input.verification_check_id]
     }
 
-    if WorkPackets.ready_for_execution_attrs?(ready_attrs) do
+    if present?(input.packet_title) and WorkPackets.ready_for_execution_attrs?(ready_attrs) do
       :ok
     else
       {:error, {:invalid_packet_run_input, :packet_readiness}}
     end
   end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp validate_evidence_result(%{evidence_result: result})
        when result in ["passed", "failed"] do

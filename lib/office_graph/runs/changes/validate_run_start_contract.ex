@@ -162,7 +162,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
     VerificationCheck
     |> Ash.Query.filter(
       id in ^verification_check_ids and organization_id == ^packet_version.organization_id and
-        workspace_id == ^packet_version.workspace_id
+        workspace_id == ^packet_version.workspace_id and lifecycle_state == "required"
     )
     |> Ash.read(authorize?: false)
   end

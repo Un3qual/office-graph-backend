@@ -78,6 +78,7 @@ defmodule OfficeGraph.Projections do
         |> Kernel.++(source_blockers)
         |> Kernel.++(check_blockers)
         |> Kernel.++(source_check_blockers(attrs, required_checks))
+        |> Kernel.++(packet_create_action_blockers(session_context))
         |> Enum.uniq()
 
       ready? = blockers == []
@@ -620,6 +621,7 @@ defmodule OfficeGraph.Projections do
 
   defp readiness_blockers(attrs) do
     [
+      missing_string(attrs, :title, "missing_title"),
       missing_string(attrs, :objective, "missing_objective"),
       missing_string(attrs, :context_summary, "missing_context_summary"),
       missing_string(attrs, :requirements, "missing_requirements"),
@@ -629,6 +631,15 @@ defmodule OfficeGraph.Projections do
       unsupported_autonomy_posture(attrs)
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp packet_create_action_blockers(session_context) do
+    case Authorization.authorize(session_context, :work_packet_create,
+           organization_id: session_context.organization_id
+         ) do
+      :ok -> []
+      {:error, :forbidden} -> ["missing_work_packet_create_capability"]
+    end
   end
 
   defp missing_string(attrs, key, reason) do

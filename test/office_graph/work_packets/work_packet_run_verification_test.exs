@@ -308,6 +308,46 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work run start rejects packet versions whose checks are already satisfied" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "stale-packet-direct-completion"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Direct stale packet evidence",
+                 body: "Direct completion satisfies the check before run start.",
+                 artifact_uri: "https://example.test/stale-packet-direct-completion"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "stale-packet-direct-completion-run"
+      )
+
+    assert {:error, error} =
+             Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "Stale packet versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
   test "work packet operation replay rejects changed packet input" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
