@@ -99,6 +99,46 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert_terminal_linked_run_status("failed")
   end
 
+  test "directly satisfied checks complete the operator workflow item" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "directly-satisfied-triage")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "directly-satisfied-triage"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               operation,
+               applied.verification_check,
+               %{
+                 title: "Directly satisfied triage",
+                 body: "Direct evidence completed the applied intake item.",
+                 artifact_uri: "https://example.test/directly-satisfied-triage"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert detail.status == "verified"
+    assert detail.allowed_next_actions == []
+
+    assert verification_link = Enum.find(detail.graph_links, &(&1.type == "verification_check"))
+    assert verification_link.id == applied.verification_check.id
+    assert verification_link.state == "satisfied"
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+    assert row = Enum.find(inbox.rows, &(&1.normalized_event_id == intake.normalized_event.id))
+    assert row.status == "verified"
+    assert row.allowed_next_actions == []
+  end
+
   test "operator inbox presents duplicate intake as not actionable" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, accepted} = submit_manual_intake(bootstrap.session, "duplicate-intake")
@@ -154,6 +194,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                state: "required"
              }
            ]
+
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+
+    mismatched_attrs = %{ready_attrs | verification_check_ids: [unrelated_check.id]}
+
+    assert {:ok, mismatched} = Projections.packet_readiness(bootstrap.session, mismatched_attrs)
+    assert mismatched.ready? == false
+    assert mismatched.status == "blocked"
+    assert mismatched.allowed_next_actions == []
+    assert mismatched.blocker_reasons == ["source_graph_item_check_mismatch"]
 
     not_ready_attrs =
       Map.merge(ready_attrs, %{
@@ -261,6 +311,63 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert target_graph_item_id == verification_check.graph_item_id
   end
 
+  test "operator run state keeps acceptance action for pending candidates on missing checks" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    {:ok, first_observation} =
+      record_observation(bootstrap.session, run_result.run, first_check,
+        key: "partial-multi-check-first"
+      )
+
+    {:ok, first_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        first_check,
+        first_observation.observation,
+        key: "partial-multi-check-first"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, first_candidate,
+        key: "partial-multi-check-first",
+        result: "passed"
+      )
+
+    {:ok, second_observation} =
+      record_observation(bootstrap.session, accepted.work_run, second_check,
+        key: "partial-multi-check-second"
+      )
+
+    {:ok, second_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        second_observation.run,
+        second_check,
+        second_observation.observation,
+        key: "partial-multi-check-second"
+      )
+
+    assert {:ok, waiting_state} =
+             Projections.operator_run_state(bootstrap.session, second_observation.run.id)
+
+    assert waiting_state.status == "awaiting_evidence_acceptance"
+    assert waiting_state.allowed_next_actions == ["accept_evidence"]
+
+    assert Enum.any?(
+             waiting_state.evidence_candidates,
+             &(&1.id == second_candidate.id and &1.verification_check_id == second_check.id and
+                 &1.state == "candidate")
+           )
+
+    assert waiting_state.missing_evidence == [
+             %{verification_check_id: second_check.id, reason: "missing_accepted_evidence"}
+           ]
+  end
+
   test "operator run state exposes failed evidence without completing the workflow" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -347,7 +454,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     end
   end
 
-  defp create_ready_run(session, verification_check) do
+  defp create_ready_run(session, verification_check) when not is_list(verification_check) do
+    create_ready_run(session, [verification_check])
+  end
+
+  defp create_ready_run(session, verification_checks) when is_list(verification_checks) do
     {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
 
     {:ok, packet_result} =
@@ -358,8 +469,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         requirements: "Complete selected work.",
         success_criteria: "Required checks pass.",
         autonomy_posture: "human_supervised",
-        source_graph_item_ids: [verification_check.graph_item_id],
-        verification_check_ids: [verification_check.id]
+        source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+        verification_check_ids: Enum.map(verification_checks, & &1.id)
       })
 
     {:ok, run_operation} = Operations.start_operation(session, :work_run_start)

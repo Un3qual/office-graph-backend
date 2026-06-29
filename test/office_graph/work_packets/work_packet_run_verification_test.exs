@@ -891,6 +891,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       )
 
     {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, unrelated_check} = create_required_verification_check(first_scope.session)
     {:ok, foreign_check} = create_required_verification_check(second_scope.session)
 
     assert {:error, %Ash.Error.Invalid{}} =
@@ -939,6 +940,18 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                autonomy_posture: "human_supervised",
                source_graph_item_ids: [verification_check.graph_item_id],
                verification_check_ids: [foreign_check.id]
+             })
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "mismatched-source-check", %{
+               title: "Mismatched source and check",
+               objective: "Reject unrelated source/check pairs.",
+               context_summary: "Same-scope references still need to describe the same work.",
+               requirements: "Use checks tied to the selected source graph.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [unrelated_check.id]
              })
   end
 
@@ -1209,6 +1222,111 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     {:ok, run_operation} =
       Operations.start_operation(bootstrap.session, :work_run_start,
         idempotency_key: "direct-malformed-ready-packet-version-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(
+                 bootstrap.session,
+                 %{packet: packet, version: version},
+                 run_operation
+               ),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject malformed ready packet versions with mismatched source checks" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, source_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-mismatched-ready-packet-version"
+      )
+
+    packet_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct mismatched ready packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          version_number: 1,
+          objective: "Malformed ready packet version.",
+          context_summary: "Rows exist, but the selected check is unrelated to the source.",
+          requirements: "Should not be executable.",
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [source_check.graph_item_id],
+          verification_check_ids: [unrelated_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, _source_reference} =
+      Ash.create(
+        WorkPacketSourceReference,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          graph_item_id: source_check.graph_item_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, _required_check} =
+      Ash.create(
+        WorkPacketRequiredCheck,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          verification_check_id: unrelated_check.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version_id})
+      |> Ash.update(authorize?: false)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-mismatched-ready-packet-version-run"
       )
 
     assert {:error, error} =

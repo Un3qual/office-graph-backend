@@ -17,11 +17,14 @@ defmodule OfficeGraph.WorkPackets do
   alias OfficeGraph.Repo
 
   alias OfficeGraph.WorkPackets.{
+    Readiness,
     WorkPacket,
     WorkPacketRequiredCheck,
     WorkPacketSourceReference,
     WorkPacketVersion
   }
+
+  alias OfficeGraph.WorkGraph.VerificationCheck
 
   require Ash.Query
 
@@ -33,13 +36,54 @@ defmodule OfficeGraph.WorkPackets do
          :ok <-
            Authorization.authorize_operation(session_context, operation, :work_packet_create,
              organization_id: session_context.organization_id
-           ) do
+           ),
+         :ok <- validate_source_check_pairs(session_context, attrs) do
       create_packet_records(session_context, operation, attrs)
     end
   end
 
   def ready_for_execution_attrs?(attrs) when is_map(attrs) do
-    OfficeGraph.WorkPackets.Readiness.ready?(attrs)
+    Readiness.ready?(attrs)
+  end
+
+  def mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+    Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks)
+  end
+
+  defp validate_source_check_pairs(session_context, attrs) do
+    source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
+    verification_check_ids = Map.get(attrs, :verification_check_ids, [])
+
+    with true <- source_graph_item_ids != [] and verification_check_ids != [],
+         {:ok, verification_checks} <-
+           read_scoped_verification_checks(session_context, verification_check_ids),
+         true <- length(verification_checks) == length(Enum.uniq(verification_check_ids)),
+         [] <- Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+      :ok
+    else
+      false -> :ok
+      [_id | _ids] -> {:error, source_check_mismatch_error()}
+      {:error, error} -> {:error, error}
+      _missing_or_forbidden_reference -> :ok
+    end
+  end
+
+  defp read_scoped_verification_checks(session_context, verification_check_ids) do
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^verification_check_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read(authorize?: false)
+  end
+
+  defp source_check_mismatch_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:source_graph_item_ids, :verification_check_ids],
+        message: "source_graph_item_ids must include every verification check graph item"
+      )
+    )
   end
 
   defp create_packet_records(session_context, operation, attrs) do

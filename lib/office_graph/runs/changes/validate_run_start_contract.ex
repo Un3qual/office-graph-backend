@@ -3,11 +3,15 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
 
   use Ash.Resource.Change
 
+  alias OfficeGraph.WorkPackets
+
   alias OfficeGraph.WorkPackets.{
     WorkPacketRequiredCheck,
     WorkPacketSourceReference,
     WorkPacketVersion
   }
+
+  alias OfficeGraph.WorkGraph.VerificationCheck
 
   require Ash.Query
 
@@ -91,13 +95,21 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
   end
 
   defp ready_for_run?(%{lifecycle_state: "ready"} = packet_version) do
-    present?(packet_version.objective) and
-      present?(packet_version.context_summary) and
-      present?(packet_version.requirements) and
-      present?(packet_version.success_criteria) and
-      MapSet.member?(@allowed_packet_autonomy_postures, packet_version.autonomy_posture) and
-      packet_has_source_reference?(packet_version) and
-      packet_has_required_check?(packet_version)
+    with true <- present?(packet_version.objective),
+         true <- present?(packet_version.context_summary),
+         true <- present?(packet_version.requirements),
+         true <- present?(packet_version.success_criteria),
+         true <-
+           MapSet.member?(@allowed_packet_autonomy_postures, packet_version.autonomy_posture),
+         {:ok, source_graph_item_ids} <- packet_source_graph_item_ids(packet_version),
+         true <- source_graph_item_ids != [],
+         {:ok, verification_checks} <- packet_required_checks(packet_version),
+         true <- verification_checks != [],
+         [] <- WorkPackets.mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+      true
+    else
+      _not_ready -> false
+    end
   end
 
   defp ready_for_run?(_packet_version), do: false
@@ -105,24 +117,54 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
 
-  defp packet_has_source_reference?(packet_version) do
+  defp packet_source_graph_item_ids(packet_version) do
     WorkPacketSourceReference
     |> Ash.Query.filter(
       work_packet_version_id == ^packet_version.id and
         organization_id == ^packet_version.organization_id and
         workspace_id == ^packet_version.workspace_id
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, source_references} -> {:ok, Enum.map(source_references, & &1.graph_item_id)}
+      {:error, error} -> {:error, error}
+    end
   end
 
-  defp packet_has_required_check?(packet_version) do
+  defp packet_required_checks(packet_version) do
     WorkPacketRequiredCheck
     |> Ash.Query.filter(
       work_packet_version_id == ^packet_version.id and
         organization_id == ^packet_version.organization_id and
         workspace_id == ^packet_version.workspace_id
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, required_checks} ->
+        verification_check_ids = Enum.map(required_checks, & &1.verification_check_id)
+
+        with true <- verification_check_ids != [],
+             {:ok, verification_checks} <-
+               read_verification_checks(packet_version, verification_check_ids),
+             true <- length(verification_checks) == length(Enum.uniq(verification_check_ids)) do
+          {:ok, verification_checks}
+        else
+          false -> {:ok, []}
+          error -> error
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp read_verification_checks(packet_version, verification_check_ids) do
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^verification_check_ids and organization_id == ^packet_version.organization_id and
+        workspace_id == ^packet_version.workspace_id
+    )
+    |> Ash.read(authorize?: false)
   end
 
   defp validate_authority_posture(changeset, packet_version, authority_posture) do

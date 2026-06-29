@@ -17,6 +17,17 @@ defmodule OfficeGraph.WorkPackets.Readiness do
       references_present?(Map.get(attrs, :verification_check_ids, []))
   end
 
+  def mismatched_source_check_ids(source_graph_item_ids, verification_checks)
+      when is_list(source_graph_item_ids) and is_list(verification_checks) do
+    source_graph_item_ids = MapSet.new(source_graph_item_ids)
+
+    verification_checks
+    |> Enum.reject(fn check ->
+      MapSet.member?(source_graph_item_ids, check.graph_item_id)
+    end)
+    |> Enum.map(& &1.id)
+  end
+
   defp references_present?(references) when is_list(references), do: references != []
   defp references_present?(_references), do: false
 

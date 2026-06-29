@@ -22,6 +22,7 @@ defmodule OfficeGraph.Projections do
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
+  alias OfficeGraph.WorkPackets
 
   alias OfficeGraph.WorkGraph.{
     EvidenceCandidate,
@@ -76,6 +77,7 @@ defmodule OfficeGraph.Projections do
         |> readiness_blockers()
         |> Kernel.++(source_blockers)
         |> Kernel.++(check_blockers)
+        |> Kernel.++(source_check_blockers(attrs, required_checks))
         |> Enum.uniq()
 
       ready? = blockers == []
@@ -164,7 +166,7 @@ defmodule OfficeGraph.Projections do
          {:ok, applied_projection} <- applied_projection(session_context, proposed_changes),
          {:ok, run_links} <-
            run_links_for_graph_links(session_context, applied_projection.graph_links) do
-      status = intake_status(event, proposed_changes, run_links)
+      status = intake_status(event, proposed_changes, applied_projection.graph_links, run_links)
       reason_codes = intake_reason_codes(event, proposed_changes)
       graph_links = applied_projection.graph_links ++ run_links
 
@@ -449,9 +451,10 @@ defmodule OfficeGraph.Projections do
     }
   end
 
-  defp intake_status(%{outcome: "duplicate"}, _proposed_changes, _run_links), do: "not_actionable"
+  defp intake_status(%{outcome: "duplicate"}, _proposed_changes, _graph_links, _run_links),
+    do: "not_actionable"
 
-  defp intake_status(_event, proposed_changes, run_links) do
+  defp intake_status(_event, proposed_changes, graph_links, run_links) do
     statuses = Enum.map(proposed_changes, & &1.status)
     terminal_status = terminal_run_status(run_links)
 
@@ -468,6 +471,9 @@ defmodule OfficeGraph.Projections do
       Enum.any?(statuses, &(&1 == "pending")) ->
         "pending_triage"
 
+      Enum.all?(statuses, &(&1 == "applied")) and satisfied_verification_links?(graph_links) ->
+        "verified"
+
       Enum.all?(statuses, &(&1 == "applied")) ->
         "ready_for_packet"
 
@@ -482,6 +488,12 @@ defmodule OfficeGraph.Projections do
       %{type: "work_run", state: state} when state in ["verified", "failed"] -> state
       _link -> nil
     end)
+  end
+
+  defp satisfied_verification_links?(graph_links) do
+    verification_links = Enum.filter(graph_links, &(&1.type == "verification_check"))
+
+    verification_links != [] and Enum.all?(verification_links, &(&1.state == "satisfied"))
   end
 
   defp intake_reason_codes(%{outcome: "duplicate"}, _proposed_changes), do: ["duplicate_intake"]
@@ -568,6 +580,17 @@ defmodule OfficeGraph.Projections do
         end)
 
       {:ok, required_checks, blockers}
+    end
+  end
+
+  defp source_check_blockers(attrs, required_checks) do
+    source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
+
+    if source_graph_item_ids != [] and required_checks != [] and
+         WorkPackets.mismatched_source_check_ids(source_graph_item_ids, required_checks) != [] do
+      ["source_graph_item_check_mismatch"]
+    else
+      []
     end
   end
 
@@ -734,7 +757,7 @@ defmodule OfficeGraph.Projections do
 
   defp run_status(summary, evidence_candidates) do
     cond do
-      evidence_candidates != [] and summary.evidence_items == [] ->
+      pending_candidate_for_missing_check?(summary, evidence_candidates) ->
         "awaiting_evidence_acceptance"
 
       summary.observations != [] and summary.missing_evidence != [] ->
@@ -752,6 +775,15 @@ defmodule OfficeGraph.Projections do
   defp run_next_actions("awaiting_evidence"), do: ["create_evidence_candidate"]
   defp run_next_actions("awaiting_evidence_acceptance"), do: ["accept_evidence"]
   defp run_next_actions(_status), do: []
+
+  defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
+    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
+
+    Enum.any?(evidence_candidates, fn candidate ->
+      candidate.candidate_state == "candidate" and
+        MapSet.member?(missing_check_ids, candidate.verification_check_id)
+    end)
+  end
 
   defp evidence_candidate_projection(candidate) do
     %{

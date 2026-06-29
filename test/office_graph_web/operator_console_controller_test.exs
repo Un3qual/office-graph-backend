@@ -29,12 +29,15 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert File.exists?("assets/package.json"),
            "Frontend package metadata must live under assets/package.json"
 
+    assert File.exists?("assets/pnpm-lock.yaml"),
+           "Frontend dependency lockfile must live under assets/pnpm-lock.yaml"
+
     assert File.exists?("assets/vite.config.ts"),
            "Frontend Vite config must live under assets/vite.config.ts"
 
     package_json = File.read!("assets/package.json")
     vite_config = File.read!("assets/vite.config.ts")
-    mix_project = File.read!("mix.exs")
+    aliases = Mix.Project.config()[:aliases]
 
     assert package_json =~ ~s("packageManager": "pnpm@)
     assert package_json =~ ~s("verify:app-shell")
@@ -43,8 +46,14 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert vite_config =~ ~s|resolve(__dirname, "src/main.tsx")|
     assert vite_config =~ ~s|entryFileNames: "assets/operator/[name].js"|
     assert vite_config =~ ~s|assetFileNames: "assets/operator/[name][extname]"|
-    assert mix_project =~ ~s("assets.deploy": ["assets.build", "phx.digest"])
-    assert mix_project =~ ~s(release: ["assets.deploy", "release"])
+    assert aliases[:setup] == ["deps.get", "assets.setup", "ecto.setup"]
+    assert aliases[:"assets.setup"] == ["cmd --cd assets pnpm install --frozen-lockfile"]
+    assert aliases[:"assets.build"] == ["assets.setup", "cmd --cd assets pnpm run build"]
+    assert aliases[:"assets.deploy"] == ["assets.build", "phx.digest"]
+    assert aliases[:"frontend.verify"] == ["assets.setup", "cmd --cd assets pnpm run verify"]
+    assert aliases[:release] == ["assets.deploy", "release"]
+
+    assert OfficeGraph.MixProject.cli()[:preferred_envs][:verify] == :test
   end
 
   defp app_shell_asset_paths(html) do
