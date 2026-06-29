@@ -94,6 +94,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert work_run_link.state == run_result.run.aggregate_state
   end
 
+  test "terminal linked work runs replace packet handoff status" do
+    assert_terminal_linked_run_status("verified")
+    assert_terminal_linked_run_status("failed")
+  end
+
   test "operator inbox presents duplicate intake as not actionable" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, accepted} = submit_manual_intake(bootstrap.session, "duplicate-intake")
@@ -367,6 +372,65 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
            }) do
       {:ok, Map.put(run_result, :packet_version, packet_result.version)}
     end
+  end
+
+  defp assert_terminal_linked_run_status(expected_status) do
+    key = "terminal-linked-run-#{expected_status}"
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, key)
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+    {:ok, run_result} = create_ready_run(bootstrap.session, applied.verification_check)
+
+    {:ok, accepted} =
+      complete_linked_run(
+        bootstrap.session,
+        run_result.run,
+        applied.verification_check,
+        key,
+        expected_status
+      )
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert detail.status == expected_status
+    assert detail.allowed_next_actions == []
+
+    assert work_run_link = Enum.find(detail.graph_links, &(&1.type == "work_run"))
+    assert work_run_link.id == accepted.work_run.id
+    assert work_run_link.state == expected_status
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+    assert row = Enum.find(inbox.rows, &(&1.normalized_event_id == intake.normalized_event.id))
+    assert row.status == expected_status
+    assert row.allowed_next_actions == []
+  end
+
+  defp complete_linked_run(session, run, verification_check, key, "verified") do
+    {:ok, observation_result} = record_observation(session, run, verification_check, key: key)
+
+    {:ok, candidate} =
+      create_evidence_candidate(session, run, verification_check, observation_result.observation,
+        key: key
+      )
+
+    accept_candidate(session, candidate, key: key, result: "passed")
+  end
+
+  defp complete_linked_run(session, run, verification_check, key, "failed") do
+    {:ok, observation_result} =
+      record_observation(session, run, verification_check,
+        key: key,
+        observed_status: "failed",
+        normalized_status: "failed"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(session, run, verification_check, observation_result.observation,
+        key: key
+      )
+
+    accept_candidate(session, candidate, key: key, result: "failed")
   end
 
   defp record_observation(session, run, verification_check, opts) do

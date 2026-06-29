@@ -93,6 +93,72 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert is_binary(actor_principal_id)
     assert target_graph_item_id == verification_link["graph_item_id"]
 
+    run_id = summary["run"]["id"]
+
+    completed_json_item =
+      conn
+      |> get(~p"/api/operator-workflow/items/#{event_id}")
+      |> json_response(200)
+
+    completed_graphql_item =
+      graphql(
+        conn,
+        """
+        query Item($id: ID!) {
+          operatorWorkflowItem(id: $id) {
+            status
+            allowedNextActions
+            graphLinks { type id state }
+          }
+        }
+        """,
+        %{id: event_id}
+      )
+
+    assert completed_json_item["status"] == "verified"
+    assert completed_graphql_item["status"] == "verified"
+    assert completed_json_item["allowed_next_actions"] == []
+    assert completed_graphql_item["allowedNextActions"] == []
+
+    assert %{"id" => ^run_id, "state" => "verified"} =
+             Enum.find(completed_json_item["graph_links"], &(&1["type"] == "work_run"))
+
+    assert %{"id" => ^run_id, "state" => "verified"} =
+             Enum.find(completed_graphql_item["graphLinks"], &(&1["type"] == "work_run"))
+
+    completed_json_inbox =
+      conn
+      |> get(~p"/api/operator-workflow/inbox")
+      |> json_response(200)
+
+    completed_graphql_inbox =
+      graphql(
+        conn,
+        """
+        query Inbox {
+          operatorInbox {
+            rows {
+              normalizedEventId
+              status
+              allowedNextActions
+            }
+          }
+        }
+        """,
+        %{}
+      )
+
+    assert completed_json_row =
+             Enum.find(completed_json_inbox["rows"], &(&1["normalized_event_id"] == event_id))
+
+    assert completed_graphql_row =
+             Enum.find(completed_graphql_inbox["rows"], &(&1["normalizedEventId"] == event_id))
+
+    assert completed_json_row["status"] == "verified"
+    assert completed_graphql_row["status"] == "verified"
+    assert completed_json_row["allowed_next_actions"] == []
+    assert completed_graphql_row["allowedNextActions"] == []
+
     json_outcome =
       conn
       |> get(~p"/api/operator-workflow/runs/#{summary["run"]["id"]}/verification-outcome")

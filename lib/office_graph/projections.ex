@@ -164,7 +164,7 @@ defmodule OfficeGraph.Projections do
          {:ok, applied_projection} <- applied_projection(session_context, proposed_changes),
          {:ok, run_links} <-
            run_links_for_graph_links(session_context, applied_projection.graph_links) do
-      status = intake_status(event, proposed_changes)
+      status = intake_status(event, proposed_changes, run_links)
       reason_codes = intake_reason_codes(event, proposed_changes)
       graph_links = applied_projection.graph_links ++ run_links
 
@@ -449,18 +449,39 @@ defmodule OfficeGraph.Projections do
     }
   end
 
-  defp intake_status(%{outcome: "duplicate"}, _proposed_changes), do: "not_actionable"
+  defp intake_status(%{outcome: "duplicate"}, _proposed_changes, _run_links), do: "not_actionable"
 
-  defp intake_status(_event, proposed_changes) do
+  defp intake_status(_event, proposed_changes, run_links) do
     statuses = Enum.map(proposed_changes, & &1.status)
+    terminal_status = terminal_run_status(run_links)
 
     cond do
-      proposed_changes == [] -> "not_actionable"
-      Enum.any?(statuses, &(&1 == "rejected")) -> "not_actionable"
-      Enum.any?(statuses, &(&1 == "pending")) -> "pending_triage"
-      Enum.all?(statuses, &(&1 == "applied")) -> "ready_for_packet"
-      true -> "not_actionable"
+      terminal_status in ["verified", "failed"] ->
+        terminal_status
+
+      proposed_changes == [] ->
+        "not_actionable"
+
+      Enum.any?(statuses, &(&1 == "rejected")) ->
+        "not_actionable"
+
+      Enum.any?(statuses, &(&1 == "pending")) ->
+        "pending_triage"
+
+      Enum.all?(statuses, &(&1 == "applied")) ->
+        "ready_for_packet"
+
+      true ->
+        "not_actionable"
     end
+  end
+
+  defp terminal_run_status(run_links) do
+    run_links
+    |> Enum.find_value(fn
+      %{type: "work_run", state: state} when state in ["verified", "failed"] -> state
+      _link -> nil
+    end)
   end
 
   defp intake_reason_codes(%{outcome: "duplicate"}, _proposed_changes), do: ["duplicate_intake"]
