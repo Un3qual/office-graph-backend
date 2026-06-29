@@ -99,6 +99,51 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert_terminal_linked_run_status("failed")
   end
 
+  test "newer linked work runs replace older terminal run status" do
+    key = "retry-linked-run-status"
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, key)
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+    {:ok, first_run_result} = create_ready_run(bootstrap.session, applied.verification_check)
+
+    {:ok, accepted} =
+      complete_linked_run(
+        bootstrap.session,
+        first_run_result.run,
+        applied.verification_check,
+        key,
+        "verified"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+
+    {:ok, retry_run_result} =
+      start_run_for_packet_version(
+        bootstrap.session,
+        first_run_result.packet_version,
+        key <> ":retry"
+      )
+
+    assert retry_run_result.run.aggregate_state == "running"
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert detail.status == "running"
+    assert detail.allowed_next_actions == []
+
+    assert [retry_run_link | _older_links] =
+             Enum.filter(detail.graph_links, &(&1.type == "work_run"))
+
+    assert retry_run_link.id == retry_run_result.run.id
+    assert retry_run_link.state == "running"
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+    assert row = Enum.find(inbox.rows, &(&1.normalized_event_id == intake.normalized_event.id))
+    assert row.status == "running"
+    assert row.allowed_next_actions == []
+  end
+
   test "directly satisfied checks complete the operator workflow item" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "directly-satisfied-triage")
@@ -483,6 +528,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
            }) do
       {:ok, Map.put(run_result, :packet_version, packet_result.version)}
     end
+  end
+
+  defp start_run_for_packet_version(session, packet_version, key) do
+    {:ok, run_operation} =
+      Operations.start_operation(session, :work_run_start,
+        idempotency_key: "work-run-operation:#{key}"
+      )
+
+    Runs.start_run(session, run_operation, packet_version, %{
+      source_surface: "test",
+      reason: "Retry ready packet.",
+      authority_posture: "human_supervised"
+    })
   end
 
   defp assert_terminal_linked_run_status(expected_status) do

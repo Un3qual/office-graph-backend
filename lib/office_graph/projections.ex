@@ -456,11 +456,11 @@ defmodule OfficeGraph.Projections do
 
   defp intake_status(_event, proposed_changes, graph_links, run_links) do
     statuses = Enum.map(proposed_changes, & &1.status)
-    terminal_status = terminal_run_status(run_links)
+    linked_run_status = latest_linked_run_status(run_links)
 
     cond do
-      terminal_status in ["verified", "failed"] ->
-        terminal_status
+      not is_nil(linked_run_status) ->
+        linked_run_status
 
       proposed_changes == [] ->
         "not_actionable"
@@ -482,10 +482,10 @@ defmodule OfficeGraph.Projections do
     end
   end
 
-  defp terminal_run_status(run_links) do
+  defp latest_linked_run_status(run_links) do
     run_links
     |> Enum.find_value(fn
-      %{type: "work_run", state: state} when state in ["verified", "failed"] -> state
+      %{type: "work_run", state: state} -> state
       _link -> nil
     end)
   end
