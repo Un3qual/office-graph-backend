@@ -157,6 +157,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert accepted.verification_result.result == "passed"
     assert accepted.work_run.aggregate_state == "verified"
     assert accepted.work_run.verification_state == "verified"
+
+    assert "satisfied" ==
+             fetch_resource!(WorkGraph.VerificationCheck, verification_check.id).lifecycle_state
   end
 
   test "accepted evidence candidates link evidence and artifact graph items" do
@@ -2708,7 +2711,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     refute verification_result_for_candidate_target?(candidate)
   end
 
-  test "same verification check can be verified across separate work runs" do
+  test "satisfied verification check rejects passed acceptance from separate work runs" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, first_run} = create_ready_run(bootstrap.session, verification_check)
@@ -2743,20 +2746,17 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         key: "rerun-second"
       )
 
-    assert {:ok, second_accepted} =
+    assert {:error, {:invalid_verification_check_status, verification_check_id}} =
              accept_candidate(bootstrap.session, second_candidate,
                key: "rerun-second",
                result: "passed"
              )
 
-    assert first_accepted.verification_result.verification_check_id ==
-             second_accepted.verification_result.verification_check_id
-
-    assert first_accepted.verification_result.work_run_id !=
-             second_accepted.verification_result.work_run_id
+    assert verification_check_id == verification_check.id
+    assert first_accepted.verification_result.verification_check_id == verification_check.id
 
     assert first_accepted.work_run.aggregate_state == "verified"
-    assert second_accepted.work_run.aggregate_state == "verified"
+    assert fetch_resource!(Run, second_run.run.id).aggregate_state == "awaiting_verification"
   end
 
   test "candidate observations must belong to the candidate run and check" do

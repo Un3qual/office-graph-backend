@@ -498,12 +498,33 @@ defmodule OfficeGraph.Verification do
   end
 
   defp update_after_acceptance!(
+         session_context,
+         operation,
+         verification_check,
+         work_run,
+         %{result: "passed"} = verification_result
+       ) do
+    case WorkGraph.satisfy_verification_check_from_evidence(
+           session_context,
+           operation,
+           verification_check
+         ) do
+      {:ok, _completed} -> apply_accepted_verification_result!(work_run, verification_result)
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp update_after_acceptance!(
          _session_context,
          _operation,
          _verification_check,
          work_run,
          verification_result
        ) do
+    apply_accepted_verification_result!(work_run, verification_result)
+  end
+
+  defp apply_accepted_verification_result!(work_run, verification_result) do
     case Runs.apply_accepted_verification_result(work_run, verification_result) do
       {:ok, run} -> run
       {:error, error} -> Repo.rollback(error)

@@ -101,7 +101,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert_terminal_linked_run_status("failed")
   end
 
-  test "newer linked work runs replace older terminal run status" do
+  test "newer linked work runs replace older failed run status" do
     key = "retry-linked-run-status"
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, key)
@@ -114,10 +114,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         first_run_result.run,
         applied.verification_check,
         key,
-        "verified"
+        "failed"
       )
 
-    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.aggregate_state == "failed"
 
     {:ok, retry_run_result} =
       start_run_for_packet_version(
