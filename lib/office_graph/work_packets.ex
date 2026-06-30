@@ -17,16 +17,18 @@ defmodule OfficeGraph.WorkPackets do
   alias OfficeGraph.Repo
 
   alias OfficeGraph.WorkPackets.{
+    Readiness,
     WorkPacket,
     WorkPacketRequiredCheck,
     WorkPacketSourceReference,
     WorkPacketVersion
   }
 
+  alias OfficeGraph.WorkGraph.VerificationCheck
+
   require Ash.Query
 
   @work_packet_create_action "work_packet.create"
-  @allowed_autonomy_postures MapSet.new(["human_supervised"])
 
   def create_packet(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- validate_operation_context(session_context, operation),
@@ -40,27 +42,141 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   def ready_for_execution_attrs?(attrs) when is_map(attrs) do
-    packet_ready?(attrs)
+    Readiness.ready?(attrs)
+  end
+
+  def mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+    Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks)
+  end
+
+  defp validate_source_check_pairs(session_context, attrs) do
+    source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
+    verification_check_ids = Map.get(attrs, :verification_check_ids, [])
+
+    with :ok <- validate_unique_source_graph_item_ids(source_graph_item_ids),
+         :ok <- validate_unique_verification_check_ids(verification_check_ids),
+         {:ok, verification_checks} <-
+           read_required_verification_checks(session_context, verification_check_ids),
+         :ok <- validate_required_verification_checks(verification_check_ids, verification_checks),
+         :ok <- validate_source_check_pairing(source_graph_item_ids, verification_checks) do
+      :ok
+    end
+  end
+
+  defp validate_unique_source_graph_item_ids([]), do: :ok
+
+  defp validate_unique_source_graph_item_ids(source_graph_item_ids) do
+    if length(source_graph_item_ids) == length(Enum.uniq(source_graph_item_ids)) do
+      :ok
+    else
+      {:error, duplicate_source_graph_item_ids_error()}
+    end
+  end
+
+  defp validate_unique_verification_check_ids([]), do: :ok
+
+  defp validate_unique_verification_check_ids(verification_check_ids) do
+    if length(verification_check_ids) == length(Enum.uniq(verification_check_ids)) do
+      :ok
+    else
+      {:error, duplicate_verification_check_ids_error()}
+    end
+  end
+
+  defp validate_required_verification_checks([], []), do: :ok
+
+  defp validate_required_verification_checks(verification_check_ids, verification_checks) do
+    if length(verification_checks) == length(verification_check_ids) do
+      :ok
+    else
+      {:error, required_verification_checks_error()}
+    end
+  end
+
+  defp validate_source_check_pairing([], _verification_checks), do: :ok
+  defp validate_source_check_pairing(_source_graph_item_ids, []), do: :ok
+
+  defp validate_source_check_pairing(source_graph_item_ids, verification_checks) do
+    case Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+      [] -> :ok
+      [_id | _ids] -> {:error, source_check_mismatch_error()}
+    end
+  end
+
+  defp read_required_verification_checks(_session_context, []), do: {:ok, []}
+
+  defp read_required_verification_checks(session_context, verification_check_ids) do
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^verification_check_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and lifecycle_state == "required"
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, verification_checks} -> {:ok, verification_checks}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp duplicate_source_graph_item_ids_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:source_graph_item_ids],
+        message: "source_graph_item_ids must not include duplicate ids"
+      )
+    )
+  end
+
+  defp duplicate_verification_check_ids_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:verification_check_ids],
+        message: "verification_check_ids must not include duplicate ids"
+      )
+    )
+  end
+
+  defp required_verification_checks_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:verification_check_ids],
+        message: "verification_check_ids must reference required verification checks"
+      )
+    )
+  end
+
+  defp source_check_mismatch_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:source_graph_item_ids, :verification_check_ids],
+        message: "source_graph_item_ids must include every verification check graph item"
+      )
+    )
   end
 
   defp create_packet_records(session_context, operation, attrs) do
     packet_id = Ecto.UUID.generate()
     version_id = Ecto.UUID.generate()
-    lifecycle_state = packet_lifecycle_state(attrs)
 
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
 
       case existing_packet_result(session_context, operation) do
         {:ok, nil} ->
-          create_packet_records!(
-            session_context,
-            operation,
-            attrs,
-            packet_id,
-            version_id,
-            lifecycle_state
-          )
+          case validate_source_check_pairs(session_context, attrs) do
+            :ok ->
+              create_packet_records!(
+                session_context,
+                operation,
+                attrs,
+                packet_id,
+                version_id
+              )
+
+            {:error, error} ->
+              Repo.rollback(error)
+          end
 
         {:ok, packet_result} ->
           replay_packet_result!(packet_result, attrs)
@@ -77,8 +193,7 @@ defmodule OfficeGraph.WorkPackets do
          operation,
          attrs,
          packet_id,
-         version_id,
-         lifecycle_state
+         version_id
        ) do
     packet =
       ash_create!(
@@ -88,8 +203,7 @@ defmodule OfficeGraph.WorkPackets do
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
-          title: attrs[:title],
-          state: lifecycle_state
+          title: attrs[:title]
         }
       )
 
@@ -103,12 +217,13 @@ defmodule OfficeGraph.WorkPackets do
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
           version_number: 1,
-          lifecycle_state: lifecycle_state,
           objective: attrs[:objective],
           context_summary: attrs[:context_summary],
           requirements: attrs[:requirements],
           success_criteria: attrs[:success_criteria],
-          autonomy_posture: attrs[:autonomy_posture]
+          autonomy_posture: attrs[:autonomy_posture],
+          source_graph_item_ids: Map.get(attrs, :source_graph_item_ids, []),
+          verification_check_ids: Map.get(attrs, :verification_check_ids, [])
         }
       )
 
@@ -123,11 +238,7 @@ defmodule OfficeGraph.WorkPackets do
             work_packet_version_id: version.id,
             graph_item_id: graph_item_id,
             organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            source_kind: "graph_item",
-            rationale: "packet_source",
-            visibility: "full",
-            sensitivity: "internal"
+            workspace_id: session_context.workspace_id
           }
         )
       end)
@@ -143,9 +254,7 @@ defmodule OfficeGraph.WorkPackets do
             work_packet_version_id: version.id,
             verification_check_id: verification_check_id,
             organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id,
-            requirement_kind: "required",
-            state: "pending"
+            workspace_id: session_context.workspace_id
           }
         )
       end)
@@ -153,8 +262,7 @@ defmodule OfficeGraph.WorkPackets do
     packet =
       packet
       |> Ash.Changeset.for_update(:set_current_version, %{
-        current_version_id: version.id,
-        state: lifecycle_state
+        current_version_id: version.id
       })
       |> ash_update!()
 
@@ -165,21 +273,6 @@ defmodule OfficeGraph.WorkPackets do
       required_checks: required_checks
     }
   end
-
-  defp packet_lifecycle_state(attrs) do
-    if packet_ready?(attrs), do: "ready", else: "draft"
-  end
-
-  defp packet_ready?(attrs) do
-    present?(attrs[:objective]) and
-      present?(attrs[:success_criteria]) and
-      MapSet.member?(@allowed_autonomy_postures, attrs[:autonomy_posture]) and
-      not Enum.empty?(Map.get(attrs, :source_graph_item_ids, [])) and
-      not Enum.empty?(Map.get(attrs, :verification_check_ids, []))
-  end
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: false
 
   defp validate_operation_context(session_context, operation)
        when is_map(session_context) and is_map(operation) do
@@ -274,11 +367,10 @@ defmodule OfficeGraph.WorkPackets do
 
   defp same_packet_replay?(packet, version, source_references, required_checks, attrs) do
     packet.title == attrs[:title] and
-      packet.state == packet_lifecycle_state(attrs) and
+      packet.state == version.lifecycle_state and
       version.work_packet_id == packet.id and
       version.operation_id == packet.operation_id and
       version.version_number == 1 and
-      version.lifecycle_state == packet_lifecycle_state(attrs) and
       version.objective == attrs[:objective] and
       version.context_summary == attrs[:context_summary] and
       version.requirements == attrs[:requirements] and

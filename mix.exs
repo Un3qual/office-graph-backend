@@ -27,7 +27,7 @@ defmodule OfficeGraph.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test, "architecture.conformance": :test]
+      preferred_envs: [precommit: :test, verify: :test, "architecture.conformance": :test]
     ]
   end
 
@@ -68,19 +68,25 @@ defmodule OfficeGraph.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "assets.setup", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
+      "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
+      "assets.build": ["assets.setup", "cmd --cd assets pnpm run build"],
+      "assets.deploy": ["assets.build", "phx.digest"],
+      "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
+      release: ["assets.deploy", "release"],
       "boundary.check": ["compile --force --warnings-as-errors"],
       verify: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
         "architecture.conformance",
+        "frontend.verify",
         "test"
       ],
       precommit: [
@@ -89,6 +95,7 @@ defmodule OfficeGraph.MixProject do
         "format --check-formatted",
         "boundary.check",
         "architecture.conformance",
+        "frontend.verify",
         "test"
       ]
     ]

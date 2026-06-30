@@ -5,14 +5,49 @@ defmodule OfficeGraphWeb.Router do
     plug :accepts, ["json"]
   end
 
-  forward "/graphql", Absinthe.Plug, schema: OfficeGraphWeb.Schema
+  pipeline :graphql do
+    plug OfficeGraphWeb.LocalApiOwnerPlug
+    plug AshGraphql.Plug
+  end
+
+  pipeline :generated_json_api do
+    plug OfficeGraphWeb.LocalApiOwnerPlug
+  end
+
+  scope "/" do
+    pipe_through :graphql
+
+    forward "/graphql", Absinthe.Plug, schema: Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+  end
+
+  scope "/" do
+    pipe_through :generated_json_api
+
+    forward "/api/v1", OfficeGraphWeb.JsonApi.Router
+  end
+
+  scope "/", OfficeGraphWeb do
+    get "/operator", OperatorConsoleController, :index
+  end
 
   scope "/api", OfficeGraphWeb do
     pipe_through :api
 
-    post "/manual-intake", WalkingSkeletonController, :manual_intake
-    post "/proposed-changes/apply", WalkingSkeletonController, :apply_proposed_changes
-    post "/verification/complete", WalkingSkeletonController, :complete_verification
-    post "/packet-run-verification/execute", PacketRunVerificationController, :execute
+    post "/manual-intake", JsonApi.Compatibility.Controller, :manual_intake
+    post "/proposed-changes/apply", JsonApi.Compatibility.Controller, :apply_proposed_changes
+    post "/verification/complete", JsonApi.Compatibility.Controller, :complete_verification
+    post "/packet-run-verification/execute", JsonApi.PacketRunVerification.Controller, :execute
+    get "/operator-workflow/inbox", JsonApi.OperatorWorkflow.Controller, :inbox
+    get "/operator-workflow/items/:id", JsonApi.OperatorWorkflow.Controller, :item
+
+    post "/operator-workflow/packet-readiness",
+         JsonApi.OperatorWorkflow.Controller,
+         :packet_readiness
+
+    get "/operator-workflow/runs/:id", JsonApi.OperatorWorkflow.Controller, :run_state
+
+    get "/operator-workflow/runs/:id/verification-outcome",
+        JsonApi.OperatorWorkflow.Controller,
+        :verification_outcome
   end
 end

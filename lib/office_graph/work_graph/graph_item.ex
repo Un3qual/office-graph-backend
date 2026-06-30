@@ -25,6 +25,18 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    has_many :outgoing_relationships, OfficeGraph.WorkGraph.GraphRelationship do
+      source_attribute :id
+      destination_attribute :source_item_id
+    end
+
+    has_many :incoming_relationships, OfficeGraph.WorkGraph.GraphRelationship do
+      source_attribute :id
+      destination_attribute :target_item_id
+    end
+  end
+
   actions do
     defaults [:read]
 

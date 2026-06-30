@@ -28,6 +28,20 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :work_packet_version_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :graph_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     defaults [:read]
 
@@ -39,12 +53,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
         :work_packet_version_id,
         :graph_item_id,
         :organization_id,
-        :workspace_id,
-        :source_kind,
-        :rationale,
-        :visibility,
-        :sensitivity
+        :workspace_id
       ]
+
+      change set_attribute(:source_kind, "graph_item")
+      change set_attribute(:rationale, "packet_source")
+      change set_attribute(:visibility, "full")
+      change set_attribute(:sensitivity, "internal")
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [

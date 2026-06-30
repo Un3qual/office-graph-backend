@@ -1,0 +1,175 @@
+defmodule OfficeGraphWeb.JsonApi.Common.Errors do
+  @moduledoc false
+
+  import Phoenix.Controller, only: [json: 2]
+  import Plug.Conn, only: [put_status: 2]
+
+  def render(conn, error, opts \\ []) do
+    response = to_response(error, opts)
+
+    conn
+    |> put_status(response.status)
+    |> json(%{error: response.error})
+  end
+
+  defp to_response({:error, error}, opts), do: to_response(error, opts)
+
+  defp to_response(:forbidden, _opts) do
+    response(:forbidden, "forbidden", "The action is not authorized.")
+  end
+
+  defp to_response({:invalid_proposed_change, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "invalid_proposed_change",
+      "A proposed change failed validation.",
+      %{
+        proposed_change_id: id
+      }
+    )
+  end
+
+  defp to_response({:missing_proposed_change, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "missing_proposed_change",
+      "A proposed change could not be found.",
+      %{
+        proposed_change_id: id
+      }
+    )
+  end
+
+  defp to_response({:invalid_proposed_change_status, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "invalid_proposed_change_status",
+      "A proposed change is no longer pending.",
+      %{proposed_change_id: id}
+    )
+  end
+
+  defp to_response({:invalid_proposed_change_set, reason}, _opts) do
+    response(
+      :unprocessable_entity,
+      "invalid_proposed_change_set",
+      "The proposed change set is invalid.",
+      %{
+        reason: format_reason(reason)
+      }
+    )
+  end
+
+  defp to_response({:manual_intake_replay_conflict, accepted_id}, _opts) do
+    response(
+      :conflict,
+      "manual_intake_replay_conflict",
+      "Manual intake replay identity conflicts with an accepted event.",
+      %{accepted_id: accepted_id}
+    )
+  end
+
+  defp to_response({:missing_verification_check, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "missing_verification_check",
+      "A verification check could not be found.",
+      %{
+        verification_check_id: id
+      }
+    )
+  end
+
+  defp to_response({:invalid_verification_check_status, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "invalid_verification_check_status",
+      "A verification check is no longer required.",
+      %{verification_check_id: id}
+    )
+  end
+
+  defp to_response({:packet_version_not_ready, id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "packet_version_not_ready",
+      "The packet version is not ready for execution.",
+      %{
+        packet_version_id: id
+      }
+    )
+  end
+
+  defp to_response({:packet_run_flow_idempotency_conflict, flow_identity}, _opts) do
+    response(
+      :unprocessable_entity,
+      "idempotency_conflict",
+      "The packet-run-verification flow identity conflicts with different input.",
+      %{flow_identity: flow_identity}
+    )
+  end
+
+  defp to_response({:observation_idempotency_conflict, observation_id}, _opts) do
+    response(
+      :unprocessable_entity,
+      "idempotency_conflict",
+      "The observation source idempotency key conflicts with different input.",
+      %{observation_id: observation_id}
+    )
+  end
+
+  defp to_response({:missing_normalized_intake_event, id}, opts) do
+    status = Keyword.get(opts, :missing_normalized_intake_event_status, :not_found)
+
+    response(status, "not_found", "The operator workflow item could not be found.", %{
+      normalized_event_id: id
+    })
+  end
+
+  defp to_response({:not_found, _resource, id}, opts) do
+    status = Keyword.get(opts, :not_found_status, :unprocessable_entity)
+
+    response(status, "not_found", "A referenced record could not be found.", %{id: id})
+  end
+
+  defp to_response({:missing_field, field}, _opts) do
+    validation_response("A required field is missing.", %{field: field})
+  end
+
+  defp to_response({:invalid_field, field}, _opts) do
+    validation_response("A field has an invalid value.", %{field: field})
+  end
+
+  defp to_response(%Ash.Changeset{} = changeset, _opts) do
+    response(:unprocessable_entity, "validation_failed", "Validation failed.", %{
+      fields: Enum.map(changeset.errors, &format_changeset_error/1)
+    })
+  end
+
+  defp to_response(_error, _opts) do
+    validation_response("Validation failed.")
+  end
+
+  defp validation_response(detail, extra \\ %{}) do
+    response(:unprocessable_entity, "validation_failed", detail, extra)
+  end
+
+  defp response(status, code, detail, extra \\ %{}) do
+    %{status: status, error: Map.merge(%{code: code, detail: detail}, extra)}
+  end
+
+  defp format_changeset_error(%{field: field, message: message}) do
+    %{field: field, message: message}
+  end
+
+  defp format_changeset_error(%{field: field}) do
+    %{field: field, message: "is invalid"}
+  end
+
+  defp format_changeset_error(_error) do
+    %{field: nil, message: "is invalid"}
+  end
+
+  defp format_reason({kind, value}), do: %{kind: kind, value: value}
+  defp format_reason(reason), do: reason
+end

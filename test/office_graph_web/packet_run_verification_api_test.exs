@@ -29,7 +29,17 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
             requiredChecks { verificationCheckId state }
             observations { normalizedStatus sourceKind sourceIdentity }
             evidenceItems { id state candidateId workRunId }
-            verificationResults { id result workRunId workPacketVersionId }
+            verificationResults {
+              id
+              result
+              evidenceItemId
+              operationId
+              workRunId
+              workPacketVersionId
+              actorPrincipalId
+              policyBasis
+              targetGraphItemId
+            }
             missingEvidence { verificationCheckId reason }
           }
         }
@@ -48,6 +58,53 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
 
     assert json_summary["missing_evidence"] == []
     assert graphql_summary["missingEvidence"] == []
+  end
+
+  test "GraphQL and JSON packet-run summaries include verification result audit fields", %{
+    conn: conn
+  } do
+    {:ok, json_check} = create_required_verification_check("json-audit")
+    {:ok, graphql_check} = create_required_verification_check("graphql-audit")
+
+    json_summary =
+      conn
+      |> post(~p"/api/packet-run-verification/execute", flow_attrs("json-audit", json_check))
+      |> json_response(200)
+
+    graphql_summary =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            verificationResults {
+              id
+              result
+              evidenceItemId
+              operationId
+              workRunId
+              workPacketVersionId
+              actorPrincipalId
+              policyBasis
+              targetGraphItemId
+            }
+          }
+        }
+        """,
+        %{input: graphql_attrs("graphql-audit", graphql_check)}
+      )
+
+    assert_summary_result_audit_fields(
+      json_summary,
+      json_check.graph_item_id,
+      "verification_results"
+    )
+
+    assert_summary_result_audit_fields(
+      graphql_summary,
+      graphql_check.graph_item_id,
+      "verificationResults"
+    )
   end
 
   test "JSON API replays the same packet-run-verification flow idempotently", %{conn: conn} do
@@ -547,6 +604,17 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
 
     assert [verification_result] = value(summary, "verification_results", "verificationResults")
     assert verification_result["result"] == "passed"
+  end
+
+  defp assert_summary_result_audit_fields(summary, target_graph_item_id, result_key) do
+    assert [verification_result] = Map.fetch!(summary, result_key)
+    assert is_binary(value(verification_result, "evidence_item_id", "evidenceItemId"))
+    assert is_binary(value(verification_result, "operation_id", "operationId"))
+    assert is_binary(value(verification_result, "actor_principal_id", "actorPrincipalId"))
+    assert value(verification_result, "policy_basis", "policyBasis") == "owner_acceptance"
+
+    assert value(verification_result, "target_graph_item_id", "targetGraphItemId") ==
+             target_graph_item_id
   end
 
   defp value(map, snake_key, camel_key), do: Map.get(map, snake_key) || Map.fetch!(map, camel_key)

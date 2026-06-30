@@ -63,7 +63,7 @@
 | Stable product mutations route through Ash or approved exceptions | `OfficeGraph.WorkGraph` Ash create/update helpers, `architecture-exceptions.md` | `mix architecture.conformance` |
 | Direct Ecto paths are approved and documented | `openspec/specs/backend-model-ownership/architecture-exceptions.md` | `test/office_graph/architecture/ash_conformance_test.exs` |
 | Architecture gate is part of backend verification | `mix.exs`, `bin/verify-backend` | `./bin/verify-backend` |
-| GraphQL and JSON use shared actions with gated local bootstrap | `OfficeGraph.ApiSupport`, `OfficeGraphWeb.Schema`, `OfficeGraphWeb.WalkingSkeletonController` | `test/office_graph_web/api_smoke_test.exs` |
+| GraphQL and JSON use shared actions with gated local bootstrap | `OfficeGraph.ApiSupport`, `OfficeGraphWeb.GraphQL.*`, `OfficeGraphWeb.JsonApi.Compatibility.Controller` | `test/office_graph_web/api_smoke_test.exs` |
 | OpenSpec remains valid and mapped to evidence | `openspec/specs/backend-app-baseline/spec.md`, `openspec/specs/walking-skeleton-*/spec.md`, and active changes | `openspec validate --specs --strict`; `openspec validate --changes --strict` |
 
 ## Scope Guard

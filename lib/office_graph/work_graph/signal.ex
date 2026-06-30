@@ -26,6 +26,20 @@ defmodule OfficeGraph.WorkGraph.Signal do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :graph_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :body_document, OfficeGraph.Content.Document do
+      source_attribute :body_document_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     defaults [:read]
 

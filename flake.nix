@@ -29,6 +29,7 @@
           elixir = pkgs.beam.packages.erlang_29.elixir_1_20;
           openspecCli = openspec.packages.${system}.default;
           nodejs = pkgs.nodejs_26;
+          pnpm = pkgs.pnpm_11;
           dockerClient = pkgs.docker-client;
           dockerCompose = pkgs.docker-compose;
         in
@@ -39,6 +40,7 @@
               elixir
               openspecCli
               nodejs
+              pnpm
               dockerClient
               dockerCompose
               pkgs.zsh
@@ -52,6 +54,7 @@
               echo "  Erlang:  $(erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell)"
               echo "  Elixir:  $(elixir --version | tail -n 1)"
               echo "  Node:    $(node --version)"
+              echo "  pnpm:    $(pnpm --version)"
               echo "  OpenSpec: $(openspec --version)"
             '';
           };

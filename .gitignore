@@ -16,6 +16,9 @@
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
+# macOS Finder metadata.
+.DS_Store
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
@@ -28,3 +31,12 @@ office_graph-*.tar
 # Project-local Mix/Hex homes avoid incompatible user-global archives.
 /.mix/
 /.hex/
+
+# Frontend dependencies and generated assets.
+/assets/node_modules/
+/assets/coverage/
+/priv/static/assets/operator/
+/priv/static/cache_manifest.json
+/priv/static/*.gz
+/priv/static/*-*.ico
+/priv/static/*-*.txt

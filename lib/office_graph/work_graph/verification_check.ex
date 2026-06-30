@@ -73,6 +73,26 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :graph_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :review_finding, OfficeGraph.WorkGraph.ReviewFinding do
+      source_attribute :review_finding_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :description_document, OfficeGraph.Content.Document do
+      source_attribute :description_document_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     defaults [:read]
 

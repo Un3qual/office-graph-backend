@@ -84,6 +84,31 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+      source_attribute :verification_check_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :evidence_item, OfficeGraph.WorkGraph.EvidenceItem do
+      source_attribute :evidence_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :target_graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :target_graph_item_id
+      define_attribute? false
+    end
+  end
+
   actions do
     defaults [:read]
 
@@ -132,7 +157,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
   end
 
   graphql do
-    type :verification_result
+    type :work_graph_verification_result
   end
 
   json_api do

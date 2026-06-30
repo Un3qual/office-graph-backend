@@ -23,6 +23,20 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :source_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :source_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :target_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :target_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     read :read do
       primary? true

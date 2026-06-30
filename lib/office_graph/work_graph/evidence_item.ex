@@ -41,6 +41,41 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
+      source_attribute :graph_item_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+      source_attribute :verification_check_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :artifact, OfficeGraph.WorkGraph.Artifact do
+      source_attribute :artifact_id
+      define_attribute? false
+    end
+
+    belongs_to :body_document, OfficeGraph.Content.Document do
+      source_attribute :body_document_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :candidate, OfficeGraph.WorkGraph.EvidenceCandidate do
+      source_attribute :candidate_id
+      define_attribute? false
+    end
+
+    belongs_to :acceptance_operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :acceptance_operation_id
+      define_attribute? false
+    end
+  end
+
   actions do
     defaults [:read]
 

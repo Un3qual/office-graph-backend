@@ -8,8 +8,11 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
+  @api_migration_ledger "openspec/changes/stabilize-architecture-foundation/api-migration-ledger.md"
   @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
+  @map_field_classification "openspec/changes/stabilize-architecture-foundation/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
+  @stabilization_inventory "openspec/changes/stabilize-architecture-foundation/stabilization-inventory.md"
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
@@ -289,7 +292,420 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     }
   }
 
+  @expected_work_graph_relationships %{
+    OfficeGraph.WorkGraph.GraphItem => %{
+      outgoing_relationships:
+        {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :source_item_id},
+      incoming_relationships:
+        {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :target_item_id}
+    },
+    OfficeGraph.WorkGraph.GraphRelationship => %{
+      source_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :source_item_id, :id},
+      target_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_item_id, :id}
+    },
+    OfficeGraph.WorkGraph.Signal => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.Task => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.ReviewFinding => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.VerificationCheck => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      review_finding: {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id},
+      description_document:
+        {:belongs_to, OfficeGraph.Content.Document, :description_document_id, :id}
+    },
+    OfficeGraph.WorkGraph.Artifact => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.WorkGraph.EvidenceCandidate => %{
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      artifact: {:belongs_to, OfficeGraph.WorkGraph.Artifact, :artifact_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id}
+    },
+    OfficeGraph.WorkGraph.EvidenceItem => %{
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      artifact: {:belongs_to, OfficeGraph.WorkGraph.Artifact, :artifact_id, :id},
+      body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id},
+      candidate: {:belongs_to, OfficeGraph.WorkGraph.EvidenceCandidate, :candidate_id, :id},
+      acceptance_operation:
+        {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :acceptance_operation_id, :id}
+    },
+    OfficeGraph.WorkGraph.VerificationResult => %{
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      evidence_item: {:belongs_to, OfficeGraph.WorkGraph.EvidenceItem, :evidence_item_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      target_graph_item:
+        {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_graph_item_id, :id}
+    }
+  }
+
+  @expected_work_packets_relationships %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      current_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id},
+      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      source_references:
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketSourceReference, :id,
+         :work_packet_version_id},
+      required_checks:
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+    }
+  }
+
+  @expected_work_packets_reference_validations %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      create: [operation_id: OfficeGraph.Operations.OperationCorrelation],
+      set_current_version: [current_version_id: OfficeGraph.WorkPackets.WorkPacketVersion]
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      create: [
+        work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
+        operation_id: OfficeGraph.Operations.OperationCorrelation
+      ]
+    },
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      create: [
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+      ]
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      create: [
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
+      ]
+    }
+  }
+
+  @expected_work_packets_create_defaults %{
+    OfficeGraph.WorkPackets.WorkPacket => %{
+      state: "draft"
+    },
+    OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
+      source_kind: "graph_item",
+      rationale: "packet_source",
+      visibility: "full",
+      sensitivity: "internal"
+    },
+    OfficeGraph.WorkPackets.WorkPacketRequiredCheck => %{
+      requirement_kind: "required",
+      state: "pending"
+    }
+  }
+
+  @expected_runs_relationships %{
+    OfficeGraph.Runs.Run => %{
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      work_packet_version:
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      initiator_principal:
+        {:belongs_to, OfficeGraph.Identity.Principal, :initiator_principal_id, :id},
+      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id},
+      execution_observations:
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id},
+      events: {:has_many, OfficeGraph.Runs.RunEvent, :id, :run_id}
+    },
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+    },
+    OfficeGraph.Runs.ExecutionObservation => %{
+      work_run: {:belongs_to, OfficeGraph.Runs.Run, :work_run_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      verification_check:
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+    },
+    OfficeGraph.Runs.RunEvent => %{
+      run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id}
+    }
+  }
+
+  @expected_runs_reference_validations %{
+    OfficeGraph.Runs.Run => %{
+      create: [
+        work_packet_id: OfficeGraph.WorkPackets.WorkPacket,
+        work_packet_version_id: OfficeGraph.WorkPackets.WorkPacketVersion,
+        operation_id: OfficeGraph.Operations.OperationCorrelation
+      ]
+    },
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      create: [
+        run_id: OfficeGraph.Runs.Run,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck
+      ]
+    },
+    OfficeGraph.Runs.ExecutionObservation => %{
+      create: [
+        work_run_id: OfficeGraph.Runs.Run,
+        operation_id: OfficeGraph.Operations.OperationCorrelation,
+        verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+        graph_item_id: OfficeGraph.WorkGraph.GraphItem
+      ]
+    }
+  }
+
+  @expected_runs_create_defaults %{
+    OfficeGraph.Runs.RunRequiredCheck => %{
+      state: "pending"
+    }
+  }
+
+  @expected_work_graph_internal_modules [
+    OfficeGraph.WorkGraph.Queries,
+    OfficeGraph.WorkGraph.ProposalCommands,
+    OfficeGraph.WorkGraph.VerificationCommands,
+    OfficeGraph.WorkGraph.CommandSupport
+  ]
+
   @direct_ecto_operation_pattern ~r/\b(?<receiver>Ecto\.Adapters\.SQL|(?:OfficeGraph\.)?Repo|Repo|(?:Ecto\.)?Multi|Multi)\.(?<operation>insert_or_update!|insert_or_update|insert_all|update_all|delete_all|transaction|aggregate|exists\?|get_by!|get_by|query!|query|stream|insert!|insert|update!|update|delete!|delete|get!|get|all|one!|one)(?![!?_[:alnum:]])/
+
+  test "stabilization inventory documents current API domain and frontend debt" do
+    assert File.exists?(@stabilization_inventory),
+           "Expected stabilization inventory at #{@stabilization_inventory}"
+
+    inventory = File.read!(@stabilization_inventory)
+
+    for required_text <- [
+          "## Active OpenSpec Scope",
+          "## Manual API Surface Inventory",
+          "## Domain And Database Exception Inventory",
+          "## Broad Authorization Bypass Inventory",
+          "## Frontend Architecture Gap Inventory",
+          "OfficeGraphWeb.GraphQL.Schema",
+          "OfficeGraph.ApiSupport",
+          "assets/package.json"
+        ] do
+      assert inventory =~ required_text,
+             "#{@stabilization_inventory} must document #{inspect(required_text)}"
+    end
+  end
+
+  test "manual GraphQL and JSON API surfaces are covered by migration ledger entries" do
+    unledgered =
+      manual_api_surfaces()
+      |> Enum.reject(&api_migration_ledger_approves_surface?(api_migration_ledger_entries(), &1))
+
+    assert unledgered == [],
+           """
+           Found manual API surfaces without migration ledger coverage.
+           Each surface must record owner, reason, replacement target, safety/parity tests, and retirement condition in #{@api_migration_ledger}.
+
+           #{format_api_surfaces(unledgered)}
+           """
+  end
+
+  test "manual API migration ledger entries still point to current surfaces" do
+    current_surface_ids =
+      manual_api_surfaces()
+      |> MapSet.new(& &1.id)
+
+    stale =
+      for entry <- api_migration_ledger_entries(),
+          not MapSet.member?(current_surface_ids, entry.id) do
+        entry.id
+      end
+
+    assert stale == [],
+           "#{@api_migration_ledger} contains surface ids with no matching current manual API surface:\n#{format_errors(stale)}"
+  end
+
+  test "manual API migration ledger records required approval metadata" do
+    errors =
+      @api_migration_ledger
+      |> File.read!()
+      |> api_migration_ledger_metadata_errors()
+
+    assert errors == [],
+           """
+           #{@api_migration_ledger} entries must document owner, capability, exception class, reason, replacement target, safety/parity tests, and retirement condition:
+           #{format_errors(errors)}
+           """
+  end
+
+  test "ApiSupport no longer owns packet-run-verification orchestration" do
+    source = File.read!("lib/office_graph/api_support.ex")
+
+    direct_ecto_operations =
+      scan_file_for_direct_ecto_operations("lib/office_graph/api_support.ex")
+
+    refute source =~ "execute_packet_run_verification_transaction",
+           "packet-run-verification transaction ownership belongs in a domain command"
+
+    refute Enum.any?(direct_ecto_operations, &(&1.operation == "Repo.transaction")),
+           "ApiSupport must stay limited to API context loading and delegation"
+
+    assert source =~ "PacketRunVerification.execute",
+           "ApiSupport should delegate packet-run-verification to the domain command"
+  end
+
+  test "manual GraphQL schema code is split under the GraphQL transport namespace" do
+    assert File.exists?("lib/office_graph_web/graphql/schema.ex"),
+           "Expected root GraphQL schema at lib/office_graph_web/graphql/schema.ex"
+
+    refute File.exists?("lib/office_graph_web/schema.ex"),
+           "Move the legacy monolithic schema into OfficeGraphWeb.GraphQL.* modules"
+
+    graphql_modules =
+      "lib/office_graph_web/graphql/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(&modules_in_file/1)
+
+    for {path, module} <- graphql_modules do
+      assert String.starts_with?(module, "OfficeGraphWeb.GraphQL."),
+             "#{path} defines #{module}; GraphQL code must use OfficeGraphWeb.GraphQL.*"
+    end
+
+    for required_path <- [
+          "lib/office_graph_web/graphql/schema.ex",
+          "lib/office_graph_web/graphql/common/errors.ex",
+          "lib/office_graph_web/graphql/common/queries.ex",
+          "lib/office_graph_web/graphql/compatibility/types.ex",
+          "lib/office_graph_web/graphql/compatibility/mutations.ex",
+          "lib/office_graph_web/graphql/operator_workflow/types.ex",
+          "lib/office_graph_web/graphql/operator_workflow/queries.ex",
+          "lib/office_graph_web/graphql/packet_run_verification/types.ex",
+          "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"
+        ] do
+      assert File.exists?(required_path),
+             "Expected GraphQL transport module file #{required_path}"
+    end
+  end
+
+  test "manual JSON API code is split under the JSON API transport namespace" do
+    old_json_api_paths =
+      [
+        "lib/office_graph_web/controllers/walking_skeleton_controller.ex",
+        "lib/office_graph_web/controllers/operator_workflow_controller.ex",
+        "lib/office_graph_web/controllers/packet_run_verification_controller.ex",
+        "lib/office_graph_web/walking_skeleton_serializer.ex",
+        "lib/office_graph_web/operator_workflow_serializer.ex",
+        "lib/office_graph_web/packet_run_verification_serializer.ex"
+      ]
+      |> Enum.filter(&File.exists?/1)
+
+    assert old_json_api_paths == [],
+           "Move manual JSON API controllers and serializers under lib/office_graph_web/json_api:\n#{format_errors(old_json_api_paths)}"
+
+    json_api_modules =
+      "lib/office_graph_web/json_api/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(&modules_in_file/1)
+
+    for {path, module} <- json_api_modules do
+      assert String.starts_with?(module, "OfficeGraphWeb.JsonApi."),
+             "#{path} defines #{module}; JSON API code must use OfficeGraphWeb.JsonApi.*"
+    end
+
+    for required_path <- [
+          "lib/office_graph_web/json_api/common/errors.ex",
+          "lib/office_graph_web/json_api/compatibility/controller.ex",
+          "lib/office_graph_web/json_api/compatibility/serializer.ex",
+          "lib/office_graph_web/json_api/operator_workflow/controller.ex",
+          "lib/office_graph_web/json_api/operator_workflow/serializer.ex",
+          "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
+          "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
+        ] do
+      assert File.exists?(required_path),
+             "Expected JSON API transport module file #{required_path}"
+    end
+  end
+
+  test "GraphQL and JSON API helpers stay transport-specific" do
+    generic_api_modules =
+      "lib/office_graph_web/api/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.concat(Path.wildcard("lib/office_graph_web/api.ex"))
+      |> Enum.filter(&File.exists?/1)
+
+    assert generic_api_modules == [],
+           "Do not create a generic OfficeGraphWeb.Api dumping ground:\n#{format_errors(generic_api_modules)}"
+
+    graphql_errors = "lib/office_graph_web/graphql/common/errors.ex"
+    json_errors = "lib/office_graph_web/json_api/common/errors.ex"
+
+    assert File.exists?(graphql_errors), "Expected #{graphql_errors}"
+    assert File.exists?(json_errors), "Expected #{json_errors}"
+
+    refute File.read!(graphql_errors) =~ "put_status",
+           "GraphQL error mapping must not know about Plug/Phoenix response envelopes"
+
+    refute File.read!(json_errors) =~ "extensions:",
+           "JSON API error mapping must not return Absinthe error envelopes"
+  end
+
+  test "broad Ash authorization bypasses are explicitly ledgered" do
+    unapproved =
+      ash_authorization_bypasses()
+      |> Enum.reject(&auth_bypass_ledger_approves_operation?(auth_bypass_ledger_entries(), &1))
+
+    assert unapproved == [],
+           """
+           Found authorize?: false call sites without explicit exception ledger approval.
+           Each approval must document the file, function, bypass scope, reason, verification, and retirement condition in #{@architecture_exception_ledger}.
+
+           #{format_auth_bypasses(unapproved)}
+           """
+  end
+
+  test "authorization bypass ledger entries still point to current code" do
+    current_tuples =
+      ash_authorization_bypasses()
+      |> MapSet.new(&{&1.path, &1.function})
+
+    missing =
+      for entry <- auth_bypass_ledger_entries(),
+          not MapSet.member?(current_tuples, {entry.path, entry.function}) do
+        "#{entry.path} #{entry.function}"
+      end
+
+    assert missing == [],
+           "#{@architecture_exception_ledger} contains authorization bypass entries with no matching current code:\n#{format_errors(missing)}"
+  end
+
+  test "authorization bypass ledger records required approval metadata" do
+    errors =
+      @architecture_exception_ledger
+      |> File.read!()
+      |> auth_bypass_ledger_metadata_errors()
+
+    assert errors == [],
+           """
+           #{@architecture_exception_ledger} authorization bypass entries must document owner, approved functions, bypass scope, approving spec, reason, verification coverage, and retirement condition:
+           #{format_errors(errors)}
+           """
+  end
 
   @tag :scanner_contract
   test "direct Ecto scanner reports proposed-change transaction boundaries" do
@@ -396,6 +812,20 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert errors == [],
            "Expected planned MVP inventory source references to point to existing files:\n#{format_errors(errors)}"
+  end
+
+  test "map field classification covers every Ash map attribute" do
+    assert map_field_classification_entries() == map_attribute_fields()
+  end
+
+  test "map field classification records required metadata" do
+    errors =
+      @map_field_classification
+      |> File.read!()
+      |> map_field_classification_metadata_errors()
+
+    assert errors == [],
+           "#{@map_field_classification} rows must document classification, current role, API/product posture, and promotion trigger:\n#{format_errors(errors)}"
   end
 
   test "all expected Ash domains are registered in application config" do
@@ -559,6 +989,235 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "WorkGraph resources model safe raw UUID references as Ash relationships" do
+    assert_relationship_contracts!(@expected_work_graph_relationships)
+  end
+
+  test "WorkPackets resources model safe raw UUID references as Ash relationships" do
+    assert_relationship_contracts!(@expected_work_packets_relationships)
+  end
+
+  test "WorkPackets action contracts validate references through Ash changes" do
+    for {resource, expected_by_action} <- @expected_work_packets_reference_validations do
+      for {action_name, expected_references} <- expected_by_action do
+        action = Ash.Resource.Info.action(resource, action_name)
+
+        assert action,
+               "#{inspect(resource)} must define action #{inspect(action_name)}"
+
+        assert same_scope_reference_validation(action) == expected_references,
+               "#{inspect(resource)} #{inspect(action_name)} must validate same-scope references #{inspect(expected_references)}"
+      end
+    end
+  end
+
+  test "WorkPacket create does not accept current version assignment" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :create)
+
+    refute :current_version_id in create_action.accept
+  end
+
+  test "WorkPackets lifecycle actions derive packet and version state" do
+    packet_create = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :create)
+
+    packet_update =
+      Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacket, :set_current_version)
+
+    version_create = Ash.Resource.Info.action(OfficeGraph.WorkPackets.WorkPacketVersion, :create)
+
+    refute :state in packet_create.accept
+    assert fixed_attribute_change(packet_create, :state) == "draft"
+
+    refute :state in packet_update.accept
+    assert action_change?(packet_update, OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion)
+
+    refute :lifecycle_state in version_create.accept
+
+    assert MapSet.new(action_argument_names(version_create)) ==
+             MapSet.new([:source_graph_item_ids, :verification_check_ids])
+
+    assert action_change?(
+             version_create,
+             OfficeGraph.WorkPackets.Changes.DeriveVersionLifecycleState
+           )
+  end
+
+  test "WorkPackets child create actions own fixed packet contract attributes" do
+    for {resource, expected_defaults} <- @expected_work_packets_create_defaults do
+      create_action = Ash.Resource.Info.action(resource, :create)
+
+      assert create_action,
+             "#{inspect(resource)} must define create action"
+
+      for {attribute, expected_value} <- expected_defaults do
+        refute attribute in create_action.accept,
+               "#{inspect(resource)} create must not accept fixed #{inspect(attribute)} from callers"
+
+        assert fixed_attribute_change(create_action, attribute) == expected_value,
+               "#{inspect(resource)} create must set #{inspect(attribute)} to #{inspect(expected_value)}"
+      end
+    end
+  end
+
+  test "Runs resources model safe raw UUID references as Ash relationships" do
+    assert_relationship_contracts!(@expected_runs_relationships)
+  end
+
+  test "Runs action contracts validate references through Ash changes" do
+    for {resource, expected_by_action} <- @expected_runs_reference_validations do
+      for {action_name, expected_references} <- expected_by_action do
+        action = Ash.Resource.Info.action(resource, action_name)
+
+        assert action,
+               "#{inspect(resource)} must define action #{inspect(action_name)}"
+
+        assert same_scope_reference_validation(action) == expected_references,
+               "#{inspect(resource)} #{inspect(action_name)} must validate same-scope references #{inspect(expected_references)}"
+      end
+    end
+  end
+
+  test "Run create derives initial lifecycle state" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.Run, :create)
+
+    for attribute <- [
+          :state,
+          :aggregate_state,
+          :execution_state,
+          :verification_state,
+          :started_at,
+          :completed_at
+        ] do
+      refute attribute in create_action.accept,
+             "Run.create must not accept caller-supplied #{inspect(attribute)}"
+    end
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.DeriveRunInitialLifecycle)
+  end
+
+  test "Run create owns run-start packet readiness and authority validation" do
+    source = File.read!("lib/office_graph/runs.ex")
+
+    refute source =~ "validate_packet_version_ready"
+    refute source =~ "validate_run_authority"
+    refute source =~ "persisted_packet_version_ready?"
+    refute source =~ "packet_has_source_reference?"
+    refute source =~ "packet_has_required_check?"
+
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.Run, :create)
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.ValidateRunStartContract)
+  end
+
+  test "ExecutionObservation create derives ingestion time" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
+
+    refute :ingested_at in create_action.accept
+
+    assert action_change?(create_action, OfficeGraph.Runs.Changes.DeriveObservationIngestedAt)
+  end
+
+  test "RunEvent create remains a private run-scoped append action" do
+    create_action = Ash.Resource.Info.action(OfficeGraph.Runs.RunEvent, :create)
+
+    refute create_action.public?
+    assert :run_id in create_action.accept
+  end
+
+  test "Runs observation command delegates reference validation to Ash changes" do
+    source = File.read!("lib/office_graph/runs.ex")
+
+    refute source =~ "validate_observation_references!"
+    refute source =~ "defp validate_observation_references("
+    refute source =~ "defp validate_observation_verification_check"
+    refute source =~ "defp validate_observation_graph_item"
+    refute source =~ "defp validate_optional_graph_item"
+
+    observation_create = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
+
+    assert action_change?(
+             observation_create,
+             OfficeGraph.Runs.Changes.ValidateObservationRunReferences
+           )
+  end
+
+  test "Verification owns accepted evidence recomputation through one Runs lifecycle hook" do
+    verification_source = File.read!("lib/office_graph/verification.ex")
+    runs_source = File.read!("lib/office_graph/runs.ex")
+
+    assert verification_source =~ "Runs.apply_accepted_verification_result"
+    refute verification_source =~ "Runs.satisfy_required_check_and_verify_run"
+    refute verification_source =~ "Runs.set_run_verification_failed"
+
+    assert runs_source =~ "def apply_accepted_verification_result("
+    refute runs_source =~ "def set_run_verified("
+    refute runs_source =~ "def set_run_verified_if_all_required_checks_satisfied("
+    refute runs_source =~ "def set_run_verification_failed("
+    refute runs_source =~ "def mark_required_check_satisfied("
+    refute runs_source =~ "def satisfy_required_check_and_verify_run("
+  end
+
+  test "Runs child create actions own fixed run contract attributes" do
+    for {resource, expected_defaults} <- @expected_runs_create_defaults do
+      create_action = Ash.Resource.Info.action(resource, :create)
+
+      assert create_action,
+             "#{inspect(resource)} must define create action"
+
+      for {attribute, expected_value} <- expected_defaults do
+        refute attribute in create_action.accept,
+               "#{inspect(resource)} create must not accept fixed #{inspect(attribute)} from callers"
+
+        assert fixed_attribute_change(create_action, attribute) == expected_value,
+               "#{inspect(resource)} create must set #{inspect(attribute)} to #{inspect(expected_value)}"
+      end
+    end
+  end
+
+  test "WorkGraph public boundary delegates to focused command and query modules" do
+    for module <- @expected_work_graph_internal_modules do
+      assert Code.ensure_loaded?(module), "#{inspect(module)} must exist"
+    end
+
+    source = File.read!("lib/office_graph/work_graph.ex")
+
+    assert source =~ "defdelegate get_verification_check"
+    assert source =~ "to: Queries"
+    assert source =~ "defdelegate create_signal"
+    assert source =~ "defdelegate create_task"
+    assert source =~ "defdelegate create_review_finding"
+    assert source =~ "defdelegate create_verification_check"
+    assert source =~ "to: ProposalCommands"
+    assert source =~ "defdelegate complete_verification"
+    assert source =~ "defdelegate satisfy_verification_check_from_evidence"
+    assert source =~ "to: VerificationCommands"
+    refute source =~ "Repo.transaction"
+    refute source =~ "Ash."
+  end
+
+  test "WorkGraph proposal commands rely on Ash create changes for parent validation" do
+    proposal_source = File.read!("lib/office_graph/work_graph/proposal_commands.ex")
+    review_finding_source = File.read!("lib/office_graph/work_graph/review_finding.ex")
+    verification_check_source = File.read!("lib/office_graph/work_graph/verification_check.ex")
+
+    refute proposal_source =~ "Support.validate_scope!(session_context, task)"
+    refute proposal_source =~ "Support.validate_scope!(session_context, review_finding)"
+    refute proposal_source =~ "Support.validate_open_task!"
+    refute proposal_source =~ "Support.validate_open_review_finding!"
+
+    assert review_finding_source =~
+             "OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences"
+
+    assert review_finding_source =~
+             "OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask"
+
+    assert verification_check_source =~
+             "OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences"
+
+    assert verification_check_source =~
+             "OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding"
+  end
+
   test "same-scope reference validation uses Ash for all configured references" do
     source = File.read!("lib/office_graph/work_graph/changes/validate_same_scope_references.ex")
 
@@ -568,7 +1227,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
   end
 
   test "verification completion centralizes parent-before-child lock acquisition" do
-    source = File.read!("lib/office_graph/work_graph.ex")
+    source = File.read!("lib/office_graph/work_graph/verification_commands.ex")
 
     assert source =~ "lock_completion_graph!(session_context, verification_check.id)"
     assert source =~ "lock_review_findings_for_task!("
@@ -584,6 +1243,30 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert verification_check_source =~ "Ash.Changeset.before_action"
     assert verification_check_source =~ "Ash.Query.lock(:for_update)"
+  end
+
+  test "packet handoff required-check validation locks current check state" do
+    work_packets_source = File.read!("lib/office_graph/work_packets.ex")
+    run_start_source = File.read!("lib/office_graph/runs/changes/validate_run_start_contract.ex")
+
+    work_packet_check_read =
+      work_packets_source
+      |> function_body_after(
+        "defp read_required_verification_checks(session_context, verification_check_ids)"
+      )
+      |> String.split("defp duplicate_source_graph_item_ids_error")
+      |> hd()
+
+    run_start_check_read =
+      run_start_source
+      |> function_body_after(
+        "defp read_verification_checks(packet_version, verification_check_ids)"
+      )
+      |> String.split("defp validate_authority_posture")
+      |> hd()
+
+    assert work_packet_check_read =~ "Ash.Query.lock(:for_update)"
+    assert run_start_check_read =~ "Ash.Query.lock(:for_update)"
   end
 
   test "proposed change applied transition is explicitly internal only" do
@@ -817,6 +1500,49 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> File.read!()
     |> String.split("\n")
     |> Enum.find("", &String.starts_with?(&1, "| `#{table}` |"))
+  end
+
+  defp map_attribute_fields do
+    "lib/office_graph/**/*.ex"
+    |> Path.wildcard()
+    |> Enum.flat_map(&scan_file_for_map_attributes/1)
+    |> Enum.sort()
+  end
+
+  defp scan_file_for_map_attributes(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.reduce({nil, []}, fn line, {current_module, fields} ->
+      current_module = module_name(line) || current_module
+
+      fields =
+        case Regex.run(~r/^\s*attribute\s+:([a-zA-Z0-9_]+),\s+:map\b/, line) do
+          [_, field] when is_binary(current_module) -> ["#{current_module}.#{field}" | fields]
+          _other -> fields
+        end
+
+      {current_module, fields}
+    end)
+    |> elem(1)
+  end
+
+  defp map_field_classification_entries do
+    @map_field_classification
+    |> File.read!()
+    |> markdown_table_entries("Field")
+    |> Enum.map(fn entry -> entry |> Map.fetch!("Field") |> unbacktick() end)
+    |> Enum.sort()
+  end
+
+  defp map_field_classification_metadata_errors(markdown) do
+    table_metadata_errors(markdown, "Field", [
+      "Field",
+      "Classification",
+      "Current role",
+      "API/product posture",
+      "Promotion trigger"
+    ])
   end
 
   defp format_missing_tables(required_tables, actual_tables) do
@@ -1060,6 +1786,24 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.filter(&(&1.type == action_type))
   end
 
+  defp assert_relationship_contracts!(expected_relationships_by_resource) do
+    for {resource, expected_relationships} <- expected_relationships_by_resource do
+      for {name, {type, destination, source_attribute, destination_attribute}} <-
+            expected_relationships do
+        relationship = Ash.Resource.Info.relationship(resource, name)
+
+        assert relationship,
+               "#{inspect(resource)} must define relationship #{inspect(name)}"
+
+        assert relationship.type == type
+        assert relationship.destination == destination
+        assert relationship.source_attribute == source_attribute
+        assert relationship.destination_attribute == destination_attribute
+        refute relationship.public?
+      end
+    end
+  end
+
   defp capability_policy?(resource, action_name, action_type, capability) do
     resource
     |> Ash.Policy.Info.policies()
@@ -1159,6 +1903,29 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end)
   end
 
+  defp fixed_attribute_change(%{changes: changes}, attribute) do
+    Enum.find_value(changes, fn
+      %Ash.Resource.Change{
+        change: {Ash.Resource.Change.SetAttribute, [value: value, attribute: ^attribute]}
+      } ->
+        value
+
+      _change ->
+        nil
+    end)
+  end
+
+  defp action_argument_names(%{arguments: arguments}) do
+    Enum.map(arguments, & &1.name)
+  end
+
+  defp action_change?(%{changes: changes}, change_module) do
+    Enum.any?(changes, fn
+      %Ash.Resource.Change{change: {^change_module, _opts}} -> true
+      _change -> false
+    end)
+  end
+
   defp session_context(organization_id, workspace_id, capabilities) do
     %SessionContext{
       principal_id: Ecto.UUID.generate(),
@@ -1183,6 +1950,211 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Path.wildcard()
     |> Enum.flat_map(&scan_file_for_direct_ecto_operations/1)
     |> Enum.sort_by(&{&1.path, &1.line, &1.operation})
+  end
+
+  defp ash_authorization_bypasses do
+    "lib/office_graph/**/*.ex"
+    |> Path.wildcard()
+    |> Enum.flat_map(&scan_file_for_ash_authorization_bypasses/1)
+    |> Enum.uniq_by(&{&1.path, &1.function})
+    |> Enum.sort_by(&{&1.path, &1.function})
+  end
+
+  defp scan_file_for_ash_authorization_bypasses(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({nil, []}, fn {line, line_number}, {current_function, bypasses} ->
+      current_function = function_name(line) || current_function
+
+      bypasses =
+        if line =~ "authorize?: false" do
+          [
+            %{
+              path: path,
+              line: line_number,
+              function: current_function,
+              source: String.trim(line)
+            }
+            | bypasses
+          ]
+        else
+          bypasses
+        end
+
+      {current_function, bypasses}
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp manual_api_surfaces do
+    graphql_root_surfaces() ++ json_api_route_surfaces() ++ json_serializer_surfaces()
+  end
+
+  defp graphql_root_surfaces do
+    [
+      {:query, "lib/office_graph_web/graphql/common/queries.ex"},
+      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
+      {:mutation, "lib/office_graph_web/graphql/compatibility/mutations.ex"},
+      {:mutation, "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"}
+    ]
+    |> Enum.flat_map(fn {root_kind, path} ->
+      graphql_root_surfaces_in_file(root_kind, path)
+    end)
+  end
+
+  defp graphql_root_surfaces_in_file(root_kind, path) do
+    if File.exists?(path) do
+      path
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {line, line_number} ->
+        case Regex.run(~r/^\s{4}field :([a-zA-Z0-9_!?]+)\b/, line) do
+          [_, field_name] ->
+            [
+              %{
+                id: "graphql.#{root_kind}.#{field_name}",
+                type: "GraphQL #{root_kind}",
+                path: path,
+                line: line_number
+              }
+            ]
+
+          _ ->
+            []
+        end
+      end)
+    else
+      []
+    end
+  end
+
+  defp json_api_route_surfaces do
+    "lib/office_graph_web/router.ex"
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({false, []}, fn {line, line_number}, {in_api_scope?, surfaces} ->
+      cond do
+        Regex.match?(~r/^\s{2}scope "\/api", OfficeGraphWeb do$/, line) ->
+          {true, surfaces}
+
+        in_api_scope? && Regex.match?(~r/^\s{2}end$/, line) ->
+          {false, surfaces}
+
+        in_api_scope? ->
+          case Regex.run(~r/^\s{4}(get|post|put|patch|delete)\s+"([^"]+)"/, line) do
+            [_, method, route] ->
+              surface = %{
+                id: "json.#{method}./api#{route}",
+                type: "JSON #{String.upcase(method)} route",
+                path: "lib/office_graph_web/router.ex",
+                line: line_number
+              }
+
+              {in_api_scope?, [surface | surfaces]}
+
+            _ ->
+              {in_api_scope?, surfaces}
+          end
+
+        true ->
+          {in_api_scope?, surfaces}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp json_serializer_surfaces do
+    "lib/office_graph_web/json_api/**/*/serializer.ex"
+    |> Path.wildcard()
+    |> Enum.map(fn path ->
+      source = File.read!(path)
+      module = source |> String.split("\n") |> Enum.find_value(&module_name/1)
+
+      %{
+        id: "serializer.#{module}",
+        type: "JSON serializer",
+        path: path,
+        line: 1
+      }
+    end)
+    |> Enum.sort_by(& &1.id)
+  end
+
+  defp modules_in_file(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.flat_map(fn line ->
+      case module_name(line) do
+        nil -> []
+        module -> [{path, module}]
+      end
+    end)
+  end
+
+  defp api_migration_ledger_entries do
+    @api_migration_ledger
+    |> File.read!()
+    |> markdown_table_entries("Surface ID")
+    |> Enum.map(fn entry -> %{id: unbacktick(Map.fetch!(entry, "Surface ID"))} end)
+  end
+
+  defp api_migration_ledger_approves_surface?(entries, surface) do
+    Enum.any?(entries, &(&1.id == surface.id))
+  end
+
+  defp api_migration_ledger_metadata_errors(ledger) do
+    table_metadata_errors(ledger, "Surface ID", [
+      "Surface ID",
+      "Owner",
+      "Capability",
+      "Current surface",
+      "Exception class",
+      "Reason",
+      "Replacement target",
+      "Safety/parity tests",
+      "Retirement condition"
+    ])
+  end
+
+  defp auth_bypass_ledger_entries do
+    @architecture_exception_ledger
+    |> File.read!()
+    |> ledger_section("## Authorization Bypass Ledger")
+    |> markdown_table_entries("File")
+    |> Enum.flat_map(fn entry ->
+      path = unbacktick(Map.fetch!(entry, "File"))
+
+      entry
+      |> Map.fetch!("Approved functions")
+      |> backticked_values()
+      |> Enum.map(&%{path: path, function: &1})
+    end)
+  end
+
+  defp auth_bypass_ledger_approves_operation?(entries, bypass) do
+    Enum.any?(entries, &(&1.path == bypass.path and &1.function == bypass.function))
+  end
+
+  defp auth_bypass_ledger_metadata_errors(ledger) do
+    ledger
+    |> ledger_section("## Authorization Bypass Ledger")
+    |> table_metadata_errors("File", [
+      "File",
+      "Owner",
+      "Approved functions",
+      "Bypass scope",
+      "Approving spec",
+      "Reason",
+      "Verification coverage",
+      "Retirement condition"
+    ])
   end
 
   defp scan_file_for_direct_ecto_operations(path) do
@@ -1278,6 +2250,80 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "|"))
     |> Enum.map(&markdown_table_cells/1)
     |> Enum.reject(&markdown_separator_row?/1)
+  end
+
+  defp markdown_table_entries(markdown, required_header) do
+    case markdown_table_rows(markdown) do
+      [] ->
+        []
+
+      [header | data_rows] ->
+        if required_header in header do
+          Enum.map(data_rows, fn row ->
+            header
+            |> Enum.zip(row ++ List.duplicate("", max(length(header) - length(row), 0)))
+            |> Map.new()
+          end)
+        else
+          []
+        end
+    end
+  end
+
+  defp table_metadata_errors(markdown, required_header, required_headers) do
+    rows = markdown_table_rows(markdown)
+
+    case rows do
+      [] ->
+        ["missing table with #{required_header} column"]
+
+      [header | data_rows] ->
+        if required_header in header do
+          missing_headers = required_headers -- header
+
+          row_errors =
+            data_rows
+            |> Enum.with_index(1)
+            |> Enum.flat_map(fn {row, row_number} ->
+              for header_name <- required_headers,
+                  blank?(table_cell(row, header, header_name)) do
+                "row #{row_number} missing #{header_name}"
+              end
+            end)
+
+          Enum.map(missing_headers, &"missing required column #{&1}") ++ row_errors
+        else
+          ["missing table with #{required_header} column"]
+        end
+    end
+  end
+
+  defp ledger_section(markdown, heading) do
+    markdown
+    |> String.split("\n")
+    |> Enum.drop_while(&(&1 != heading))
+    |> case do
+      [] ->
+        ""
+
+      [_heading | section_lines] ->
+        section_lines
+        |> Enum.take_while(&(not String.starts_with?(&1, "## ")))
+        |> Enum.join("\n")
+    end
+  end
+
+  defp unbacktick(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("`")
+    |> String.trim_trailing("`")
+  end
+
+  defp backticked_values(value) do
+    ~r/`([^`]+)`/
+    |> Regex.scan(value, capture: :all_but_first)
+    |> List.flatten()
   end
 
   defp markdown_table_cells(line) do
@@ -1390,6 +2436,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  defp function_body_after(source, signature) do
+    case String.split(source, signature, parts: 2) do
+      [_before, after_signature] -> after_signature
+      [_source] -> flunk("Expected source to include #{signature}")
+    end
+  end
+
   defp format_modules(modules) do
     modules
     |> Enum.map_join("\n", &"  #{inspect(&1)}")
@@ -1410,6 +2463,20 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     operations
     |> Enum.map_join("\n", fn operation ->
       "  #{operation.path}:#{operation.line} #{operation.function || "<module>"} #{operation.operation} #{operation.source}"
+    end)
+  end
+
+  defp format_auth_bypasses(bypasses) do
+    bypasses
+    |> Enum.map_join("\n", fn bypass ->
+      "  #{bypass.path}:#{bypass.line} #{bypass.function || "<module>"} #{bypass.source}"
+    end)
+  end
+
+  defp format_api_surfaces(surfaces) do
+    surfaces
+    |> Enum.map_join("\n", fn surface ->
+      "  #{surface.path}:#{surface.line} #{surface.id} #{surface.type}"
     end)
   end
 end

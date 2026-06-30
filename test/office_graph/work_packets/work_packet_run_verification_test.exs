@@ -157,6 +157,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert accepted.verification_result.result == "passed"
     assert accepted.work_run.aggregate_state == "verified"
     assert accepted.work_run.verification_state == "verified"
+
+    assert "satisfied" ==
+             fetch_resource!(WorkGraph.VerificationCheck, verification_check.id).lifecycle_state
   end
 
   test "accepted evidence candidates link evidence and artifact graph items" do
@@ -267,29 +270,38 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "draft-packet-run"
       )
 
-    assert {:error, {:packet_version_not_ready, packet_result.version.id}} ==
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
                source_surface: "test",
                reason: "Should be rejected.",
                authority_posture: "human_supervised"
              })
 
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
     stale_version = %{packet_result.version | lifecycle_state: "stale"}
     superseded_version = %{packet_result.version | lifecycle_state: "superseded"}
 
-    assert {:error, {:packet_version_not_ready, stale_version.id}} ==
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, stale_version, %{
                source_surface: "test",
                reason: "Stale versions cannot start runs.",
                authority_posture: "human_supervised"
              })
 
-    assert {:error, {:packet_version_not_ready, superseded_version.id}} ==
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, superseded_version, %{
                source_surface: "test",
                reason: "Superseded versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
 
     assert {:error, :missing_packet_version} ==
              Runs.start_run(bootstrap.session, run_operation, nil, %{
@@ -297,6 +309,46 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                reason: "Missing versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+  end
+
+  test "work run start rejects packet versions whose checks are already satisfied" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "stale-packet-direct-completion"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Direct stale packet evidence",
+                 body: "Direct completion satisfies the check before run start.",
+                 artifact_uri: "https://example.test/stale-packet-direct-completion"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "stale-packet-direct-completion-run"
+      )
+
+    assert {:error, error} =
+             Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "Stale packet versions cannot start runs.",
+               authority_posture: "human_supervised"
+             })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
   end
 
   test "work packet operation replay rejects changed packet input" do
@@ -337,6 +389,59 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work packet operation replay returns existing packet after checks are satisfied" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-replay-after-satisfied"
+      )
+
+    attrs = %{
+      title: "Replay after satisfied check",
+      objective: "Create a packet before direct verification.",
+      context_summary: "Replay should return the existing packet facts.",
+      requirements: "Do not revalidate current check state on operation replay.",
+      success_criteria: "The original packet is returned.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [verification_check.graph_item_id],
+      verification_check_ids: [verification_check.id]
+    }
+
+    assert {:ok, packet_result} = WorkPackets.create_packet(bootstrap.session, operation, attrs)
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "packet-create-replay-after-satisfied-completion"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Satisfied before packet replay",
+                 body: "The check is satisfied after the original packet commit.",
+                 artifact_uri: "https://example.test/packet-create-replay-after-satisfied"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-replay-after-satisfied"
+      )
+
+    assert {:ok, replay_result} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
+
+    assert replay_result.packet.id == packet_result.packet.id
+    assert replay_result.version.id == packet_result.version.id
+  end
+
   test "work packet replay validates current version ownership" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
@@ -373,6 +478,192 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
     assert {:error, {:packet_current_version_mismatch, ^packet_id, ^other_version_id}} =
              WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
+  end
+
+  test "direct packet creates derive draft state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-packet-create-derived-state"
+      )
+
+    assert {:ok, packet} =
+             Ash.create(
+               WorkPacket,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: operation.id,
+                 title: "Direct packet create derives state"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert packet.state == "draft"
+  end
+
+  test "direct packet version creates derive readiness and packet updates sync selected version state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-version-readiness-packet"
+      )
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct readiness packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-version-readiness-version"
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: version_operation.id,
+          version_number: 1,
+          objective: "Create a ready version.",
+          context_summary: "Readiness derives from version facts.",
+          requirements: "Use packet contract inputs.",
+          success_criteria: "Source and check references are present.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, updated_packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version.id})
+      |> Ash.update(authorize?: false)
+
+    assert updated_packet.current_version_id == version.id
+    assert updated_packet.state == "ready"
+  end
+
+  test "direct packet version creates derive draft state from missing readiness inputs" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-version-packet"
+      )
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct draft packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-version"
+      )
+
+    assert {:ok, version} =
+             Ash.create(
+               WorkPacketVersion,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_id: packet.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: version_operation.id,
+                 version_number: 1,
+                 objective: "Create a draft version.",
+                 context_summary: "Draft derives from missing readiness inputs.",
+                 requirements: "Do not let callers force readiness.",
+                 success_criteria: nil,
+                 autonomy_posture: "human_supervised"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert version.lifecycle_state == "draft"
+
+    refute WorkPackets.Readiness.ready?(%{
+             objective: "Create a context-blocked version.",
+             context_summary: "",
+             requirements: "",
+             success_criteria: "Accepted evidence exists.",
+             autonomy_posture: "human_supervised",
+             source_graph_item_ids: [Ecto.UUID.generate()],
+             verification_check_ids: [Ecto.UUID.generate()]
+           })
+
+    assert {:error, error} =
+             Ash.create(
+               WorkPacketVersion,
+               %{
+                 id: Ecto.UUID.generate(),
+                 work_packet_id: packet.id,
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 operation_id: version_operation.id,
+                 version_number: 2,
+                 objective: "Create a forced-ready version.",
+                 context_summary: "Callers cannot force readiness.",
+                 requirements: "Reject lifecycle input.",
+                 success_criteria: nil,
+                 autonomy_posture: "human_supervised",
+                 lifecycle_state: "ready"
+               },
+               action: :create,
+               authorize?: false
+             )
+
+    assert Exception.message(error) =~ "No such input `lifecycle_state`"
+  end
+
+  test "direct packet current-version updates reject versions from another packet" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_packet} = create_ready_packet(bootstrap.session, [first_check])
+    {:ok, second_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    assert {:error, error} =
+             first_packet.packet
+             |> Ash.Changeset.for_update(:set_current_version, %{
+               current_version_id: second_packet.version.id
+             })
+             |> Ash.update(authorize?: false)
+
+    assert Exception.message(error) =~ "current_version_id"
   end
 
   test "work run start operation replay rejects changed run input" do
@@ -420,22 +711,21 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "work-run-authority-envelope"
       )
 
-    version_id = packet_result.version.id
-
-    assert {:error,
-            {:work_run_authority_posture_mismatch, ^version_id, "fully_autonomous",
-             "human_supervised"}} =
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, operation, packet_result.version, %{
                source_surface: "test",
                reason: "Reject escalated authority.",
                authority_posture: "fully_autonomous"
              })
 
+    assert Exception.message(error) =~ "authority_posture must match the packet autonomy posture"
+
     refute run_for_operation?(operation.id)
   end
 
   test "work run start rejects malformed ready packet versions without execution links" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
 
     {:ok, packet_operation} =
       Operations.start_operation(bootstrap.session, :work_packet_create,
@@ -453,9 +743,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           organization_id: bootstrap.session.organization_id,
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
-          current_version_id: version_id,
-          title: "Malformed ready packet",
-          state: "ready"
+          title: "Malformed ready packet"
         },
         action: :create,
         authorize?: false
@@ -471,28 +759,66 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
           version_number: 1,
-          lifecycle_state: "ready",
           objective: "Malformed ready packet version.",
           context_summary: "Missing source and required-check rows.",
           requirements: "Should not be executable.",
-          success_criteria: nil,
-          autonomy_posture: "human_supervised"
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
         },
         action: :create,
         authorize?: false
       )
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{
+        current_version_id: version_id
+      })
+      |> Ash.update(authorize?: false)
+
+    assert packet.current_version_id == version_id
 
     {:ok, run_operation} =
       Operations.start_operation(bootstrap.session, :work_run_start,
         idempotency_key: "malformed-ready-packet-version-run"
       )
 
-    assert {:error, {:packet_version_not_ready, ^version_id}} =
+    assert {:error, error} =
              Runs.start_run(bootstrap.session, run_operation, version, %{
                source_surface: "test",
                reason: "Malformed ready versions cannot start runs.",
                authority_posture: "human_supervised"
              })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+
+    refute run_exists_for_operation?(run_operation.id)
+  end
+
+  test "work run start rejects persisted ready packet versions missing execution context" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    blank_packet_execution_context!(packet_result.version.id)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "legacy-ready-packet-without-context-run"
+      )
+
+    assert {:error, error} =
+             Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "Persisted ready versions still need context.",
+               authority_posture: "human_supervised"
+             })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
 
     refute run_exists_for_operation?(run_operation.id)
   end
@@ -661,6 +987,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       )
 
     {:ok, verification_check} = create_required_verification_check(first_scope.session)
+    {:ok, unrelated_check} = create_required_verification_check(first_scope.session)
     {:ok, foreign_check} = create_required_verification_check(second_scope.session)
 
     assert {:error, %Ash.Error.Invalid{}} =
@@ -710,6 +1037,98 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                source_graph_item_ids: [verification_check.graph_item_id],
                verification_check_ids: [foreign_check.id]
              })
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             create_packet_with_operation(first_scope.session, "mismatched-source-check", %{
+               title: "Mismatched source and check",
+               objective: "Reject unrelated source/check pairs.",
+               context_summary: "Same-scope references still need to describe the same work.",
+               requirements: "Use checks tied to the selected source graph.",
+               success_criteria: "Validation returns an error.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [unrelated_check.id]
+             })
+  end
+
+  test "work packet creation rejects duplicate verification check ids before inserting joins" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "duplicate-required-check", %{
+               title: "Duplicate check packet",
+               objective: "Reject duplicate checks.",
+               context_summary: "Packet required checks must be unique.",
+               requirements: "Use each verification check once.",
+               success_criteria: "Validation returns an error before join inserts.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [verification_check.id, verification_check.id]
+             })
+
+    assert Exception.message(error) =~ "verification_check_ids must not include duplicate ids"
+  end
+
+  test "work packet creation rejects duplicate source graph item ids before inserting joins" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "duplicate-source-reference", %{
+               title: "Duplicate source packet",
+               objective: "Reject duplicate source references.",
+               context_summary: "Packet source references must be unique.",
+               requirements: "Use each source graph item once.",
+               success_criteria: "Validation returns an error before source inserts.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [
+                 verification_check.graph_item_id,
+                 verification_check.graph_item_id
+               ],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert Exception.message(error) =~ "source_graph_item_ids must not include duplicate ids"
+  end
+
+  test "work packet creation rejects checks already satisfied by direct verification" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "packet-create-satisfied-check"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Satisfied before packet creation",
+                 body: "Direct completion satisfies the check before packet handoff.",
+                 artifact_uri: "https://example.test/packet-create-satisfied-check"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "satisfied-required-check", %{
+               title: "Satisfied check packet",
+               objective: "Reject satisfied checks.",
+               context_summary: "Packet creation only accepts required checks.",
+               requirements: "Use checks that still need verification.",
+               success_criteria: "Validation returns an error before packet creation.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert Exception.message(error) =~
+             "verification_check_ids must reference required verification checks"
   end
 
   test "direct required-check creates reject foreign packet versions" do
@@ -737,9 +1156,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  work_packet_version_id: foreign_packet.version.id,
                  verification_check_id: verification_check.id,
                  organization_id: first_scope.session.organization_id,
-                 workspace_id: first_scope.session.workspace_id,
-                 requirement_kind: "required",
-                 state: "pending"
+                 workspace_id: first_scope.session.workspace_id
                },
                actor: first_scope.session,
                action: :create
@@ -773,11 +1190,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  work_packet_version_id: foreign_packet.version.id,
                  graph_item_id: verification_check.graph_item_id,
                  organization_id: first_scope.session.organization_id,
-                 workspace_id: first_scope.session.workspace_id,
-                 source_kind: "graph_item",
-                 rationale: "packet_source",
-                 visibility: "full",
-                 sensitivity: "internal"
+                 workspace_id: first_scope.session.workspace_id
                },
                actor: first_scope.session,
                action: :create
@@ -841,13 +1254,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  objective: packet_result.version.objective,
                  authority_posture: "human_supervised",
                  source_surface: "test",
-                 reason: "Direct creates cannot choose terminal lifecycle.",
-                 state: "verified",
-                 aggregate_state: "verified",
-                 execution_state: "completed",
-                 verification_state: "verified",
-                 started_at: DateTime.add(completed_at, -3600, :second),
-                 completed_at: completed_at
+                 reason: "Direct creates derive their initial lifecycle."
                },
                actor: bootstrap.session,
                action: :create
@@ -859,6 +1266,317 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert run.verification_state == "unverified"
     assert is_nil(run.completed_at)
     assert DateTime.compare(run.started_at, completed_at) != :lt
+  end
+
+  test "direct run creates reject caller supplied lifecycle state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-create-rejects-lifecycle-input"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_packet_id: packet_result.packet.id,
+                 work_packet_version_id: packet_result.version.id,
+                 operation_id: run_operation.id,
+                 initiator_principal_id: bootstrap.session.principal_id,
+                 objective: packet_result.version.objective,
+                 authority_posture: "human_supervised",
+                 source_surface: "test",
+                 reason: "Direct creates cannot choose terminal lifecycle.",
+                 state: "verified"
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "No such input `state`"
+  end
+
+  test "direct run creates reject packet versions that are not ready" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-draft-packet-run"
+      )
+
+    assert {:ok, packet_result} =
+             WorkPackets.create_packet(bootstrap.session, packet_operation, %{
+               title: "Direct incomplete packet",
+               objective: "Investigate incomplete packet behavior.",
+               context_summary: "Missing success criteria and required checks.",
+               requirements: "Find missing fields.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [],
+               verification_check_ids: []
+             })
+
+    assert packet_result.version.lifecycle_state == "draft"
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-draft-packet-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(bootstrap.session, packet_result, run_operation),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject malformed ready packet versions without execution links" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-malformed-ready-packet-version"
+      )
+
+    packet_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct malformed ready packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          version_number: 1,
+          objective: "Malformed ready packet version.",
+          context_summary: "Missing source and required-check rows.",
+          requirements: "Should not be executable.",
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [verification_check.graph_item_id],
+          verification_check_ids: [verification_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version_id})
+      |> Ash.update(authorize?: false)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-malformed-ready-packet-version-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(
+                 bootstrap.session,
+                 %{packet: packet, version: version},
+                 run_operation
+               ),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject malformed ready packet versions with mismatched source checks" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, source_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "direct-mismatched-ready-packet-version"
+      )
+
+    packet_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+
+    {:ok, packet} =
+      Ash.create(
+        WorkPacket,
+        %{
+          id: packet_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          title: "Direct mismatched ready packet"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, version} =
+      Ash.create(
+        WorkPacketVersion,
+        %{
+          id: version_id,
+          work_packet_id: packet.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id,
+          operation_id: packet_operation.id,
+          version_number: 1,
+          objective: "Malformed ready packet version.",
+          context_summary: "Rows exist, but the selected check is unrelated to the source.",
+          requirements: "Should not be executable.",
+          success_criteria: "All required checks pass.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: [source_check.graph_item_id],
+          verification_check_ids: [unrelated_check.id]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert version.lifecycle_state == "ready"
+
+    {:ok, _source_reference} =
+      Ash.create(
+        WorkPacketSourceReference,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          graph_item_id: source_check.graph_item_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, _required_check} =
+      Ash.create(
+        WorkPacketRequiredCheck,
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          verification_check_id: unrelated_check.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, packet} =
+      packet
+      |> Ash.Changeset.for_update(:set_current_version, %{current_version_id: version_id})
+      |> Ash.update(authorize?: false)
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-mismatched-ready-packet-version-run"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               direct_run_attrs(
+                 bootstrap.session,
+                 %{packet: packet, version: version},
+                 run_operation
+               ),
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference a ready packet version"
+  end
+
+  test "direct run creates reject authority outside the packet autonomy envelope" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-authority-envelope"
+      )
+
+    attrs =
+      bootstrap.session
+      |> direct_run_attrs(packet_result, run_operation)
+      |> Map.put(:authority_posture, "fully_autonomous")
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               attrs,
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~
+             "authority_posture must match the packet autonomy posture"
+  end
+
+  test "direct run creates reject packet and version mismatches" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, first_packet} = create_ready_packet(bootstrap.session, [first_check])
+    {:ok, second_packet} = create_ready_packet(bootstrap.session, [second_check])
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "direct-run-packet-version-mismatch"
+      )
+
+    attrs =
+      bootstrap.session
+      |> direct_run_attrs(
+        %{packet: first_packet.packet, version: second_packet.version},
+        run_operation
+      )
+      |> Map.put(:objective, second_packet.version.objective)
+
+    assert {:error, error} =
+             Ash.create(
+               Run,
+               attrs,
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "work_packet_version_id must belong to work_packet_id"
   end
 
   test "direct run required-check creates reject checks outside the run packet contract" do
@@ -875,8 +1593,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  run_id: run_result.run.id,
                  verification_check_id: unrelated_check.id,
                  organization_id: bootstrap.session.organization_id,
-                 workspace_id: bootstrap.session.workspace_id,
-                 state: "pending"
+                 workspace_id: bootstrap.session.workspace_id
                },
                actor: bootstrap.session,
                action: :create
@@ -900,6 +1617,30 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  run_id: run_result.run.id,
                  verification_check_id: verification_check.id,
                  organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert required_check.state == "pending"
+  end
+
+  test "direct run required-check creates reject caller supplied state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    delete_run_required_check!(run_result.run.id, verification_check.id)
+
+    assert {:error, error} =
+             Ash.create(
+               RunRequiredCheck,
+               %{
+                 id: Ecto.UUID.generate(),
+                 run_id: run_result.run.id,
+                 verification_check_id: verification_check.id,
+                 organization_id: bootstrap.session.organization_id,
                  workspace_id: bootstrap.session.workspace_id,
                  state: "satisfied"
                },
@@ -907,7 +1648,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                action: :create
              )
 
-    assert required_check.state == "pending"
+    assert Exception.message(error) =~ "No such input `state`"
   end
 
   test "observation recording validates run check and graph references" do
@@ -933,7 +1674,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "foreign-observation-reference"
       )
 
-    assert {:error, :forbidden} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, foreign_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:foreign-observation-reference",
@@ -947,16 +1688,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Foreign references are rejected."
              })
 
+    assert Exception.message(error) =~
+             "verification_check_id must reference an existing record in the target scope"
+
     {:ok, unrelated_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "unrequired-observation-reference"
       )
 
-    run_id = run.run.id
-    unrelated_check_id = unrelated_check.id
-    unrelated_graph_item_id = unrelated_check.graph_item_id
-
-    assert {:error, {:verification_check_not_required, ^run_id, ^unrelated_check_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, unrelated_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:unrequired-observation-reference",
@@ -970,12 +1710,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Unrequired checks are rejected."
              })
 
+    assert Exception.message(error) =~
+             "verification_check_id must reference a required check for the run"
+
     {:ok, mismatched_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "mismatched-observation-reference"
       )
 
-    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, mismatched_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:mismatched-observation-reference",
@@ -989,12 +1732,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                rationale: "Mismatched graph item is rejected."
              })
 
+    assert Exception.message(error) =~
+             "graph_item_id must match the verification check graph item"
+
     {:ok, graph_only_operation} =
       Operations.start_operation(first_scope.session, :execution_observation_record,
         idempotency_key: "unrelated-graph-only-observation-reference"
       )
 
-    assert {:error, {:graph_item_not_required, ^run_id, ^unrelated_graph_item_id}} =
+    assert {:error, error} =
              Runs.record_observation(first_scope.session, graph_only_operation, run.run, %{
                source_kind: "human",
                source_identity: "manual:unrelated-graph-only-observation-reference",
@@ -1006,6 +1752,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                graph_item_id: unrelated_check.graph_item_id,
                rationale: "Unrelated graph-item-only observations are rejected."
              })
+
+    assert Exception.message(error) =~
+             "graph_item_id must reference a graph item selected by the run"
 
     {:ok, summary} = Runs.get_summary(first_scope.session, run.run.id)
     assert summary.observations == []
@@ -1050,7 +1799,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-foreign-run-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not link foreign runs.",
@@ -1090,7 +1838,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-unrequired-check-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not attach unrelated checks.",
@@ -1129,7 +1876,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  idempotency_key: "direct-unrelated-graph-observation",
                  observed_status: "passed",
                  normalized_status: "succeeded",
-                 ingested_at: DateTime.utc_now(),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
                  rationale: "Direct creates must not attach unrelated graph items.",
@@ -1140,6 +1886,45 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
 
     assert Exception.message(error) =~ "graph_item_id"
+  end
+
+  test "direct observation creates reject caller supplied ingestion time" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :execution_observation_record,
+        idempotency_key: "direct-observation-rejects-ingested-at"
+      )
+
+    assert {:error, error} =
+             Ash.create(
+               ExecutionObservation,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.session.organization_id,
+                 workspace_id: bootstrap.session.workspace_id,
+                 work_run_id: run_result.run.id,
+                 operation_id: operation.id,
+                 verification_check_id: verification_check.id,
+                 graph_item_id: verification_check.graph_item_id,
+                 source_kind: "human",
+                 source_identity: "manual:direct-observation-rejects-ingested-at",
+                 idempotency_key: "direct-observation-rejects-ingested-at",
+                 observed_status: "passed",
+                 normalized_status: "succeeded",
+                 ingested_at: DateTime.add(DateTime.utc_now(), -3600, :second),
+                 freshness_state: "fresh",
+                 trust_basis: "owner_attested",
+                 rationale: "Direct creates cannot spoof ingestion time.",
+                 metadata: %{}
+               },
+               actor: bootstrap.session,
+               action: :create
+             )
+
+    assert Exception.message(error) =~ "No such input `ingested_at`"
   end
 
   test "direct evidence candidate creates reject checks outside the run packet contract" do
@@ -1467,6 +2252,109 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert summary.run.verification_state == "verified"
   end
 
+  test "verified runs stay verified after later failed observations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "verified-before-late-failed-observation"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        observation_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "verified-before-late-failed-observation"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "verified-before-late-failed-observation",
+        result: "passed"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.verification_state == "verified"
+
+    {:ok, later_observation} =
+      record_observation(bootstrap.session, accepted.work_run, verification_check,
+        key: "verified-after-late-failed-observation",
+        normalized_status: "failed",
+        observed_status: "failed"
+      )
+
+    assert later_observation.run.aggregate_state == "verified"
+    assert later_observation.run.execution_state == "completed"
+    assert later_observation.run.verification_state == "verified"
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
+    assert summary.run.aggregate_state == "verified"
+    assert summary.run.execution_state == "completed"
+    assert summary.run.verification_state == "verified"
+  end
+
+  test "verified runs reject stale failed evidence acceptance" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, stale_observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "stale-candidate-before-verification"
+      )
+
+    {:ok, stale_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        stale_observation_result.run,
+        verification_check,
+        stale_observation_result.observation,
+        key: "stale-candidate-before-verification"
+      )
+
+    {:ok, passed_observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "passed-candidate-verifies-before-stale-failed"
+      )
+
+    {:ok, passed_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        passed_observation_result.run,
+        verification_check,
+        passed_observation_result.observation,
+        key: "passed-candidate-verifies-before-stale-failed"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, passed_candidate,
+        key: "passed-candidate-verifies-before-stale-failed",
+        result: "passed"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.verification_state == "verified"
+
+    run_id = accepted.work_run.id
+
+    assert {:error, {:work_run_already_verified, ^run_id}} =
+             accept_candidate(bootstrap.session, stale_candidate,
+               key: "stale-failed-candidate-after-verification",
+               result: "failed"
+             )
+
+    refute accepted_evidence_for_candidate?(stale_candidate.id)
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
+    assert summary.run.aggregate_state == "verified"
+    assert summary.run.execution_state == "completed"
+    assert summary.run.verification_state == "verified"
+  end
+
   test "direct verification completion records decision metadata" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -1722,6 +2610,43 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              )
   end
 
+  test "accepted evidence candidates reject new acceptance operations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "accepted-candidate-new-operation",
+        normalized_status: "failed",
+        observed_status: "failed"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "accepted-candidate-new-operation"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "accepted-candidate-first-operation",
+        result: "failed"
+      )
+
+    assert accepted.candidate.candidate_state == "accepted"
+    candidate_id = candidate.id
+
+    assert {:error, {:evidence_candidate_already_accepted, ^candidate_id}} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "accepted-candidate-second-operation",
+               result: "failed"
+             )
+  end
+
   test "runless evidence completion propagates to parent graph items" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, graph} = create_required_verification_graph(bootstrap.session)
@@ -1926,7 +2851,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     refute verification_result_for_candidate_target?(candidate)
   end
 
-  test "same verification check can be verified across separate work runs" do
+  test "satisfied verification check rejects passed acceptance from separate work runs" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, first_run} = create_ready_run(bootstrap.session, verification_check)
@@ -1961,20 +2886,17 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         key: "rerun-second"
       )
 
-    assert {:ok, second_accepted} =
+    assert {:error, {:invalid_verification_check_status, verification_check_id}} =
              accept_candidate(bootstrap.session, second_candidate,
                key: "rerun-second",
                result: "passed"
              )
 
-    assert first_accepted.verification_result.verification_check_id ==
-             second_accepted.verification_result.verification_check_id
-
-    assert first_accepted.verification_result.work_run_id !=
-             second_accepted.verification_result.work_run_id
+    assert verification_check_id == verification_check.id
+    assert first_accepted.verification_result.verification_check_id == verification_check.id
 
     assert first_accepted.work_run.aggregate_state == "verified"
-    assert second_accepted.work_run.aggregate_state == "verified"
+    assert fetch_resource!(Run, second_run.run.id).aggregate_state == "awaiting_verification"
   end
 
   test "candidate observations must belong to the candidate run and check" do
@@ -2364,6 +3286,22 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     })
   end
 
+  defp direct_run_attrs(session, packet_result, operation) do
+    %{
+      id: Ecto.UUID.generate(),
+      organization_id: session.organization_id,
+      workspace_id: session.workspace_id,
+      work_packet_id: packet_result.packet.id,
+      work_packet_version_id: packet_result.version.id,
+      operation_id: operation.id,
+      initiator_principal_id: session.principal_id,
+      objective: packet_result.version.objective,
+      authority_posture: "human_supervised",
+      source_surface: "test",
+      reason: "Direct run create validates the packet contract."
+    }
+  end
+
   defp record_observation(session, run, verification_check, opts \\ []) do
     key = Keyword.get(opts, :key, Ecto.UUID.generate())
     normalized_status = Keyword.get(opts, :normalized_status, "succeeded")
@@ -2618,6 +3556,17 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       WHERE id = $2::uuid
       """,
       [db_uuid(version_id), db_uuid(packet_id)]
+    )
+  end
+
+  defp blank_packet_execution_context!(version_id) do
+    Repo.query!(
+      """
+      UPDATE work_packet_versions
+      SET context_summary = '', requirements = ''
+      WHERE id = $1::uuid
+      """,
+      [db_uuid(version_id)]
     )
   end
 

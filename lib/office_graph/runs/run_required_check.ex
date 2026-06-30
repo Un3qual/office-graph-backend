@@ -25,6 +25,20 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :run, OfficeGraph.Runs.Run do
+      source_attribute :run_id
+      define_attribute? false
+      allow_nil? false
+    end
+
+    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+      source_attribute :verification_check_id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+
   actions do
     defaults [:read]
 
@@ -36,8 +50,7 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
         :run_id,
         :verification_check_id,
         :organization_id,
-        :workspace_id,
-        :state
+        :workspace_id
       ]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
