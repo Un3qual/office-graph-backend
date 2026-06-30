@@ -44,8 +44,13 @@ defmodule OfficeGraphWeb.GraphQL.PacketRunVerification.Types do
   object :packet_run_verification_result do
     field :id, non_null(:id)
     field :result, non_null(:string)
+    field :evidence_item_id, :id
+    field :operation_id, :id
     field :work_run_id, :id
     field :work_packet_version_id, :id
+    field :actor_principal_id, :id
+    field :policy_basis, :string
+    field :target_graph_item_id, :id
   end
 
   object :packet_run_missing_evidence do

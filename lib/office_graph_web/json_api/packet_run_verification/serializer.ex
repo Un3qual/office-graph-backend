@@ -70,8 +70,13 @@ defmodule OfficeGraphWeb.JsonApi.PacketRunVerification.Serializer do
     %{
       id: result.id,
       result: result.result,
+      evidence_item_id: result.evidence_item_id,
+      operation_id: result.operation_id,
       work_run_id: result.work_run_id,
-      work_packet_version_id: result.work_packet_version_id
+      work_packet_version_id: result.work_packet_version_id,
+      actor_principal_id: result.actor_principal_id,
+      policy_basis: result.policy_basis,
+      target_graph_item_id: result.target_graph_item_id
     }
   end
 
