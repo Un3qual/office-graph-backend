@@ -164,6 +164,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
       id in ^verification_check_ids and organization_id == ^packet_version.organization_id and
         workspace_id == ^packet_version.workspace_id and lifecycle_state == "required"
     )
+    |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
   end
 

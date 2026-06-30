@@ -539,7 +539,10 @@ function formatVerificationResultDetails(results: OperatorVerificationResult[]) 
         result.id,
         formatWorkflowStatus(result.result),
         `Evidence ${result.evidence_item_id ?? "none"}`,
-        `Policy ${formatWorkflowStatus(result.policy_basis ?? "none")}`
+        `Policy ${formatWorkflowStatus(result.policy_basis ?? "none")}`,
+        `Operation ${result.operation_id ?? "none"}`,
+        `Actor ${result.actor_principal_id ?? "none"}`,
+        `Target ${result.target_graph_item_id ?? "none"}`
       ].join(" / ")
     ),
     2

@@ -1245,6 +1245,30 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert verification_check_source =~ "Ash.Query.lock(:for_update)"
   end
 
+  test "packet handoff required-check validation locks current check state" do
+    work_packets_source = File.read!("lib/office_graph/work_packets.ex")
+    run_start_source = File.read!("lib/office_graph/runs/changes/validate_run_start_contract.ex")
+
+    work_packet_check_read =
+      work_packets_source
+      |> function_body_after(
+        "defp read_required_verification_checks(session_context, verification_check_ids)"
+      )
+      |> String.split("defp duplicate_source_graph_item_ids_error")
+      |> hd()
+
+    run_start_check_read =
+      run_start_source
+      |> function_body_after(
+        "defp read_verification_checks(packet_version, verification_check_ids)"
+      )
+      |> String.split("defp validate_authority_posture")
+      |> hd()
+
+    assert work_packet_check_read =~ "Ash.Query.lock(:for_update)"
+    assert run_start_check_read =~ "Ash.Query.lock(:for_update)"
+  end
+
   test "proposed change applied transition is explicitly internal only" do
     source = File.read!("lib/office_graph/proposed_changes/proposed_graph_change.ex")
 
@@ -2409,6 +2433,13 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> case do
       "" -> 0
       args -> args |> String.split(",") |> length()
+    end
+  end
+
+  defp function_body_after(source, signature) do
+    case String.split(source, signature, parts: 2) do
+      [_before, after_signature] -> after_signature
+      [_source] -> flunk("Expected source to include #{signature}")
     end
   end
 

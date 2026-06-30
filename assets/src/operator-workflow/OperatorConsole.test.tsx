@@ -72,6 +72,15 @@ describe("OperatorConsole", () => {
       "Owner acceptance"
     );
     expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "Operation operation_1"
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "Actor principal_1"
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "Target graph_1"
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
       "missing_accepted_evidence"
     );
 

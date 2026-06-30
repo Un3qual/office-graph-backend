@@ -36,8 +36,7 @@ defmodule OfficeGraph.WorkPackets do
          :ok <-
            Authorization.authorize_operation(session_context, operation, :work_packet_create,
              organization_id: session_context.organization_id
-           ),
-         :ok <- validate_source_check_pairs(session_context, attrs) do
+           ) do
       create_packet_records(session_context, operation, attrs)
     end
   end
@@ -112,6 +111,7 @@ defmodule OfficeGraph.WorkPackets do
       id in ^verification_check_ids and organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id and lifecycle_state == "required"
     )
+    |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
     |> case do
       {:ok, verification_checks} -> {:ok, verification_checks}
@@ -164,13 +164,19 @@ defmodule OfficeGraph.WorkPackets do
 
       case existing_packet_result(session_context, operation) do
         {:ok, nil} ->
-          create_packet_records!(
-            session_context,
-            operation,
-            attrs,
-            packet_id,
-            version_id
-          )
+          case validate_source_check_pairs(session_context, attrs) do
+            :ok ->
+              create_packet_records!(
+                session_context,
+                operation,
+                attrs,
+                packet_id,
+                version_id
+              )
+
+            {:error, error} ->
+              Repo.rollback(error)
+          end
 
         {:ok, packet_result} ->
           replay_packet_result!(packet_result, attrs)

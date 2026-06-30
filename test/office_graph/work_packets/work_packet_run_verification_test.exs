@@ -386,6 +386,59 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work packet operation replay returns existing packet after checks are satisfied" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-replay-after-satisfied"
+      )
+
+    attrs = %{
+      title: "Replay after satisfied check",
+      objective: "Create a packet before direct verification.",
+      context_summary: "Replay should return the existing packet facts.",
+      requirements: "Do not revalidate current check state on operation replay.",
+      success_criteria: "The original packet is returned.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [verification_check.graph_item_id],
+      verification_check_ids: [verification_check.id]
+    }
+
+    assert {:ok, packet_result} = WorkPackets.create_packet(bootstrap.session, operation, attrs)
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "packet-create-replay-after-satisfied-completion"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Satisfied before packet replay",
+                 body: "The check is satisfied after the original packet commit.",
+                 artifact_uri: "https://example.test/packet-create-replay-after-satisfied"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-replay-after-satisfied"
+      )
+
+    assert {:ok, replay_result} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, attrs)
+
+    assert replay_result.packet.id == packet_result.packet.id
+    assert replay_result.version.id == packet_result.version.id
+  end
+
   test "work packet replay validates current version ownership" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, first_check} = create_required_verification_check(bootstrap.session)
