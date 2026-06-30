@@ -7,7 +7,7 @@ import type {
   VerificationOutcome
 } from "./api";
 import { errorMessage, type Loadable } from "./loadable";
-import type { OperatorWorkflowProjectionClient } from "./projectionClient";
+import { runIdForItem, type OperatorWorkflowProjectionClient } from "./projectionClient";
 
 export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
   const [inbox, setInbox] = useState<Loadable<OperatorInbox>>({ state: "loading" });
@@ -123,6 +123,12 @@ function loadRun(
   setVerification: (state: Loadable<VerificationOutcome>) => void,
   isCancelled: () => boolean
 ) {
+  if (!runIdForItem(item)) {
+    setRunState({ state: "idle" });
+    setVerification({ state: "idle" });
+    return;
+  }
+
   setRunState({ state: "loading" });
   setVerification({ state: "loading" });
 

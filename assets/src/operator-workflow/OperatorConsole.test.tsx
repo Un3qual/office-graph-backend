@@ -8,6 +8,7 @@ import {
   sampleVerificationOutcome
 } from "./fixtures";
 import type { OperatorWorkflowItem } from "./api";
+import type { OperatorWorkflowProjectionClient } from "./projectionClient";
 
 describe("OperatorConsole", () => {
   it("loads the inbox, selected item, readiness, run state, and verification", async () => {
@@ -181,6 +182,32 @@ describe("OperatorConsole", () => {
     );
     expect(api.loadRunState).not.toHaveBeenCalled();
     expect(api.loadVerificationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("does not flash run loading states when the selected item has no run link", async () => {
+    const item = {
+      ...selectedItemFixture(),
+      graph_links: selectedItemFixture().graph_links.filter((link) => link.type !== "work_run")
+    };
+    const client: OperatorWorkflowProjectionClient = {
+      loadInbox: vi.fn(async () => ({ ...sampleInbox, rows: [item] })),
+      loadItem: vi.fn(async () => item),
+      loadPacketReadinessForItem: vi.fn(async () => samplePacketReadiness),
+      loadRunStateForItem: vi.fn(async () => null),
+      loadVerificationOutcomeForItem: vi.fn(async () => null)
+    };
+
+    render(<OperatorConsole client={client} />);
+
+    expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
+    expect(client.loadRunStateForItem).not.toHaveBeenCalled();
+    expect(client.loadVerificationOutcomeForItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
+      "Loading run state..."
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).not.toHaveTextContent(
+      "Loading verification..."
+    );
   });
 
   it("selects another inbox row", async () => {
