@@ -12,9 +12,9 @@ describe("frontend foundation stack", () => {
   it("reads a GraphQL projection through TanStack Query and renders a React Aria button", async () => {
     const fetcher = vi.fn(async () => ({
       data: {
-        operatorProjection: {
-          id: "projection_1",
-          title: "Operator inbox"
+        operatorWorkflowItem: {
+          normalizedEventId: "projection_1",
+          status: "ready_for_packet"
         }
       }
     }));
@@ -26,16 +26,25 @@ describe("frontend foundation stack", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("button", { name: "Operator inbox" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "ready_for_packet" })).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith({
-      query: expect.stringContaining("query OperatorProjection"),
+      query: expect.stringContaining("operatorWorkflowItem"),
+      variables: { id: "projection_1" }
+    });
+    expect(fetcher).toHaveBeenCalledWith({
+      query: expect.not.stringContaining("operatorProjection"),
       variables: { id: "projection_1" }
     });
   });
 
   it("exposes the GraphQL projection hook for future feature clients", async () => {
     const fetcher = vi.fn(async () => ({
-      data: { operatorProjection: { id: "projection_2", title: "Run review" } }
+      data: {
+        operatorWorkflowItem: {
+          normalizedEventId: "projection_2",
+          status: "verified"
+        }
+      }
     }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -46,7 +55,7 @@ describe("frontend foundation stack", () => {
         return <p>Loading</p>;
       }
 
-      return <p>{projection.data?.title}</p>;
+      return <p>{projection.data?.status}</p>;
     }
 
     render(
@@ -55,6 +64,6 @@ describe("frontend foundation stack", () => {
       </QueryClientProvider>
     );
 
-    await waitFor(() => expect(screen.getByText("Run review")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("verified")).toBeInTheDocument());
   });
 });

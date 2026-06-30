@@ -4,12 +4,17 @@ import { Button } from "../ui/Button";
 
 type Projection = {
   id: string;
-  title: string;
+  status: string;
+};
+
+type OperatorWorkflowItemProjection = {
+  normalizedEventId: string;
+  status: string;
 };
 
 type GraphQLProjectionResponse = {
   data?: {
-    operatorProjection?: Projection;
+    operatorWorkflowItem?: OperatorWorkflowItemProjection;
   };
 };
 
@@ -18,11 +23,11 @@ type GraphQLFetcher = (request: {
   variables: { id: string };
 }) => Promise<GraphQLProjectionResponse>;
 
-const operatorProjectionQuery = `
-  query OperatorProjection($id: ID!) {
-    operatorProjection(id: $id) {
-      id
-      title
+const operatorWorkflowProjectionQuery = `
+  query OperatorWorkflowProjection($id: ID!) {
+    operatorWorkflowItem(id: $id) {
+      normalizedEventId
+      status
     }
   }
 `;
@@ -35,19 +40,22 @@ const styles = stylex.create({
 
 export function useGraphQLProjection({ fetcher, id }: { fetcher: GraphQLFetcher; id: string }) {
   return useQuery({
-    queryKey: ["operatorProjection", id],
+    queryKey: ["operatorWorkflowProjection", id],
     queryFn: async () => {
       const response = await fetcher({
-        query: operatorProjectionQuery,
+        query: operatorWorkflowProjectionQuery,
         variables: { id }
       });
-      const projection = response.data?.operatorProjection;
+      const projection = response.data?.operatorWorkflowItem;
 
       if (!projection) {
         throw new Error("The GraphQL projection response was empty.");
       }
 
-      return projection;
+      return {
+        id: projection.normalizedEventId,
+        status: projection.status
+      };
     }
   });
 }
@@ -63,7 +71,7 @@ export function FoundationStackProbe({
 
   return (
     <div {...stylex.props(styles.probe)}>
-      <Button isDisabled={projection.isPending}>{projection.data?.title ?? "Loading"}</Button>
+      <Button isDisabled={projection.isPending}>{projection.data?.status ?? "Loading"}</Button>
     </div>
   );
 }
