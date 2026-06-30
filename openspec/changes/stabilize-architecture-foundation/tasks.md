@@ -96,12 +96,12 @@
 
 ## 4. Frontend Architecture Foundation
 
-- [ ] 4.1 Promote the existing concept tokens into a shared token source usable
+- [x] 4.1 Promote the existing concept tokens into a shared token source usable
   from CSS and TypeScript.
-- [ ] 4.2 Confirm the frontend foundation stack with a small spike covering pnpm
+- [x] 4.2 Confirm the frontend foundation stack with a small spike covering pnpm
   under `assets`, StyleX/Vite, one React Aria primitive, one TanStack Query
   projection hook against GraphQL, and verification through the Nix shell.
-- [ ] 4.3 Add shared UI primitives for badge, button, panel, pane header, nav
+- [x] 4.3 Add shared UI primitives for badge, button, panel, pane header, nav
   rail, text field, and empty/error state without embedding operator-workflow
   domain mapping logic.
 - [ ] 4.4 Refactor `OperatorConsole.tsx` into route/container state, projection
