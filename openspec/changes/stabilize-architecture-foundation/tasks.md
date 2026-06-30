@@ -104,26 +104,26 @@
 - [x] 4.3 Add shared UI primitives for badge, button, panel, pane header, nav
   rail, text field, and empty/error state without embedding operator-workflow
   domain mapping logic.
-- [ ] 4.4 Refactor `OperatorConsole.tsx` into route/container state, projection
+- [x] 4.4 Refactor `OperatorConsole.tsx` into route/container state, projection
   hooks, workbench layout, inbox list, selected item detail, packet readiness
   panel, run state panel, and verification panel modules.
-- [ ] 4.5 Move operator-specific status-to-tone and action-label mapping into the
+- [x] 4.5 Move operator-specific status-to-tone and action-label mapping into the
   operator-workflow feature boundary.
-- [ ] 4.6 Introduce a GraphQL projection-client interface for operator workflow
+- [x] 4.6 Introduce a GraphQL projection-client interface for operator workflow
   data that returns frontend view models independent of GraphQL response shape
   and future socket/live invalidation payloads.
-- [ ] 4.7 Keep any existing JSON adapter only as a documented temporary bridge
+- [x] 4.7 Keep any existing JSON adapter only as a documented temporary bridge
   during migration, or replace it with GraphQL immediately if the required
   GraphQL projection exists.
-- [ ] 4.8 Remove frontend-derived packet readiness command assembly from the
+- [x] 4.8 Remove frontend-derived packet readiness command assembly from the
   render path or isolate it behind a documented temporary adapter until the
   backend projection provides explicit command affordances.
-- [ ] 4.9 Add URL-selected inbox row behavior only if needed for the current
+- [x] 4.9 Add URL-selected inbox row behavior only if needed for the current
   operator route; defer broader React routing until a second real product route
   is accepted.
-- [ ] 4.10 Add frontend tests for loading, empty, error, selection, readiness,
+- [x] 4.10 Add frontend tests for loading, empty, error, selection, readiness,
   run, verification, and app-shell asset behavior.
-- [ ] 4.11 Run frontend verification through the project Nix shell and confirm it
+- [x] 4.11 Run frontend verification through the project Nix shell and confirm it
   uses pnpm under `assets` without depending on global Node, npm, or TypeScript
   installs.
 

@@ -334,6 +334,7 @@ h2 {
   border: 1px solid var(--og-color-border);
   border-radius: var(--og-radius-panel);
   background: var(--og-color-surface);
+  padding: 18px 20px;
 }
 
 .inspector-panel h2,
@@ -417,7 +418,8 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .icon-rail {
+  .icon-rail,
+  .ui-nav-rail {
     display: none;
   }
 
