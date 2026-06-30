@@ -28,7 +28,7 @@ const statusTones: Record<string, Tone> = {
 
 const actionLabels: Record<string, string> = {
   accept_evidence: "Accept evidence",
-  apply_proposed_changes: "Apply changes",
+  apply_proposed_changes: "Apply suggestions",
   create_work_packet: "Review packet",
   prepare_packet: "Prepare packet",
   record_evidence: "Record evidence",

@@ -1,9 +1,16 @@
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { stylexBabelPluginConfig } from "./src/foundation/stylexConfig";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [stylexBabelPluginConfig]
+      }
+    })
+  ],
   build: {
     outDir: "../priv/static",
     emptyOutDir: false,

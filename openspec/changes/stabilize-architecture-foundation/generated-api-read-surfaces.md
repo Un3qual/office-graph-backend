@@ -11,7 +11,8 @@ The first generated surfaces must:
 - expose read actions only;
 - keep lifecycle-driving creates, updates, and deletes private or unmounted;
 - enforce `:skeleton_read` and actor organization/workspace scope;
-- avoid making graph projection internals the default product vocabulary.
+- follow `product-vocabulary.md` so generated resource reads do not make graph
+  projection internals the default product vocabulary.
 
 ## Selected Surfaces
 
@@ -21,10 +22,10 @@ The first generated surfaces must:
 | WorkPackets | `OfficeGraph.WorkPackets.WorkPacket` | `listWorkPackets` | `GET /api/v1/work-packets` and `GET /api/v1/work-packets/:id` | Work Packet is the user-facing execution contract. Its `:create` and `:set_current_version` actions remain private and unmounted. |
 | Runs | `OfficeGraph.Runs.Run` | `listWorkRuns` | `GET /api/v1/work-runs` and `GET /api/v1/work-runs/:id` | Run is the product-spine attempt record. This change intentionally makes only `Run.read` public so generated reads can use existing actor-scope policies; `:create` and lifecycle update actions remain private and unmounted. |
 
-`GraphItem`, `GraphRelationship`, `ExecutionObservation`, `RunEvent`, and raw
-evidence-candidate style records remain deferred from default generated product
-reads. They are infrastructure records or audit/debug details unless a later
-projection or workflow requires them.
+`GraphItem`, `GraphRelationship`, `ExecutionObservation`, `RunEvent`, raw
+evidence-candidate style records, and verification-result rows remain deferred
+from default generated product reads. They are infrastructure records or
+audit/debug details unless a later projection or workflow requires them.
 
 ## Actor And Error Behavior
 

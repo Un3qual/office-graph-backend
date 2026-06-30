@@ -96,70 +96,70 @@
 
 ## 4. Frontend Architecture Foundation
 
-- [ ] 4.1 Promote the existing concept tokens into a shared token source usable
+- [x] 4.1 Promote the existing concept tokens into a shared token source usable
   from CSS and TypeScript.
-- [ ] 4.2 Confirm the frontend foundation stack with a small spike covering pnpm
+- [x] 4.2 Confirm the frontend foundation stack with a small spike covering pnpm
   under `assets`, StyleX/Vite, one React Aria primitive, one TanStack Query
   projection hook against GraphQL, and verification through the Nix shell.
-- [ ] 4.3 Add shared UI primitives for badge, button, panel, pane header, nav
+- [x] 4.3 Add shared UI primitives for badge, button, panel, pane header, nav
   rail, text field, and empty/error state without embedding operator-workflow
   domain mapping logic.
-- [ ] 4.4 Refactor `OperatorConsole.tsx` into route/container state, projection
+- [x] 4.4 Refactor `OperatorConsole.tsx` into route/container state, projection
   hooks, workbench layout, inbox list, selected item detail, packet readiness
   panel, run state panel, and verification panel modules.
-- [ ] 4.5 Move operator-specific status-to-tone and action-label mapping into the
+- [x] 4.5 Move operator-specific status-to-tone and action-label mapping into the
   operator-workflow feature boundary.
-- [ ] 4.6 Introduce a GraphQL projection-client interface for operator workflow
+- [x] 4.6 Introduce a GraphQL projection-client interface for operator workflow
   data that returns frontend view models independent of GraphQL response shape
   and future socket/live invalidation payloads.
-- [ ] 4.7 Keep any existing JSON adapter only as a documented temporary bridge
+- [x] 4.7 Keep any existing JSON adapter only as a documented temporary bridge
   during migration, or replace it with GraphQL immediately if the required
   GraphQL projection exists.
-- [ ] 4.8 Remove frontend-derived packet readiness command assembly from the
+- [x] 4.8 Remove frontend-derived packet readiness command assembly from the
   render path or isolate it behind a documented temporary adapter until the
   backend projection provides explicit command affordances.
-- [ ] 4.9 Add URL-selected inbox row behavior only if needed for the current
+- [x] 4.9 Add URL-selected inbox row behavior only if needed for the current
   operator route; defer broader React routing until a second real product route
   is accepted.
-- [ ] 4.10 Add frontend tests for loading, empty, error, selection, readiness,
+- [x] 4.10 Add frontend tests for loading, empty, error, selection, readiness,
   run, verification, and app-shell asset behavior.
-- [ ] 4.11 Run frontend verification through the project Nix shell and confirm it
+- [x] 4.11 Run frontend verification through the project Nix shell and confirm it
   uses pnpm under `assets` without depending on global Node, npm, or TypeScript
   installs.
 
 ## 5. Product Concept Simplification
 
-- [ ] 5.1 Add a canonical vocabulary note or spec summary mapping user-facing
+- [x] 5.1 Add a canonical vocabulary note or spec summary mapping user-facing
   concepts to backend infrastructure concepts.
-- [ ] 5.2 Update API and UI planning docs so Signal, Work Item, Work Packet,
+- [x] 5.2 Update API and UI planning docs so Signal, Work Item, Work Packet,
   Run, Check, Evidence, and Verification are the default MVP product spine,
   with ChangeProposal deferred until proposed mutation review is a real
   workflow for typed domain commands.
-- [ ] 5.3 Stop introducing `proposed_graph_change`, `GraphPatch`, execution
+- [x] 5.3 Stop introducing `proposed_graph_change`, `GraphPatch`, execution
   package, agent-ready block, operation correlation, evidence candidate, and
   verification result as default operator-facing product nouns.
-- [ ] 5.4 Remove or defer `ProposedGraphChange` / GraphPatch product exposure
+- [x] 5.4 Remove or defer `ProposedGraphChange` / GraphPatch product exposure
   from current MVP scope, and document the future ChangeProposal path as typed
   proposed domain commands that apply through owning domain actions.
-- [ ] 5.5 Update operator projections so infrastructure records appear as trace,
+- [x] 5.5 Update operator projections so infrastructure records appear as trace,
   audit, or debug details rather than primary user-facing nouns.
-- [ ] 5.6 Model evidence candidate behavior in API/UI projections as Evidence
+- [x] 5.6 Model evidence candidate behavior in API/UI projections as Evidence
   with explicit state; keep separate evidence-candidate storage internal or
   transitional unless a later accepted workflow creates a dedicated review
   queue.
-- [ ] 5.7 Add proposal checklist guidance requiring workflow justification before
+- [x] 5.7 Add proposal checklist guidance requiring workflow justification before
   promoting planned concepts such as questions, decisions, rich text quotes,
   SCIM group mapping, explicit grants, agent executions, graph conversations,
   or provider-specific review objects into user-facing MVP scope.
 
 ## 6. Final Verification And Handoff
 
-- [ ] 6.1 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate stabilize-architecture-foundation --strict`.
-- [ ] 6.2 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict`.
-- [ ] 6.3 Run backend architecture conformance and focused API tests affected by
+- [x] 6.1 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate stabilize-architecture-foundation --strict`.
+- [x] 6.2 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict`.
+- [x] 6.3 Run backend architecture conformance and focused API tests affected by
   the stabilization work.
-- [ ] 6.4 Run frontend verification through pnpm under `assets` and the app-shell
+- [x] 6.4 Run frontend verification through pnpm under `assets` and the app-shell
   asset test.
-- [ ] 6.5 Run `git diff --check`.
-- [ ] 6.6 Update the change artifacts with implementation notes, remaining
+- [x] 6.5 Run `git diff --check`.
+- [x] 6.6 Update the change artifacts with implementation notes, remaining
   exception-ledger entries, and follow-up sequencing before archive.

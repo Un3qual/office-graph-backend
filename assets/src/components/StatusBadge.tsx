@@ -1,3 +1,4 @@
+import { Badge } from "../ui/Badge";
 import { formatWorkflowStatus, statusTone } from "../operator-workflow/status";
 
 type Props = {
@@ -5,9 +6,5 @@ type Props = {
 };
 
 export function StatusBadge({ status }: Props) {
-  return (
-    <span className="status-badge" data-tone={statusTone(status)}>
-      {formatWorkflowStatus(status)}
-    </span>
-  );
+  return <Badge tone={statusTone(status)}>{formatWorkflowStatus(status)}</Badge>;
 }
