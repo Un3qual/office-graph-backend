@@ -66,6 +66,12 @@ input {
   font-size: 11px;
 }
 
+.rail-item:disabled {
+  color: #a5b0ba;
+  cursor: default;
+  opacity: 0.62;
+}
+
 .rail-item-active {
   background: #e7f5f6;
   color: #0d8b95;

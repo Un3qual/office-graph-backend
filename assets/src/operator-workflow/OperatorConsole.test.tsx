@@ -190,6 +190,25 @@ describe("OperatorConsole", () => {
     expect(await screen.findByRole("heading", { name: "evt_2" })).toBeInTheDocument();
   });
 
+  it("renders future product navigation as unavailable affordances", async () => {
+    const api = {
+      loadInbox: vi.fn(async () => ({ ...sampleInbox, empty: true, rows: [] })),
+      loadItem: vi.fn(),
+      loadPacketReadiness: vi.fn(),
+      loadRunState: vi.fn(),
+      loadVerificationOutcome: vi.fn()
+    };
+
+    render(<OperatorConsole api={api} />);
+
+    expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inbox" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "My Queue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All Runs" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Entities" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
+  });
+
   it("shows an empty inbox state without enabled workflow commands", async () => {
     const api = {
       loadInbox: vi.fn(async () => ({ ...sampleInbox, empty: true, rows: [] })),

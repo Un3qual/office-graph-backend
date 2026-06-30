@@ -26,7 +26,13 @@ type Props = {
 };
 
 const defaultApi = createOperatorWorkflowApi();
-const navItems = ["Inbox", "My Queue", "All Runs", "Entities", "Reports"];
+const navItems = [
+  { label: "Inbox", state: "current" },
+  { label: "My Queue", state: "unavailable" },
+  { label: "All Runs", state: "unavailable" },
+  { label: "Entities", state: "unavailable" },
+  { label: "Reports", state: "unavailable" }
+];
 
 export function OperatorConsole({ api = defaultApi }: Props) {
   const [inbox, setInbox] = useState<Loadable<OperatorInbox>>({ state: "loading" });
@@ -111,15 +117,21 @@ export function OperatorConsole({ api = defaultApi }: Props) {
           OG
         </div>
         <nav aria-label="Operator sections">
-          {navItems.map((navItem) => (
-            <button
-              className={navItem === "Inbox" ? "rail-item rail-item-active" : "rail-item"}
-              key={navItem}
-            >
-              <span aria-hidden="true">{navItem.slice(0, 1)}</span>
-              <span>{navItem}</span>
-            </button>
-          ))}
+          {navItems.map((navItem) => {
+            const isCurrent = navItem.state === "current";
+
+            return (
+              <button
+                aria-current={isCurrent ? "page" : undefined}
+                className={isCurrent ? "rail-item rail-item-active" : "rail-item"}
+                disabled={navItem.state === "unavailable"}
+                key={navItem.label}
+              >
+                <span aria-hidden="true">{navItem.label.slice(0, 1)}</span>
+                <span>{navItem.label}</span>
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
