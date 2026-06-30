@@ -40,4 +40,18 @@ describe("shared UI primitives", () => {
     expect(screen.getByRole("navigation", { name: "Sections" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
   });
+
+  it("preserves render-prop class names on buttons", () => {
+    render(
+      <Button className={({ isDisabled }) => (isDisabled ? "state-disabled" : "state-enabled")} isDisabled>
+        Stateful
+      </Button>
+    );
+
+    expect(screen.getByRole("button", { name: "Stateful" })).toHaveClass(
+      "ui-button",
+      "ui-button-secondary",
+      "state-disabled"
+    );
+  });
 });
