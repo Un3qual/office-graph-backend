@@ -2252,6 +2252,109 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert summary.run.verification_state == "verified"
   end
 
+  test "verified runs stay verified after later failed observations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "verified-before-late-failed-observation"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        observation_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "verified-before-late-failed-observation"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "verified-before-late-failed-observation",
+        result: "passed"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.verification_state == "verified"
+
+    {:ok, later_observation} =
+      record_observation(bootstrap.session, accepted.work_run, verification_check,
+        key: "verified-after-late-failed-observation",
+        normalized_status: "failed",
+        observed_status: "failed"
+      )
+
+    assert later_observation.run.aggregate_state == "verified"
+    assert later_observation.run.execution_state == "completed"
+    assert later_observation.run.verification_state == "verified"
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
+    assert summary.run.aggregate_state == "verified"
+    assert summary.run.execution_state == "completed"
+    assert summary.run.verification_state == "verified"
+  end
+
+  test "verified runs reject stale failed evidence acceptance" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, stale_observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "stale-candidate-before-verification"
+      )
+
+    {:ok, stale_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        stale_observation_result.run,
+        verification_check,
+        stale_observation_result.observation,
+        key: "stale-candidate-before-verification"
+      )
+
+    {:ok, passed_observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "passed-candidate-verifies-before-stale-failed"
+      )
+
+    {:ok, passed_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        passed_observation_result.run,
+        verification_check,
+        passed_observation_result.observation,
+        key: "passed-candidate-verifies-before-stale-failed"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, passed_candidate,
+        key: "passed-candidate-verifies-before-stale-failed",
+        result: "passed"
+      )
+
+    assert accepted.work_run.aggregate_state == "verified"
+    assert accepted.work_run.verification_state == "verified"
+
+    run_id = accepted.work_run.id
+
+    assert {:error, {:work_run_already_verified, ^run_id}} =
+             accept_candidate(bootstrap.session, stale_candidate,
+               key: "stale-failed-candidate-after-verification",
+               result: "failed"
+             )
+
+    refute accepted_evidence_for_candidate?(stale_candidate.id)
+
+    {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
+    assert summary.run.aggregate_state == "verified"
+    assert summary.run.execution_state == "completed"
+    assert summary.run.verification_state == "verified"
+  end
+
   test "direct verification completion records decision metadata" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -2504,6 +2607,43 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  result: "passed",
                  acceptance_policy_basis: "owner_acceptance"
                }
+             )
+  end
+
+  test "accepted evidence candidates reject new acceptance operations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "accepted-candidate-new-operation",
+        normalized_status: "failed",
+        observed_status: "failed"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "accepted-candidate-new-operation"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "accepted-candidate-first-operation",
+        result: "failed"
+      )
+
+    assert accepted.candidate.candidate_state == "accepted"
+    candidate_id = candidate.id
+
+    assert {:error, {:evidence_candidate_already_accepted, ^candidate_id}} =
+             accept_candidate(bootstrap.session, candidate,
+               key: "accepted-candidate-second-operation",
+               result: "failed"
              )
   end
 

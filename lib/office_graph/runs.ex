@@ -113,7 +113,12 @@ defmodule OfficeGraph.Runs do
   def apply_accepted_verification_result(run, %{result: "failed"}) do
     Repo.transaction(fn ->
       locked_run = lock_run!(run.id)
-      set_run_verification_failed!(locked_run)
+
+      if run_verified?(locked_run) do
+        Repo.rollback({:work_run_already_verified, locked_run.id})
+      else
+        set_run_verification_failed!(locked_run)
+      end
     end)
     |> normalize_transaction_result()
   end
@@ -316,7 +321,11 @@ defmodule OfficeGraph.Runs do
   end
 
   defp update_run_after_observation!(run, _observation) do
-    update_run_failed!(run)
+    cond do
+      run_verified?(run) -> run
+      run_failed?(run) -> run
+      true -> update_run_failed!(run)
+    end
   end
 
   defp update_run_failed!(run) do

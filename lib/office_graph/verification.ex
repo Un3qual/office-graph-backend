@@ -150,6 +150,7 @@ defmodule OfficeGraph.Verification do
 
       case existing_acceptance_for_operation(session_context, operation) do
         {:ok, nil} ->
+          validate_candidate_acceptance_open!(candidate)
           accept_locked_candidate!(session_context, operation, candidate, attrs)
 
         {:ok, accepted} ->
@@ -174,6 +175,7 @@ defmodule OfficeGraph.Verification do
 
     result = attrs[:result] || "passed"
     validate_evidence_result!(result)
+    validate_work_run_acceptance_open!(work_run)
     validate_runless_result_allowed!(work_run, candidate, result)
     validate_passed_result_allowed!(result, candidate, work_run, observation)
     prepare_runless_completion!(session_context, operation, verification_check, work_run, result)
@@ -415,6 +417,26 @@ defmodule OfficeGraph.Verification do
     Repo.rollback({:invalid_evidence_result, result})
   end
 
+  defp validate_candidate_acceptance_open!(%{candidate_state: "candidate"}), do: :ok
+
+  defp validate_candidate_acceptance_open!(%{candidate_state: "accepted"} = candidate) do
+    Repo.rollback({:evidence_candidate_already_accepted, candidate.id})
+  end
+
+  defp validate_candidate_acceptance_open!(candidate) do
+    Repo.rollback({:evidence_candidate_not_acceptable, candidate.id, candidate.candidate_state})
+  end
+
+  defp validate_work_run_acceptance_open!(nil), do: :ok
+
+  defp validate_work_run_acceptance_open!(work_run) do
+    if work_run_verified?(work_run) do
+      Repo.rollback({:work_run_already_verified, work_run.id})
+    else
+      :ok
+    end
+  end
+
   defp validate_runless_result_allowed!(nil, _candidate, "passed"), do: :ok
 
   defp validate_runless_result_allowed!(nil, candidate, _result) do
@@ -464,6 +486,11 @@ defmodule OfficeGraph.Verification do
   defp work_run_failed?(work_run) do
     work_run.state == "failed" or work_run.aggregate_state == "failed" or
       work_run.execution_state == "failed" or work_run.verification_state == "failed"
+  end
+
+  defp work_run_verified?(work_run) do
+    work_run.state == "verified" or work_run.aggregate_state == "verified" or
+      work_run.verification_state == "verified"
   end
 
   defp prepare_runless_completion!(

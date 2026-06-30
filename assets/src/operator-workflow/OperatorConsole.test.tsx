@@ -38,6 +38,9 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "Awaiting evidence acceptance"
     );
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "Accept evidence"
+    );
     expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
       "Awaiting evidence acceptance"
     );

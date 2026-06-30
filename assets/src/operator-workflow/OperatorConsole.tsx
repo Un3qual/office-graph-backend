@@ -354,6 +354,7 @@ function RunStatePanel({ runState }: { runState: Loadable<OperatorRunState> }) {
             ["Run ID", runState.data.run.id],
             ["Execution", formatWorkflowStatus(runState.data.run.execution_state)],
             ["Required checks", String(runState.data.required_checks.length)],
+            ["Actions", runState.data.allowed_next_actions.map(actionLabel).join(", ") || "None"],
             ["Observations", formatObservationDetails(runState.data.observations)],
             ["Evidence candidates", formatEvidenceCandidateDetails(runState.data.evidence_candidates)],
             ["Verification results", String(runState.data.verification_results.length)],
