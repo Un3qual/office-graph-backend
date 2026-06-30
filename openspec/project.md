@@ -173,7 +173,7 @@ decisions into this file or into formal OpenSpec specs.
   including PR review comments, fixes, commits, Sentry events, CI results, and
   code-review evidence. This is the first deep proof point, not a restriction
   on the company-wide product frame.
-- Core loop: signal -> question -> decision -> work packet or execution package
+- Core loop: signal -> question -> decision -> work packet
   -> human or agent run -> evidence -> verification -> reusable context.
 - Signal sources should eventually include anything an organization uses:
   chat, documents, tickets, GitHub, Sentry, CI, design tools, marketing tools,
@@ -190,9 +190,11 @@ decisions into this file or into formal OpenSpec specs.
 - Initial value: reduce ambiguity before delegation, preserve decisions, set
   autonomy boundaries, run graph-aware agents, link completion to evidence, and
   make prior work reusable in future context.
-- Near-term product surface: inbox, question queue, work packet view, simple
-  graph projection, node-scoped conversation, agent run view, verification
-  view, and integration settings.
+- Near-term product surface: inbox, work item triage, work packet view, run
+  view, evidence and verification view, focused trace/debug detail, and
+  integration settings. Question queues, graph conversations, and agent
+  execution internals require workflow justification before becoming default
+  operator-facing vocabulary.
 - Enterprise identity testing should not require paid hosted IdPs during
   normal development. Use a local identity lab with authentik for OIDC, SAML,
   and SCIM, optional Keycloak for OIDC/SAML compatibility, and a repo-owned
@@ -265,7 +267,9 @@ Locked or strongly preferred technical direction:
   request.
 - Node or block: an addressable graph item. Examples may include a signal,
   task, question, decision, check, evidence item, plan section, requirement,
-  validation rule, generated UI component, or execution-ready package.
+  validation rule, generated UI component, or work-packet source. This is
+  graph/debug vocabulary by default, not the primary operator-facing product
+  spine.
 - Edge: a typed relationship between nodes, such as generated-from, raises,
   answers, blocked-by, depends-on, requires, validates, produced,
   evidence-for, duplicates, discusses, reviewed-by, or failed-in.
@@ -280,9 +284,9 @@ Locked or strongly preferred technical direction:
 - Evidence: proof or counterproof attached to a check, task, run, or
   requirement. Examples include a merged PR, passing CI run, Sentry quiet
   period, human approval, test result, or review decision.
-- Change proposal: a structured mutation proposal to the graph. Agents may
-  propose changes, but validation, permissions, and domain actions decide what
-  becomes true.
+- Change proposal: deferred MVP vocabulary for proposed mutation review. If it
+  returns, it proposes typed domain command input and applies through owning
+  domain actions rather than mutating the graph projection as source of truth.
 - External reference: a typed link between an Office Graph record and a record
   in an external system, including provider, source identifier, URL, sync
   state, and provenance.
@@ -292,11 +296,10 @@ Locked or strongly preferred technical direction:
 - Work packet: a bounded, versioned package of objective, context,
   constraints, decisions, artifacts, autonomy policy, success criteria,
   verification steps, and escalation rules for a human or agent.
-- Agent-ready block: a node or block whose scope and constraints are tight
-  enough to be handed to an agent as a unit.
-- Agent readiness: a score/status that explains whether work is ready for
-  agent execution, human execution, investigation only, senior review, or
-  human-only handling.
+- Agent readiness: a Work Packet readiness state that explains whether work is
+  ready for agent execution, human execution, investigation only, senior
+  review, or human-only handling. It is packet state by default, not a separate
+  first-spine product noun.
 - Agent runtime: Office Graph's managed environment for graph-aware agents that
   can converse about selected graph items, run automatic reviews, produce
   findings, create change proposals, and perform approved tool actions.

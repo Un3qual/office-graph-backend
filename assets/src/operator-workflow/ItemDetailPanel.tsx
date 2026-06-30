@@ -61,7 +61,7 @@ export function ItemDetailPanel({ item, selectedItem }: Props) {
           <dd>{selectedItem.allowed_next_actions.map(actionLabel).join(", ") || "None"}</dd>
         </div>
         <div>
-          <dt>Proposed changes</dt>
+          <dt>Suggestions</dt>
           <dd>
             {selectedItem.proposed_change_status.applied} applied /{" "}
             {selectedItem.proposed_change_status.pending} pending

@@ -42,7 +42,7 @@ messy signal from any department
   -> structured work graph
   -> blocking questions
   -> recorded decisions
-  -> work packet or execution package
+  -> work packet
   -> human, internal-agent, external-agent, or integration run
   -> evidence / review / monitoring
   -> verified completion
@@ -454,7 +454,7 @@ and run provenance across graph items.
 Strengths:
 
 - Strong enterprise AI governance story.
-- Directly supports nested agents and execution packages.
+- Directly supports nested agents and Work Packet handoff artifacts.
 - Matches the requirement that Office Graph runs its own agents for reviews,
   fixes, conversations, and graph-wide analysis.
 
@@ -594,7 +594,7 @@ Discussion output:
 - Validation and authorization rules.
 - Transaction and audit model.
 
-### 6. Agent Readiness And Work Packets
+### 6. Work Packet Readiness
 
 Questions to answer:
 
@@ -609,7 +609,7 @@ Questions to answer:
 - How are work packets versioned and invalidated when questions, decisions,
   artifacts, checks, or autonomy policies change?
 - What should the Markdown and JSON packet formats guarantee?
-- Can an agent-ready block have subtasks, or only steps, constraints, checks,
+- Should packet readiness expose subtasks, or only steps, constraints, checks,
   and requirements?
 - How does a generic work packet adapt to different departments without
   becoming a weak lowest-common-denominator schema?
@@ -1316,8 +1316,9 @@ Likely MVP screens:
 - Mini Graph View: focused projection around a selected node rather than a full
   canvas.
 - Node Chat: embedded agent conversations attached to selected graph items.
-- Agent Run View: internal-agent, human, external-agent, and integration run
-  state with tool calls, outputs, change proposals, and approvals.
+- Run View: internal-agent, human, external-agent, and integration run state
+  with tool calls, outputs, suggestions, trace detail, and approvals when a
+  workflow requires them.
 - Verification View: checks, evidence, monitoring state, PR/CI/Sentry status,
   review state, and waivers.
 - Settings/Integrations: organization, repo/project connections, credentials,
@@ -1338,8 +1339,8 @@ Explicitly defer:
 
 Metrics to validate the wedge:
 
-- Agent-ready conversion rate.
-- Median time from signal to agent-ready work packet.
+- Work-packet readiness conversion rate.
+- Median time from signal to ready work packet.
 - Blocking question resolution rate.
 - Work packets generated per department/team per week.
 - Human triage time saved.

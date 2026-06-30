@@ -77,6 +77,10 @@ These are now accepted unless a later OpenSpec change reopens them.
 - Verification owns evidence acceptance, check satisfaction, verification
   result recording, and recomputation rules. Runs owns run lifecycle state and
   receives updates through explicit commands.
+- `product-vocabulary.md` is the local checklist for API/UI naming during this
+  change. New user-facing concepts must justify the workflow, operator action,
+  projection contract, authorization behavior, and why the canonical product
+  spine is insufficient.
 - During stabilization, breaking changes are allowed. The product is not near
   release, so backwards compatibility must not preserve bad internal contracts.
 - Compatibility ledgers are drift-control tools, not promises to keep old APIs.

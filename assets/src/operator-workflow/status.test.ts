@@ -18,7 +18,7 @@ describe("operator workflow status helpers", () => {
   });
 
   it("labels backend action identifiers for buttons and disabled affordances", () => {
-    expect(actionLabel("apply_proposed_changes")).toBe("Apply changes");
+    expect(actionLabel("apply_proposed_changes")).toBe("Apply suggestions");
     expect(actionLabel("create_work_packet")).toBe("Review packet");
     expect(actionLabel("accept_evidence")).toBe("Accept evidence");
   });

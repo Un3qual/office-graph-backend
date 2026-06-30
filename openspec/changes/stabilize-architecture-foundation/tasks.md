@@ -129,37 +129,37 @@
 
 ## 5. Product Concept Simplification
 
-- [ ] 5.1 Add a canonical vocabulary note or spec summary mapping user-facing
+- [x] 5.1 Add a canonical vocabulary note or spec summary mapping user-facing
   concepts to backend infrastructure concepts.
-- [ ] 5.2 Update API and UI planning docs so Signal, Work Item, Work Packet,
+- [x] 5.2 Update API and UI planning docs so Signal, Work Item, Work Packet,
   Run, Check, Evidence, and Verification are the default MVP product spine,
   with ChangeProposal deferred until proposed mutation review is a real
   workflow for typed domain commands.
-- [ ] 5.3 Stop introducing `proposed_graph_change`, `GraphPatch`, execution
+- [x] 5.3 Stop introducing `proposed_graph_change`, `GraphPatch`, execution
   package, agent-ready block, operation correlation, evidence candidate, and
   verification result as default operator-facing product nouns.
-- [ ] 5.4 Remove or defer `ProposedGraphChange` / GraphPatch product exposure
+- [x] 5.4 Remove or defer `ProposedGraphChange` / GraphPatch product exposure
   from current MVP scope, and document the future ChangeProposal path as typed
   proposed domain commands that apply through owning domain actions.
-- [ ] 5.5 Update operator projections so infrastructure records appear as trace,
+- [x] 5.5 Update operator projections so infrastructure records appear as trace,
   audit, or debug details rather than primary user-facing nouns.
-- [ ] 5.6 Model evidence candidate behavior in API/UI projections as Evidence
+- [x] 5.6 Model evidence candidate behavior in API/UI projections as Evidence
   with explicit state; keep separate evidence-candidate storage internal or
   transitional unless a later accepted workflow creates a dedicated review
   queue.
-- [ ] 5.7 Add proposal checklist guidance requiring workflow justification before
+- [x] 5.7 Add proposal checklist guidance requiring workflow justification before
   promoting planned concepts such as questions, decisions, rich text quotes,
   SCIM group mapping, explicit grants, agent executions, graph conversations,
   or provider-specific review objects into user-facing MVP scope.
 
 ## 6. Final Verification And Handoff
 
-- [ ] 6.1 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate stabilize-architecture-foundation --strict`.
-- [ ] 6.2 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict`.
-- [ ] 6.3 Run backend architecture conformance and focused API tests affected by
+- [x] 6.1 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate stabilize-architecture-foundation --strict`.
+- [x] 6.2 Run `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict`.
+- [x] 6.3 Run backend architecture conformance and focused API tests affected by
   the stabilization work.
-- [ ] 6.4 Run frontend verification through pnpm under `assets` and the app-shell
+- [x] 6.4 Run frontend verification through pnpm under `assets` and the app-shell
   asset test.
-- [ ] 6.5 Run `git diff --check`.
-- [ ] 6.6 Update the change artifacts with implementation notes, remaining
+- [x] 6.5 Run `git diff --check`.
+- [x] 6.6 Update the change artifacts with implementation notes, remaining
   exception-ledger entries, and follow-up sequencing before archive.

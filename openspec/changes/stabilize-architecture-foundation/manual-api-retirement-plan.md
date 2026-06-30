@@ -27,3 +27,6 @@ an accepted customer integration contract.
   stabilization inventory, and focused API tests in the same change.
 - Compatibility wrappers must stay thin: context loading, domain command or
   projection invocation, and transport-specific error mapping.
+- Replacement API and UI labels must follow `product-vocabulary.md`; legacy
+  field names such as `proposed_change_status`, `evidence_candidates`, or
+  `verification_results` do not make those terms default product nouns.

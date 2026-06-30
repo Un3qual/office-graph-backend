@@ -27,8 +27,8 @@ export function RunStatePanel({ runState }: Props) {
             ["Required checks", String(runState.data.required_checks.length)],
             ["Actions", runState.data.allowed_next_actions.map(actionLabel).join(", ") || "None"],
             ["Observations", formatObservationDetails(runState.data.observations)],
-            ["Evidence candidates", formatEvidenceCandidateDetails(runState.data.evidence_candidates)],
-            ["Verification results", String(runState.data.verification_results.length)],
+            ["Suggested evidence", formatEvidenceCandidateDetails(runState.data.evidence_candidates)],
+            ["Verification decisions", String(runState.data.verification_results.length)],
             [
               "Missing evidence",
               runState.data.missing_evidence

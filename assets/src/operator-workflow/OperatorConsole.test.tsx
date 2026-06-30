@@ -60,7 +60,16 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
       "AutonomyNone"
     );
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "Suggestions"
+    );
+    expect(screen.getByRole("region", { name: "Item detail" })).not.toHaveTextContent(
+      "Proposed changes"
+    );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+      "Suggested evidence"
+    );
+    expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
       "Evidence candidates"
     );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Fresh");
@@ -70,6 +79,9 @@ describe("OperatorConsole", () => {
     );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "Operator console evidence is ready."
+    );
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+      "Verification decisions"
     );
     expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
       "Owner acceptance"
