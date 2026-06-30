@@ -995,6 +995,64 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work packet creation rejects duplicate verification check ids before inserting joins" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "duplicate-required-check", %{
+               title: "Duplicate check packet",
+               objective: "Reject duplicate checks.",
+               context_summary: "Packet required checks must be unique.",
+               requirements: "Use each verification check once.",
+               success_criteria: "Validation returns an error before join inserts.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [verification_check.id, verification_check.id]
+             })
+
+    assert Exception.message(error) =~ "verification_check_ids must not include duplicate ids"
+  end
+
+  test "work packet creation rejects checks already satisfied by direct verification" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "packet-create-satisfied-check"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Satisfied before packet creation",
+                 body: "Direct completion satisfies the check before packet handoff.",
+                 artifact_uri: "https://example.test/packet-create-satisfied-check"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "satisfied-required-check", %{
+               title: "Satisfied check packet",
+               objective: "Reject satisfied checks.",
+               context_summary: "Packet creation only accepts required checks.",
+               requirements: "Use checks that still need verification.",
+               success_criteria: "Validation returns an error before packet creation.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [verification_check.graph_item_id],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert Exception.message(error) =~
+             "verification_check_ids must reference required verification checks"
+  end
+
   test "direct required-check creates reject foreign packet versions" do
     {:ok, first_scope} =
       Foundation.bootstrap_local_owner(

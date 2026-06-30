@@ -54,27 +54,76 @@ defmodule OfficeGraph.WorkPackets do
     source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
     verification_check_ids = Map.get(attrs, :verification_check_ids, [])
 
-    with true <- source_graph_item_ids != [] and verification_check_ids != [],
+    with :ok <- validate_unique_verification_check_ids(verification_check_ids),
          {:ok, verification_checks} <-
-           read_scoped_verification_checks(session_context, verification_check_ids),
-         true <- length(verification_checks) == length(Enum.uniq(verification_check_ids)),
-         [] <- Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+           read_required_verification_checks(session_context, verification_check_ids),
+         :ok <- validate_required_verification_checks(verification_check_ids, verification_checks),
+         :ok <- validate_source_check_pairing(source_graph_item_ids, verification_checks) do
       :ok
-    else
-      false -> :ok
-      [_id | _ids] -> {:error, source_check_mismatch_error()}
-      {:error, error} -> {:error, error}
-      _missing_or_forbidden_reference -> :ok
     end
   end
 
-  defp read_scoped_verification_checks(session_context, verification_check_ids) do
+  defp validate_unique_verification_check_ids([]), do: :ok
+
+  defp validate_unique_verification_check_ids(verification_check_ids) do
+    if length(verification_check_ids) == length(Enum.uniq(verification_check_ids)) do
+      :ok
+    else
+      {:error, duplicate_verification_check_ids_error()}
+    end
+  end
+
+  defp validate_required_verification_checks([], []), do: :ok
+
+  defp validate_required_verification_checks(verification_check_ids, verification_checks) do
+    if length(verification_checks) == length(verification_check_ids) do
+      :ok
+    else
+      {:error, required_verification_checks_error()}
+    end
+  end
+
+  defp validate_source_check_pairing([], _verification_checks), do: :ok
+  defp validate_source_check_pairing(_source_graph_item_ids, []), do: :ok
+
+  defp validate_source_check_pairing(source_graph_item_ids, verification_checks) do
+    case Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
+      [] -> :ok
+      [_id | _ids] -> {:error, source_check_mismatch_error()}
+    end
+  end
+
+  defp read_required_verification_checks(_session_context, []), do: {:ok, []}
+
+  defp read_required_verification_checks(session_context, verification_check_ids) do
     VerificationCheck
     |> Ash.Query.filter(
       id in ^verification_check_ids and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
+        workspace_id == ^session_context.workspace_id and lifecycle_state == "required"
     )
     |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, verification_checks} -> {:ok, verification_checks}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp duplicate_verification_check_ids_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:verification_check_ids],
+        message: "verification_check_ids must not include duplicate ids"
+      )
+    )
+  end
+
+  defp required_verification_checks_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:verification_check_ids],
+        message: "verification_check_ids must reference required verification checks"
+      )
+    )
   end
 
   defp source_check_mismatch_error do

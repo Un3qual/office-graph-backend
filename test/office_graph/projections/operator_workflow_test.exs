@@ -278,6 +278,44 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert mismatched.allowed_next_actions == []
     assert mismatched.blocker_reasons == ["source_graph_item_check_mismatch"]
 
+    duplicate_check_attrs = %{
+      ready_attrs
+      | verification_check_ids: [verification_check.id, verification_check.id]
+    }
+
+    assert {:ok, duplicate_check} =
+             Projections.packet_readiness(bootstrap.session, duplicate_check_attrs)
+
+    assert duplicate_check.ready? == false
+    assert duplicate_check.status == "blocked"
+    assert duplicate_check.allowed_next_actions == []
+    assert duplicate_check.blocker_reasons == ["duplicate_verification_check_ids"]
+
+    {:ok, completion_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete,
+        idempotency_key: "packet-readiness-satisfied-check"
+      )
+
+    assert {:ok, completed} =
+             Verification.complete_with_evidence(
+               bootstrap.session,
+               completion_operation,
+               verification_check,
+               %{
+                 title: "Satisfied before readiness",
+                 body: "Direct completion satisfies the check before packet readiness.",
+                 artifact_uri: "https://example.test/packet-readiness-satisfied-check"
+               }
+             )
+
+    assert completed.verification_check.lifecycle_state == "satisfied"
+
+    assert {:ok, satisfied_check} = Projections.packet_readiness(bootstrap.session, ready_attrs)
+    assert satisfied_check.ready? == false
+    assert satisfied_check.status == "blocked"
+    assert satisfied_check.allowed_next_actions == []
+    assert satisfied_check.blocker_reasons == ["non_required_verification_check"]
+
     not_ready_attrs =
       Map.merge(ready_attrs, %{
         objective: "",

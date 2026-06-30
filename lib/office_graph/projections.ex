@@ -570,10 +570,9 @@ defmodule OfficeGraph.Projections do
       found_ids = MapSet.new(checks, & &1.id)
 
       blockers =
-        check_ids
-        |> Enum.reject(&MapSet.member?(found_ids, &1))
-        |> Enum.map(fn _id -> "missing_or_forbidden_verification_check" end)
-        |> Enum.uniq()
+        duplicate_check_id_blockers(check_ids) ++
+          missing_check_blockers(check_ids, found_ids) ++
+          non_required_check_blockers(checks)
 
       required_checks =
         Enum.map(checks, fn check ->
@@ -581,6 +580,29 @@ defmodule OfficeGraph.Projections do
         end)
 
       {:ok, required_checks, blockers}
+    end
+  end
+
+  defp duplicate_check_id_blockers(check_ids) do
+    if length(check_ids) == length(Enum.uniq(check_ids)) do
+      []
+    else
+      ["duplicate_verification_check_ids"]
+    end
+  end
+
+  defp missing_check_blockers(check_ids, found_ids) do
+    check_ids
+    |> Enum.reject(&MapSet.member?(found_ids, &1))
+    |> Enum.map(fn _id -> "missing_or_forbidden_verification_check" end)
+    |> Enum.uniq()
+  end
+
+  defp non_required_check_blockers(checks) do
+    if Enum.any?(checks, &(&1.lifecycle_state != "required")) do
+      ["non_required_verification_check"]
+    else
+      []
     end
   end
 
