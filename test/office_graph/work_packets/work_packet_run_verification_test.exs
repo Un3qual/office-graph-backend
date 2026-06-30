@@ -1014,6 +1014,28 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert Exception.message(error) =~ "verification_check_ids must not include duplicate ids"
   end
 
+  test "work packet creation rejects duplicate source graph item ids before inserting joins" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:error, error} =
+             create_packet_with_operation(bootstrap.session, "duplicate-source-reference", %{
+               title: "Duplicate source packet",
+               objective: "Reject duplicate source references.",
+               context_summary: "Packet source references must be unique.",
+               requirements: "Use each source graph item once.",
+               success_criteria: "Validation returns an error before source inserts.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [
+                 verification_check.graph_item_id,
+                 verification_check.graph_item_id
+               ],
+               verification_check_ids: [verification_check.id]
+             })
+
+    assert Exception.message(error) =~ "source_graph_item_ids must not include duplicate ids"
+  end
+
   test "work packet creation rejects checks already satisfied by direct verification" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

@@ -11,6 +11,7 @@ defmodule OfficeGraph.Projections do
       OfficeGraph.ProposedChanges,
       OfficeGraph.Revisions,
       OfficeGraph.Runs,
+      OfficeGraph.Verification,
       OfficeGraph.WorkGraph,
       OfficeGraph.WorkPackets
     ],
@@ -22,6 +23,7 @@ defmodule OfficeGraph.Projections do
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
+  alias OfficeGraph.Verification
   alias OfficeGraph.WorkPackets
 
   alias OfficeGraph.WorkGraph.{
@@ -544,10 +546,7 @@ defmodule OfficeGraph.Projections do
       found_ids = MapSet.new(graph_items, & &1.id)
 
       blockers =
-        source_ids
-        |> Enum.reject(&MapSet.member?(found_ids, &1))
-        |> Enum.map(fn _id -> "missing_or_forbidden_source_graph_item" end)
-        |> Enum.uniq()
+        duplicate_source_id_blockers(source_ids) ++ missing_source_blockers(source_ids, found_ids)
 
       links =
         Enum.map(graph_items, fn graph_item ->
@@ -561,6 +560,21 @@ defmodule OfficeGraph.Projections do
 
       {:ok, links, blockers}
     end
+  end
+
+  defp duplicate_source_id_blockers(source_ids) do
+    if length(source_ids) == length(Enum.uniq(source_ids)) do
+      []
+    else
+      ["duplicate_source_graph_item_ids"]
+    end
+  end
+
+  defp missing_source_blockers(source_ids, found_ids) do
+    source_ids
+    |> Enum.reject(&MapSet.member?(found_ids, &1))
+    |> Enum.map(fn _id -> "missing_or_forbidden_source_graph_item" end)
+    |> Enum.uniq()
   end
 
   defp packet_required_checks(session_context, attrs) do
@@ -814,7 +828,8 @@ defmodule OfficeGraph.Projections do
 
     Enum.any?(evidence_candidates, fn candidate ->
       candidate.candidate_state == "candidate" and
-        MapSet.member?(missing_check_ids, candidate.verification_check_id)
+        MapSet.member?(missing_check_ids, candidate.verification_check_id) and
+        Verification.acceptable_evidence_source?(candidate)
     end)
   end
 

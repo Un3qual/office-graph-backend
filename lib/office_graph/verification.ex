@@ -94,6 +94,11 @@ defmodule OfficeGraph.Verification do
     attrs[:normalized_status] == "succeeded" and acceptable_evidence_source?(attrs)
   end
 
+  def acceptable_evidence_source?(source) do
+    Map.get(source, :freshness_state) == "fresh" and
+      Map.get(source, :trust_basis) in ["owner_attested", "signed_provider_payload"]
+  end
+
   defp create_evidence_candidate_record(session_context, operation, attrs) do
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
@@ -453,11 +458,6 @@ defmodule OfficeGraph.Verification do
   end
 
   defp validate_passed_result_allowed!(_result, _candidate, _work_run, _observation), do: :ok
-
-  defp acceptable_evidence_source?(source) do
-    Map.get(source, :freshness_state) == "fresh" and
-      Map.get(source, :trust_basis) in ["owner_attested", "signed_provider_payload"]
-  end
 
   defp work_run_failed?(nil), do: false
 

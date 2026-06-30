@@ -54,12 +54,23 @@ defmodule OfficeGraph.WorkPackets do
     source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
     verification_check_ids = Map.get(attrs, :verification_check_ids, [])
 
-    with :ok <- validate_unique_verification_check_ids(verification_check_ids),
+    with :ok <- validate_unique_source_graph_item_ids(source_graph_item_ids),
+         :ok <- validate_unique_verification_check_ids(verification_check_ids),
          {:ok, verification_checks} <-
            read_required_verification_checks(session_context, verification_check_ids),
          :ok <- validate_required_verification_checks(verification_check_ids, verification_checks),
          :ok <- validate_source_check_pairing(source_graph_item_ids, verification_checks) do
       :ok
+    end
+  end
+
+  defp validate_unique_source_graph_item_ids([]), do: :ok
+
+  defp validate_unique_source_graph_item_ids(source_graph_item_ids) do
+    if length(source_graph_item_ids) == length(Enum.uniq(source_graph_item_ids)) do
+      :ok
+    else
+      {:error, duplicate_source_graph_item_ids_error()}
     end
   end
 
@@ -106,6 +117,15 @@ defmodule OfficeGraph.WorkPackets do
       {:ok, verification_checks} -> {:ok, verification_checks}
       {:error, error} -> {:error, error}
     end
+  end
+
+  defp duplicate_source_graph_item_ids_error do
+    Ash.Error.to_error_class(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [:source_graph_item_ids],
+        message: "source_graph_item_ids must not include duplicate ids"
+      )
+    )
   end
 
   defp duplicate_verification_check_ids_error do

@@ -291,6 +291,22 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert duplicate_check.allowed_next_actions == []
     assert duplicate_check.blocker_reasons == ["duplicate_verification_check_ids"]
 
+    duplicate_source_attrs = %{
+      ready_attrs
+      | source_graph_item_ids: [
+          verification_check.graph_item_id,
+          verification_check.graph_item_id
+        ]
+    }
+
+    assert {:ok, duplicate_source} =
+             Projections.packet_readiness(bootstrap.session, duplicate_source_attrs)
+
+    assert duplicate_source.ready? == false
+    assert duplicate_source.status == "blocked"
+    assert duplicate_source.allowed_next_actions == []
+    assert duplicate_source.blocker_reasons == ["duplicate_source_graph_item_ids"]
+
     {:ok, completion_operation} =
       Operations.start_operation(bootstrap.session, :verification_complete,
         idempotency_key: "packet-readiness-satisfied-check"
@@ -420,6 +436,42 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert operation_id == accepted.verification_result.operation_id
     assert actor_principal_id == bootstrap.session.principal_id
     assert target_graph_item_id == verification_check.graph_item_id
+  end
+
+  test "operator run state does not offer acceptance for unusable evidence candidates" do
+    for {key, overrides} <- [
+          {"stale-candidate", [freshness_state: "stale"]},
+          {"untrusted-candidate", [trust_basis: "unauthenticated"]}
+        ] do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+      {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+      {:ok, observation_result} =
+        record_observation(bootstrap.session, run_result.run, verification_check,
+          key: "operator-run-state-#{key}"
+        )
+
+      {:ok, candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          observation_result.observation,
+          Keyword.put(overrides, :key, "operator-run-state-#{key}")
+        )
+
+      assert {:ok, awaiting_evidence} =
+               Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+      assert awaiting_evidence.status == "awaiting_evidence"
+      assert awaiting_evidence.allowed_next_actions == ["create_evidence_candidate"]
+
+      assert Enum.any?(
+               awaiting_evidence.evidence_candidates,
+               &(&1.id == candidate.id and &1.state == "candidate")
+             )
+    end
   end
 
   test "operator run state keeps acceptance action for pending candidates on missing checks" do
@@ -775,6 +827,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
   defp create_evidence_candidate(session, run, verification_check, observation, opts) do
     key = Keyword.fetch!(opts, :key)
+    freshness_state = Keyword.get(opts, :freshness_state, "fresh")
+    trust_basis = Keyword.get(opts, :trust_basis, "owner_attested")
 
     {:ok, operation} =
       Operations.start_operation(session, :evidence_candidate_create,
@@ -788,8 +842,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       claim: "Evidence candidate #{key}.",
       source_kind: "human",
       source_identity: "manual:#{key}",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
+      freshness_state: freshness_state,
+      trust_basis: trust_basis,
       sensitivity: "internal"
     })
   end
