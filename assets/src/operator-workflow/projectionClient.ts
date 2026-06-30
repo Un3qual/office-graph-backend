@@ -159,7 +159,7 @@ function graphQLInbox(value: unknown): OperatorInbox {
 }
 
 function graphQLItem(value: unknown): OperatorWorkflowItem {
-  const item = record(value);
+  const item = requiredRecord(value, "operator workflow item");
   const typedId = record(item.typedId);
   const source = record(item.source);
   const proposed = record(item.proposedChangeStatus);
@@ -407,6 +407,18 @@ function graphQLPacketReadinessInput(input: PacketReadinessInput) {
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function requiredRecord(value: unknown, projectionName: string): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const row = value as Record<string, unknown>;
+
+    if (Object.keys(row).length > 0) {
+      return row;
+    }
+  }
+
+  throw new Error(`The GraphQL ${projectionName} projection was empty.`);
 }
 
 function arrayValue(value: unknown): unknown[] {

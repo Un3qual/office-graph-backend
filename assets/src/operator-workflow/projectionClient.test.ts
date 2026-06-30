@@ -101,4 +101,19 @@ describe("operator workflow projection client", () => {
       variables: {}
     });
   });
+
+  it.each([
+    ["null", { operatorWorkflowItem: null }],
+    ["missing", {}],
+    ["empty object", { operatorWorkflowItem: {} }]
+  ])("rejects %s GraphQL item projections instead of rendering a blank item", async (_label, data) => {
+    const fetcher = vi.fn(async () => ({
+      data
+    }));
+    const client = createGraphQLOperatorWorkflowProjectionClient({ fetcher });
+
+    await expect(client.loadItem("missing")).rejects.toThrow(
+      "The GraphQL operator workflow item projection was empty."
+    );
+  });
 });
