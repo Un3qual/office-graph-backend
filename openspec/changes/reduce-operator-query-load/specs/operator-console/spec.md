@@ -38,6 +38,14 @@ JSON adapter as a compatibility bridge over the same frontend view model.
   without immediately issuing a duplicate item-detail read for the same
   normalized event
 
+#### Scenario: Initial packet readiness reuses selected row links
+- **WHEN** the selected inbox row is already ready for packet preparation and
+  includes source graph links plus required verification-check links
+- **THEN** the console MUST derive the initial packet-readiness panel from the
+  loaded row as prepare-packet context, without immediately issuing a duplicate
+  packet-readiness read for the same graph and verification-check ids and
+  without claiming the packet can already be created
+
 #### Scenario: Item detail is selected
 - **WHEN** an operator selects an inbox row whose detail is not already loaded
   or whose source watermark requires refresh

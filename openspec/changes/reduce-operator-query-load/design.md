@@ -43,9 +43,9 @@ projection assembly that builds each inbox row independently.
 - Redesigning the visual console, adding broad product routes, or changing the
   operator workflow projection payload semantics beyond transport and
   performance behavior.
-- Reworking the full authorization model. This change may cache or carry
-  already-established session and capability facts, but it does not replace
-  RBAC/ABAC policy semantics.
+- Reworking the full authorization model. This change may carry
+  already-established request capability facts, but it does not replace
+  RBAC/ABAC policy semantics or introduce VM-lifetime session caches.
 
 ## Decisions
 
@@ -103,6 +103,11 @@ capability, role, and role-assignment tables when the session context already
 contains validated capabilities for the current request. Any shortcut must
 still reject revoked sessions or stale principals where the request boundary
 has not established freshness.
+
+The local development owner bootstrap should remain request scoped. A
+VM-lifetime bootstrap cache would reduce a few local setup reads, but it also
+creates auth-shaped state that can outlive identity, tenancy, or policy row
+changes. That trade-off is not worth carrying in the shared API support path.
 
 Alternative considered: memoize local bootstrap globally. That helps local dev
 but can hide revocation/session freshness behavior and is less representative

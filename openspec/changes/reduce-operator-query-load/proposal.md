@@ -17,9 +17,10 @@ normal product API.
   reads.
 - Remove duplicated selected-row work where the inbox response already contains
   enough item detail for the initial selection.
-- Cache or carry request/session authorization facts so local bootstrap and
-  read authorization do not re-query the same organization, workspace,
-  principal, capability, role, and session rows for every console subrequest.
+- Carry server-installed request/session authorization facts so local bootstrap
+  and read authorization do not re-query the same capability and role rows for
+  every console subrequest, without introducing VM-lifetime identity or session
+  caches.
 - Add query-count regression coverage or telemetry-backed assertions for the
   operator page workflow so future rows or linked resources do not reintroduce
   N+1 projection reads.

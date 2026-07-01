@@ -36,3 +36,10 @@
 - [x] 5.3 Run the query-count scaling test and document the accepted budget.
 - [x] 5.4 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, frontend verification, and OpenSpec strict validation from the Nix shell.
 - [x] 5.5 Document ongoing query-shape review expectations for optimization and N+1 prevention.
+
+## 6. Follow-Up Query Optimization
+
+- [x] 6.1 Reuse packet-readiness data derivable from the selected inbox row so the initial ready-for-packet selection does not issue a second GraphQL readiness read.
+- [x] 6.2 Keep local owner bootstrap request scoped and document that the operator optimization must not introduce VM-lifetime authorization or session caches.
+- [x] 6.3 Remove the request-validated session shortcut so packet-readiness authorization continues through the normal session validation boundary.
+- [x] 6.4 Re-run focused frontend/backend regression tests plus OpenSpec strict validation for the follow-up optimizations.

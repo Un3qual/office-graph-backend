@@ -8,11 +8,12 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
   @ash_domains Application.compile_env(:office_graph, :ash_domains, [])
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
-  @api_migration_ledger "openspec/changes/stabilize-architecture-foundation/api-migration-ledger.md"
+  @stabilization_change_archive "openspec/changes/archive/2026-06-30-stabilize-architecture-foundation"
+  @api_migration_ledger "#{@stabilization_change_archive}/api-migration-ledger.md"
   @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
-  @map_field_classification "openspec/changes/stabilize-architecture-foundation/map-field-classification.md"
+  @map_field_classification "#{@stabilization_change_archive}/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
-  @stabilization_inventory "openspec/changes/stabilize-architecture-foundation/stabilization-inventory.md"
+  @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},

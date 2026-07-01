@@ -3,6 +3,7 @@ import {
   createDefaultOperatorWorkflowProjectionClient,
   createGraphQLOperatorWorkflowProjectionClient,
   createJsonOperatorWorkflowProjectionClient,
+  packetReadinessForLoadedItem,
   packetReadinessInputForItem,
   runIdForItem
 } from "./projectionClient";
@@ -94,6 +95,52 @@ describe("operator workflow projection client", () => {
     expect(api.loadPacketReadiness).toHaveBeenCalledWith({
       source_graph_item_ids: ["graph_1"],
       verification_check_ids: ["check_1"]
+    });
+  });
+
+  it("derives initial readiness from loaded item links without claiming packet creation readiness", () => {
+    const item = {
+      ...sampleInbox.rows[0],
+      status: "ready_for_packet",
+      allowed_next_actions: ["prepare_packet"],
+      graph_links: [
+        {
+          type: "signal",
+          id: "signal_1",
+          graph_item_id: "graph_signal_1",
+          title: "Investigate query fanout",
+          state: "open"
+        },
+        {
+          type: "verification_check",
+          id: "check_1",
+          graph_item_id: "graph_check_1",
+          title: "Run tests",
+          state: "required"
+        }
+      ]
+    };
+
+    expect(packetReadinessForLoadedItem(item)).toMatchObject({
+      ready: false,
+      status: "ready_for_packet",
+      allowed_next_actions: ["prepare_packet"],
+      blocker_reasons: [],
+      source_links: [
+        {
+          type: "signal",
+          id: "signal_1",
+          graph_item_id: "graph_signal_1",
+          title: "Investigate query fanout"
+        },
+        {
+          type: "verification_check",
+          id: "check_1",
+          graph_item_id: "graph_check_1",
+          title: "Run tests"
+        }
+      ],
+      required_checks: [{ id: "check_1", graph_item_id: "graph_check_1", state: "required" }]
     });
   });
 

@@ -2,6 +2,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.ApiSupport
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
@@ -547,6 +548,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     end)
   end
 
+  test "local owner bootstrap stays request scoped instead of VM cached" do
+    with_local_api_owner_bootstrap(true, fn ->
+      assert {:ok, bootstrap} = ApiSupport.bootstrap_local_api_owner()
+
+      updated_name = "Office Graph Owner #{System.unique_integer([:positive])}"
+      rename_profile!(bootstrap.profile.id, updated_name)
+
+      assert {:ok, refreshed_bootstrap} = ApiSupport.bootstrap_local_api_owner()
+      assert refreshed_bootstrap.profile.id == bootstrap.profile.id
+      assert refreshed_bootstrap.profile.display_name == updated_name
+    end)
+  end
+
   defp graphql(conn, query, variables) do
     response = raw_graphql(conn, query, variables)
 
@@ -622,6 +636,15 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     after
       Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
     end
+  end
+
+  defp rename_profile!(profile_id, display_name) do
+    now = DateTime.utc_now()
+
+    OfficeGraph.Repo.query!(
+      "UPDATE principal_profiles SET display_name = $1, updated_at = $2 WHERE id = $3",
+      [display_name, now, Ecto.UUID.dump!(profile_id)]
+    )
   end
 
   defp create_required_verification_check(session) do

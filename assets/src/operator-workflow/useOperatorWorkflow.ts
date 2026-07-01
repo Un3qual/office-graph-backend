@@ -7,7 +7,11 @@ import type {
   VerificationOutcome
 } from "./api";
 import { errorMessage, type Loadable } from "./loadable";
-import { runIdForItem, type OperatorWorkflowProjectionClient } from "./projectionClient";
+import {
+  packetReadinessForLoadedItem,
+  runIdForItem,
+  type OperatorWorkflowProjectionClient
+} from "./projectionClient";
 
 export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
   const [inbox, setInbox] = useState<Loadable<OperatorInbox>>({ state: "loading" });
@@ -67,7 +71,7 @@ export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
 
     if (selectedInboxRow) {
       setItem({ state: "loaded", data: selectedInboxRow });
-      loadReadiness(client, selectedInboxRow, setReadiness, () => cancelled);
+      loadOrReuseReadiness(client, selectedInboxRow, setReadiness, () => cancelled);
       loadRun(client, selectedInboxRow, setRunState, setVerification, () => cancelled);
 
       return () => {
@@ -83,7 +87,7 @@ export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
         }
 
         setItem({ state: "loaded", data: nextItem });
-        loadReadiness(client, nextItem, setReadiness, () => cancelled);
+        loadOrReuseReadiness(client, nextItem, setReadiness, () => cancelled);
         loadRun(client, nextItem, setRunState, setVerification, () => cancelled);
       })
       .catch((error: unknown) => {
@@ -108,6 +112,22 @@ export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
     selectItem: setSelectedId,
     verification
   };
+}
+
+function loadOrReuseReadiness(
+  client: OperatorWorkflowProjectionClient,
+  item: OperatorWorkflowItem,
+  setReadiness: (state: Loadable<PacketReadiness>) => void,
+  isCancelled: () => boolean
+) {
+  const loadedReadiness = packetReadinessForLoadedItem(item);
+
+  if (loadedReadiness) {
+    setReadiness({ state: "loaded", data: loadedReadiness });
+    return;
+  }
+
+  loadReadiness(client, item, setReadiness, isCancelled);
 }
 
 function loadReadiness(

@@ -34,7 +34,7 @@ describe("OperatorConsole", () => {
     expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
     expect(screen.getAllByText("Ready for packet").length).toBeGreaterThan(0);
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Packet ready"
+      "Ready for packet"
     );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "Awaiting evidence acceptance"
@@ -101,12 +101,7 @@ describe("OperatorConsole", () => {
     );
 
     expect(api.loadItem).not.toHaveBeenCalled();
-    expect(api.loadPacketReadiness).toHaveBeenCalledWith(
-      {
-        source_graph_item_ids: ["graph_1"],
-        verification_check_ids: ["check_1"]
-      }
-    );
+    expect(api.loadPacketReadiness).not.toHaveBeenCalled();
     expect(api.loadRunState).toHaveBeenCalledWith("run_1");
     expect(api.loadVerificationOutcome).not.toHaveBeenCalled();
   });
@@ -173,7 +168,10 @@ describe("OperatorConsole", () => {
     render(<OperatorConsole api={api} />);
 
     expect(await screen.findByRole("heading", { name: "evt_1" })).toBeInTheDocument();
-    expect(api.loadPacketReadiness).toHaveBeenCalled();
+    expect(api.loadPacketReadiness).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "Ready for packet"
+    );
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
       "No run linked yet."
     );

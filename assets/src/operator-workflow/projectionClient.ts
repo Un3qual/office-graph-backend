@@ -147,6 +147,38 @@ export function packetReadinessInputForItem(item: OperatorWorkflowItem): PacketR
   };
 }
 
+export function packetReadinessForLoadedItem(item: OperatorWorkflowItem): PacketReadiness | null {
+  if (item.status !== "ready_for_packet" || !item.allowed_next_actions.includes("prepare_packet")) {
+    return null;
+  }
+
+  const sourceLinks = item.graph_links.flatMap((link) =>
+    link.graph_item_id && link.type !== "work_run"
+      ? [{ type: link.type, id: link.id, graph_item_id: link.graph_item_id, title: link.title }]
+      : []
+  );
+  const requiredChecks = item.graph_links.flatMap((link) =>
+    link.graph_item_id && link.type === "verification_check"
+      ? [{ id: link.id, graph_item_id: link.graph_item_id, state: link.state ?? "required" }]
+      : []
+  );
+
+  if (sourceLinks.length === 0 || requiredChecks.length === 0) {
+    return null;
+  }
+
+  return {
+    type: "packet_readiness",
+    ready: false,
+    status: item.status,
+    allowed_next_actions: item.allowed_next_actions,
+    blocker_reasons: [],
+    source_links: sourceLinks,
+    required_checks: requiredChecks,
+    source_watermark: item.source_watermark
+  };
+}
+
 export function runIdForItem(item: OperatorWorkflowItem) {
   return item.graph_links.find((link) => link.type === "work_run")?.id ?? null;
 }

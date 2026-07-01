@@ -27,6 +27,13 @@ graph links, packet links, runs, evidence, and verification records grow.
   of re-running local owner bootstrap or accepting client-supplied session
   context maps
 
+#### Scenario: Local owner bootstrap remains request scoped
+- **WHEN** local API owner bootstrap is enabled for a request path without a
+  server-installed trusted context
+- **THEN** the implementation MUST run the explicit bootstrap path for that
+  request rather than storing VM-lifetime authorization or session context that
+  can outlive identity, tenancy, or policy row changes
+
 #### Scenario: Authorization checks reuse trusted session facts
 - **WHEN** a projection read authorizes an action whose capability is already
   present in the trusted session context for the current organization and
