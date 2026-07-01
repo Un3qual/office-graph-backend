@@ -40,3 +40,11 @@ graph links, packet links, runs, evidence, and verification records grow.
   rows and linked graph resources
 - **THEN** the tests MUST prove the number of SQL queries does not grow by a
   per-row or per-resource N+1 pattern for the known projection hotspots
+
+#### Scenario: Query shape remains part of ongoing review
+- **WHEN** future work adds or changes operator workflow projection reads,
+  transport fields, background refreshes, or linked resource traversal
+- **THEN** reviewers and implementers MUST look for opportunities to batch
+  related records, reuse loaded projection data, avoid repeated authorization
+  or bootstrap reads, and add focused query-count coverage when the change can
+  grow with rows, graph links, runs, evidence, or integration records

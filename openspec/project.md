@@ -246,6 +246,12 @@ Locked or strongly preferred technical direction:
   API-facing domain boundaries.
 - Use explicit SQL/Ecto where graph traversal, replay, analytics, or bulk
   operations exceed what should be forced through Ash.
+- Treat query shape as part of the design review for new or changed reads.
+  Keep watching for avoidable query fanout and N+1 patterns in API,
+  projection, GraphQL, JSON, and background-job paths; prefer batched reads,
+  shared projection assembly, and focused query-count regression coverage when
+  a workflow can grow by rows, graph links, runs, evidence, or integration
+  records.
 
 ## Working Vocabulary
 
