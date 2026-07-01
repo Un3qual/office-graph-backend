@@ -1,7 +1,7 @@
 ## 1. Regression Baseline
 
-- [ ] 1.1 Add an Ecto telemetry query-count helper for focused projection/API tests.
-- [ ] 1.2 Add an operator workflow projection scaling test with multiple applied inbox rows and linked graph resources.
+- [x] 1.1 Add an Ecto telemetry query-count helper for focused projection/API tests.
+- [x] 1.2 Add an operator workflow projection scaling test with multiple applied inbox rows and linked graph resources.
 - [ ] 1.3 Capture current query-count behavior in a failing or threshold-marked test that identifies bootstrap/auth, selected-item duplication, and projection fan-out separately.
 
 ## 2. Frontend Transport And Request Fanout
@@ -22,12 +22,12 @@
 
 ## 4. Batched Projection Assembly
 
-- [ ] 4.1 Refactor `OfficeGraph.Projections.operator_inbox/1` and `operator_workflow_item/2` to use one shared batched row builder.
-- [ ] 4.2 Batch proposed-change reads by normalized intake event ids.
-- [ ] 4.3 Batch audit and revision trace reads by applied operation ids.
-- [ ] 4.4 Batch graph resource link reads by resource type and id.
-- [ ] 4.5 Batch graph relationship, work-packet required-check, work-packet source, and linked-run reads across all rows.
-- [ ] 4.6 Preserve existing status, reason-code, blocker, audit-trace, revision-trace, graph-link, and source-watermark semantics.
+- [x] 4.1 Refactor `OfficeGraph.Projections.operator_inbox/1` and `operator_workflow_item/2` to use one shared batched row builder.
+- [x] 4.2 Batch proposed-change reads by normalized intake event ids.
+- [x] 4.3 Batch audit and revision trace reads by applied operation ids.
+- [x] 4.4 Batch graph resource link reads by resource type and id.
+- [x] 4.5 Batch graph relationship, work-packet required-check, work-packet source, and linked-run reads across all rows.
+- [x] 4.6 Preserve existing status, reason-code, blocker, audit-trace, revision-trace, graph-link, and source-watermark semantics.
 
 ## 5. Verification
 

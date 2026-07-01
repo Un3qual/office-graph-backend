@@ -47,6 +47,12 @@ defmodule OfficeGraph.Projections do
     "review_finding" => 2,
     "verification_check" => 3
   }
+  @graph_resource_modules %{
+    "signal" => Signal,
+    "task" => Task,
+    "review_finding" => ReviewFinding,
+    "verification_check" => VerificationCheck
+  }
 
   def operator_inbox(session_context) do
     with :ok <- authorize_read(session_context),
@@ -65,7 +71,7 @@ defmodule OfficeGraph.Projections do
   def operator_workflow_item(session_context, normalized_event_id) do
     with :ok <- authorize_read(session_context),
          {:ok, event} <- read_intake_event(session_context, normalized_event_id),
-         {:ok, row} <- build_intake_row(session_context, event) do
+         {:ok, [row]} <- build_intake_rows(session_context, [event]) do
       {:ok, row}
     end
   end
@@ -150,85 +156,124 @@ defmodule OfficeGraph.Projections do
     end
   end
 
+  defp build_intake_rows(_session_context, []), do: {:ok, []}
+
   defp build_intake_rows(session_context, events) do
-    events
-    |> Enum.reduce_while({:ok, []}, fn event, {:ok, acc} ->
-      case build_intake_row(session_context, event) do
-        {:ok, row} -> {:cont, {:ok, [row | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, rows} -> {:ok, Enum.reverse(rows)}
-      error -> error
+    event_ids = Enum.map(events, & &1.id)
+
+    with {:ok, proposed_changes_by_event_id} <-
+           read_proposed_changes_by_event_id(session_context, event_ids),
+         {:ok, applied_projections_by_event_id} <-
+           applied_projections_by_event_id(session_context, events, proposed_changes_by_event_id) do
+      rows =
+        Enum.map(events, fn event ->
+          proposed_changes = Map.get(proposed_changes_by_event_id, event.id, [])
+
+          applied_projection =
+            Map.get(applied_projections_by_event_id, event.id, empty_applied_projection())
+
+          build_intake_row(event, proposed_changes, applied_projection)
+        end)
+
+      {:ok, rows}
     end
   end
 
-  defp build_intake_row(session_context, event) do
-    with {:ok, proposed_changes} <- read_proposed_changes(session_context, event),
-         {:ok, applied_projection} <- applied_projection(session_context, proposed_changes),
-         {:ok, run_links} <-
-           run_links_for_graph_links(session_context, applied_projection.graph_links) do
-      status = intake_status(event, proposed_changes, applied_projection.graph_links, run_links)
-      reason_codes = intake_reason_codes(event, proposed_changes)
-      graph_links = applied_projection.graph_links ++ run_links
+  defp build_intake_row(event, proposed_changes, applied_projection) do
+    run_links = Map.get(applied_projection, :run_links, [])
 
-      {:ok,
-       %{
-         type: "operator_workflow_item",
-         typed_id: %{type: "normalized_intake_event", id: event.id},
-         normalized_event_id: event.id,
-         duplicate_of_id: event.duplicate_of_id,
-         status: status,
-         reason_codes: reason_codes,
-         source: %{
-           identity: event.source_identity,
-           replay_identity: event.replay_identity,
-           outcome: event.outcome
-         },
-         proposed_change_status: proposed_change_status(proposed_changes),
-         blocker_reasons: blocker_reasons(status, reason_codes),
-         allowed_next_actions: allowed_next_actions(status),
-         operation_watermark: event.operation_id,
-         source_watermark: event.operation_id,
-         graph_links: graph_links,
-         graph_relationships: applied_projection.graph_relationships,
-         audit_trace: applied_projection.audit_trace,
-         revision_trace: applied_projection.revision_trace
-       }}
-    end
+    status = intake_status(event, proposed_changes, applied_projection.graph_links, run_links)
+    reason_codes = intake_reason_codes(event, proposed_changes)
+    graph_links = applied_projection.graph_links ++ run_links
+
+    %{
+      type: "operator_workflow_item",
+      typed_id: %{type: "normalized_intake_event", id: event.id},
+      normalized_event_id: event.id,
+      duplicate_of_id: event.duplicate_of_id,
+      status: status,
+      reason_codes: reason_codes,
+      source: %{
+        identity: event.source_identity,
+        replay_identity: event.replay_identity,
+        outcome: event.outcome
+      },
+      proposed_change_status: proposed_change_status(proposed_changes),
+      blocker_reasons: blocker_reasons(status, reason_codes),
+      allowed_next_actions: allowed_next_actions(status),
+      operation_watermark: event.operation_id,
+      source_watermark: event.operation_id,
+      graph_links: graph_links,
+      graph_relationships: applied_projection.graph_relationships,
+      audit_trace: applied_projection.audit_trace,
+      revision_trace: applied_projection.revision_trace
+    }
   end
 
-  defp read_proposed_changes(session_context, event) do
+  defp read_proposed_changes_by_event_id(_session_context, []), do: {:ok, %{}}
+
+  defp read_proposed_changes_by_event_id(session_context, event_ids) do
     ProposedGraphChange
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and normalized_event_id == ^event.id
+        workspace_id == ^session_context.workspace_id and normalized_event_id in ^event_ids
     )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, proposed_changes} -> {:ok, Enum.group_by(proposed_changes, & &1.normalized_event_id)}
+      {:error, error} -> {:error, error}
+    end
   end
 
-  defp applied_projection(_session_context, []), do: {:ok, empty_applied_projection()}
+  defp applied_projections_by_event_id(session_context, events, proposed_changes_by_event_id) do
+    operation_id_by_event_id =
+      Map.new(events, fn event ->
+        {event.id, applied_operation_id(Map.get(proposed_changes_by_event_id, event.id, []))}
+      end)
 
-  defp applied_projection(session_context, proposed_changes) do
-    case applied_operation_id(proposed_changes) do
-      nil ->
-        {:ok, empty_applied_projection()}
+    operation_ids =
+      operation_id_by_event_id
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
-      operation_id ->
-        with {:ok, audit_records} <- read_audit_records(operation_id),
-             {:ok, revision_records} <- read_revision_records(operation_id),
-             {:ok, graph_links} <- graph_links_for_audit(session_context, audit_records),
-             {:ok, graph_relationships} <- graph_relationships_for_links(graph_links) do
-          {:ok,
-           %{
-             graph_links: graph_links,
-             graph_relationships: graph_relationships,
-             audit_trace: trace_summary(operation_id, audit_records),
-             revision_trace: trace_summary(operation_id, revision_records)
-           }}
-        end
+    with {:ok, audit_records_by_operation_id} <- read_audit_records_by_operation_id(operation_ids),
+         {:ok, revision_records_by_operation_id} <-
+           read_revision_records_by_operation_id(operation_ids),
+         {:ok, graph_links_by_operation_id} <-
+           graph_links_by_operation_id(session_context, audit_records_by_operation_id),
+         all_graph_links = flatten_map_values(graph_links_by_operation_id),
+         {:ok, graph_relationships} <- graph_relationships_for_links(all_graph_links),
+         {:ok, run_links_by_operation_id} <-
+           run_links_by_operation_id(session_context, graph_links_by_operation_id) do
+      projections =
+        Map.new(operation_id_by_event_id, fn
+          {event_id, nil} ->
+            {event_id, empty_applied_projection()}
+
+          {event_id, operation_id} ->
+            graph_links = Map.get(graph_links_by_operation_id, operation_id, [])
+
+            {event_id,
+             %{
+               graph_links: graph_links,
+               graph_relationships: relationships_for_links(graph_relationships, graph_links),
+               audit_trace:
+                 trace_summary(
+                   operation_id,
+                   Map.get(audit_records_by_operation_id, operation_id, [])
+                 ),
+               revision_trace:
+                 trace_summary(
+                   operation_id,
+                   Map.get(revision_records_by_operation_id, operation_id, [])
+                 ),
+               run_links: Map.get(run_links_by_operation_id, operation_id, [])
+             }}
+        end)
+
+      {:ok, projections}
     end
   end
 
@@ -237,7 +282,8 @@ defmodule OfficeGraph.Projections do
       graph_links: [],
       graph_relationships: [],
       audit_trace: %{operation_id: nil, resource_count: 0, resources: []},
-      revision_trace: %{operation_id: nil, resource_count: 0, resources: []}
+      revision_trace: %{operation_id: nil, resource_count: 0, resources: []},
+      run_links: []
     }
   end
 
@@ -252,66 +298,81 @@ defmodule OfficeGraph.Projections do
     end
   end
 
-  defp read_audit_records(operation_id) do
+  defp read_audit_records_by_operation_id([]), do: {:ok, %{}}
+
+  defp read_audit_records_by_operation_id(operation_ids) do
     AuditRecord
-    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> Ash.Query.filter(operation_id in ^operation_ids)
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, audit_records} -> {:ok, Enum.group_by(audit_records, & &1.operation_id)}
+      {:error, error} -> {:error, error}
+    end
   end
 
-  defp read_revision_records(operation_id) do
+  defp read_revision_records_by_operation_id([]), do: {:ok, %{}}
+
+  defp read_revision_records_by_operation_id(operation_ids) do
     Revision
-    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> Ash.Query.filter(operation_id in ^operation_ids)
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, revision_records} -> {:ok, Enum.group_by(revision_records, & &1.operation_id)}
+      {:error, error} -> {:error, error}
+    end
   end
 
-  defp graph_links_for_audit(session_context, audit_records) do
-    audit_records
-    |> Enum.filter(&Map.has_key?(@graph_resource_order, &1.resource_type))
-    |> Enum.sort_by(&Map.fetch!(@graph_resource_order, &1.resource_type))
-    |> Enum.reduce_while({:ok, []}, fn audit_record, {:ok, acc} ->
-      case graph_link_for_resource(
-             session_context,
-             audit_record.resource_type,
-             audit_record.resource_id
-           ) do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, link} -> {:cont, {:ok, [link | acc]}}
+  defp graph_links_by_operation_id(session_context, audit_records_by_operation_id) do
+    audit_records =
+      audit_records_by_operation_id
+      |> flatten_map_values()
+      |> Enum.filter(&Map.has_key?(@graph_resource_order, &1.resource_type))
+
+    resource_ids_by_type =
+      audit_records
+      |> Enum.group_by(& &1.resource_type, & &1.resource_id)
+      |> Map.new(fn {type, ids} -> {type, Enum.uniq(ids)} end)
+
+    with {:ok, resources_by_type} <-
+           read_graph_resources_by_type(session_context, resource_ids_by_type) do
+      links_by_operation_id =
+        Map.new(audit_records_by_operation_id, fn {operation_id, operation_audit_records} ->
+          links =
+            operation_audit_records
+            |> Enum.filter(&Map.has_key?(@graph_resource_order, &1.resource_type))
+            |> Enum.sort_by(&Map.fetch!(@graph_resource_order, &1.resource_type))
+            |> Enum.map(&graph_link_for_loaded_resource(resources_by_type, &1))
+            |> Enum.reject(&is_nil/1)
+
+          {operation_id, links}
+        end)
+
+      {:ok, links_by_operation_id}
+    end
+  end
+
+  defp read_graph_resources_by_type(session_context, resource_ids_by_type) do
+    Enum.reduce_while(resource_ids_by_type, {:ok, %{}}, fn {type, ids}, {:ok, acc} ->
+      resource = Map.fetch!(@graph_resource_modules, type)
+
+      case read_scoped_many(resource, session_context, ids) do
+        {:ok, records} -> {:cont, {:ok, Map.put(acc, type, Map.new(records, &{&1.id, &1}))}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
+  end
+
+  defp graph_link_for_loaded_resource(resources_by_type, audit_record) do
+    resources_by_type
+    |> Map.get(audit_record.resource_type, %{})
+    |> Map.get(audit_record.resource_id)
     |> case do
-      {:ok, links} -> {:ok, Enum.reverse(links)}
-      error -> error
+      nil -> nil
+      record -> graph_link(audit_record.resource_type, record)
     end
   end
-
-  defp graph_link_for_resource(session_context, "signal", id) do
-    with {:ok, signal} <- fetch_scoped(Signal, session_context, id) do
-      {:ok, graph_link("signal", signal)}
-    end
-  end
-
-  defp graph_link_for_resource(session_context, "task", id) do
-    with {:ok, task} <- fetch_scoped(Task, session_context, id) do
-      {:ok, graph_link("task", task)}
-    end
-  end
-
-  defp graph_link_for_resource(session_context, "review_finding", id) do
-    with {:ok, review_finding} <- fetch_scoped(ReviewFinding, session_context, id) do
-      {:ok, graph_link("review_finding", review_finding)}
-    end
-  end
-
-  defp graph_link_for_resource(session_context, "verification_check", id) do
-    with {:ok, verification_check} <- fetch_scoped(VerificationCheck, session_context, id) do
-      {:ok, graph_link("verification_check", verification_check)}
-    end
-  end
-
-  defp graph_link_for_resource(_session_context, _resource_type, _id), do: {:ok, nil}
 
   defp graph_link(type, record) do
     %{
@@ -352,32 +413,64 @@ defmodule OfficeGraph.Projections do
     end
   end
 
-  defp run_links_for_graph_links(_session_context, []), do: {:ok, []}
+  defp relationships_for_links([], _graph_links), do: []
+  defp relationships_for_links(_relationships, []), do: []
 
-  defp run_links_for_graph_links(session_context, graph_links) do
+  defp relationships_for_links(relationships, graph_links) do
+    graph_item_ids =
+      graph_links
+      |> Enum.map(& &1.graph_item_id)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    Enum.filter(relationships, fn relationship ->
+      MapSet.member?(graph_item_ids, relationship.source_graph_item_id) and
+        MapSet.member?(graph_item_ids, relationship.target_graph_item_id)
+    end)
+  end
+
+  defp run_links_by_operation_id(session_context, graph_links_by_operation_id) do
+    graph_links = flatten_map_values(graph_links_by_operation_id)
+
     verification_check_ids =
       graph_links
       |> Enum.filter(&(&1.type == "verification_check"))
       |> Enum.map(& &1.id)
+      |> Enum.uniq()
 
     source_graph_item_ids =
       graph_links
       |> Enum.map(& &1.graph_item_id)
       |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
-    with {:ok, check_version_ids} <-
-           work_packet_version_ids_for_checks(session_context, verification_check_ids),
-         {:ok, source_version_ids} <-
-           work_packet_version_ids_for_sources(session_context, source_graph_item_ids),
-         version_ids = version_intersection(check_version_ids, source_version_ids),
+    with {:ok, check_links} <-
+           read_work_packet_required_checks(session_context, verification_check_ids),
+         {:ok, source_links} <-
+           read_work_packet_source_references(session_context, source_graph_item_ids),
+         version_ids_by_operation_id =
+           version_ids_by_operation_id(graph_links_by_operation_id, check_links, source_links),
+         version_ids = version_ids_by_operation_id |> flatten_map_values() |> Enum.uniq(),
          {:ok, runs} <- read_runs_for_versions(session_context, version_ids) do
-      {:ok, Enum.map(runs, &run_graph_link/1)}
+      run_links_by_operation_id =
+        Map.new(version_ids_by_operation_id, fn {operation_id, operation_version_ids} ->
+          version_ids = MapSet.new(operation_version_ids)
+
+          run_links =
+            runs
+            |> Enum.filter(&MapSet.member?(version_ids, &1.work_packet_version_id))
+            |> Enum.map(&run_graph_link/1)
+
+          {operation_id, run_links}
+        end)
+
+      {:ok, run_links_by_operation_id}
     end
   end
 
-  defp work_packet_version_ids_for_checks(_session_context, []), do: {:ok, []}
+  defp read_work_packet_required_checks(_session_context, []), do: {:ok, []}
 
-  defp work_packet_version_ids_for_checks(session_context, verification_check_ids) do
+  defp read_work_packet_required_checks(session_context, verification_check_ids) do
     WorkPacketRequiredCheck
     |> Ash.Query.filter(
       verification_check_id in ^verification_check_ids and
@@ -386,15 +479,11 @@ defmodule OfficeGraph.Projections do
     )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
-    |> case do
-      {:ok, checks} -> {:ok, Enum.map(checks, & &1.work_packet_version_id)}
-      {:error, error} -> {:error, error}
-    end
   end
 
-  defp work_packet_version_ids_for_sources(_session_context, []), do: {:ok, []}
+  defp read_work_packet_source_references(_session_context, []), do: {:ok, []}
 
-  defp work_packet_version_ids_for_sources(session_context, source_graph_item_ids) do
+  defp read_work_packet_source_references(session_context, source_graph_item_ids) do
     WorkPacketSourceReference
     |> Ash.Query.filter(
       graph_item_id in ^source_graph_item_ids and
@@ -403,10 +492,34 @@ defmodule OfficeGraph.Projections do
     )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
-    |> case do
-      {:ok, sources} -> {:ok, Enum.map(sources, & &1.work_packet_version_id)}
-      {:error, error} -> {:error, error}
-    end
+  end
+
+  defp version_ids_by_operation_id(graph_links_by_operation_id, check_links, source_links) do
+    check_version_ids_by_check_id =
+      Enum.group_by(check_links, & &1.verification_check_id, & &1.work_packet_version_id)
+
+    source_version_ids_by_graph_item_id =
+      Enum.group_by(source_links, & &1.graph_item_id, & &1.work_packet_version_id)
+
+    Map.new(graph_links_by_operation_id, fn {operation_id, graph_links} ->
+      verification_check_ids =
+        graph_links
+        |> Enum.filter(&(&1.type == "verification_check"))
+        |> Enum.map(& &1.id)
+
+      source_graph_item_ids =
+        graph_links
+        |> Enum.map(& &1.graph_item_id)
+        |> Enum.reject(&is_nil/1)
+
+      check_version_ids =
+        flat_map_lookup(check_version_ids_by_check_id, verification_check_ids)
+
+      source_version_ids =
+        flat_map_lookup(source_version_ids_by_graph_item_id, source_graph_item_ids)
+
+      {operation_id, version_intersection(check_version_ids, source_version_ids)}
+    end)
   end
 
   defp version_intersection([], _source_version_ids), do: []
@@ -431,6 +544,18 @@ defmodule OfficeGraph.Projections do
     )
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.read(authorize?: false)
+  end
+
+  defp flatten_map_values(map) do
+    map
+    |> Map.values()
+    |> List.flatten()
+  end
+
+  defp flat_map_lookup(map, keys) do
+    keys
+    |> Enum.flat_map(&Map.get(map, &1, []))
+    |> Enum.uniq()
   end
 
   defp run_graph_link(run) do
@@ -854,17 +979,14 @@ defmodule OfficeGraph.Projections do
     %{verification_check_id: verification_check_id, reason: reason}
   end
 
-  defp fetch_scoped(resource, session_context, id) do
+  defp read_scoped_many(_resource, _session_context, []), do: {:ok, []}
+
+  defp read_scoped_many(resource, session_context, ids) do
     resource
     |> Ash.Query.filter(
-      id == ^id and organization_id == ^session_context.organization_id and
+      id in ^ids and organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
     )
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> {:ok, nil}
-      {:ok, record} -> {:ok, record}
-      {:error, error} -> {:error, error}
-    end
+    |> Ash.read(authorize?: false)
   end
 end

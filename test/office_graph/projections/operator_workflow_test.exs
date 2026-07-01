@@ -7,6 +7,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Projections
+  alias OfficeGraph.QueryCounter
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
@@ -94,6 +95,33 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert work_run_link.id == run_result.run.id
     assert work_run_link.graph_item_id == nil
     assert work_run_link.state == run_result.run.aggregate_state
+  end
+
+  test "operator inbox query count stays bounded across applied rows and graph resources" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    for index <- 1..3 do
+      key = "query-scaling-#{index}"
+      {:ok, intake} = submit_manual_intake(bootstrap.session, key)
+      {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+      {:ok, _run_result} = create_ready_run(bootstrap.session, applied.verification_check)
+    end
+
+    {{:ok, inbox}, queries} =
+      QueryCounter.count(fn -> Projections.operator_inbox(bootstrap.session) end)
+
+    assert length(inbox.rows) >= 3
+
+    assert QueryCounter.source_count(queries, "proposed_graph_changes") <= 1
+    assert QueryCounter.source_count(queries, "audit_records") <= 1
+    assert QueryCounter.source_count(queries, "revisions") <= 1
+    assert QueryCounter.source_count(queries, "signals") <= 1
+    assert QueryCounter.source_count(queries, "tasks") <= 1
+    assert QueryCounter.source_count(queries, "review_findings") <= 1
+    assert QueryCounter.source_count(queries, "verification_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_required_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_source_references") <= 1
+    assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
   test "terminal linked work runs replace packet handoff status" do
