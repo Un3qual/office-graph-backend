@@ -35,7 +35,29 @@ export type OperatorWorkflowProjectionClient = {
 };
 
 export function createDefaultOperatorWorkflowProjectionClient() {
-  return createJsonOperatorWorkflowProjectionClient(createOperatorWorkflowApi());
+  return createGraphQLOperatorWorkflowProjectionClient({ fetcher: createGraphQLHttpFetcher() });
+}
+
+export function createGraphQLHttpFetcher({
+  fetcher = fetch,
+  path = "/graphql"
+}: {
+  fetcher?: typeof fetch;
+  path?: string;
+} = {}): GraphQLFetcher {
+  return async ({ query, variables }) => {
+    const response = await fetcher(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables })
+    });
+
+    if (!response.ok) {
+      throw new Error(`The GraphQL projection request failed with HTTP ${response.status}.`);
+    }
+
+    return (await response.json()) as GraphQLResponse;
+  };
 }
 
 // Temporary migration bridge: the product frontend should move to GraphQL

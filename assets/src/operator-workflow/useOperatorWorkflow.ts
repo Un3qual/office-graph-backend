@@ -53,12 +53,27 @@ export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
       return;
     }
 
+    const selectedInboxRow =
+      inbox.state === "loaded"
+        ? inbox.data.rows.find((row) => row.normalized_event_id === selectedId)
+        : null;
+
     let cancelled = false;
 
     setItem({ state: "loading" });
     setReadiness({ state: "idle" });
     setRunState({ state: "idle" });
     setVerification({ state: "idle" });
+
+    if (selectedInboxRow) {
+      setItem({ state: "loaded", data: selectedInboxRow });
+      loadReadiness(client, selectedInboxRow, setReadiness, () => cancelled);
+      loadRun(client, selectedInboxRow, setRunState, setVerification, () => cancelled);
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     client
       .loadItem(selectedId)
@@ -80,7 +95,7 @@ export function useOperatorWorkflow(client: OperatorWorkflowProjectionClient) {
     return () => {
       cancelled = true;
     };
-  }, [client, selectedId]);
+  }, [client, inbox, selectedId]);
 
   return {
     inbox,
@@ -137,24 +152,27 @@ function loadRun(
     .then((data) => {
       if (!isCancelled()) {
         setRunState(data ? { state: "loaded", data } : { state: "idle" });
+        setVerification(
+          data ? { state: "loaded", data: verificationOutcomeForRunState(data) } : { state: "idle" }
+        );
       }
     })
     .catch((error: unknown) => {
       if (!isCancelled()) {
-        setRunState({ state: "error", message: errorMessage(error) });
+        const message = errorMessage(error);
+        setRunState({ state: "error", message });
+        setVerification({ state: "error", message });
       }
     });
+}
 
-  client
-    .loadVerificationOutcomeForItem(item)
-    .then((data) => {
-      if (!isCancelled()) {
-        setVerification(data ? { state: "loaded", data } : { state: "idle" });
-      }
-    })
-    .catch((error: unknown) => {
-      if (!isCancelled()) {
-        setVerification({ state: "error", message: errorMessage(error) });
-      }
-    });
+function verificationOutcomeForRunState(runState: OperatorRunState): VerificationOutcome {
+  return {
+    type: "verification_outcome",
+    status: runState.status,
+    source_watermark: runState.source_watermark,
+    run: runState.run,
+    verification_results: runState.verification_results,
+    missing_evidence: runState.missing_evidence
+  };
 }

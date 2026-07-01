@@ -100,7 +100,7 @@ describe("OperatorConsole", () => {
       "missing_accepted_evidence"
     );
 
-    expect(api.loadItem).toHaveBeenCalledWith("evt_1");
+    expect(api.loadItem).not.toHaveBeenCalled();
     expect(api.loadPacketReadiness).toHaveBeenCalledWith(
       {
         source_graph_item_ids: ["graph_1"],
@@ -108,7 +108,7 @@ describe("OperatorConsole", () => {
       }
     );
     expect(api.loadRunState).toHaveBeenCalledWith("run_1");
-    expect(api.loadVerificationOutcome).toHaveBeenCalledWith("run_1");
+    expect(api.loadVerificationOutcome).not.toHaveBeenCalled();
   });
 
   it("requests readiness blockers even when graph links are missing", async () => {
@@ -225,8 +225,8 @@ describe("OperatorConsole", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /evt_2/i }));
 
-    await waitFor(() => expect(api.loadItem).toHaveBeenLastCalledWith("evt_2"));
     expect(await screen.findByRole("heading", { name: "evt_2" })).toBeInTheDocument();
+    expect(api.loadItem).not.toHaveBeenCalled();
   });
 
   it("renders future product navigation as unavailable affordances", async () => {
@@ -281,6 +281,43 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
       "No item selected"
     );
+  });
+
+  it("uses the GraphQL projection client on the default console path", async () => {
+    vi.resetModules();
+    const fetcher = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            operatorInbox: {
+              type: "operator_inbox",
+              empty: true,
+              sourceWatermark: null,
+              rows: []
+            }
+          }
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    try {
+      const { OperatorConsole: DefaultOperatorConsole } = await import("./OperatorConsole");
+
+      render(<DefaultOperatorConsole />);
+
+      expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
+      expect(fetcher).toHaveBeenCalledWith(
+        "/graphql",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("operatorInbox")
+        })
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

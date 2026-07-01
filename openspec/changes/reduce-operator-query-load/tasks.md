@@ -6,11 +6,11 @@
 
 ## 2. Frontend Transport And Request Fanout
 
-- [ ] 2.1 Add a small GraphQL HTTP fetcher for the operator workflow projection client.
-- [ ] 2.2 Switch `createDefaultOperatorWorkflowProjectionClient()` to the GraphQL adapter while preserving explicit JSON adapter construction.
-- [ ] 2.3 Add frontend tests proving the default console path uses GraphQL and both adapters return the same view model shape.
-- [ ] 2.4 Reuse the selected inbox row as initial item detail instead of immediately refetching the same normalized event.
-- [ ] 2.5 Avoid a separate verification-outcome read when loaded run state already contains the verification data required by the panel.
+- [x] 2.1 Add a small GraphQL HTTP fetcher for the operator workflow projection client.
+- [x] 2.2 Switch `createDefaultOperatorWorkflowProjectionClient()` to the GraphQL adapter while preserving explicit JSON adapter construction.
+- [x] 2.3 Add frontend tests proving the default console path uses GraphQL and both adapters return the same view model shape.
+- [x] 2.4 Reuse the selected inbox row as initial item detail instead of immediately refetching the same normalized event.
+- [x] 2.5 Avoid a separate verification-outcome read when loaded run state already contains the verification data required by the panel.
 
 ## 3. Session Context And Authorization
 
