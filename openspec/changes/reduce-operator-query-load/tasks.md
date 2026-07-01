@@ -31,7 +31,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Run focused operator workflow API parity tests for JSON and GraphQL.
-- [ ] 5.2 Run focused frontend projection-client and operator console tests.
-- [ ] 5.3 Run the query-count scaling test and document the accepted budget.
-- [ ] 5.4 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, frontend verification, and OpenSpec strict validation from the Nix shell.
+- [x] 5.1 Run focused operator workflow API parity tests for JSON and GraphQL.
+- [x] 5.2 Run focused frontend projection-client and operator console tests.
+- [x] 5.3 Run the query-count scaling test and document the accepted budget.
+- [x] 5.4 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, frontend verification, and OpenSpec strict validation from the Nix shell.

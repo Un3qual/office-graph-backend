@@ -112,6 +112,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert length(inbox.rows) >= 3
 
+    # Accepted budget: each known projection source is read at most once as rows,
+    # applied operations, graph resources, packet links, and runs grow.
     assert QueryCounter.source_count(queries, "proposed_graph_changes") <= 1
     assert QueryCounter.source_count(queries, "audit_records") <= 1
     assert QueryCounter.source_count(queries, "revisions") <= 1
