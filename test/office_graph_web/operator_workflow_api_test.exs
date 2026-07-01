@@ -2,6 +2,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
@@ -492,6 +493,60 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert response["error"]["field"] == "session_context"
   end
 
+  test "JSON operator workflow reads use a server-installed session context when bootstrap is disabled" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "json-trusted-context")
+    event_id = intake.normalized_event.id
+
+    with_local_api_owner_bootstrap(false, fn ->
+      response =
+        build_conn()
+        |> Ash.PlugHelpers.set_actor(bootstrap.session)
+        |> get(~p"/api/operator-workflow/inbox")
+        |> json_response(200)
+
+      assert [%{"normalized_event_id" => ^event_id}] = response["rows"]
+    end)
+  end
+
+  test "JSON operator workflow reads are forbidden without bootstrap or server context" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, _intake} = submit_manual_intake(bootstrap.session, "json-bootstrap-disabled")
+
+    with_local_api_owner_bootstrap(false, fn ->
+      response =
+        build_conn()
+        |> get(~p"/api/operator-workflow/inbox")
+        |> json_response(403)
+
+      assert response["error"]["code"] == "forbidden"
+    end)
+  end
+
+  test "GraphQL operator workflow reads use a trusted request actor when bootstrap is disabled" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-trusted-context")
+    event_id = intake.normalized_event.id
+
+    with_local_api_owner_bootstrap(false, fn ->
+      response =
+        build_conn()
+        |> Ash.PlugHelpers.set_actor(bootstrap.session)
+        |> graphql(
+          """
+          query Inbox {
+            operatorInbox {
+              rows { normalizedEventId }
+            }
+          }
+          """,
+          %{}
+        )
+
+      assert [%{"normalizedEventId" => ^event_id}] = response["rows"]
+    end)
+  end
+
   defp graphql(conn, query, variables) do
     response = raw_graphql(conn, query, variables)
 
@@ -543,6 +598,30 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       evidence_result: "passed",
       acceptance_policy_basis: "owner_acceptance"
     }
+  end
+
+  defp submit_manual_intake(session, key) do
+    {:ok, operation} =
+      Operations.start_operation(session, :manual_intake_submit,
+        idempotency_key: "manual-intake-api:#{key}:#{System.unique_integer([:positive])}"
+      )
+
+    Integrations.submit_manual_intake(session, operation, %{
+      source_identity: "manual:#{key}",
+      replay_identity: "paste:#{key}",
+      body: "Investigate #{key} through the operator workflow API."
+    })
+  end
+
+  defp with_local_api_owner_bootstrap(value, fun) do
+    original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
+    Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, value)
+
+    try do
+      fun.()
+    after
+      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
+    end
   end
 
   defp create_required_verification_check(session) do

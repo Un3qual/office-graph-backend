@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add an Ecto telemetry query-count helper for focused projection/API tests.
 - [x] 1.2 Add an operator workflow projection scaling test with multiple applied inbox rows and linked graph resources.
-- [ ] 1.3 Capture current query-count behavior in a failing or threshold-marked test that identifies bootstrap/auth, selected-item duplication, and projection fan-out separately.
+- [x] 1.3 Capture current query-count behavior in a failing or threshold-marked test that identifies bootstrap/auth, selected-item duplication, and projection fan-out separately.
 
 ## 2. Frontend Transport And Request Fanout
 
@@ -14,11 +14,11 @@
 
 ## 3. Session Context And Authorization
 
-- [ ] 3.1 Route hand-written operator workflow JSON reads through a server-controlled local owner/session context path rather than request-time bootstrap in each `ApiSupport.read_operator_*` call.
-- [ ] 3.2 Update GraphQL operator workflow resolvers to pass the trusted request actor/session context into `ApiSupport`.
-- [ ] 3.3 Preserve rejection of client-supplied `session_context` maps for JSON routes.
-- [ ] 3.4 Teach authorization reads to use trusted session capability facts for the current scope without re-querying capability and role tables on each projection read.
-- [ ] 3.5 Add tests for forbidden bootstrap-disabled behavior and trusted session-context reuse.
+- [x] 3.1 Route hand-written operator workflow JSON reads through a server-controlled local owner/session context path rather than request-time bootstrap in each `ApiSupport.read_operator_*` call.
+- [x] 3.2 Update GraphQL operator workflow resolvers to pass the trusted request actor/session context into `ApiSupport`.
+- [x] 3.3 Preserve rejection of client-supplied `session_context` maps for JSON routes.
+- [x] 3.4 Teach authorization reads to use trusted session capability facts for the current scope without re-querying capability and role tables on each projection read.
+- [x] 3.5 Add tests for forbidden bootstrap-disabled behavior and trusted session-context reuse.
 
 ## 4. Batched Projection Assembly
 

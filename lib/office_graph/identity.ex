@@ -61,7 +61,8 @@ defmodule OfficeGraph.Identity do
         session_id: session.id,
         organization_id: tenant.organization.id,
         workspace_id: tenant.workspace.id,
-        capabilities: MapSet.new(capabilities)
+        capabilities: MapSet.new(capabilities),
+        trusted?: true
       }
     end)
   end

@@ -109,6 +109,19 @@ defmodule OfficeGraph.ApiSupport do
     end
   end
 
+  def with_request_session_context(params, actor) when is_map(params) do
+    cond do
+      Map.has_key?(params, "session_context") or Map.has_key?(params, :session_context) ->
+        params
+
+      match?(%SessionContext{}, actor) ->
+        Map.put(params, :session_context, actor)
+
+      true ->
+        params
+    end
+  end
+
   def bootstrap_local_api_owner do
     if Application.get_env(:office_graph, :allow_local_api_owner_bootstrap, false) do
       Foundation.bootstrap_local_owner([])

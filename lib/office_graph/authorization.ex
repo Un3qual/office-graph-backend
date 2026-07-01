@@ -203,6 +203,10 @@ defmodule OfficeGraph.Authorization do
   defp recorded_action_name(action) when is_binary(action), do: action
   defp recorded_action_name(action), do: inspect(action)
 
+  defp granted_capability?(%{trusted?: true, capabilities: %MapSet{} = capabilities}, required) do
+    MapSet.member?(capabilities, required)
+  end
+
   defp granted_capability?(session_context, required) do
     with {:ok, %Capability{id: capability_id}} <-
            Ash.get(Capability, %{key: required}, authorize?: false),
