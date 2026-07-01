@@ -1,11 +1,24 @@
 import "./styles/global.css";
-import { OperatorConsole } from "./operator-workflow/OperatorConsole";
-import type { OperatorWorkflowApi } from "./operator-workflow/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { OperatorRoute } from "./operator/OperatorRoute";
+import type { GraphQLFetcher } from "./operator/workflowTypes";
 
 type Props = {
-  api?: OperatorWorkflowApi;
+  fetchGraphQL?: GraphQLFetcher;
 };
 
-export function App({ api }: Props) {
-  return <OperatorConsole api={api} />;
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false
+    }
+  }
+});
+
+export function App({ fetchGraphQL }: Props) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <OperatorRoute fetchGraphQL={fetchGraphQL} />
+    </QueryClientProvider>
+  );
 }

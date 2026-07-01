@@ -1,0 +1,71 @@
+import { QueryClient } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
+import {
+  fetchOperatorInbox,
+  fetchOperatorItem,
+  fetchOperatorRunState,
+  operatorQueryKeys
+} from "./workflowQueries";
+import { createGraphQLTestFetcher, graphQLInbox, graphQLRunState } from "./testSupport";
+
+describe("operator workflow GraphQL queries", () => {
+  it("normalizes the inbox projection into frontend view models", async () => {
+    const fetcher = createGraphQLTestFetcher({ operatorInbox: graphQLInbox });
+
+    await expect(fetchOperatorInbox(fetcher)).resolves.toMatchObject({
+      empty: false,
+      sourceWatermark: "op_123",
+      rows: [
+        {
+          normalizedEventId: "evt_1",
+          title: "evt_1",
+          status: "ready_for_packet",
+          allowedNextActions: ["prepare_packet"],
+          source: { replayIdentity: "paste:operator-console" }
+        }
+      ]
+    });
+    expect(fetcher).toHaveBeenCalledWith({
+      query: expect.stringContaining("operatorInbox"),
+      variables: {}
+    });
+  });
+
+  it("uses stable query keys for cache ownership", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const fetcher = createGraphQLTestFetcher({
+      operatorInbox: graphQLInbox,
+      operatorWorkflowItem: graphQLInbox.rows[0],
+      operatorRunState: graphQLRunState
+    });
+
+    await client.fetchQuery({
+      queryKey: operatorQueryKeys.inbox(),
+      queryFn: () => fetchOperatorInbox(fetcher)
+    });
+    await client.fetchQuery({
+      queryKey: operatorQueryKeys.item("evt_1"),
+      queryFn: () => fetchOperatorItem(fetcher, "evt_1")
+    });
+    await client.fetchQuery({
+      queryKey: operatorQueryKeys.runState("run_1"),
+      queryFn: () => fetchOperatorRunState(fetcher, "run_1")
+    });
+
+    expect(client.getQueryData(operatorQueryKeys.inbox())).toMatchObject({ empty: false });
+    expect(client.getQueryData(operatorQueryKeys.item("evt_1"))).toMatchObject({
+      normalizedEventId: "evt_1"
+    });
+    expect(client.getQueryData(operatorQueryKeys.runState("run_1"))).toMatchObject({
+      status: "awaiting_evidence_acceptance"
+    });
+  });
+
+  it("surfaces GraphQL errors with a useful message", async () => {
+    const fetcher = vi.fn(async () => ({
+      errors: [{ message: "operator inbox denied" }]
+    }));
+
+    await expect(fetchOperatorInbox(fetcher)).rejects.toThrow("operator inbox denied");
+  });
+});
