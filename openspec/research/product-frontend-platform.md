@@ -91,6 +91,10 @@ frontend platform:
 - React is the product UI.
 - Phoenix remains the app-shell and API host.
 - Phoenix LiveView is forbidden for product UI.
+- Tailwind CSS is forbidden for product UI, prototypes, examples, generated
+  code, design-system work, and temporary scaffolding. Tailwind-dependent
+  component libraries and Tailwind utility-class conventions are not candidates
+  for this project.
 - OpenSpec is the workflow source of truth.
 - GraphQL and JSON API both exist, but product frontend reads should normally
   use GraphQL projections.
@@ -734,6 +738,7 @@ the issue:
 
 - Micro-frontends or module federation.
 - Next.js or SSR.
+- Tailwind CSS or Tailwind-dependent UI libraries.
 - Full graph canvas behavior.
 - Workflow builder UI.
 - Rich text editor architecture.

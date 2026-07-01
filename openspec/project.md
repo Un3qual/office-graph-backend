@@ -30,6 +30,10 @@ decisions into this file or into formal OpenSpec specs.
   process management should be documented as `docker compose` commands.
 - Frontend stack: React from day one, though frontend work has not started yet.
 - Phoenix LiveView is forbidden for the product UI.
+- Tailwind CSS is forbidden for product UI, prototypes, examples, generated
+  code, design-system work, and temporary scaffolding. Do not introduce
+  Tailwind, Tailwind-dependent component libraries, Tailwind configuration, or
+  Tailwind utility-class conventions.
 - API surface: both GraphQL and JSON API are required.
 - GraphQL should use capability interfaces for shared API affordances such as
   closable, updatable, reactable, comment-like, approvable, subscribable, and
