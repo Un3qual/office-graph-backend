@@ -84,7 +84,7 @@ export function graphQLItem(value: unknown): OperatorWorkflowItem {
 }
 
 export function graphQLPacketReadiness(value: unknown): PacketReadiness {
-  const readiness = record(value);
+  const readiness = requiredRecord(value, "packet readiness");
 
   return {
     type: "packet_readiness",

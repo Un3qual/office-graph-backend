@@ -19,9 +19,8 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
     }
 
     const firstId = inboxQuery.data.rows[0]?.normalizedEventId ?? null;
-    const selectedExists = inboxQuery.data.rows.some((row) => row.normalizedEventId === selectedId);
 
-    if (!selectedId || !selectedExists) {
+    if (selectedId === null) {
       setSelectedId(firstId);
     }
   }, [inboxQuery.data, selectedId]);

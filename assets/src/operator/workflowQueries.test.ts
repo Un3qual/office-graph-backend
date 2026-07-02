@@ -113,6 +113,23 @@ describe("operator workflow GraphQL queries", () => {
     );
   });
 
+  it("rejects missing packet readiness projections instead of fabricating readiness", async () => {
+    const fetcher = createGraphQLTestFetcher({ operatorPacketReadiness: null });
+
+    await expect(
+      fetchPacketReadiness(fetcher, {
+        title: "Packet A",
+        objective: "Objective A",
+        contextSummary: "Context A",
+        requirements: "Requirements A",
+        successCriteria: "Success A",
+        autonomyPosture: "human_supervised",
+        sourceGraphItemIds: [],
+        verificationCheckIds: []
+      })
+    ).rejects.toThrow("The GraphQL packet readiness projection was empty.");
+  });
+
   it("passes abort signals through the HTTP GraphQL fetcher", async () => {
     const signal = new AbortController().signal;
     const fetcher = vi.fn(async () => Response.json({ data: { operatorPacketReadiness: null } }));

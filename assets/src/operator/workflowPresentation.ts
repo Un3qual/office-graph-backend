@@ -14,6 +14,10 @@ export function listText(values: string[]) {
   return values.length > 0 ? values.map(formatLabel).join(", ") : "None";
 }
 
+export function isQueryLoading(query: { fetchStatus: string; isPending: boolean }) {
+  return query.fetchStatus === "fetching" || (query.isPending && query.fetchStatus === "paused");
+}
+
 export function statusTone(status: string): BadgeTone {
   const words = new Set(status.split("_").filter(Boolean));
 

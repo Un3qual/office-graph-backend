@@ -81,6 +81,49 @@ describe("operator panels", () => {
     expect(screen.getByText("Awaiting evidence acceptance")).toBeInTheDocument();
   });
 
+  it("does not show run loading copy during a background refetch with data", () => {
+    const runState = mapRunState(graphQLRunState);
+
+    render(
+      <RunPanel
+        runId="run_1"
+        runState={queryResult<OperatorRunState>({
+          data: runState,
+          fetchStatus: "fetching",
+          isError: false,
+          isPending: false
+        })}
+      />
+    );
+
+    expect(screen.queryByText("Loading run state...")).not.toBeInTheDocument();
+    expect(screen.getByText("Awaiting evidence acceptance")).toBeInTheDocument();
+  });
+
+  it("labels stale inbox data when a refetch fails", () => {
+    const row = graphQLItem(graphQLInbox.rows[0]);
+
+    render(
+      <InboxList
+        inbox={queryResult<OperatorInbox>({
+          data: { type: "operator_inbox", empty: false, sourceWatermark: "op_123", rows: [row] },
+          error: new Error("Unable to refresh inbox."),
+          fetchStatus: "idle",
+          isError: true,
+          isPending: false,
+          isSuccess: false
+        })}
+        onSelect={vi.fn()}
+        rows={[row]}
+        selectedId={row.normalizedEventId}
+      />
+    );
+
+    expect(screen.getByText("Unable to refresh inbox.")).toBeInTheDocument();
+    expect(screen.getByText("Showing last loaded inbox.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /evt_1/i })).toBeInTheDocument();
+  });
+
   it("shows blocker context for blocked inbox rows", () => {
     const blocked = {
       ...graphQLItem(graphQLInbox.rows[0]),

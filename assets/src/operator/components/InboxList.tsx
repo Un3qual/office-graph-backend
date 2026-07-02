@@ -13,6 +13,8 @@ type Props = {
 };
 
 export function InboxList({ inbox, onSelect, rows, selectedId }: Props) {
+  const hasStaleData = inbox.isError && rows.length > 0;
+
   return (
     <section aria-label="Inbox" className="inbox-pane">
       <PaneHeader title="Inbox" meta={inbox.data?.sourceWatermark ?? "Live projection"} />
@@ -22,6 +24,7 @@ export function InboxList({ inbox, onSelect, rows, selectedId }: Props) {
           The operator workflow projection could not be loaded.
         </EmptyState>
       ) : null}
+      {hasStaleData ? <p className="muted-text">Showing last loaded inbox.</p> : null}
       {inbox.isSuccess && rows.length === 0 ? (
         <EmptyState title="No operator workflow items.">
           There are no actionable manual intake or verification items right now.

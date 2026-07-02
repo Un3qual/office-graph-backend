@@ -3,7 +3,7 @@ import { Badge } from "../../ui/Badge";
 import { EmptyState } from "../../ui/EmptyState";
 import { PanelRows } from "../../ui/Panel";
 import type { OperatorWorkflowItem } from "../workflowTypes";
-import { formatLabel, listText, statusTone } from "../workflowPresentation";
+import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
   item: OperatorWorkflowItem | null;
@@ -11,7 +11,7 @@ type Props = {
 };
 
 export function ItemSummary({ item, itemQuery }: Props) {
-  const isLoading = itemQuery.fetchStatus === "fetching" || (itemQuery.isPending && itemQuery.fetchStatus === "paused");
+  const isLoading = isQueryLoading(itemQuery);
 
   return (
     <section aria-label="Item detail" className="detail-pane">

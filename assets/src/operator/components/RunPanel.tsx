@@ -2,7 +2,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { Badge } from "../../ui/Badge";
 import { Panel, PanelRows } from "../../ui/Panel";
 import type { OperatorRunState } from "../workflowTypes";
-import { formatLabel, listText, statusTone } from "../workflowPresentation";
+import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
   runId: string | null;
@@ -10,14 +10,14 @@ type Props = {
 };
 
 export function RunPanel({ runId, runState }: Props) {
-  const isLoading = runState.fetchStatus === "fetching" || (runState.isPending && runState.fetchStatus === "paused");
+  const isLoading = isQueryLoading(runState);
   const hasStaleData = runState.isError && Boolean(runState.data);
 
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
       {!runId ? <p>No run linked yet.</p> : null}
-      {runId && isLoading ? <p>Loading run state...</p> : null}
+      {runId && isLoading && !runState.data ? <p>Loading run state...</p> : null}
       {runState.isError ? <p className="error-text">{errorMessage(runState.error)}</p> : null}
       {runState.data ? (
         <>

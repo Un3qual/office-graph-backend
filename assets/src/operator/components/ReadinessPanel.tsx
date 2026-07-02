@@ -2,7 +2,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { Badge } from "../../ui/Badge";
 import { Panel, PanelRows } from "../../ui/Panel";
 import type { PacketReadiness } from "../workflowTypes";
-import { formatLabel, listText, statusTone } from "../workflowPresentation";
+import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
   readiness: PacketReadiness | null;
@@ -10,7 +10,7 @@ type Props = {
 };
 
 export function ReadinessPanel({ readiness, readinessQuery }: Props) {
-  const isLoading = readinessQuery.fetchStatus === "fetching" || (readinessQuery.isPending && readinessQuery.fetchStatus === "paused");
+  const isLoading = isQueryLoading(readinessQuery);
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
 
   return (
