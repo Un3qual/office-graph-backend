@@ -131,6 +131,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert readiness["status"] == "packet_ready"
     assert readiness["ready"] == true
     assert readiness["allowedNextActions"] == ["create_work_packet"]
+
     assert [%{"id" => check_id, "graphItemId" => graph_item_id, "state" => "required"}] =
              readiness["requiredChecks"]
 
@@ -175,6 +176,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
     assert hd(run_state["evidenceCandidates"])["id"] == candidate.id
+
     assert hd(run_state["evidenceCandidates"])["executionObservationId"] ==
              observation_result.observation.id
 
