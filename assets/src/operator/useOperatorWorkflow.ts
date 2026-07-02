@@ -22,6 +22,8 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
 
     if (selectedId === null) {
       setSelectedId(firstId);
+    } else if (firstId === null) {
+      setSelectedId(null);
     }
   }, [inboxQuery.data, selectedId]);
 

@@ -1,3 +1,4 @@
+import type { FetchStatus } from "@tanstack/react-query";
 import type { BadgeTone } from "../ui/Badge";
 
 export function formatLabel(value: string | null | undefined) {
@@ -14,7 +15,7 @@ export function listText(values: string[]) {
   return values.length > 0 ? values.map(formatLabel).join(", ") : "None";
 }
 
-export function isQueryLoading(query: { fetchStatus: string; isPending: boolean }) {
+export function isQueryLoading(query: { fetchStatus: FetchStatus; isPending: boolean }) {
   return query.fetchStatus === "fetching" || (query.isPending && query.fetchStatus === "paused");
 }
 
