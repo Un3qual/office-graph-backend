@@ -1,14 +1,17 @@
 defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   use Absinthe.Schema.Notation
 
-  alias OfficeGraph.ApiSupport
+  alias OfficeGraph.Projections
   alias OfficeGraphWeb.GraphQL.Common.Errors
+  alias OfficeGraphWeb.RequestSession
 
   object :operator_workflow_queries do
     field :operator_inbox, non_null(:operator_inbox) do
       resolve(fn _, resolution ->
-        case ApiSupport.read_operator_inbox(request_context_params(resolution)) do
-          {:ok, inbox} -> {:ok, inbox}
+        with {:ok, session_context} <- request_session(resolution),
+             {:ok, inbox} <- Projections.operator_inbox(session_context) do
+          {:ok, inbox}
+        else
           error -> Errors.to_absinthe(error)
         end
       end)
@@ -18,10 +21,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        case ApiSupport.read_operator_workflow_item(
-               request_context_params(resolution, %{normalized_event_id: id})
-             ) do
-          {:ok, item} -> {:ok, item}
+        with {:ok, session_context} <- request_session(resolution),
+             {:ok, item} <- Projections.operator_workflow_item(session_context, id) do
+          {:ok, item}
+        else
           error -> Errors.to_absinthe(error)
         end
       end)
@@ -31,8 +34,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:input, non_null(:operator_packet_readiness_input))
 
       resolve(fn %{input: input}, resolution ->
-        case ApiSupport.read_operator_packet_readiness(request_context_params(resolution, input)) do
-          {:ok, readiness} -> {:ok, readiness}
+        with {:ok, session_context} <- request_session(resolution),
+             {:ok, readiness} <- Projections.packet_readiness(session_context, input) do
+          {:ok, readiness}
+        else
           error -> Errors.to_absinthe(error)
         end
       end)
@@ -42,8 +47,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        case ApiSupport.read_operator_run_state(request_context_params(resolution, %{run_id: id})) do
-          {:ok, run_state} -> {:ok, run_state}
+        with {:ok, session_context} <- request_session(resolution),
+             {:ok, run_state} <- Projections.operator_run_state(session_context, id) do
+          {:ok, run_state}
+        else
           error -> Errors.to_absinthe(error)
         end
       end)
@@ -53,17 +60,19 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        case ApiSupport.read_operator_verification_outcome(
-               request_context_params(resolution, %{run_id: id})
-             ) do
-          {:ok, outcome} -> {:ok, outcome}
+        with {:ok, session_context} <- request_session(resolution),
+             {:ok, outcome} <- Projections.verification_outcome(session_context, id) do
+          {:ok, outcome}
+        else
           error -> Errors.to_absinthe(error)
         end
       end)
     end
   end
 
-  defp request_context_params(resolution, params \\ %{}) do
-    ApiSupport.with_request_session_context(params, Map.get(resolution.context, :actor))
+  defp request_session(resolution) do
+    resolution.context
+    |> Map.get(:actor)
+    |> RequestSession.resolve()
   end
 end

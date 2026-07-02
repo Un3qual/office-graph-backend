@@ -32,14 +32,15 @@
 
 ## walking-skeleton-api-surface
 
-- Added a thin shared `OfficeGraph.ApiSupport` facade for API entrypoints, with
-  local owner bootstrap explicitly gated to dev/test configuration until real
-  authenticated API session plumbing lands.
-- Minimal GraphQL mutations cover manual intake, proposed-change apply, and
-  verification completion.
-- Matching JSON routes expose the same operations.
-- API smoke coverage proves GraphQL and JSON drive equivalent durable
-  state and duplicate replay behavior.
+- Added generated AshGraphql and AshJsonApi reads for the public resource
+  surface under the GraphQL schema and `/api/v1`.
+- Kept `OfficeGraph.ApiSupport` limited to gated local owner bootstrap for
+  dev/test requests.
+- Kept manual GraphQL only for the operator workflow and packet-run command
+  surfaces, where resolvers call `OfficeGraph.Projections` and
+  `OfficeGraph.PacketRunVerification` directly.
+- API smoke coverage proves generated GraphQL and JSON reads return durable
+  resource data.
 
 ## walking-skeleton-verification
 
@@ -63,7 +64,7 @@
 | Stable product mutations route through Ash or approved exceptions | `OfficeGraph.WorkGraph` Ash create/update helpers, `architecture-exceptions.md` | `mix architecture.conformance` |
 | Direct Ecto paths are approved and documented | `openspec/specs/backend-model-ownership/architecture-exceptions.md` | `test/office_graph/architecture/ash_conformance_test.exs` |
 | Architecture gate is part of backend verification | `mix.exs`, `bin/verify-backend` | `./bin/verify-backend` |
-| GraphQL and JSON use shared actions with gated local bootstrap | `OfficeGraph.ApiSupport`, `OfficeGraphWeb.GraphQL.*`, generated `/api/v1` routes | `test/office_graph_web/generated_api_read_test.exs` |
+| GraphQL and JSON use generated Ash resource reads with gated local bootstrap | `OfficeGraphWeb.GraphQL.*`, generated `/api/v1` routes, `OfficeGraph.ApiSupport.bootstrap_local_api_owner/0` | `test/office_graph_web/generated_api_read_test.exs` |
 | OpenSpec remains valid and mapped to evidence | `openspec/specs/backend-app-baseline/spec.md`, `openspec/specs/walking-skeleton-*/spec.md`, and active changes | `openspec validate --specs --strict`; `openspec validate --changes --strict` |
 
 ## Scope Guard

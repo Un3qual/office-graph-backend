@@ -618,20 +618,27 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
-  test "ApiSupport no longer owns packet-run-verification orchestration" do
+  test "ApiSupport only bootstraps the local API owner" do
     source = File.read!("lib/office_graph/api_support.ex")
 
     direct_ecto_operations =
       scan_file_for_direct_ecto_operations("lib/office_graph/api_support.ex")
 
-    refute source =~ "execute_packet_run_verification_transaction",
-           "packet-run-verification transaction ownership belongs in a domain command"
+    assert source =~ "def bootstrap_local_api_owner"
+    assert source =~ "Foundation.bootstrap_local_owner"
+
+    refute source =~ "def submit_manual_intake"
+    refute source =~ "def apply_proposed_changes"
+    refute source =~ "def complete_verification"
+    refute source =~ "def read_operator_"
+    refute source =~ "def execute_packet_run_verification"
+    refute source =~ "def with_request_session_context"
+    refute source =~ "PacketRunVerification"
+    refute source =~ "Projections"
+    refute source =~ "Integrations"
 
     refute Enum.any?(direct_ecto_operations, &(&1.operation == "Repo.transaction")),
-           "ApiSupport must stay limited to API context loading and delegation"
-
-    assert source =~ "PacketRunVerification.execute",
-           "ApiSupport should delegate packet-run-verification to the domain command"
+           "ApiSupport must stay limited to API owner bootstrap"
   end
 
   test "manual GraphQL schema code is split under the GraphQL transport namespace" do

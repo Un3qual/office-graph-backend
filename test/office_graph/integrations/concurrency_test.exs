@@ -6,10 +6,10 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   alias OfficeGraph.ProposedChanges
 
   alias OfficeGraph.{
-    ApiSupport,
     Foundation,
     Integrations,
     Operations,
+    PacketRunVerification,
     Repo,
     Runs,
     Tenancy,
@@ -971,7 +971,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     shared_observation_key = "api-observation-race-#{suffix}"
 
     try do
-      {first_attrs, second_attrs} =
+      {bootstrap, first_attrs, second_attrs} =
         with_unboxed_connection(fn ->
           cleanup_work_run_verification_scope!("office-graph")
           cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
@@ -993,6 +993,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
           install_execution_observation_insert_barrier!(shared_observation_key)
 
           {
+            bootstrap,
             packet_run_flow_attrs(
               "api-observation-race-first-#{suffix}",
               first_check,
@@ -1013,7 +1014,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
         |> Enum.map(fn attrs ->
           Task.async(fn ->
             with_unboxed_connection(fn ->
-              {attrs, ApiSupport.execute_packet_run_verification(attrs)}
+              {attrs, PacketRunVerification.execute(bootstrap.session, attrs)}
             end)
           end)
         end)
@@ -1041,7 +1042,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
 
       assert {:ok, corrected_summary} =
                with_unboxed_connection(fn ->
-                 ApiSupport.execute_packet_run_verification(corrected_attrs)
+                 PacketRunVerification.execute(bootstrap.session, corrected_attrs)
                end)
 
       assert corrected_summary.run.aggregate_state == "verified"
