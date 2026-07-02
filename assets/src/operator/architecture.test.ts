@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("operator frontend architecture", () => {
-  it("keeps production operator UI code off the legacy JSON API client", () => {
+  it("keeps production operator UI code off the old JSON API client", () => {
     const sourceRoot = join(process.cwd(), "src");
     const files = productionSourceFiles(sourceRoot).filter(
       (file) =>
@@ -13,7 +13,9 @@ describe("operator frontend architecture", () => {
     );
 
     const offenders = files.filter((file) =>
-      readFileSync(file, "utf8").match(/operator-workflow\/api|\.\/operator-workflow\/api/)
+      readFileSync(file, "utf8").match(
+        /\/api\/operator-workflow|operator-workflow\/api|\.\/operator-workflow\/api/
+      )
     );
 
     expect(offenders.map((file) => relative(sourceRoot, file))).toEqual([]);
