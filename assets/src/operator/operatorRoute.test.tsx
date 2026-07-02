@@ -19,6 +19,7 @@ describe("OperatorRoute", () => {
           }
         ]
       },
+      operatorPacketReadiness: graphQLPacketReadiness,
       operatorRunState: graphQLRunState
     });
 
@@ -33,8 +34,11 @@ describe("OperatorRoute", () => {
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
       "normalized_intake_event: evt_1"
     );
-    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Prepare packet context"
+    expect(await screen.findByText("Backend readiness")).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.stringContaining("operatorPacketReadiness")
+      })
     );
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
@@ -79,3 +83,21 @@ function renderWithQueryClient(ui: ReactElement) {
 
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
+
+const graphQLPacketReadiness = {
+  type: "packet_readiness",
+  ready: true,
+  status: "packet_ready",
+  allowedNextActions: ["create_work_packet"],
+  blockerReasons: [],
+  sourceLinks: [
+    {
+      type: "verification_check",
+      id: "check_1",
+      graphItemId: "graph_1",
+      title: "Run console verification"
+    }
+  ],
+  requiredChecks: [{ id: "check_1", graphItemId: "graph_1", state: "required" }],
+  sourceWatermark: "op_123"
+};
