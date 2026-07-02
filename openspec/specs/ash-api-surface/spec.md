@@ -173,25 +173,33 @@ shared domain actions and Ash-owned APIs.
   operation context, call public context actions, and avoid owning lifecycle,
   authorization, validation, or evidence-acceptance rules
 
-### Requirement: Packet Run Verification APIs Have Parity
+### Requirement: Packet Run Verification Uses A GraphQL Command
 
-Office Graph SHALL test equivalent safety behavior for current GraphQL and JSON
-API paths in the first packet-run-verification flow.
+Office Graph SHALL expose the first packet-run-verification flow through the
+current GraphQL command and domain tests, not a duplicate hand-written JSON
+route.
 
-#### Scenario: GraphQL and JSON API execute the current flow
+#### Scenario: GraphQL executes the current flow
 
-- **WHEN** both current API paths create a packet, start a work run, record an
-  observation, accept evidence, and read the summary data
-- **THEN** both paths MUST produce equivalent authorization decisions, operation
-  correlation, validation errors, verification results, data changes, and safe
-  response semantics
+- **WHEN** GraphQL creates a packet, starts a work run, records an observation,
+  accepts evidence, and reads the summary data
+- **THEN** the mutation MUST call `OfficeGraph.PacketRunVerification.execute/2`
+  and return authorization decisions, operation correlation, validation errors,
+  verification results, data changes, and safe response semantics
 
 #### Scenario: API request is invalid
 
-- **WHEN** either current API path receives invalid packet, run, observation,
+- **WHEN** the GraphQL command receives invalid packet, run, observation,
   evidence, authorization, lifecycle, scope, or idempotency input
 - **THEN** it MUST return a structured error with a stable code and safe
   explanatory detail
+
+#### Scenario: Old JSON command has no current caller
+
+- **WHEN** no current non-test caller or accepted integration contract uses
+  `/api/packet-run-verification/execute`
+- **THEN** the Phoenix JSON route, controller, serializer, and route-level tests
+  MUST be removed instead of kept as a fallback for `/operator`
 
 #### Scenario: Composite flow input is invalid
 

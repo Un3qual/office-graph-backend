@@ -32,7 +32,5 @@ defmodule OfficeGraphWeb.Router do
 
   scope "/api", OfficeGraphWeb do
     pipe_through :api
-
-    post "/packet-run-verification/execute", JsonApi.PacketRunVerification.Controller, :execute
   end
 end

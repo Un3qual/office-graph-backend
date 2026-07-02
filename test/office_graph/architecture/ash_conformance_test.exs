@@ -706,9 +706,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
 
     for required_path <- [
-          "lib/office_graph_web/json_api/common/errors.ex",
-          "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
-          "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
+          "lib/office_graph_web/json_api/common/errors.ex"
         ] do
       assert File.exists?(required_path),
              "Expected JSON API transport module file #{required_path}"
@@ -761,6 +759,22 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     assert frontend_offenders == [],
            "Production frontend code must not call old operator JSON routes:\n#{format_errors(frontend_offenders)}"
+  end
+
+  test "old packet-run JSON command stays retired" do
+    for retired_path <- [
+          "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
+          "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
+        ] do
+      refute File.exists?(retired_path), "Retired packet-run JSON file still exists"
+    end
+
+    router_source = File.read!("lib/office_graph_web/router.ex")
+    old_route = "/packet" <> "-run-verification/execute"
+    old_module_name = "JsonApi." <> "PacketRunVerification"
+
+    refute router_source =~ old_route
+    refute router_source =~ old_module_name
   end
 
   test "GraphQL and JSON API helpers stay transport-specific" do
