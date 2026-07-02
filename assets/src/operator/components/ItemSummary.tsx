@@ -11,7 +11,7 @@ type Props = {
 };
 
 export function ItemSummary({ item, itemQuery }: Props) {
-  const isLoading = itemQuery.fetchStatus === "fetching";
+  const isLoading = itemQuery.fetchStatus === "fetching" || (itemQuery.isPending && itemQuery.fetchStatus === "paused");
 
   return (
     <section aria-label="Item detail" className="detail-pane">
@@ -85,7 +85,7 @@ function proposedChangeText(item: OperatorWorkflowItem) {
 }
 
 function traceText(operationId: string | null, resourceCount: number) {
-  return operationId ? `${operationId} (${resourceCount} resources)` : `${resourceCount} resources`;
+  return operationId ? `${operationId} (${resourceCount} resources`) : `${resourceCount} resources`;
 }
 
 function errorMessage(error: unknown) {
