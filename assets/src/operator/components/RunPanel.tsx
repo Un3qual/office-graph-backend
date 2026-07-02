@@ -10,7 +10,7 @@ type Props = {
 };
 
 export function RunPanel({ runId, runState }: Props) {
-  const isLoading = runState.fetchStatus === "fetching";
+  const isLoading = runState.fetchStatus === "fetching" || (runState.isPending && runState.fetchStatus === "paused");
   const hasStaleData = runState.isError && Boolean(runState.data);
 
   return (
