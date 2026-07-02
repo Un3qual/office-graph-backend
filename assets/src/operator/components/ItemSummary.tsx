@@ -85,7 +85,7 @@ function proposedChangeText(item: OperatorWorkflowItem) {
 }
 
 function traceText(operationId: string | null, resourceCount: number) {
-  return operationId ? `${operationId} (${resourceCount} resources`) : `${resourceCount} resources`;
+  return operationId ? `${operationId} (${resourceCount} resources)` : `${resourceCount} resources`;
 }
 
 function errorMessage(error: unknown) {
