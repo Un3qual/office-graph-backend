@@ -66,7 +66,7 @@ Tests that will change:
 - `assets/src/operator/architecture.test.ts`
 - `assets/src/operator/workflowQueries.test.ts`
 - `test/office_graph_web/operator_workflow_api_test.exs`
-- `test/office_graph_web/api_smoke_test.exs`
+- `test/office_graph_web/api_smoke_test.exs` (deleted)
 - `test/office_graph_web/packet_run_verification_api_test.exs`
 - `test/office_graph_web/generated_api_read_test.exs`
 - `test/office_graph/architecture/ash_conformance_test.exs`
@@ -437,7 +437,7 @@ git commit -m "Remove old operator JSON routes"
 - Delete: `lib/office_graph_web/graphql/compatibility/types.ex`
 - Delete: `lib/office_graph_web/json_api/compatibility/controller.ex`
 - Delete: `lib/office_graph_web/json_api/compatibility/serializer.ex`
-- Modify: `test/office_graph_web/api_smoke_test.exs`
+- Delete: `test/office_graph_web/api_smoke_test.exs`
 - Modify: `test/office_graph/architecture/ash_conformance_test.exs`
 - Keep or create focused domain tests under `test/office_graph/**`
 
@@ -460,7 +460,7 @@ Before deleting routes, make sure these behaviors are covered outside old route 
 - `Verification.complete_with_evidence/4` creates evidence and verification results.
 - Authorization and idempotency behavior remain covered by existing domain tests.
 
-Use existing tests when they already cover the behavior. Move assertions from `test/office_graph_web/api_smoke_test.exs` into domain test files only when the assertion is about domain behavior rather than the old HTTP envelope.
+Use existing tests when they already cover the behavior. Delete `test/office_graph_web/api_smoke_test.exs` after confirming domain behavior is covered by focused domain tests rather than the old HTTP envelope.
 
 - [ ] **Step 3: Delete compatibility GraphQL imports**
 
@@ -528,7 +528,8 @@ Expected: domain tests pass without old compatibility HTTP or GraphQL mutation m
 Run:
 
 ```bash
-git add lib/office_graph_web/router.ex lib/office_graph_web/graphql lib/office_graph_web/json_api test/office_graph_web/api_smoke_test.exs test/office_graph/architecture/ash_conformance_test.exs test/office_graph
+git add lib/office_graph_web/router.ex lib/office_graph_web/graphql lib/office_graph_web/json_api test/office_graph/architecture/ash_conformance_test.exs test/office_graph
+git add -u test/office_graph_web/api_smoke_test.exs
 git commit -m "Remove old compatibility routes"
 ```
 

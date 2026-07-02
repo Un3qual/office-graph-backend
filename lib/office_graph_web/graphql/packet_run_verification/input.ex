@@ -66,7 +66,7 @@ defmodule OfficeGraphWeb.GraphQL.PacketRunVerification.Input do
         if String.trim(value) == "" do
           {:error, {:missing_field, key}}
         else
-          cast_id(value, key)
+          cast_id(String.trim(value), key)
         end
 
       nil ->

@@ -29,21 +29,28 @@ export function InboxList({ inbox, onSelect, rows, selectedId }: Props) {
       ) : null}
       {rows.length > 0 ? (
         <div className="inbox-list">
-          {rows.map((row) => (
-            <button
-              aria-current={row.normalizedEventId === selectedId ? "true" : undefined}
-              className="inbox-row"
-              key={row.normalizedEventId}
-              onClick={() => onSelect(row.normalizedEventId)}
-            >
-              <span className="row-title">{row.title}</span>
-              <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
-              <span className="row-source">{row.source.identity}</span>
-              <span className="row-meta">
-                Actions {listText(row.allowedNextActions)} · Watermark {row.sourceWatermark ?? "None"}
-              </span>
-            </button>
-          ))}
+          {rows.map((row) => {
+            const context =
+              row.blockerReasons.length > 0
+                ? `Blockers ${listText(row.blockerReasons)}`
+                : `Actions ${listText(row.allowedNextActions)}`;
+
+            return (
+              <button
+                aria-current={row.normalizedEventId === selectedId ? "true" : undefined}
+                className="inbox-row"
+                key={row.normalizedEventId}
+                onClick={() => onSelect(row.normalizedEventId)}
+              >
+                <span className="row-title">{row.title}</span>
+                <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
+                <span className="row-source">{row.source.identity}</span>
+                <span className="row-meta">
+                  {context} · Watermark {row.sourceWatermark ?? "None"}
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </section>

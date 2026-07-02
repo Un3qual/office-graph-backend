@@ -195,6 +195,23 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                )
     end
 
+    test "revalidates trusted session capabilities against live role assignments" do
+      assert {:ok, bootstrap} =
+               Foundation.bootstrap_local_owner(unique_bootstrap_attrs("trusted-revalidation"))
+
+      assert :ok =
+               Authorization.authorize(bootstrap.session, :manual_intake_submit,
+                 organization_id: bootstrap.organization.id
+               )
+
+      delete_role_assignment!(bootstrap.role_assignment.id)
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(bootstrap.session, :manual_intake_submit,
+                 organization_id: bootstrap.organization.id
+               )
+    end
+
     test "rejects role assignments whose role belongs to another organization" do
       assert {:ok, bootstrap} =
                Foundation.bootstrap_local_owner(unique_bootstrap_attrs("local-role"))
@@ -305,6 +322,10 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       "UPDATE principals SET status = 'inactive', updated_at = $1 WHERE id = $2",
       [now, db_uuid(principal_id)]
     )
+  end
+
+  defp delete_role_assignment!(role_assignment_id) do
+    Repo.query!("DELETE FROM role_assignments WHERE id = $1", [db_uuid(role_assignment_id)])
   end
 
   defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)

@@ -15,15 +15,21 @@ export function listText(values: string[]) {
 }
 
 export function statusTone(status: string): BadgeTone {
-  if (status.includes("ready") || status.includes("verified") || status.includes("passed")) {
+  const words = new Set(status.split("_").filter(Boolean));
+
+  if (
+    (words.has("ready") && !words.has("not")) ||
+    words.has("verified") ||
+    words.has("passed")
+  ) {
     return "green";
   }
 
-  if (status.includes("blocked") || status.includes("failed") || status.includes("missing")) {
+  if (words.has("blocked") || words.has("failed") || words.has("missing") || status === "not_ready") {
     return "red";
   }
 
-  if (status.includes("awaiting") || status.includes("pending")) {
+  if (words.has("awaiting") || words.has("pending")) {
     return "amber";
   }
 

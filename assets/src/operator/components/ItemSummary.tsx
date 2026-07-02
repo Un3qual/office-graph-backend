@@ -11,19 +11,21 @@ type Props = {
 };
 
 export function ItemSummary({ item, itemQuery }: Props) {
+  const isLoading = itemQuery.fetchStatus === "fetching";
+
   return (
     <section aria-label="Item detail" className="detail-pane">
       <div className="detail-header">
         <p className="eyebrow">Selected item</p>
         <h2>{item?.title ?? "No item selected"}</h2>
       </div>
-      {!item && itemQuery.isPending ? <EmptyState title="Loading item detail..." /> : null}
+      {!item && isLoading ? <EmptyState title="Loading item detail..." /> : null}
       {itemQuery.isError ? (
         <EmptyState title={errorMessage(itemQuery.error)} tone="error">
           The selected item detail could not be loaded.
         </EmptyState>
       ) : null}
-      {!item && !itemQuery.isPending && !itemQuery.isError ? (
+      {!item && !isLoading && !itemQuery.isError ? (
         <EmptyState title="No item selected" />
       ) : null}
       {item ? (

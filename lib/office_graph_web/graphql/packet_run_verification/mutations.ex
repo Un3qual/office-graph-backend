@@ -12,7 +12,7 @@ defmodule OfficeGraphWeb.GraphQL.PacketRunVerification.Mutations do
 
       resolve(fn %{input: input}, resolution ->
         with {:ok, parsed_input} <- Input.parse(input),
-             {:ok, session_context} <- request_session(resolution),
+             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, summary} <- PacketRunVerification.execute(session_context, parsed_input) do
           {:ok, summary}
         else
@@ -20,11 +20,5 @@ defmodule OfficeGraphWeb.GraphQL.PacketRunVerification.Mutations do
         end
       end)
     end
-  end
-
-  defp request_session(resolution) do
-    resolution.context
-    |> Map.get(:actor)
-    |> RequestSession.resolve()
   end
 end

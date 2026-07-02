@@ -45,6 +45,10 @@ defmodule OfficeGraph.WorkPackets do
     Readiness.ready?(attrs)
   end
 
+  def readiness_blocker_reasons(attrs) when is_map(attrs) do
+    Readiness.blocker_reasons(attrs)
+  end
+
   def mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
     Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks)
   end

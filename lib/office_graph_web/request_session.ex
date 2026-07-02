@@ -4,6 +4,12 @@ defmodule OfficeGraphWeb.RequestSession do
   alias OfficeGraph.ApiSupport
   alias OfficeGraph.Identity.SessionContext
 
+  def resolve_resolution(%{context: context}) do
+    context
+    |> Map.get(:actor)
+    |> resolve()
+  end
+
   def resolve(%SessionContext{} = session_context), do: {:ok, session_context}
 
   def resolve(nil) do

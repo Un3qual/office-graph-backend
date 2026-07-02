@@ -38,7 +38,7 @@ export function packetReadinessForLoadedItem(item: OperatorWorkflowItem): Packet
 
   return {
     type: "packet_readiness",
-    ready: false,
+    ready: true,
     status: item.status,
     allowedNextActions: item.allowedNextActions,
     blockerReasons: [],

@@ -1,6 +1,7 @@
 export type GraphQLRequest = {
   query: string;
   variables: Record<string, unknown>;
+  signal?: AbortSignal;
 };
 
 export type GraphQLResponse = {

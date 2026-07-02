@@ -13,7 +13,7 @@ import type {
 } from "./workflowTypes";
 
 export function graphQLInbox(value: unknown): OperatorInbox {
-  const inbox = record(value);
+  const inbox = requiredRecord(value, "operator inbox");
 
   return {
     type: "operator_inbox",

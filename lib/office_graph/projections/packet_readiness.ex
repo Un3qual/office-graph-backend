@@ -7,8 +7,6 @@ defmodule OfficeGraph.Projections.PacketReadiness do
 
   require Ash.Query
 
-  @allowed_autonomy_postures MapSet.new(["human_supervised"])
-
   def packet_readiness(session_context, attrs) when is_map(attrs) do
     with :ok <- authorize_read(session_context),
          {:ok, source_links, source_blockers} <- packet_source_links(session_context, attrs),
@@ -162,14 +160,8 @@ defmodule OfficeGraph.Projections.PacketReadiness do
 
   defp readiness_blockers(attrs) do
     [
-      missing_string(attrs, :title, "missing_title"),
-      missing_string(attrs, :objective, "missing_objective"),
-      missing_string(attrs, :context_summary, "missing_context_summary"),
-      missing_string(attrs, :requirements, "missing_requirements"),
-      missing_string(attrs, :success_criteria, "missing_success_criteria"),
-      missing_list(attrs, :source_graph_item_ids, "missing_source_graph_items"),
-      missing_list(attrs, :verification_check_ids, "missing_verification_checks"),
-      unsupported_autonomy_posture(attrs)
+      missing_string(attrs, :title, "missing_title")
+      | WorkPackets.readiness_blocker_reasons(attrs)
     ]
     |> Enum.reject(&is_nil/1)
   end
@@ -190,24 +182,6 @@ defmodule OfficeGraph.Projections.PacketReadiness do
 
       _other ->
         reason
-    end
-  end
-
-  defp missing_list(attrs, key, reason) do
-    case Map.get(attrs, key) do
-      list when is_list(list) ->
-        if list == [], do: reason
-
-      _other ->
-        reason
-    end
-  end
-
-  defp unsupported_autonomy_posture(attrs) do
-    if MapSet.member?(@allowed_autonomy_postures, Map.get(attrs, :autonomy_posture)) do
-      nil
-    else
-      "unsupported_autonomy_posture"
     end
   end
 end

@@ -52,7 +52,7 @@ defmodule OfficeGraph.QueryCounter do
   defp query_source?(%{source: source}, source), do: true
 
   defp query_source?(%{query: query}, source) when is_binary(query) do
-    String.contains?(query, ~s("#{source}")) or String.contains?(query, source)
+    String.contains?(query, ~s("#{source}"))
   end
 
   defp query_source?(_query, _source), do: false

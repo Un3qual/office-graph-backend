@@ -1,11 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import {
+  fetchPacketReadiness,
   fetchOperatorInbox,
   fetchOperatorItem,
   fetchOperatorRunState,
   operatorQueryKeys
 } from "./workflowQueries";
+import { createGraphQLHttpFetcher } from "./workflowGraphql";
 import { createGraphQLTestFetcher, graphQLInbox, graphQLRunState } from "./testSupport";
 
 describe("operator workflow GraphQL queries", () => {
@@ -61,11 +63,82 @@ describe("operator workflow GraphQL queries", () => {
     });
   });
 
+  it("uses order-independent packet readiness query keys without mutating inputs", () => {
+    const input = {
+      sourceGraphItemIds: ["source_b", "source_a"],
+      verificationCheckIds: ["check_b", "check_a"]
+    };
+
+    expect(operatorQueryKeys.packetReadiness(input)).toEqual(
+      operatorQueryKeys.packetReadiness({
+        sourceGraphItemIds: ["source_a", "source_b"],
+        verificationCheckIds: ["check_a", "check_b"]
+      })
+    );
+    expect(input).toEqual({
+      sourceGraphItemIds: ["source_b", "source_a"],
+      verificationCheckIds: ["check_b", "check_a"]
+    });
+  });
+
   it("surfaces GraphQL errors with a useful message", async () => {
     const fetcher = vi.fn(async () => ({
       errors: [{ message: "operator inbox denied" }]
     }));
 
     await expect(fetchOperatorInbox(fetcher)).rejects.toThrow("operator inbox denied");
+  });
+
+  it("rejects missing inbox projections instead of treating them as empty", async () => {
+    const fetcher = createGraphQLTestFetcher({ operatorInbox: null });
+
+    await expect(fetchOperatorInbox(fetcher)).rejects.toThrow(
+      "The GraphQL operator inbox projection was empty."
+    );
+  });
+
+  it("passes abort signals through the HTTP GraphQL fetcher", async () => {
+    const signal = new AbortController().signal;
+    const fetcher = vi.fn(async () => Response.json({ data: { operatorPacketReadiness: null } }));
+    const fetchGraphQL = createGraphQLHttpFetcher({ fetcher });
+
+    await fetchGraphQL({ query: "query Test { ok }", variables: {}, signal });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/graphql",
+      expect.objectContaining({
+        signal
+      })
+    );
+  });
+
+  it("passes React Query cancellation signals into GraphQL requests", async () => {
+    const signal = new AbortController().signal;
+    const fetcher = vi.fn(async () => ({
+      data: {
+        operatorPacketReadiness: {
+          type: "packet_readiness",
+          ready: true,
+          status: "packet_ready",
+          allowedNextActions: ["create_work_packet"],
+          blockerReasons: [],
+          sourceLinks: [],
+          requiredChecks: [],
+          sourceWatermark: null
+        }
+      }
+    }));
+
+    await fetchPacketReadiness(
+      fetcher,
+      { sourceGraphItemIds: [], verificationCheckIds: [] },
+      signal
+    );
+
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signal
+      })
+    );
   });
 });

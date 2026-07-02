@@ -220,6 +220,44 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert result["targetGraphItemId"] == verification_check.graph_item_id
   end
 
+  test "GraphQL packet readiness normalizes nullable id lists", %{conn: conn} do
+    assert {:ok, _bootstrap} = Foundation.bootstrap_local_owner([])
+
+    readiness =
+      graphql(
+        conn,
+        """
+        query Readiness($input: OperatorPacketReadinessInput!) {
+          operatorPacketReadiness(input: $input) {
+            status
+            ready
+            blockerReasons
+          }
+        }
+        """,
+        %{
+          input: %{
+            title: "Nullable list packet",
+            objective: "Check nullable GraphQL lists.",
+            contextSummary: "GraphQL callers may send null for optional ID lists.",
+            requirements: "Return readiness blockers.",
+            successCriteria: "No resolver crash.",
+            autonomyPosture: "human_supervised",
+            sourceGraphItemIds: nil,
+            verificationCheckIds: nil
+          }
+        }
+      )
+
+    assert readiness["status"] == "blocked"
+    assert readiness["ready"] == false
+
+    assert readiness["blockerReasons"] == [
+             "missing_source_graph_items",
+             "missing_verification_checks"
+           ]
+  end
+
   test "GraphQL operator workflow reads use a trusted request actor when bootstrap is disabled" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-trusted-context")

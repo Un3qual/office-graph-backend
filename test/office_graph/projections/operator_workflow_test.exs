@@ -121,12 +121,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert QueryCounter.source_count(queries, "tasks") <= 1
     assert QueryCounter.source_count(queries, "review_findings") <= 1
     assert QueryCounter.source_count(queries, "verification_checks") <= 1
-    assert QueryCounter.source_count(queries, "work_packet_required_checks") <= 1
-    assert QueryCounter.source_count(queries, "work_packet_source_references") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_required_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_sources") <= 1
     assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
-  test "trusted session capabilities authorize projection reads without role table queries" do
+  test "trusted session capabilities are revalidated for projection reads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, _intake} = submit_manual_intake(bootstrap.session, "trusted-auth-query")
 
@@ -135,10 +135,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert inbox.empty? == false
 
-    assert QueryCounter.source_count(queries, "capabilities") == 0
-    assert QueryCounter.source_count(queries, "role_capabilities") == 0
-    assert QueryCounter.source_count(queries, "roles") == 0
-    assert QueryCounter.source_count(queries, "role_assignments") == 0
+    assert QueryCounter.source_count(queries, "role_assignments") >= 1
   end
 
   test "terminal linked work runs replace packet handoff status" do

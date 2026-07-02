@@ -10,16 +10,20 @@ type Props = {
 };
 
 export function ReadinessPanel({ readiness, readinessQuery }: Props) {
+  const isLoading = readinessQuery.fetchStatus === "fetching";
+  const hasStaleData = readinessQuery.isError && Boolean(readiness);
+
   return (
     <Panel ariaLabel="Packet Readiness">
       <h2>Packet Readiness</h2>
-      {readinessQuery.isPending && !readiness ? <p>Loading readiness...</p> : null}
+      {isLoading && !readiness ? <p>Loading readiness...</p> : null}
       {readinessQuery.isError ? <p className="error-text">{errorMessage(readinessQuery.error)}</p> : null}
-      {!readiness && !readinessQuery.isPending && !readinessQuery.isError ? (
+      {!readiness && !isLoading && !readinessQuery.isError ? (
         <p>No packet readiness selected.</p>
       ) : null}
       {readiness ? (
         <>
+          {hasStaleData ? <p className="muted-text">Showing last loaded readiness.</p> : null}
           <Badge tone={statusTone(readiness.status)}>{formatLabel(readiness.status)}</Badge>
           <PanelRows
             rows={[

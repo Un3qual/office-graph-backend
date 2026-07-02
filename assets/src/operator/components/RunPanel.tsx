@@ -10,14 +10,18 @@ type Props = {
 };
 
 export function RunPanel({ runId, runState }: Props) {
+  const isLoading = runState.fetchStatus === "fetching";
+  const hasStaleData = runState.isError && Boolean(runState.data);
+
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
       {!runId ? <p>No run linked yet.</p> : null}
-      {runId && runState.isPending ? <p>Loading run state...</p> : null}
+      {runId && isLoading ? <p>Loading run state...</p> : null}
       {runState.isError ? <p className="error-text">{errorMessage(runState.error)}</p> : null}
       {runState.data ? (
         <>
+          {hasStaleData ? <p className="muted-text">Showing last loaded run state.</p> : null}
           <Badge tone={statusTone(runState.data.status)}>{formatLabel(runState.data.status)}</Badge>
           <PanelRows
             rows={[

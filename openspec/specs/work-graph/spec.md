@@ -54,10 +54,10 @@ validation rules.
 - **THEN** the edge must not grant access by itself; the response must hide the
   item, redact it, summarize it, or expose a placeholder according to policy
 
-### Requirement: Change Proposals
+### Requirement: Proposed Graph Mutations
 
-Agents and AI pipelines SHALL create structured change proposals instead of
-writing directly to truth tables.
+Agents and AI pipelines SHALL submit proposed graph mutations through typed
+domain actions instead of writing directly to truth tables.
 
 #### Scenario: Agent suggests graph mutations
 
@@ -70,8 +70,10 @@ writing directly to truth tables.
 
 - **WHEN** the mutation safety pattern is described in product or planning
   documents
-- **THEN** it must use language such as change proposal rather than old patch
-  terminology as the product term
+- **THEN** current product, API, and UI wording must use the canonical spine
+  terms Signal, Work Item, Work Packet, Run, Check, Evidence, and Verification,
+  while `ChangeProposal` remains deferred vocabulary until a later accepted spec
+  promotes it
 
 ### Requirement: Work Packets As Versioned Execution Packages
 

@@ -46,7 +46,7 @@ describe("OperatorRoute", () => {
     });
   });
 
-  it("shows empty and error states without enabling workflow commands", async () => {
+  it("shows the empty state without enabling workflow commands", async () => {
     const emptyFetcher = createGraphQLTestFetcher({
       operatorInbox: { ...graphQLInbox, empty: true, rows: [] }
     });
@@ -54,8 +54,14 @@ describe("OperatorRoute", () => {
     renderWithQueryClient(<OperatorRoute fetchGraphQL={emptyFetcher} />);
 
     expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
+    expect(screen.getAllByText("No item selected").length).toBeGreaterThan(0);
+    expect(screen.getByText("No packet readiness selected.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading item detail...")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading readiness...")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply/i })).not.toBeInTheDocument();
+  });
 
+  it("shows GraphQL loading errors", async () => {
     const failingFetcher = vi.fn(async () => {
       throw new Error("GraphQL unavailable");
     });

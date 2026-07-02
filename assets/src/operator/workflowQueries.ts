@@ -29,41 +29,47 @@ export const operatorQueryKeys = {
       "operator",
       "workflow",
       "packetReadiness",
-      input.sourceGraphItemIds.join(","),
-      input.verificationCheckIds.join(",")
+      sortedIds(input.sourceGraphItemIds).join(","),
+      sortedIds(input.verificationCheckIds).join(",")
     ] as const,
   runState: (runId: string) => ["operator", "workflow", "runState", runId] as const
 };
 
-export async function fetchOperatorInbox(fetchGraphQL: GraphQLFetcher): Promise<OperatorInbox> {
-  const data = await requestGraphQL(fetchGraphQL, operatorInboxQuery, {});
+export async function fetchOperatorInbox(
+  fetchGraphQL: GraphQLFetcher,
+  signal?: AbortSignal
+): Promise<OperatorInbox> {
+  const data = await requestGraphQL(fetchGraphQL, operatorInboxQuery, {}, signal);
 
   return graphQLInbox(data.operatorInbox);
 }
 
 export async function fetchOperatorItem(
   fetchGraphQL: GraphQLFetcher,
-  normalizedEventId: string
+  normalizedEventId: string,
+  signal?: AbortSignal
 ): Promise<OperatorWorkflowItem> {
-  const data = await requestGraphQL(fetchGraphQL, operatorItemQuery, { id: normalizedEventId });
+  const data = await requestGraphQL(fetchGraphQL, operatorItemQuery, { id: normalizedEventId }, signal);
 
   return graphQLItem(data.operatorWorkflowItem);
 }
 
 export async function fetchPacketReadiness(
   fetchGraphQL: GraphQLFetcher,
-  input: PacketReadinessInput
+  input: PacketReadinessInput,
+  signal?: AbortSignal
 ): Promise<PacketReadiness> {
-  const data = await requestGraphQL(fetchGraphQL, operatorPacketReadinessQuery, { input });
+  const data = await requestGraphQL(fetchGraphQL, operatorPacketReadinessQuery, { input }, signal);
 
   return graphQLPacketReadiness(data.operatorPacketReadiness);
 }
 
 export async function fetchOperatorRunState(
   fetchGraphQL: GraphQLFetcher,
-  runId: string
+  runId: string,
+  signal?: AbortSignal
 ): Promise<OperatorRunState> {
-  const data = await requestGraphQL(fetchGraphQL, operatorRunStateQuery, { id: runId });
+  const data = await requestGraphQL(fetchGraphQL, operatorRunStateQuery, { id: runId }, signal);
 
   return graphQLRunState(data.operatorRunState);
 }
@@ -71,7 +77,7 @@ export async function fetchOperatorRunState(
 export function useOperatorInboxQuery(fetchGraphQL: GraphQLFetcher) {
   return useQuery({
     queryKey: operatorQueryKeys.inbox(),
-    queryFn: () => fetchOperatorInbox(fetchGraphQL)
+    queryFn: ({ signal }) => fetchOperatorInbox(fetchGraphQL, signal)
   });
 }
 
@@ -85,7 +91,7 @@ export function useOperatorItemQuery(
     queryKey: normalizedEventId
       ? operatorQueryKeys.item(normalizedEventId)
       : ["operator", "workflow", "item", "none"],
-    queryFn: () => fetchOperatorItem(fetchGraphQL, normalizedEventId ?? "")
+    queryFn: ({ signal }) => fetchOperatorItem(fetchGraphQL, normalizedEventId ?? "", signal)
   });
 }
 
@@ -99,8 +105,12 @@ export function usePacketReadinessQuery(
     queryKey: input
       ? operatorQueryKeys.packetReadiness(input)
       : ["operator", "workflow", "packetReadiness", "none"],
-    queryFn: () =>
-      fetchPacketReadiness(fetchGraphQL, input ?? { sourceGraphItemIds: [], verificationCheckIds: [] })
+    queryFn: ({ signal }) =>
+      fetchPacketReadiness(
+        fetchGraphQL,
+        input ?? { sourceGraphItemIds: [], verificationCheckIds: [] },
+        signal
+      )
   });
 }
 
@@ -112,16 +122,18 @@ export function useOperatorRunStateQuery(
   return useQuery({
     enabled: enabled && Boolean(runId),
     queryKey: runId ? operatorQueryKeys.runState(runId) : ["operator", "workflow", "runState", "none"],
-    queryFn: () => fetchOperatorRunState(fetchGraphQL, runId ?? "")
+    queryFn: ({ signal }) => fetchOperatorRunState(fetchGraphQL, runId ?? "", signal)
   });
 }
 
 async function requestGraphQL(
   fetchGraphQL: GraphQLFetcher,
   query: string,
-  variables: Record<string, unknown>
+  variables: Record<string, unknown>,
+  signal?: AbortSignal
 ) {
-  const response = await fetchGraphQL({ query, variables });
+  const request = signal ? { query, variables, signal } : { query, variables };
+  const response = await fetchGraphQL(request);
 
   if (response.errors?.length) {
     throw new Error(response.errors[0]?.message ?? "The GraphQL operator request failed.");
@@ -132,4 +144,8 @@ async function requestGraphQL(
   }
 
   return response.data;
+}
+
+function sortedIds(ids: string[]) {
+  return [...ids].sort();
 }

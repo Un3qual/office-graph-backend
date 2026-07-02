@@ -42,6 +42,48 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
     assert_summary_result_audit_fields(summary, verification_check.graph_item_id)
   end
 
+  test "GraphQL trims packet-run UUID inputs before casting", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("graphql-trimmed-ids")
+
+    summary =
+      graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            packet { id title state }
+            packetVersion { id versionNumber lifecycleState objective }
+            run { id aggregateState executionState verificationState }
+            requiredChecks { verificationCheckId state }
+            observations { normalizedStatus sourceKind sourceIdentity }
+            evidenceItems { id state candidateId workRunId }
+            verificationResults {
+              id
+              result
+              evidenceItemId
+              operationId
+              workRunId
+              workPacketVersionId
+              actorPrincipalId
+              policyBasis
+              targetGraphItemId
+            }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_attrs("graphql-trimmed-ids", verification_check)
+            |> Map.put(:verificationCheckId, " #{verification_check.id} ")
+            |> Map.put(:sourceGraphItemId, " #{verification_check.graph_item_id} ")
+        }
+      )
+
+    assert_summary_verified(summary, verification_check.id)
+    assert_summary_result_audit_fields(summary, verification_check.graph_item_id)
+  end
+
   test "GraphQL reports idempotency conflicts with stable extensions", %{conn: conn} do
     {:ok, first_check} = create_required_verification_check("graphql-conflicting-flow")
 

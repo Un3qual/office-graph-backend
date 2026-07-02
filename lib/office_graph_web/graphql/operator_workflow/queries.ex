@@ -8,7 +8,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   object :operator_workflow_queries do
     field :operator_inbox, non_null(:operator_inbox) do
       resolve(fn _, resolution ->
-        with {:ok, session_context} <- request_session(resolution),
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, inbox} <- Projections.operator_inbox(session_context) do
           {:ok, inbox}
         else
@@ -21,7 +21,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        with {:ok, session_context} <- request_session(resolution),
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, item} <- Projections.operator_workflow_item(session_context, id) do
           {:ok, item}
         else
@@ -34,8 +34,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:input, non_null(:operator_packet_readiness_input))
 
       resolve(fn %{input: input}, resolution ->
-        with {:ok, session_context} <- request_session(resolution),
-             {:ok, readiness} <- Projections.packet_readiness(session_context, input) do
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, readiness} <-
+               Projections.packet_readiness(
+                 session_context,
+                 normalize_packet_readiness_input(input)
+               ) do
           {:ok, readiness}
         else
           error -> Errors.to_absinthe(error)
@@ -47,7 +51,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        with {:ok, session_context} <- request_session(resolution),
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, run_state} <- Projections.operator_run_state(session_context, id) do
           {:ok, run_state}
         else
@@ -60,7 +64,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       arg(:id, non_null(:id))
 
       resolve(fn %{id: id}, resolution ->
-        with {:ok, session_context} <- request_session(resolution),
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, outcome} <- Projections.verification_outcome(session_context, id) do
           {:ok, outcome}
         else
@@ -70,9 +74,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
     end
   end
 
-  defp request_session(resolution) do
-    resolution.context
-    |> Map.get(:actor)
-    |> RequestSession.resolve()
+  defp normalize_packet_readiness_input(input) do
+    input
+    |> Map.update(:source_graph_item_ids, [], &normalize_list/1)
+    |> Map.update(:verification_check_ids, [], &normalize_list/1)
   end
+
+  defp normalize_list(nil), do: []
+  defp normalize_list(list) when is_list(list), do: list
 end

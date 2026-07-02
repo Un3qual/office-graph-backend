@@ -8,13 +8,20 @@ defmodule OfficeGraph.WorkPackets.Readiness do
   end
 
   def ready?(attrs) when is_map(attrs) do
-    present?(attrs[:objective]) and
-      present?(attrs[:context_summary]) and
-      present?(attrs[:requirements]) and
-      present?(attrs[:success_criteria]) and
-      MapSet.member?(@allowed_autonomy_postures, attrs[:autonomy_posture]) and
-      references_present?(Map.get(attrs, :source_graph_item_ids, [])) and
-      references_present?(Map.get(attrs, :verification_check_ids, []))
+    blocker_reasons(attrs) == []
+  end
+
+  def blocker_reasons(attrs) when is_map(attrs) do
+    [
+      missing_string(attrs, :objective, "missing_objective"),
+      missing_string(attrs, :context_summary, "missing_context_summary"),
+      missing_string(attrs, :requirements, "missing_requirements"),
+      missing_string(attrs, :success_criteria, "missing_success_criteria"),
+      missing_list(attrs, :source_graph_item_ids, "missing_source_graph_items"),
+      missing_list(attrs, :verification_check_ids, "missing_verification_checks"),
+      unsupported_autonomy_posture(attrs)
+    ]
+    |> Enum.reject(&is_nil/1)
   end
 
   def mismatched_source_check_ids(source_graph_item_ids, verification_checks)
@@ -28,9 +35,31 @@ defmodule OfficeGraph.WorkPackets.Readiness do
     |> Enum.map(& &1.id)
   end
 
-  defp references_present?(references) when is_list(references), do: references != []
-  defp references_present?(_references), do: false
+  defp missing_string(attrs, key, reason) do
+    case Map.get(attrs, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: reason
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: false
+      _other ->
+        reason
+    end
+  end
+
+  defp missing_list(attrs, key, reason) do
+    case Map.get(attrs, key) do
+      list when is_list(list) ->
+        if list == [], do: reason
+
+      _other ->
+        reason
+    end
+  end
+
+  defp unsupported_autonomy_posture(attrs) do
+    if MapSet.member?(@allowed_autonomy_postures, Map.get(attrs, :autonomy_posture)) do
+      nil
+    else
+      "unsupported_autonomy_posture"
+    end
+  end
 end

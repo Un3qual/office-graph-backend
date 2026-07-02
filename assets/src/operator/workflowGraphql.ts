@@ -7,10 +7,11 @@ export function createGraphQLHttpFetcher({
   fetcher?: typeof fetch;
   path?: string;
 } = {}): GraphQLFetcher {
-  return async ({ query, variables }) => {
+  return async ({ query, variables, signal }) => {
     const response = await fetcher(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({ query, variables })
     });
 
