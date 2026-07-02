@@ -8,6 +8,12 @@ describe("operator workflow derived values", () => {
     const item = graphQLItem(graphQLInbox.rows[0]);
 
     expect(packetReadinessInputForItem(item)).toEqual({
+      title: "Run console verification",
+      objective: "Run console verification",
+      contextSummary: "Run console verification",
+      requirements: "Run console verification",
+      successCriteria: "Run console verification",
+      autonomyPosture: "human_supervised",
       sourceGraphItemIds: ["graph_1"],
       verificationCheckIds: ["check_1"]
     });
@@ -28,6 +34,12 @@ describe("operator workflow derived values", () => {
     };
 
     expect(packetReadinessInputForItem(item)).toEqual({
+      title: "evt_1",
+      objective: "evt_1",
+      contextSummary: "",
+      requirements: "",
+      successCriteria: "",
+      autonomyPosture: "human_supervised",
       sourceGraphItemIds: [],
       verificationCheckIds: []
     });
