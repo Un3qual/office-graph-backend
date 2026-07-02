@@ -8,7 +8,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   alias OfficeGraph.WorkPackets
 
   describe "generated AshGraphql reads" do
-    test "return local actor scope records for selected API read surfaces", %{conn: conn} do
+    test "return local actor scope records for selected generated reads", %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
 
       response =
@@ -60,7 +60,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   end
 
   describe "generated AshJsonApi reads" do
-    test "mount under /api/v1 for selected read surfaces", %{conn: conn} do
+    test "mount under /api/v1 for selected generated reads", %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
 
       assert [signal] =
@@ -141,7 +141,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
 
   defp generated_reads_query do
     """
-    query GeneratedReadSurfaces {
+    query GeneratedResourceReads {
       listSignals {
         id
         title
@@ -234,7 +234,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         objective: "Expose generated read packet #{suffix}.",
         context_summary: "Generated read context #{suffix}.",
         requirements: "Read generated API state #{suffix}.",
-        success_criteria: "Selected read surfaces are visible.",
+        success_criteria: "Selected generated reads are visible.",
         autonomy_posture: "human_supervised",
         source_graph_item_ids: [verification_check.graph_item_id],
         verification_check_ids: [verification_check.id]

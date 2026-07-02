@@ -19,6 +19,14 @@ Phoenix JSON controllers.
   declarations on the owning domain/resource or document why that path is a
   valid custom API exception
 
+#### Scenario: Generated API package is mounted
+
+- **WHEN** AshGraphql or AshJsonApi is mounted for a current resource-shaped
+  read
+- **THEN** tests MUST exercise the generated GraphQL field or generated
+  `/api/v1` route; a mounted library without exercised generated reads is not
+  enough evidence that the API uses Ash
+
 #### Scenario: Resource API shape needs transport-specific presentation
 
 - **WHEN** GraphQL or JSON API needs field naming, pagination, filtering,
@@ -63,6 +71,13 @@ product APIs.
 Office Graph SHALL allow custom Absinthe or Phoenix transport code only for
 multi-step commands, mixed-data reads, or transport-specific response shapes
 that do not map cleanly to generated Ash APIs.
+
+#### Scenario: Custom transport code is kept
+
+- **WHEN** custom GraphQL or Phoenix code remains after a generated Ash API is
+  available
+- **THEN** the custom code MUST be limited to mixed reads or commands that
+  generated Ash APIs cannot express safely
 
 #### Scenario: Orchestration command spans domains
 
