@@ -20,6 +20,17 @@ import type {
   PacketReadinessInput
 } from "./workflowTypes";
 
+const emptyPacketReadinessInput: PacketReadinessInput = {
+  title: "",
+  objective: "",
+  contextSummary: "",
+  requirements: "",
+  successCriteria: "",
+  autonomyPosture: "",
+  sourceGraphItemIds: [],
+  verificationCheckIds: []
+};
+
 export const operatorQueryKeys = {
   inbox: () => ["operator", "workflow", "inbox"] as const,
   item: (normalizedEventId: string) =>
@@ -29,6 +40,12 @@ export const operatorQueryKeys = {
       "operator",
       "workflow",
       "packetReadiness",
+      input.title,
+      input.objective,
+      input.contextSummary,
+      input.requirements,
+      input.successCriteria,
+      input.autonomyPosture,
       sortedIds(input.sourceGraphItemIds).join(","),
       sortedIds(input.verificationCheckIds).join(",")
     ] as const,
@@ -108,7 +125,7 @@ export function usePacketReadinessQuery(
     queryFn: ({ signal }) =>
       fetchPacketReadiness(
         fetchGraphQL,
-        input ?? { sourceGraphItemIds: [], verificationCheckIds: [] },
+        input ?? emptyPacketReadinessInput,
         signal
       )
   });
