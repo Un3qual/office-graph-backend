@@ -35,7 +35,7 @@ decisions into this file or into formal OpenSpec specs.
   Tailwind, Tailwind-dependent component libraries, Tailwind configuration, or
   Tailwind utility-class conventions.
 - APIs: both GraphQL and JSON API are required.
-- GraphQL should use interfaces for shared actions and viewer-specific fields
+- GraphQL should use interfaces for common actions and viewer-specific fields
   such as close, update, react, comment, approve, and subscribe. These
   interfaces sit over typed resources and authorization-aware resolvers; they
   do not justify polymorphic local storage or generic mutation paths.

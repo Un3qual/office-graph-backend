@@ -205,7 +205,7 @@ route.
 
 - **WHEN** a packet-run-verification command contains packet readiness input or
   passed-evidence input that the owning domain rules would later reject
-- **THEN** the shared API context MUST reject the request before creating
+- **THEN** the GraphQL command MUST reject the request before creating
   per-step operation-correlated packet, run, observation, candidate, evidence,
   or verification result records
 
