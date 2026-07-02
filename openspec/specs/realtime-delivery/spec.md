@@ -3,7 +3,7 @@
 ## Purpose
 
 Define realtime delivery ownership, authorization, and projection-reconciliation
-rules for Office Graph product surfaces.
+rules for Office Graph product screens and routes.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ sensitivity, relationship, and policy rules used by reads and projections.
 #### Scenario: Subscriber receives projection update
 
 - **WHEN** a user, agent, service account, or integration subscribes to a graph
-  projection, node conversation, work packet, run, or verification surface
+  projection, node conversation, work packet, run, or verification view
 - **THEN** each delivered event MUST be scoped, authorized, and redacted or
   omitted according to the subscriber's current visibility policy
 
@@ -47,7 +47,7 @@ sensitivity, relationship, and policy rules used by reads and projections.
 - **THEN** the realtime layer MUST stop, alter, redact, or reauthorize delivery
   before exposing new restricted data
 
-### Requirement: Realtime Surfaces Have Explicit Ownership
+### Requirement: Realtime Streams Have Explicit Ownership
 
 Office Graph SHALL assign each realtime topic, subscription field, channel,
 and projection invalidation stream to an owning domain or projection context.
@@ -55,15 +55,15 @@ and projection invalidation stream to an owning domain or projection context.
 #### Scenario: New realtime topic is added
 
 - **WHEN** a design introduces a realtime topic for inboxes, node views,
-  conversations, runs, verification, agent runtime status, or review surfaces
+  conversations, runs, verification, agent runtime status, or review screens
 - **THEN** the design MUST identify the owner, source events, authorization
   filter, payload shape, backfill/read-after-connect behavior, and stale-cache
   invalidation behavior
 
-#### Scenario: Transport-specific realtime shape differs
+#### Scenario: Transport-specific realtime message format differs
 
 - **WHEN** Absinthe subscriptions and Phoenix Channels expose different
-  transport shapes for the same event
+  message formats for the same event
 - **THEN** both transports MUST derive from the same domain/projection event
   contract and differ only in transport mapping
 

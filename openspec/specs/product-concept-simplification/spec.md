@@ -1,14 +1,14 @@
 # product-concept-simplification Specification
 
 ## Purpose
-TBD - created by archiving change stabilize-architecture-foundation. Update Purpose after archive.
+Define the product words used by the first Office Graph workflows.
 ## Requirements
 ### Requirement: Canonical MVP Product Spine
 
 Office Graph SHALL use a small canonical MVP product spine for user-facing
 workflow vocabulary.
 
-#### Scenario: Product surface names workflow concepts
+#### Scenario: Product UI or API names workflow concepts
 
 - **WHEN** an API contract, UI projection, UI label, product spec, or operator
   workflow names first-spine concepts
@@ -41,9 +41,9 @@ contracts unless the operator must act on them.
 
 #### Scenario: Audit detail is requested
 
-- **WHEN** an authorized audit, debug, or compliance surface needs
+- **WHEN** an authorized audit, debug, or compliance page or API needs
   infrastructure detail
-- **THEN** the surface MAY expose infrastructure records with clear labels,
+- **THEN** the page or API MAY expose infrastructure records with clear labels,
   authorization filtering, and trace context, but it MUST remain distinct from
   the default operator workflow contract
 
@@ -61,11 +61,11 @@ API, UI, or spec contracts.
   workflow as a normal domain command, Signal, draft Work Item, triage record,
   or Evidence state as appropriate
 
-#### Scenario: Legacy storage name remains
+#### Scenario: Old storage name remains
 
-- **WHEN** legacy code or storage still uses a retired term for compatibility
+- **WHEN** old code or storage still uses a retired term
 - **THEN** new API and UI layers MUST translate it to the canonical product
-  term and MUST include a migration or retirement task if the legacy name would
+  term and MUST include a migration or retirement task if the old name would
   otherwise become durable public vocabulary
 
 #### Scenario: Normal domain command is modeled
@@ -83,11 +83,11 @@ API, UI, or spec contracts.
   invoking the owning domain command, and MUST NOT mutate the graph projection
   as the source of truth
 
-#### Scenario: Legacy proposed graph change storage remains
+#### Scenario: Old proposed graph change storage remains
 
-- **WHEN** legacy `proposed_graph_changes` storage remains during migration
-- **THEN** new API and UI surfaces MUST treat it as temporary compatibility or
-  raw suggestion input, MUST NOT expose it as generic graph mutation product
+- **WHEN** old `proposed_graph_changes` storage remains during migration
+- **THEN** new API endpoints and UI MUST treat it as temporary migration data
+  or raw suggestion input, MUST NOT expose it as generic graph mutation product
   state, and MUST include retirement or replacement work
 
 ### Requirement: Evidence Candidate Is Internal Unless Promoted
@@ -97,7 +97,7 @@ evidence as Evidence states in product-facing contracts.
 
 #### Scenario: Operator reviews evidence
 
-- **WHEN** an operator-facing surface presents possible evidence
+- **WHEN** an operator page presents possible evidence
 - **THEN** it MUST present the concept as Evidence with a clear state such as
   suggested, accepted, rejected, stale, or missing rather than exposing
   EvidenceCandidate as the default product noun
@@ -132,4 +132,3 @@ concept to be user-facing.
 - **THEN** the proposal MUST identify the workflow, operator action, projection
   contract, authorization behavior, and reason the canonical product spine is
   insufficient without that concept
-

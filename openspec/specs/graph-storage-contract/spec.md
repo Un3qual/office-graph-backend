@@ -77,7 +77,7 @@ over concrete typed resources and authorization-aware domain contracts.
   storage, graph identity, and owning domain contracts rather than from a
   polymorphic local `resource_type` plus `resource_id` table
 
-#### Scenario: Viewer affordance field is exposed
+#### Scenario: Viewer action field is exposed
 - **WHEN** GraphQL exposes fields such as `viewerCanUpdate`,
   `viewerCanReact`, `viewerCanClose`, `viewerCanApprove`, or
   `viewerDidAuthor`

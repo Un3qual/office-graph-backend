@@ -48,7 +48,7 @@ status and domain mapping logic.
 - **THEN** the values MUST come from a shared token source that can be consumed
   by CSS and TypeScript without duplicating magic values in feature components
 
-### Requirement: Projection Client Boundary
+### Requirement: Feature Data Hooks
 
 Office Graph SHALL route frontend data access through feature-owned data hooks
 or clients rather than direct ad hoc fetch calls inside components.
@@ -57,7 +57,7 @@ or clients rather than direct ad hoc fetch calls inside components.
 
 - **WHEN** a feature route or panel reads Office Graph backend data
 - **THEN** the feature MUST call a typed hook or client that returns a frontend
-  view model independent of raw GraphQL response shape or future socket/live
+  typed UI data independent of raw GraphQL response shape or future socket/live
   invalidation payloads
 
 #### Scenario: Old adapter has no current caller
@@ -65,7 +65,7 @@ or clients rather than direct ad hoc fetch calls inside components.
 - **WHEN** a feature moves to the current product API path and an old adapter no
   longer has a current caller
 - **THEN** the implementation MUST delete the old adapter and rewrite tests
-  around the current data path instead of preserving adapter compatibility
+  around the current data path instead of keeping old adapter behavior
 
 ### Requirement: Product Frontend Uses Current API Path
 Office Graph SHALL keep product frontend code on the current accepted API path.

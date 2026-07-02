@@ -70,8 +70,8 @@ writing directly to truth tables.
 
 - **WHEN** the mutation safety pattern is described in product or planning
   documents
-- **THEN** it must use language such as change proposal rather than
-  legacy patch terminology as the product term
+- **THEN** it must use language such as change proposal rather than old patch
+  terminology as the product term
 
 ### Requirement: Work Packets As Versioned Execution Packages
 

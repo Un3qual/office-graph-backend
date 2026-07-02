@@ -10,9 +10,9 @@ decisions are solid.
 
 ## Why This Exists
 
-The first operator console proved that Phoenix can serve a React product
-surface backed by Office Graph projections. It also pulled the frontend toward
-an operator-demo shape: one route, one product surface, one workbench vocabulary,
+The first operator console proved that Phoenix can serve a React product UI
+backed by Office Graph projections. It also pulled the frontend toward
+an operator-demo shape: one route, one product screen, one workbench vocabulary,
 and architecture choices made in service of getting the first screen visible.
 
 That is not enough for the product we are building. Office Graph needs a large,
@@ -23,9 +23,9 @@ into a special case.
 
 The architecture problem is not primarily styling. The problem is ownership:
 routes, feature modules, projections, server state, URL state, local state,
-authorization affordances, realtime invalidation, shared UI boundaries,
+allowed actions, realtime invalidation, shared UI boundaries,
 accessibility, testing, and query optimization all need explicit conventions
-before the second and third product surfaces copy whatever `/operator` happens
+before the second and third product screens copy whatever `/operator` happens
 to look like.
 
 ## Research Inputs
@@ -53,8 +53,8 @@ Relevant existing Office Graph artifacts:
 - `openspec/specs/realtime-delivery/spec.md`
 - `openspec/specs/authorization-governance/spec.md`
 - `openspec/specs/ash-api-surface/spec.md`
-- `openspec/changes/rebuild-operator-frontend-foundation/design.md`
-- `openspec/changes/reduce-operator-query-load/design.md`
+- `openspec/changes/archive/2026-07-02-rebuild-operator-frontend-foundation/design.md`
+- `openspec/changes/archive/2026-07-02-reduce-operator-query-load/design.md`
 
 External references:
 
@@ -99,11 +99,11 @@ frontend platform:
 - GraphQL and JSON API both exist, but product frontend reads should normally
   use GraphQL projections.
 - JSON API remains valuable for integration, compatibility, and customer API
-  surfaces; it should not automatically define product frontend architecture.
+  endpoints; it should not automatically define product frontend architecture.
 - Authorization is core product architecture, not a late controller concern.
-- Product UI surfaces must read through authorization-filtered projection
+- Product UI must read through authorization-filtered projection
   contracts rather than ad hoc controller or resolver reads.
-- Backend projections should provide command affordances, allowed actions,
+- Backend projections should provide allowed commands, allowed actions,
   blockers, and safe explanations; the UI should not reconstruct domain meaning
   from raw graph links or private resource state.
 - Realtime payloads are projection invalidation, patch, stale, or refetch
@@ -146,10 +146,10 @@ Observed risks:
 - Some panels still expose infrastructure vocabulary by default.
 - The active specs have a migration tension: the rebuild direction removed
   frontend JSON adapters, while the query-load work preserved backend JSON
-  bridge behavior for compatibility.
+  behavior for current callers.
 
 The correct next move is not more operator polish. The correct next move is a
-frontend platform design change that decides how future product surfaces are
+frontend platform design change that decides how future product screens are
 owned, loaded, queried, invalidated, authorized, rendered, tested, and kept
 fast.
 
@@ -161,7 +161,7 @@ Adopt a modular-monolith React SPA:
 - React owns product UI.
 - A client data router owns navigation and route-level loading/error handling.
 - Feature modules own their product routes, projection operations, query keys,
-  mapping, view models, components, and tests.
+  mapping, typed UI data, components, and tests.
 - TanStack Query remains the only server-state cache.
 - URL state owns deep-linkable product state.
 - Local React state owns ephemeral control state.
@@ -223,7 +223,7 @@ The exact folder names can change. The important rule is ownership:
 ## Route Ownership And Router Decision
 
 The frontend should choose a real route framework before adding the next
-product surface. A manual single-route shell will not scale.
+product route. A manual single-route shell will not scale.
 
 Leading recommendation: React Router Data Mode plus TanStack Query.
 
@@ -273,8 +273,8 @@ A feature module should own:
 - GraphQL documents for that feature.
 - Query key factories.
 - Query option factories and hooks.
-- Mutation hooks and command affordance handling.
-- Projection mappers from GraphQL results to frontend view models.
+- Mutation hooks and allowed-action handling.
+- Projection mappers from GraphQL results to typed UI data.
 - Derived state helpers.
 - Feature-specific components.
 - Feature-specific fixtures and tests.
@@ -442,7 +442,7 @@ The UI should render capabilities exactly as backend projections describe them.
 It should not infer capability from status strings, role names, graph
 relationships, resource types, or private state.
 
-Projection affordance model:
+Allowed action fields:
 
 ```text
 action
@@ -617,7 +617,7 @@ tests, and waterfall review. Manual chunk tuning can wait for evidence.
 
 ## Product Vocabulary Rule
 
-Default product surfaces should use product-spine vocabulary:
+Default product UI should use product-spine vocabulary:
 
 - work item
 - packet
@@ -670,9 +670,9 @@ Candidate artifacts:
   ownership, module boundaries, shared UI purity, router adoption, state model,
   and verification gates.
 - `specs/ui-projection-contracts/spec.md`: add projection-design templates,
-  command affordance model, realtime reconciliation, and frontend redaction UX.
+  allowed-action model, realtime reconciliation, and frontend redaction UX.
 - `specs/ash-api-surface/spec.md`: clarify product frontend GraphQL vs JSON
-  API integration/compatibility posture.
+  API integration rules.
 
 Potential requirement names:
 
@@ -772,11 +772,11 @@ The most likely accepted direction is:
 
 - Phoenix-served React SPA.
 - React Router Data Mode plus TanStack Query.
-- Feature-owned route modules and projection clients.
+- Feature-owned route modules and typed data hooks.
 - Generated GraphQL operation types after operation ownership is locked.
 - No product frontend JSON adapters without explicit temporary exceptions.
 - Realtime as projection invalidation/patch/refetch hints.
-- Authorization affordances supplied by backend projections.
+- Allowed actions supplied by backend projections.
 - Strict shared UI purity and React Aria-based accessibility baseline.
 - Query optimization and N+1 gates as required route/projection verification.
 

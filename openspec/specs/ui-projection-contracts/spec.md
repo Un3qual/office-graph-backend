@@ -38,7 +38,7 @@ invalidated and rebuilt from durable records.
 #### Scenario: Render cache is introduced
 
 - **WHEN** a projection, rich text render, markdown render, graph neighborhood,
-  inbox count, blocker count, or review surface cache is introduced
+  inbox count, blocker count, or review-screen cache is introduced
 - **THEN** the design MUST identify source records, cache key, invalidation
   events, authorization inputs, sensitivity labels, staleness behavior, and
   rebuild path
@@ -58,7 +58,7 @@ and frontend read functions.
 
 #### Scenario: Agent-generated content appears in UI
 
-- **WHEN** agent output appears in a node conversation, review surface,
+- **WHEN** agent output appears in a node conversation, review screen,
   evidence chain, verification view, or work packet context
 - **THEN** the frontend data MUST distinguish draft, suggestion, change proposal,
   accepted graph state, evidence candidate, verified evidence, raw observation,
@@ -88,7 +88,7 @@ the frontend can reconcile state without transport-specific business logic.
 - **WHEN** both GraphQL and JSON API expose a projection or projection-backed
   command
 - **THEN** both transports MUST use the same projection contract and differ
-  only in transport shape, pagination, filtering syntax, or error envelope
+  only in request/response format, pagination, filtering syntax, or error envelope
 
 ### Requirement: UI Data Exposes Product Meaning
 

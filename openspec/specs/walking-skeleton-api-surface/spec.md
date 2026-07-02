@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the walking-skeleton API surface: minimal GraphQL and JSON endpoints
+Define the walking-skeleton API endpoints: minimal GraphQL and JSON endpoints
 that share domain actions, preserve authorization and operation context, expose
 only the loop needed for skeleton verification, and return explainable
 diagnostic error or conflict shapes.
@@ -11,18 +11,18 @@ diagnostic error or conflict shapes.
 
 ### Requirement: Shared API Domain Actions
 
-Office Graph SHALL expose GraphQL and JSON API surfaces over the same backend
+Office Graph SHALL expose GraphQL and JSON API endpoints over the same backend
 domain actions.
 
 #### Scenario: API mutation creates skeleton state
 
 - **WHEN** a GraphQL mutation or JSON API request submits manual intake,
   applies a change proposal, links evidence, or completes verification
-- **THEN** both API surfaces MUST call the same public context/domain action
+- **THEN** both API endpoints MUST call the same public context/domain action
   and produce equivalent authorization, validation, operation correlation,
   revision, and audit behavior
 
-### Requirement: Minimal GraphQL Surface
+### Requirement: Minimal GraphQL API
 
 Office Graph SHALL add only the GraphQL queries and mutations needed for the
 walking skeleton.
@@ -42,10 +42,10 @@ walking skeleton.
   graph-addressable, updatable, closable, comment-like, approvable,
   evidence-bearing, or projection-visible resources
 - **THEN** the interface MUST be backed by typed resource/domain contracts and
-  authorization-aware viewer affordance fields, and it MUST NOT introduce a
+  authorization-aware viewer action fields, and it MUST NOT introduce a
   generic mutation path that bypasses typed domain actions
 
-### Requirement: Minimal JSON API Surface
+### Requirement: Minimal JSON API
 
 Office Graph SHALL add only the JSON API endpoints needed for the walking
 skeleton.
@@ -73,7 +73,7 @@ relationship-aware authorization.
 ### Requirement: API Error And Conflict Shape
 
 Office Graph SHALL return explainable validation, authorization, idempotency,
-and conflict outcomes from both API surfaces.
+and conflict outcomes from both API endpoints.
 
 #### Scenario: API request cannot be applied
 

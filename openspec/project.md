@@ -41,7 +41,7 @@ decisions into this file or into formal OpenSpec specs.
   do not justify polymorphic local storage or generic mutation paths.
 - Workflow source of truth: OpenSpec.
 - Office Graph is unreleased. Current product direction wins over old demo
-  paths, adapter shapes, and module layouts. Keep compatibility code only when
+  paths, old adapter request/response code, and module layouts. Keep old code paths only when
   a current caller, current verification need, external contract, data-safety
   reason, or local development workflow is named.
 - Runtime and CLI dependencies come from the project Nix flake.
@@ -89,7 +89,7 @@ decisions into this file or into formal OpenSpec specs.
 - Avoid JSON/JSONB columns for core domain data wherever possible. Use typed
   columns, join tables, and extension tables first. JSON is acceptable for raw
   external payload archival or truly unmodeled edge data, and should not become
-  the normal query surface.
+  the normal query API.
 - If Office Graph adds configurable form, survey, intake, or field-builder
   behavior, queryable native product data should use versioned typed
   definitions, options, submissions, answers, and value tables. JSON may still

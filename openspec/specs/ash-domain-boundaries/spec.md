@@ -89,7 +89,7 @@ than transport-adjacent helper modules.
 ### Requirement: Cross-Domain Workflows Prefer Durable Domain Commands
 
 Office Graph SHALL decompose broad cross-domain workflow endpoints into durable
-domain commands before treating the endpoint as a stable API surface.
+domain commands before treating the endpoint as a stable API endpoint.
 
 #### Scenario: Packet-run-verification flow is refactored
 
@@ -107,7 +107,7 @@ domain commands before treating the endpoint as a stable API surface.
 - **THEN** the proposal MUST first identify the smallest durable domain
   commands, their owners, allowed dependencies, transaction boundaries,
   idempotency basis, authorization contracts, and projection read contracts
-  before introducing any one-shot orchestration surface
+  before introducing any one-shot orchestration endpoint
 
 ### Requirement: Domain Actions Own Lifecycle Transitions
 
@@ -127,7 +127,7 @@ public domain commands instead of scattered internal update helpers.
 
 - **WHEN** a lifecycle transition must remain private to a composite command
 - **THEN** the private Ash action MUST be invoked only by the owning domain
-  boundary and MUST not be exposed directly through generated API surfaces
+  boundary and MUST not be exposed directly through generated API endpoints
 
 ### Requirement: Domain Read Contracts Are Projection-Aware
 

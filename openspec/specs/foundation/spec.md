@@ -130,7 +130,7 @@ The foundation SHALL preserve the current locked platform constraints.
 - **THEN** it must target a React frontend and must not use Phoenix LiveView
   for the product UI
 
-#### Scenario: API surface is planned
+#### Scenario: API is planned
 
 - **WHEN** external or frontend API work is proposed
 - **THEN** both GraphQL and JSON API responsibilities must be planned over the

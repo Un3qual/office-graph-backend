@@ -13,9 +13,9 @@ product is unreleased.
 
 #### Scenario: Old path has no current user
 - **WHEN** an adapter, route, module layout, test, fixture, or document exists
-  only for an old demo, migration, or compatibility path
+  only for an old demo, migration, or old path
 - **THEN** the implementation MUST delete or replace it instead of preserving it
-  for backwards compatibility
+  for compatibility
 
 #### Scenario: Compatibility is proposed
 - **WHEN** a change keeps an old path for compatibility
@@ -43,8 +43,8 @@ Office Graph SHALL use plain project wording in docs and specs unless a precise
 domain term is needed.
 
 #### Scenario: Architecture shorthand hides a simple rule
-- **WHEN** a spec or design uses vague terms such as surface, posture,
-  affordance, projection, seam, or durable without adding precision
+- **WHEN** a spec or design uses broad architecture shorthand such as surface,
+  posture, projection, durable, or seam without naming the concrete thing
 - **THEN** the wording MUST be replaced with the concrete UI, API, data, file,
   workflow, or test it describes
 

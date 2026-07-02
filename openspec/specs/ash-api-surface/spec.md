@@ -98,13 +98,13 @@ definitions in one large manually maintained file.
 #### Scenario: Capability interface is exposed
 
 - **WHEN** GraphQL exposes shared interfaces such as closable, updatable,
-  approvable, subscribable, projection-capable, comment-like, or reactable
+  approvable, subscribable, readable through projection reads, comment-like, or reactable
   behavior
 - **THEN** the interface implementation MUST use typed resource/domain
-  contracts and viewer-aware authorization affordances rather than generic
+  contracts and viewer action fields rather than generic
   mutation paths or table-type switches
 
-### Requirement: JSON API Uses AshJsonApi For Resource Surfaces
+### Requirement: JSON API Uses AshJsonApi For Resource Endpoints
 
 Office Graph SHALL use AshJsonApi for JSON API resource paths unless a
 documented integration or workflow requirement needs a custom command endpoint.
@@ -309,7 +309,7 @@ APIs for safe reads before exposing generated lifecycle writes.
 
 - **WHEN** the React product frontend reads resource-shaped or projection data
 - **THEN** it MUST use GraphQL as the normal product API, while REST/JSON API
-  remains a customer integration surface and not the preferred internal UI
+  remains a customer integration API and not the preferred internal UI
   transport
 
 #### Scenario: JSON API resource reads are mounted
@@ -317,7 +317,7 @@ APIs for safe reads before exposing generated lifecycle writes.
 - **WHEN** generated AshJsonApi resource reads are exposed during stabilization
 - **THEN** they MUST mount under `/api/v1`
 
-#### Scenario: Resource surface is migrated
+#### Scenario: Resource read is migrated
 
 - **WHEN** a WorkGraph, WorkPackets, Runs, or Verification resource read is
   migrated away from manual transport code

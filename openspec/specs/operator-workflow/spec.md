@@ -120,11 +120,11 @@ GraphQL and JSON API operator workflow paths.
   equivalent validation, authorization, idempotency, conflict, stale, and
   lifecycle errors
 
-#### Scenario: Old transport shape has no current caller
-- **WHEN** an old operator workflow transport shape has no current product,
-  integration, test, or local development caller
-- **THEN** the implementation MUST remove that transport shape instead of
-  preserving compatibility with it
+#### Scenario: Old API shape has no current caller
+- **WHEN** an old operator workflow API request/response shape has no current
+  product, integration, or local development caller
+- **THEN** the implementation MUST remove that API shape instead of keeping it
+  for old callers
 
 ### Requirement: Deferred Surfaces Stay Out Of The First Operator Workflow
 Office Graph SHALL keep the first operator workflow focused on the manual intake
