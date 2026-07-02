@@ -4,7 +4,7 @@
 
 **Goal:** Make Office Graph easier to navigate by archiving completed OpenSpec work, deleting old hand-written compatibility routes, replacing inflated wording, and splitting only backend files that are still hard to follow after old paths are gone.
 
-**Architecture:** The current product path is Phoenix `/operator` serving the React app, React reading `/graphql`, and GraphQL delegating to backend commands and reads. Generated AshJsonApi remains mounted at `/api/v1`. Hand-written demo JSON and `Compatibility` GraphQL mutations are old paths unless a non-test caller proves otherwise during the caller audit below.
+**Architecture:** The current product path is Phoenix `/operator` serving the React app, React reading `/graphql`, and GraphQL delegating to backend commands and reads. AshGraphql and AshJsonApi must be real API providers for resource reads, not libraries mounted beside hand-written duplicates. Generated AshJsonApi remains mounted at `/api/v1`; hand-written demo JSON and `Compatibility` GraphQL mutations are old paths unless a non-test caller proves otherwise during the caller audit below.
 
 **Tech Stack:** Elixir, Phoenix, Absinthe, Ash/AshJsonApi, React, Vite, Vitest, OpenSpec, and the project Nix flake.
 
@@ -16,6 +16,7 @@
 - Do not preserve an old route, file layout, response shape, or test only because it existed before.
 - A current caller means production code, generated API routing, a local development workflow, data-safety logic, or an external contract named in current docs. A test file by itself does not count.
 - Keep generated `/api/v1` JSON API behavior unless a task explicitly proves a generated route is dead.
+- Treat "we use AshGraphql/AshJsonApi" as false unless tests prove the current API uses generated Ash fields or routes for resource-shaped reads.
 - Keep domain behavior: manual intake, proposed change application, packet preparation, run start, observation recording, evidence acceptance, verification outcome reads, idempotency, replay conflict handling, authorization checks, and query-count protections.
 - Commit after every task.
 - Run project commands through:
@@ -67,6 +68,7 @@ Tests that will change:
 - `test/office_graph_web/operator_workflow_api_test.exs`
 - `test/office_graph_web/api_smoke_test.exs`
 - `test/office_graph_web/packet_run_verification_api_test.exs`
+- `test/office_graph_web/generated_api_read_test.exs`
 - `test/office_graph/architecture/ash_conformance_test.exs`
 - `test/office_graph/integrations/concurrency_test.exs`
 - `test/office_graph/projections/operator_workflow_test.exs`
@@ -219,7 +221,93 @@ git add openspec/project.md openspec/research openspec/specs
 git commit -m "Simplify current project wording"
 ```
 
-## Task 3: Lock The Frontend To GraphQL
+## Task 3: Prove AshGraphql And AshJsonApi Are The Default Resource APIs
+
+**Files:**
+
+- Modify: `lib/office_graph_web/graphql/schema.ex`
+- Modify: `lib/office_graph_web/json_api/router.ex`
+- Modify: `lib/office_graph_web/router.ex`
+- Modify: `test/office_graph_web/generated_api_read_test.exs`
+- Modify: `test/office_graph/architecture/ash_conformance_test.exs`
+- Modify: `openspec/specs/ash-api-surface/spec.md`
+- Check: `lib/office_graph/**/domain.ex`
+- Check: `lib/office_graph/**/*.ex` files with `graphql do` and `json_api do`
+
+- [ ] **Step 1: Inventory generated Ash API coverage**
+
+Run:
+
+```bash
+rg -n "use AshGraphql|use AshJsonApi|extensions: \\[AshGraphql\\.Resource, AshJsonApi\\.Resource\\]|graphql do|json_api do|AshJsonApi\\.Router|use AshGraphql" lib/office_graph lib/office_graph_web
+nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph_web/generated_api_read_test.exs
+```
+
+Expected: `OfficeGraphWeb.GraphQL.Schema` uses `AshGraphql` with the WorkGraph, WorkPackets, and Runs domains; `OfficeGraphWeb.JsonApi.Router` uses `AshJsonApi.Router`; generated read tests prove selected GraphQL fields and `/api/v1` JSON routes work.
+
+- [ ] **Step 2: Classify every current API as generated, custom command, custom mixed read, or old path**
+
+Use this classification:
+
+| API | Classification | Rule |
+| --- | --- | --- |
+| `listSignals`, `listWorkPackets`, `listWorkRuns` | generated AshGraphql read | Keep and expand when resource-shaped reads are needed. |
+| `/api/v1/signals`, `/api/v1/work-packets`, `/api/v1/work-runs` | generated AshJsonApi read | Keep as customer/integration JSON API. |
+| `operator_inbox`, `operator_workflow_item`, `operator_packet_readiness`, `operator_run_state`, `operator_verification_outcome` | custom GraphQL mixed read | Keep only because these assemble current operator UI data across resources and policy checks. Do not keep a manual JSON mirror. |
+| `executePacketRunVerification` | custom GraphQL command | Keep only as a thin multi-domain command entrypoint. It must call `OfficeGraph.PacketRunVerification.execute/2`. |
+| `/api/operator-workflow/*` | old manual JSON mirror | Delete unless a non-test caller is found. |
+| GraphQL `Compatibility` mutations | old walking-skeleton API | Delete unless a non-test caller is found. |
+| `/api/manual-intake`, `/api/proposed-changes/apply`, `/api/verification/complete` | old walking-skeleton JSON API | Delete unless a non-test caller is found. |
+| `/api/packet-run-verification/execute` | undecided custom JSON command | Decide by caller audit in the packet-run task. |
+
+- [ ] **Step 3: Strengthen generated API tests**
+
+Update `test/office_graph_web/generated_api_read_test.exs` so it proves both libraries are used, not just mounted:
+
+- GraphQL: query at least `listSignals`, `listWorkPackets`, and `listWorkRuns` through `/graphql`.
+- JSON API: GET at least `/api/v1/signals`, `/api/v1/work-packets`, and `/api/v1/work-runs`.
+- Authorization: with local owner bootstrap disabled, GraphQL returns a structured forbidden error and JSON API returns 403.
+- Writes: generated JSON API does not expose lifecycle writes for work runs.
+
+Do not add generated creates for packet/run/verification lifecycle records in this task.
+
+- [ ] **Step 4: Add architecture checks for generated API usage**
+
+Update `test/office_graph/architecture/ash_conformance_test.exs` so it fails when:
+
+- a resource-shaped read is added as a manual Absinthe field or Phoenix JSON route while an AshGraphql/AshJsonApi declaration exists;
+- generated `/api/v1` routes disappear for the selected read resources;
+- `OfficeGraphWeb.JsonApi.Router` stops using `AshJsonApi.Router`;
+- `OfficeGraphWeb.GraphQL.Schema` stops using `AshGraphql`.
+
+Keep custom mixed reads and custom commands allowed only when they are named in the manual API ledger or in the task classification above.
+
+- [ ] **Step 5: Update the API spec language**
+
+In `openspec/specs/ash-api-surface/spec.md`, add a requirement that mounting AshGraphql/AshJsonApi is not enough. Current resource-shaped reads must have tests proving generated fields or routes are exercised. Custom GraphQL/Phoenix code must be limited to mixed reads or commands that generated Ash APIs cannot express safely.
+
+- [ ] **Step 6: Verify**
+
+Run:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph_web/generated_api_read_test.exs test/office_graph/architecture/ash_conformance_test.exs
+nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
+git diff --check
+```
+
+Expected: tests prove real generated AshGraphql/AshJsonApi usage and still allow named custom GraphQL reads/commands.
+
+- [ ] **Step 7: Commit**
+
+Run:
+
+```bash
+git add lib/office_graph_web/graphql/schema.ex lib/office_graph_web/json_api/router.ex lib/office_graph_web/router.ex test/office_graph_web/generated_api_read_test.exs test/office_graph/architecture/ash_conformance_test.exs openspec/specs/ash-api-surface/spec.md
+git commit -m "Prove generated Ash API usage"
+```
+
+## Task 4: Lock The Frontend To GraphQL
 
 **Files:**
 
@@ -262,7 +350,7 @@ git add assets/src/operator/architecture.test.ts assets/src/operator/workflowQue
 git commit -m "Lock operator frontend to GraphQL"
 ```
 
-## Task 4: Remove Manual Operator Workflow JSON Routes
+## Task 5: Remove Manual Operator Workflow JSON Routes
 
 **Files:**
 
@@ -339,7 +427,7 @@ git add lib/office_graph_web/router.ex lib/office_graph_web/json_api/operator_wo
 git commit -m "Remove old operator JSON routes"
 ```
 
-## Task 5: Remove Compatibility Mutations And Manual Walking-Skeleton JSON
+## Task 6: Remove Compatibility Mutations And Manual Walking-Skeleton JSON
 
 **Files:**
 
@@ -444,7 +532,7 @@ git add lib/office_graph_web/router.ex lib/office_graph_web/graphql lib/office_g
 git commit -m "Remove old compatibility routes"
 ```
 
-## Task 6: Decide And Then Remove Or Keep The Packet-Run JSON Command
+## Task 7: Decide And Then Remove Or Keep The Packet-Run JSON Command
 
 **Files:**
 
@@ -532,7 +620,7 @@ git add lib/office_graph_web/router.ex lib/office_graph_web/json_api/packet_run_
 git commit -m "Set packet-run JSON command status"
 ```
 
-## Task 7: Shrink Or Remove `OfficeGraph.ApiSupport`
+## Task 8: Shrink Or Remove `OfficeGraph.ApiSupport`
 
 **Files:**
 
@@ -617,7 +705,7 @@ git add lib/office_graph/api_support.ex lib/office_graph_web test/office_graph
 git commit -m "Shrink API support to current callers"
 ```
 
-## Task 8: Split Large Backend Files Only Where The Split Is Obvious
+## Task 9: Split Large Backend Files Only Where The Split Is Obvious
 
 **Files:**
 
@@ -722,7 +810,7 @@ git add lib/office_graph/work_packets.ex lib/office_graph/work_packets test/offi
 git commit -m "Split work packet helpers"
 ```
 
-## Task 9: Final Repo-Wide Check
+## Task 10: Final Repo-Wide Check
 
 **Files:**
 
@@ -755,7 +843,7 @@ Expected: all commands pass.
 
 - [ ] **Step 3: Commit final cleanup if needed**
 
-Run only if Task 9 produced additional cleanup edits:
+Run only if Task 10 produced additional cleanup edits:
 
 ```bash
 git add .
@@ -766,14 +854,15 @@ git commit -m "Finish current path cleanup"
 
 1. Task 1 first, because stale completed changes are confusing every later search.
 2. Task 2 second, because docs should stop telling workers to preserve old shapes.
-3. Task 3 third, because it protects the current frontend path before backend route deletion.
-4. Tasks 4-6 next, because old routes should be removed before backend file splitting.
-5. Task 7 next, because `ApiSupport` shrinks naturally after old routes disappear.
-6. Task 8 last, because splitting large backend files is safer after dead code is gone.
-7. Task 9 at the end.
+3. Task 3 third, because it proves AshGraphql/AshJsonApi are real generated API paths before deleting manual duplicates.
+4. Task 4 next, because it protects the current frontend path before backend route deletion.
+5. Tasks 5-7 next, because old routes should be removed before backend file splitting.
+6. Task 8 next, because `ApiSupport` shrinks naturally after old routes disappear.
+7. Task 9 last, because splitting large backend files is safer after dead code is gone.
+8. Task 10 at the end.
 
 ## Self-Review
 
-- Spec coverage: the plan covers completed OpenSpec cleanup, current product path, old demo compatibility removal, wording cleanup, backend navigation, and verification.
+- Spec coverage: the plan covers completed OpenSpec cleanup, current product path, real AshGraphql/AshJsonApi usage, old demo compatibility removal, wording cleanup, backend navigation, and verification.
 - Placeholder scan: there are no placeholder markers or unspecified test steps.
 - Type consistency: the plan uses the current module names from the repo and separates generated `/api/v1` from old hand-written `/api/*` routes.
