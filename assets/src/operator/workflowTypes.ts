@@ -65,6 +65,12 @@ export type OperatorInbox = {
 };
 
 export type PacketReadinessInput = {
+  title: string;
+  objective: string;
+  contextSummary: string;
+  requirements: string;
+  successCriteria: string;
+  autonomyPosture: string;
   sourceGraphItemIds: string[];
   verificationCheckIds: string[];
 };
