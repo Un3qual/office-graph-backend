@@ -3,7 +3,7 @@
 ## Purpose
 Define the first operator-facing workflow that turns manual intake, proposed
 graph changes, packet readiness, packet-backed runs, evidence, and verification
-into a coherent loop exposed through the current GraphQL and JSON API paths.
+into a coherent loop exposed through the current GraphQL product path.
 
 ## Requirements
 ### Requirement: Operator Workflow Starts From Manual Intake
@@ -100,23 +100,24 @@ operator workflow item is considered complete.
   missing-evidence, stale-evidence, failed-check, authorization, or policy
   reason codes
 
-### Requirement: Operator Workflow Projections Are Transport Equivalent
-Office Graph SHALL use the same backend commands and read functions for current
-GraphQL and JSON API operator workflow paths.
+### Requirement: Operator Workflow Uses The GraphQL Product Path
+Office Graph SHALL expose current operator workflow projections and commands
+through the GraphQL product path. Retired JSON API shapes MAY appear only as
+historical compatibility references or explicitly named migration/deletion
+targets.
 
 #### Scenario: Workflow state is read
-- **WHEN** a current GraphQL or JSON API path reads the operator workflow inbox,
-  item detail, packet readiness, run state, evidence state, or verification
-  outcome
-- **THEN** the paths MUST use the same public backend read function,
+- **WHEN** the GraphQL product path reads the operator workflow inbox, item
+  detail, packet readiness, run state, evidence state, or verification outcome
+- **THEN** the path MUST use the same public backend read function,
   authorization filtering, typed identifiers, status vocabulary, blocker
   reasons, empty-state semantics, and source watermark
 
 #### Scenario: Workflow command is executed
-- **WHEN** a current GraphQL or JSON API path submits manual intake, applies
-  proposed changes, prepares or starts a packet-backed run, records observation
-  or evidence, or verifies completion
-- **THEN** the paths MUST call the same owning backend commands and return
+- **WHEN** the GraphQL product path submits manual intake, applies proposed
+  changes, prepares or starts a packet-backed run, records observation or
+  evidence, or verifies completion
+- **THEN** the path MUST call the same owning backend commands and return
   equivalent validation, authorization, idempotency, conflict, stale, and
   lifecycle errors
 

@@ -126,6 +126,18 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
+  test "operator inbox limits the hot path page size" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    for index <- 1..51 do
+      {:ok, _intake} = submit_manual_intake(bootstrap.session, "page-limit-#{index}")
+    end
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+
+    assert length(inbox.rows) == 50
+  end
+
   test "trusted session capabilities are revalidated for projection reads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, _intake} = submit_manual_intake(bootstrap.session, "trusted-auth-query")

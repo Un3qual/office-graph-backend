@@ -49,6 +49,10 @@ defmodule OfficeGraph.WorkPackets do
     Readiness.blocker_reasons(attrs)
   end
 
+  def missing_string_blocker(attrs, key, reason) when is_map(attrs) do
+    Readiness.missing_string_blocker(attrs, key, reason)
+  end
+
   def mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
     Readiness.mismatched_source_check_ids(source_graph_item_ids, verification_checks)
   end

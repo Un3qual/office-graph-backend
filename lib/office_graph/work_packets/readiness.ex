@@ -13,10 +13,10 @@ defmodule OfficeGraph.WorkPackets.Readiness do
 
   def blocker_reasons(attrs) when is_map(attrs) do
     [
-      missing_string(attrs, :objective, "missing_objective"),
-      missing_string(attrs, :context_summary, "missing_context_summary"),
-      missing_string(attrs, :requirements, "missing_requirements"),
-      missing_string(attrs, :success_criteria, "missing_success_criteria"),
+      missing_string_blocker(attrs, :objective, "missing_objective"),
+      missing_string_blocker(attrs, :context_summary, "missing_context_summary"),
+      missing_string_blocker(attrs, :requirements, "missing_requirements"),
+      missing_string_blocker(attrs, :success_criteria, "missing_success_criteria"),
       missing_list(attrs, :source_graph_item_ids, "missing_source_graph_items"),
       missing_list(attrs, :verification_check_ids, "missing_verification_checks"),
       unsupported_autonomy_posture(attrs)
@@ -35,7 +35,7 @@ defmodule OfficeGraph.WorkPackets.Readiness do
     |> Enum.map(& &1.id)
   end
 
-  defp missing_string(attrs, key, reason) do
+  def missing_string_blocker(attrs, key, reason) when is_map(attrs) do
     case Map.get(attrs, key) do
       value when is_binary(value) ->
         if String.trim(value) == "", do: reason

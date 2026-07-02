@@ -160,7 +160,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
 
   defp readiness_blockers(attrs) do
     [
-      missing_string(attrs, :title, "missing_title")
+      WorkPackets.missing_string_blocker(attrs, :title, "missing_title")
       | WorkPackets.readiness_blocker_reasons(attrs)
     ]
     |> Enum.reject(&is_nil/1)
@@ -172,16 +172,6 @@ defmodule OfficeGraph.Projections.PacketReadiness do
          ) do
       :ok -> []
       {:error, :forbidden} -> ["missing_work_packet_create_capability"]
-    end
-  end
-
-  defp missing_string(attrs, key, reason) do
-    case Map.get(attrs, key) do
-      value when is_binary(value) ->
-        if String.trim(value) == "", do: reason
-
-      _other ->
-        reason
     end
   end
 end

@@ -80,11 +80,16 @@ than transport-adjacent helper modules.
 
 #### Scenario: Existing helper owns orchestration
 
-- **WHEN** existing behavior is found in a transport-adjacent helper such as an
-  API support module
+- **WHEN** existing product behavior is found in a transport-adjacent helper
+  such as an API support module
 - **THEN** stabilization work MUST either move the behavior into an owning
   domain command or document the helper as a temporary compatibility exception
   with retirement criteria
+- **AND WHEN** a helper is gated to local/dev/test request-owner bootstrap,
+  including `OfficeGraph.ApiSupport.bootstrap_local_api_owner/0`
+- **THEN** it is not a compatibility exception under this rule unless it begins
+  owning product lifecycle, authorization, validation, idempotency, or audit
+  behavior
 
 ### Requirement: Cross-Domain Workflows Prefer Durable Domain Commands
 

@@ -24,6 +24,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     "review_finding" => ReviewFinding,
     "verification_check" => VerificationCheck
   }
+  @operator_inbox_limit 50
 
   def operator_inbox(session_context) do
     with :ok <- authorize_read(session_context),
@@ -59,7 +60,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
     )
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(@operator_inbox_limit)
     |> Ash.read(authorize?: false)
   end
 

@@ -184,8 +184,9 @@ route.
 - **WHEN** GraphQL creates a packet, starts a work run, records an observation,
   accepts evidence, and reads the summary data
 - **THEN** the mutation MUST call `OfficeGraph.PacketRunVerification.execute/2`
-  and return authorization decisions, operation correlation, validation errors,
-  verification results, data changes, and safe response semantics
+  and return operation correlation, validation errors, structured authorization
+  error or conflict outcomes, verification results, data changes, and safe
+  response semantics
 
 #### Scenario: API request is invalid
 

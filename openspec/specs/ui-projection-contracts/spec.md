@@ -60,9 +60,9 @@ and frontend read functions.
 
 - **WHEN** agent output appears in a node conversation, review screen,
   evidence chain, verification view, or work packet context
-- **THEN** the frontend data MUST distinguish draft, suggestion, change proposal,
-  accepted graph state, evidence candidate, verified evidence, raw observation,
-  and rejected output
+- **THEN** the frontend data MUST distinguish draft content, suggestions,
+  accepted Signal or Work Item state, Evidence states, Verification state, raw
+  observation/debug detail, and rejected output
 
 #### Scenario: Generated content includes links or embedded references
 
@@ -72,10 +72,11 @@ and frontend read functions.
 - **THEN** rendering MUST use typed references and authorization-filtered link
   expansion rather than trusting inline text or raw Markdown to grant access
 
-### Requirement: UI Data Shares API And Realtime Rules
+### Requirement: UI Data Shares GraphQL And Realtime Rules
 
-Office Graph SHALL design UI data APIs and realtime updates together so
-the frontend can reconcile state without transport-specific business logic.
+Office Graph SHALL design GraphQL product data APIs and realtime updates
+together so the frontend can reconcile state without transport-specific
+business logic or a parallel JSON adapter.
 
 #### Scenario: Projection has realtime updates
 
@@ -83,12 +84,13 @@ the frontend can reconcile state without transport-specific business logic.
 - **THEN** the projection API MUST define how the realtime event maps to the
   projection row, node, edge, section, count, stale marker, or refetch trigger
 
-#### Scenario: Projection is exposed through GraphQL and JSON API
+#### Scenario: Projection is exposed through the GraphQL product path
 
-- **WHEN** both GraphQL and JSON API expose a projection or projection-backed
-  command
-- **THEN** both transports MUST use the same projection contract and differ
-  only in request/response format, pagination, filtering syntax, or error envelope
+- **WHEN** the product frontend exposes a projection or projection-backed
+  command through GraphQL
+- **THEN** the GraphQL path MUST use the same projection contract as realtime
+  invalidation, frontend data hooks, and backend read/command ownership,
+  without requiring a parallel JSON API transport
 
 ### Requirement: UI Data Exposes Product Meaning
 
@@ -97,9 +99,9 @@ raw infrastructure mechanics.
 
 #### Scenario: Projection includes mixed workflow records
 
-- **WHEN** a projection includes signals, change proposals, work items, packets,
-  runs, checks, evidence, verification results, observations, graph items, or
-  audit traces
+- **WHEN** a projection includes Signals, Work Items, Work Packets, Runs,
+  Checks, Evidence, Verification state, observations, graph items, or audit
+  traces
 - **THEN** the frontend data MUST present named product fields for the default
   UI and place infrastructure details behind explicit trace, debug, or audit
   fields
@@ -142,7 +144,7 @@ shapes and future socket/live realtime invalidation payloads.
 - **WHEN** GraphQL is the accepted product frontend path and an old JSON adapter
   has no current caller
 - **THEN** the frontend MUST delete the JSON adapter instead of preserving a
-  migration shape
+  migration shape, parity tests, or component-facing compatibility requirement
 
 #### Scenario: Realtime update arrives
 
