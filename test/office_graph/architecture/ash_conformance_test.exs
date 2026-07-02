@@ -696,14 +696,38 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
           "lib/office_graph_web/json_api/common/errors.ex",
           "lib/office_graph_web/json_api/compatibility/controller.ex",
           "lib/office_graph_web/json_api/compatibility/serializer.ex",
-          "lib/office_graph_web/json_api/operator_workflow/controller.ex",
-          "lib/office_graph_web/json_api/operator_workflow/serializer.ex",
           "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
           "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
         ] do
       assert File.exists?(required_path),
              "Expected JSON API transport module file #{required_path}"
     end
+  end
+
+  test "old operator workflow JSON routes stay retired" do
+    old_route_prefix = "/api/" <> "operator-workflow"
+    old_module_name = "JsonApi." <> "OperatorWorkflow"
+
+    for retired_path <- [
+          "lib/office_graph_web/json_api/operator_workflow/controller.ex",
+          "lib/office_graph_web/json_api/operator_workflow/serializer.ex"
+        ] do
+      refute File.exists?(retired_path), "Retired operator workflow JSON file still exists"
+    end
+
+    router_source = File.read!("lib/office_graph_web/router.ex")
+    refute router_source =~ String.replace_prefix(old_route_prefix, "/api", "")
+    refute router_source =~ old_module_name
+
+    frontend_offenders =
+      ["assets/src/App.tsx", "assets/src/main.tsx", "assets/src/operator/**/*.ts*"]
+      |> Enum.flat_map(&Path.wildcard/1)
+      |> Enum.reject(&String.ends_with?(&1, ".test.ts"))
+      |> Enum.reject(&String.ends_with?(&1, ".test.tsx"))
+      |> Enum.filter(&(File.read!(&1) =~ old_route_prefix))
+
+    assert frontend_offenders == [],
+           "Production frontend code must not call old operator JSON routes:\n#{format_errors(frontend_offenders)}"
   end
 
   test "GraphQL and JSON API helpers stay transport-specific" do
