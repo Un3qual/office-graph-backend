@@ -33,9 +33,6 @@ defmodule OfficeGraphWeb.Router do
   scope "/api", OfficeGraphWeb do
     pipe_through :api
 
-    post "/manual-intake", JsonApi.Compatibility.Controller, :manual_intake
-    post "/proposed-changes/apply", JsonApi.Compatibility.Controller, :apply_proposed_changes
-    post "/verification/complete", JsonApi.Compatibility.Controller, :complete_verification
     post "/packet-run-verification/execute", JsonApi.PacketRunVerification.Controller, :execute
   end
 end

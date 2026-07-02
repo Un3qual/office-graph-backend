@@ -655,8 +655,6 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
           "lib/office_graph_web/graphql/schema.ex",
           "lib/office_graph_web/graphql/common/errors.ex",
           "lib/office_graph_web/graphql/common/queries.ex",
-          "lib/office_graph_web/graphql/compatibility/types.ex",
-          "lib/office_graph_web/graphql/compatibility/mutations.ex",
           "lib/office_graph_web/graphql/operator_workflow/types.ex",
           "lib/office_graph_web/graphql/operator_workflow/queries.ex",
           "lib/office_graph_web/graphql/packet_run_verification/types.ex",
@@ -665,6 +663,21 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       assert File.exists?(required_path),
              "Expected GraphQL transport module file #{required_path}"
     end
+  end
+
+  test "old compatibility GraphQL modules stay retired" do
+    for retired_path <- [
+          "lib/office_graph_web/graphql/compatibility/types.ex",
+          "lib/office_graph_web/graphql/compatibility/mutations.ex"
+        ] do
+      refute File.exists?(retired_path), "Retired compatibility GraphQL file still exists"
+    end
+
+    schema_source = File.read!("lib/office_graph_web/graphql/schema.ex")
+    old_module_name = "GraphQL." <> "Compatibility"
+
+    refute schema_source =~ old_module_name
+    refute schema_source =~ "compatibility_mutations"
   end
 
   test "manual JSON API code is split under the JSON API transport namespace" do
@@ -694,14 +707,34 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     for required_path <- [
           "lib/office_graph_web/json_api/common/errors.ex",
-          "lib/office_graph_web/json_api/compatibility/controller.ex",
-          "lib/office_graph_web/json_api/compatibility/serializer.ex",
           "lib/office_graph_web/json_api/packet_run_verification/controller.ex",
           "lib/office_graph_web/json_api/packet_run_verification/serializer.ex"
         ] do
       assert File.exists?(required_path),
              "Expected JSON API transport module file #{required_path}"
     end
+  end
+
+  test "old compatibility JSON routes stay retired" do
+    for retired_path <- [
+          "lib/office_graph_web/json_api/compatibility/controller.ex",
+          "lib/office_graph_web/json_api/compatibility/serializer.ex"
+        ] do
+      refute File.exists?(retired_path), "Retired compatibility JSON file still exists"
+    end
+
+    router_source = File.read!("lib/office_graph_web/router.ex")
+    old_module_name = "JsonApi." <> "Compatibility"
+
+    for route <- [
+          "/manual" <> "-intake",
+          "/proposed" <> "-changes/apply",
+          "/verification" <> "/complete"
+        ] do
+      refute router_source =~ route
+    end
+
+    refute router_source =~ old_module_name
   end
 
   test "old operator workflow JSON routes stay retired" do
@@ -2085,7 +2118,6 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     [
       {:query, "lib/office_graph_web/graphql/common/queries.ex"},
       {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
-      {:mutation, "lib/office_graph_web/graphql/compatibility/mutations.ex"},
       {:mutation, "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"}
     ]
     |> Enum.flat_map(fn {root_kind, path} ->
