@@ -37,7 +37,19 @@ describe("OperatorRoute", () => {
     expect(await screen.findByText("Backend readiness")).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: expect.stringContaining("operatorPacketReadiness")
+        query: expect.stringContaining("operatorPacketReadiness"),
+        variables: {
+          input: expect.objectContaining({
+            title: "Run console verification",
+            objective: "Run console verification",
+            contextSummary: "Run console verification",
+            requirements: "Run console verification",
+            successCriteria: "Run console verification",
+            autonomyPosture: "human_supervised",
+            sourceGraphItemIds: ["graph_1"],
+            verificationCheckIds: ["check_1"]
+          })
+        }
       })
     );
     await waitFor(() => {
