@@ -1,32 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { graphQLInbox } from "./testSupport";
-import { packetReadinessForLoadedItem } from "./workflowDerived";
+import { packetReadinessInputForItem, runIdForItem } from "./workflowDerived";
 import { graphQLItem } from "./workflowMappers";
 
-describe("operator workflow derived projections", () => {
-  it("marks locally complete packet readiness as ready", () => {
-    const item = {
-      ...graphQLItem(graphQLInbox.rows[0]),
-      allowedNextActions: ["prepare_packet"],
-      status: "ready_for_packet"
-    };
+describe("operator workflow derived values", () => {
+  it("builds backend packet readiness input from graph links", () => {
+    const item = graphQLItem(graphQLInbox.rows[0]);
 
-    expect(packetReadinessForLoadedItem(item)).toMatchObject({
-      ready: true,
-      status: "ready_for_packet",
-      blockerReasons: [],
-      isDerived: true
+    expect(packetReadinessInputForItem(item)).toEqual({
+      sourceGraphItemIds: ["graph_1"],
+      verificationCheckIds: ["check_1"]
     });
   });
 
-  it("defers to backend readiness when local packet context is incomplete", () => {
+  it("omits work runs from packet readiness source inputs", () => {
     const item = {
       ...graphQLItem(graphQLInbox.rows[0]),
-      graphLinks: [],
-      allowedNextActions: ["prepare_packet"],
-      status: "ready_for_packet"
+      graphLinks: [
+        {
+          type: "work_run",
+          id: "run_1",
+          graphItemId: "run_graph_1",
+          title: "Run",
+          state: "running"
+        }
+      ]
     };
 
-    expect(packetReadinessForLoadedItem(item)).toBeNull();
+    expect(packetReadinessInputForItem(item)).toEqual({
+      sourceGraphItemIds: [],
+      verificationCheckIds: []
+    });
+  });
+
+  it("extracts the linked run id", () => {
+    expect(runIdForItem(graphQLItem(graphQLInbox.rows[0]))).toBe("run_1");
   });
 });
