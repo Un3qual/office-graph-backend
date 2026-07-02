@@ -10,7 +10,7 @@ hardens into product debt.
 ## What Changes
 
 - **BREAKING**: Replace the existing operator-workflow frontend module rather
-  than preserving its temporary JSON adapter, demo component structure, or
+  than preserving its old JSON adapter, demo component structure, or
   manual `useEffect` loading model.
 - Rebuild the `/operator` React surface around a GraphQL-only product
   projection client and TanStack Query hooks.

@@ -1,7 +1,7 @@
 # operator-console Specification
 
 ## Purpose
-Define the first Office Graph product UI surface for operators working from
+Define the first Office Graph product UI for operators working from
 manual intake through packet readiness, run state, evidence, and verification.
 
 ## Requirements
@@ -21,30 +21,29 @@ workflow screens.
 - **WHEN** the app shell or compiled frontend assets cannot be served in a
   local or release environment
 - **THEN** the failure MUST be explicit through the HTTP response, build
-  output, or verification check rather than silently serving a blank product
-  surface
+  output, or verification check rather than silently serving a blank product UI
 
 ### Requirement: Console Presents Workflow Inbox And Item Detail
-The operator console SHALL let an operator inspect the actionable workflow
-inbox and selected item detail from the shared operator workflow projection.
+The operator console SHALL let an operator inspect the actionable workflow inbox
+and selected item detail returned by the backend.
 
 #### Scenario: Inbox rows are available
-- **WHEN** the JSON operator workflow inbox endpoint returns one or more rows
+- **WHEN** the operator workflow API returns one or more inbox rows
 - **THEN** the console MUST show scannable rows with source summary, workflow
   status, actionability state, reason codes or blockers, allowed next actions,
   source watermark, and a clear selected-row state
 
 #### Scenario: Inbox is empty
-- **WHEN** the JSON operator workflow inbox endpoint returns no rows
+- **WHEN** the operator workflow API returns no rows
 - **THEN** the console MUST show an empty state that explains there are no
   operator workflow items without presenting fake work or enabled workflow
   commands
 
 #### Scenario: Item detail is selected
 - **WHEN** an operator selects an inbox row
-- **THEN** the console MUST fetch or reuse the selected item detail projection
-  and show its typed identity, source context, proposed-change status, affected
-  graph links, audit or revision traces, and safe next actions
+- **THEN** the console MUST fetch or reuse the selected item detail and show its
+  typed identity, source context, proposed-change status, affected graph links,
+  audit or revision traces, and safe next actions
 
 #### Scenario: Item detail cannot be loaded
 - **WHEN** item detail loading fails because the item is missing, unauthorized,
@@ -62,13 +61,13 @@ packet-backed work run without bypassing backend readiness rules.
   ready packet inputs
 - **THEN** the console MUST show the objective, source references, context
   summary, success criteria, autonomy posture, required checks, and enabled
-  handoff affordance for the ready packet state
+  start-work action for the ready packet state
 
 #### Scenario: Packet is blocked
 - **WHEN** the packet readiness endpoint reports missing context, decisions,
   success criteria, checks, authorization, scope, or autonomy posture
 - **THEN** the console MUST show the packet as not ready, list the blocking
-  reason codes, and keep run-start affordances disabled
+  reason codes, and keep run-start actions disabled
 
 #### Scenario: Run state is available
 - **WHEN** a selected item is linked to a packet-backed work run
@@ -95,8 +94,8 @@ presented as complete.
   policy reason codes
 
 ### Requirement: Console Keeps Deferred Surfaces Out
-Office Graph SHALL keep the first operator console focused on the manual
-intake to verification loop and defer broader platform surfaces.
+Office Graph SHALL keep the first operator console focused on the manual intake
+to verification loop and defer broader platform behavior.
 
 #### Scenario: Deferred behavior appears during console implementation
 - **WHEN** implementation encounters full graph canvas editing, workflow

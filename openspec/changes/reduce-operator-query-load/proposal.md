@@ -9,9 +9,9 @@ normal product API.
 
 ## What Changes
 
-- Make the operator console default to the GraphQL projection client while
-  preserving the existing JSON adapter as a temporary compatibility bridge and
-  parity target.
+- Make the operator console use GraphQL for product reads. Keep JSON routes only
+  for current backend callers or integration contracts; do not keep a frontend
+  JSON adapter or parity target for its own sake.
 - Require operator workflow projections to have a bounded, batched query shape
   for inbox, item detail, packet readiness, run state, and verification outcome
   reads.
@@ -33,24 +33,21 @@ normal product API.
 
 ### Modified Capabilities
 
-- `operator-console`: change the product UI's normal projection transport from
-  the temporary JSON bridge to GraphQL, while keeping component-facing view
-  models stable.
+- `operator-console`: change the product UI's normal data path from the
+  temporary JSON bridge to GraphQL, while keeping component-facing view models
+  stable.
 - `operator-workflow`: require projection reads to batch related records and
   keep query counts bounded as inbox rows, graph links, runs, and readiness
   inputs grow.
 
 ## Impact
 
-- `assets/src/operator-workflow/projectionClient.ts` and
-  `assets/src/operator-workflow/OperatorConsole.tsx` default adapter selection.
-- `assets/src/operator-workflow/useOperatorWorkflow.ts` selected-row loading
-  behavior and any follow-on cache/query layer.
+- The operator frontend data client, route, and selected-row loading behavior.
 - `lib/office_graph/api_support.ex`, `lib/office_graph/foundation.ex`,
   `lib/office_graph/authorization.ex`, and `lib/office_graph/identity.ex`
   context-loading and authorization validation paths.
 - `lib/office_graph/projections.ex` and `lib/office_graph/runs.ex` batched
   projection assembly.
-- `lib/office_graph_web/graphql/operator_workflow/*` and
-  `lib/office_graph_web/json_api/operator_workflow/*` transport parity tests.
-- Operator workflow API, frontend projection, and query-count regression tests.
+- `lib/office_graph_web/graphql/operator_workflow/*` plus any current JSON API
+  routes that remain for backend or integration use.
+- Operator workflow API, frontend data, and query-count regression tests.

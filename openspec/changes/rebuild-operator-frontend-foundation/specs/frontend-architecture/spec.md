@@ -11,20 +11,20 @@ frontend architecture.
 - **THEN** the implementation MAY replace the demo operator-workflow module,
   demo-only props, JSON frontend adapter, and JSON parity frontend tests,
   provided the `/operator` route still mounts a React product workbench over the
-  accepted backend projection contract
+  accepted backend read contract
 
-#### Scenario: Demo compatibility conflicts with frontend architecture
-- **WHEN** preserving demo-era file names, adapter seams, or component
+#### Scenario: Demo code conflicts with frontend architecture
+- **WHEN** preserving demo-era file names, adapter split points, or component
   structure would keep transport, query, view-model, or layout responsibilities
   tangled
-- **THEN** the implementation MUST prefer the accepted frontend architecture
-  boundaries over demo compatibility
+- **THEN** the implementation MUST prefer the accepted frontend architecture over
+  demo compatibility
 
 ### Requirement: Operator Server State Uses Query Hooks
 Office Graph SHALL use feature-owned query hooks over TanStack Query for
 operator workflow server state.
 
-#### Scenario: Operator route reads workflow projections
+#### Scenario: Operator route reads workflow data
 - **WHEN** the operator React route reads inbox, selected item detail, packet
   readiness, run state, or verification state
 - **THEN** those reads MUST go through feature-owned query hooks with stable
@@ -41,28 +41,27 @@ operator workflow server state.
 
 ### Requirement: Projection Client Boundary
 
-Office Graph SHALL route frontend data access through feature-owned projection
-client interfaces rather than direct ad hoc fetch calls inside components.
+Office Graph SHALL route frontend data access through feature-owned data hooks
+or clients rather than direct ad hoc fetch calls inside components.
 
-#### Scenario: Feature reads backend projection
+#### Scenario: Feature reads backend data
 
-- **WHEN** a feature route or panel reads an Office Graph projection
-- **THEN** the feature MUST call a typed projection client or hook that returns
-  a frontend view model independent of GraphQL response shape, temporary JSON
-  migration shapes, or future socket/live invalidation payloads
+- **WHEN** a feature route or panel reads Office Graph backend data
+- **THEN** the feature MUST call a typed hook or client that returns a frontend
+  view model independent of raw GraphQL response shape or future socket/live
+  invalidation payloads
 
-#### Scenario: Transport adapter changes
+#### Scenario: Old adapter has no current caller
 
-- **WHEN** a projection moves from a temporary JSON adapter to the GraphQL
-  product adapter or adds socket/live invalidation
-- **THEN** component props and rendering logic MUST remain stable unless the
-  projection contract itself changes through OpenSpec
+- **WHEN** a feature moves to the current product API path and an old adapter no
+  longer has a current caller
+- **THEN** the implementation MUST delete the old adapter and rewrite tests
+  around the current data path instead of preserving adapter compatibility
 
-#### Scenario: Product frontend has GraphQL projection coverage
+#### Scenario: Product frontend has GraphQL coverage
 
-- **WHEN** the React product frontend has a GraphQL projection for a feature
-  route
-- **THEN** the product UI MUST use the GraphQL projection path directly through
+- **WHEN** the React product frontend has a GraphQL read for a feature route
+- **THEN** the product UI MUST use the GraphQL path directly through
   its feature-owned query hooks and MUST NOT keep a frontend JSON adapter as a
   compatibility requirement
 
@@ -75,9 +74,9 @@ feature grows beyond a narrow screen.
 #### Scenario: Operator workflow UI is refactored
 
 - **WHEN** the operator workflow UI is touched for non-trivial behavior
-- **THEN** the implementation MUST split route/container state, projection
-  hooks, workbench layout, inbox list, item detail, readiness panel, run panel,
-  and verification panel into focused modules before adding more screen
+- **THEN** the implementation MUST split route/container state, data hooks,
+  workbench layout, inbox list, item detail, readiness panel, run panel, and
+  verification panel into focused modules before adding more screen
   behavior
 
 #### Scenario: Operator frontend is rebuilt

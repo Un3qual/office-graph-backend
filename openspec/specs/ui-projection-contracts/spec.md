@@ -2,20 +2,20 @@
 
 ## Purpose
 
-Define frontend-facing projection contract rules for Office Graph product
-surfaces, derived render caches, and generated content boundaries.
+Define the rules for frontend-facing data views, derived render caches, and
+generated content.
 ## Requirements
 ### Requirement: Product UI Reads Through Projection Contracts
 
-Office Graph SHALL define frontend-facing product surfaces as authorization
-filtered projection contracts rather than ad hoc controller or resolver reads.
+Office Graph SHALL define frontend-facing product data as authorization-filtered
+read functions rather than ad hoc controller or resolver reads.
 
-#### Scenario: Initial product surface is designed
+#### Scenario: Initial product UI is designed
 
 - **WHEN** the product adds inbox, question queue, work packet context, focused
-  node view, blocker view, workstream board, review surface, evidence chain,
+  node view, blocker view, workstream board, review view, evidence chain,
   verification view, or agent runtime status UI
-- **THEN** the surface MUST define its projection owner, input parameters,
+- **THEN** the UI MUST define its read owner, input parameters,
   included graph items, related typed records, redaction behavior, status
   fields, empty states, realtime needs, and API transport exposure before UI
   implementation begins
@@ -50,17 +50,17 @@ invalidated and rebuilt from durable records.
 - **THEN** the cache MUST either be scoped to the authorized viewer/policy
   context or store only safe derived metadata that cannot leak restricted data
 
-### Requirement: Agent Markdown And Generated Content Are Boundaried
+### Requirement: Agent Markdown And Generated Content Use Safe Rendering
 
 Office Graph SHALL render agent Markdown, generated summaries, model outputs,
-tool observations, and external-provider snippets through explicit content and
-projection boundaries.
+tool observations, and external-provider snippets through explicit content rules
+and frontend read functions.
 
 #### Scenario: Agent-generated content appears in UI
 
 - **WHEN** agent output appears in a node conversation, review surface,
   evidence chain, verification view, or work packet context
-- **THEN** the projection MUST distinguish draft, suggestion, change proposal,
+- **THEN** the frontend data MUST distinguish draft, suggestion, change proposal,
   accepted graph state, evidence candidate, verified evidence, raw observation,
   and rejected output
 
@@ -72,9 +72,9 @@ projection boundaries.
 - **THEN** rendering MUST use typed references and authorization-filtered link
   expansion rather than trusting inline text or raw Markdown to grant access
 
-### Requirement: UI Projections Share API And Realtime Contracts
+### Requirement: UI Data Shares API And Realtime Rules
 
-Office Graph SHALL design UI projection APIs and realtime updates together so
+Office Graph SHALL design UI data APIs and realtime updates together so
 the frontend can reconcile state without transport-specific business logic.
 
 #### Scenario: Projection has realtime updates
@@ -90,19 +90,19 @@ the frontend can reconcile state without transport-specific business logic.
 - **THEN** both transports MUST use the same projection contract and differ
   only in transport shape, pagination, filtering syntax, or error envelope
 
-### Requirement: Projections Expose Product Semantics
+### Requirement: UI Data Exposes Product Meaning
 
-Office Graph SHALL expose product-spine semantics in frontend-facing
-projections rather than raw infrastructure mechanics.
+Office Graph SHALL expose product meaning in frontend-facing data rather than
+raw infrastructure mechanics.
 
 #### Scenario: Projection includes mixed workflow records
 
 - **WHEN** a projection includes signals, change proposals, work items, packets,
   runs, checks, evidence, verification results, observations, graph items, or
   audit traces
-- **THEN** the projection MUST present canonical product-spine fields for the
-  default UI and place infrastructure details behind explicit trace, debug, or
-  audit fields
+- **THEN** the frontend data MUST present named product fields for the default
+  UI and place infrastructure details behind explicit trace, debug, or audit
+  fields
 
 #### Scenario: UI needs to render actionability
 
@@ -112,39 +112,37 @@ projections rather than raw infrastructure mechanics.
   NOT require the UI to infer domain meaning from raw `type` strings,
   relationship names, or private resource state
 
-### Requirement: Command Affordances Come From Backend Projections
+### Requirement: Allowed Commands Come From Backend Reads
 
-Office Graph SHALL provide command affordances through projection contracts
-when the UI needs to start or continue workflow actions.
+Office Graph SHALL provide allowed commands through backend reads when the UI
+needs to start or continue workflow actions.
 
-#### Scenario: UI renders packet readiness or run-start affordance
+#### Scenario: UI renders packet readiness or run-start action
 
 - **WHEN** an operator-facing UI needs to prepare a packet, start a run, accept
   evidence, or complete verification
-- **THEN** the backend projection MUST provide the required command affordance,
-  stable input shape, allowed action, and blocker reasons rather than requiring
-  the frontend to assemble domain command input from graph links
+- **THEN** the backend read MUST provide the required command, stable input
+  shape, allowed action, and blocker reasons rather than requiring the frontend
+  to assemble domain command input from graph links
 
 #### Scenario: Command input cannot be projected
 
 - **WHEN** a command input requires operator-authored fields or local form state
-- **THEN** the projection MUST still provide allowed actions, required fields,
+- **THEN** the backend read MUST still provide allowed actions, required fields,
   defaults, validation hints, and target identities so the frontend does not
   reconstruct domain relationships from raw projection internals
 
-### Requirement: Projection Clients Hide GraphQL And Realtime Shape
+### Requirement: Frontend Data Hooks Hide GraphQL And Realtime Shape
 
-Office Graph SHALL keep frontend projection clients stable across GraphQL
-response shapes, temporary JSON migration shapes, and future socket/live
-realtime invalidation payloads.
+Office Graph SHALL keep frontend data hooks stable across GraphQL response
+shapes and future socket/live realtime invalidation payloads.
 
-#### Scenario: Projection is exposed through migration and product transports
+#### Scenario: Old JSON migration adapter has no current caller
 
-- **WHEN** both temporary JSON API and GraphQL expose an operator-facing
-  projection during migration
-- **THEN** frontend projection clients MUST normalize field naming, pagination,
-  error envelopes, and relationship shapes into a single feature view model,
-  with GraphQL as the desired product frontend transport
+- **WHEN** GraphQL is the accepted product frontend path and an old JSON adapter
+  has no current caller
+- **THEN** the frontend MUST delete the JSON adapter instead of preserving a
+  migration shape
 
 #### Scenario: Realtime update arrives
 

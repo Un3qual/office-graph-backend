@@ -1,10 +1,8 @@
 ## MODIFIED Requirements
 
 ### Requirement: Console Presents Workflow Inbox And Item Detail
-The operator console SHALL let an operator inspect the actionable workflow
-inbox and selected item detail from the shared operator workflow projection
-through the product GraphQL transport by default, while preserving a temporary
-JSON adapter as a compatibility bridge over the same frontend view model.
+The operator console SHALL let an operator inspect the actionable workflow inbox
+and selected item detail through the product GraphQL data path.
 
 #### Scenario: Inbox rows are available
 - **WHEN** the GraphQL operator workflow inbox projection returns one or more
@@ -23,13 +21,7 @@ JSON adapter as a compatibility bridge over the same frontend view model.
 - **WHEN** the Phoenix-served `/operator` app shell mounts the React console
   without an injected test client
 - **THEN** the console MUST read the operator workflow through the GraphQL
-  projection adapter rather than the temporary JSON adapter
-
-#### Scenario: JSON bridge remains stable
-- **WHEN** tests or compatibility callers construct the JSON operator workflow
-  projection adapter explicitly
-- **THEN** the adapter MUST keep returning the same frontend view model shape
-  as the GraphQL adapter for the supported operator workflow reads
+  product data path rather than the old JSON adapter
 
 #### Scenario: Initial selected item reuses inbox detail
 - **WHEN** the inbox projection already includes the selected row's item detail
@@ -49,9 +41,9 @@ JSON adapter as a compatibility bridge over the same frontend view model.
 #### Scenario: Item detail is selected
 - **WHEN** an operator selects an inbox row whose detail is not already loaded
   or whose source watermark requires refresh
-- **THEN** the console MUST fetch or reuse the selected item detail projection
-  and show its typed identity, source context, proposed-change status, affected
-  graph links, audit or revision traces, and safe next actions
+- **THEN** the console MUST fetch or reuse the selected item detail and show its
+  typed identity, source context, proposed-change status, affected graph links,
+  audit or revision traces, and safe next actions
 
 #### Scenario: Item detail cannot be loaded
 - **WHEN** item detail loading fails because the item is missing, unauthorized,

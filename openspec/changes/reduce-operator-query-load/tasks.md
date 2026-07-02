@@ -7,8 +7,8 @@
 ## 2. Frontend Transport And Request Fanout
 
 - [x] 2.1 Add a small GraphQL HTTP fetcher for the operator workflow projection client.
-- [x] 2.2 Switch `createDefaultOperatorWorkflowProjectionClient()` to the GraphQL adapter while preserving explicit JSON adapter construction.
-- [x] 2.3 Add frontend tests proving the default console path uses GraphQL and both adapters return the same view model shape.
+- [x] 2.2 Switch the operator frontend to the GraphQL data path.
+- [x] 2.3 Add frontend tests proving the console path uses GraphQL and returns the expected view model shape.
 - [x] 2.4 Reuse the selected inbox row as initial item detail instead of immediately refetching the same normalized event.
 - [x] 2.5 Avoid a separate verification-outcome read when loaded run state already contains the verification data required by the panel.
 
@@ -31,7 +31,7 @@
 
 ## 5. Verification
 
-- [x] 5.1 Run focused operator workflow API parity tests for JSON and GraphQL.
+- [x] 5.1 Run focused operator workflow API safety tests for current JSON and GraphQL routes that remain.
 - [x] 5.2 Run focused frontend projection-client and operator console tests.
 - [x] 5.3 Run the query-count scaling test and document the accepted budget.
 - [x] 5.4 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, frontend verification, and OpenSpec strict validation from the Nix shell.

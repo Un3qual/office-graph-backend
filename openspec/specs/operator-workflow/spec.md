@@ -3,8 +3,7 @@
 ## Purpose
 Define the first operator-facing workflow that turns manual intake, proposed
 graph changes, packet readiness, packet-backed runs, evidence, and verification
-into a coherent loop exposed consistently through shared projections, JSON API,
-and GraphQL.
+into a coherent loop exposed through the current GraphQL and JSON API paths.
 
 ## Requirements
 ### Requirement: Operator Workflow Starts From Manual Intake
@@ -28,8 +27,8 @@ contracts.
   checks, packets, runs, evidence, or verification results
 
 ### Requirement: Operator Inbox Presents Actionable Triage State
-Office Graph SHALL provide an authorization-filtered operator inbox projection
-that turns intake and proposed graph state into actionable triage rows.
+Office Graph SHALL provide an authorization-filtered operator inbox that turns
+intake and proposed graph state into actionable triage rows.
 
 #### Scenario: Intake row is pending triage
 - **WHEN** a manual intake event has pending proposed graph changes
@@ -40,7 +39,7 @@ that turns intake and proposed graph state into actionable triage rows.
 #### Scenario: Proposed changes are applied
 - **WHEN** an authorized operator applies the proposed changes for an intake
   row
-- **THEN** the workflow projection MUST show the created signal, task, review
+- **THEN** the workflow MUST show the created signal, task, review
   finding, verification check, graph relationships, audit or revision traces,
   and the next readiness or packet action without requiring the client to query
   raw tables directly
@@ -102,27 +101,34 @@ operator workflow item is considered complete.
   reason codes
 
 ### Requirement: Operator Workflow Projections Are Transport Equivalent
-Office Graph SHALL expose the operator workflow through shared projection and
-command contracts across GraphQL and JSON API.
+Office Graph SHALL use the same backend commands and read functions for current
+GraphQL and JSON API operator workflow paths.
 
 #### Scenario: Workflow state is read
-- **WHEN** GraphQL or JSON API reads the operator workflow inbox, item detail,
-  packet readiness, run state, evidence state, or verification outcome
-- **THEN** both transports MUST use the same public projection contract,
+- **WHEN** a current GraphQL or JSON API path reads the operator workflow inbox,
+  item detail, packet readiness, run state, evidence state, or verification
+  outcome
+- **THEN** the paths MUST use the same public backend read function,
   authorization filtering, typed identifiers, status vocabulary, blocker
   reasons, empty-state semantics, and source watermark
 
 #### Scenario: Workflow command is executed
-- **WHEN** GraphQL or JSON API submits manual intake, applies proposed changes,
-  prepares or starts a packet-backed run, records observation or evidence, or
-  verifies completion
-- **THEN** both transports MUST call the same owning domain commands and return
+- **WHEN** a current GraphQL or JSON API path submits manual intake, applies
+  proposed changes, prepares or starts a packet-backed run, records observation
+  or evidence, or verifies completion
+- **THEN** the paths MUST call the same owning backend commands and return
   equivalent validation, authorization, idempotency, conflict, stale, and
   lifecycle errors
 
+#### Scenario: Old transport shape has no current caller
+- **WHEN** an old operator workflow transport shape has no current product,
+  integration, test, or local development caller
+- **THEN** the implementation MUST remove that transport shape instead of
+  preserving compatibility with it
+
 ### Requirement: Deferred Surfaces Stay Out Of The First Operator Workflow
-Office Graph SHALL keep the first operator workflow focused on the manual
-intake to verification loop and defer broader platform surfaces.
+Office Graph SHALL keep the first operator workflow focused on the manual intake
+to verification loop and defer broader platform behavior.
 
 #### Scenario: Deferred behavior is requested
 - **WHEN** implementation of the first operator workflow encounters provider

@@ -34,13 +34,16 @@ decisions into this file or into formal OpenSpec specs.
   code, design-system work, and temporary scaffolding. Do not introduce
   Tailwind, Tailwind-dependent component libraries, Tailwind configuration, or
   Tailwind utility-class conventions.
-- API surface: both GraphQL and JSON API are required.
-- GraphQL should use capability interfaces for shared API affordances such as
-  closable, updatable, reactable, comment-like, approvable, subscribable, and
-  projection-capable resources. These interfaces are API contracts over typed
-  resources and authorization-aware resolvers; they do not justify
-  polymorphic local storage or generic mutation paths.
+- APIs: both GraphQL and JSON API are required.
+- GraphQL should use interfaces for shared actions and viewer-specific fields
+  such as close, update, react, comment, approve, and subscribe. These
+  interfaces sit over typed resources and authorization-aware resolvers; they
+  do not justify polymorphic local storage or generic mutation paths.
 - Workflow source of truth: OpenSpec.
+- Office Graph is unreleased. Current product direction wins over old demo
+  paths, adapter shapes, and module layouts. Keep compatibility code only when
+  a current caller, current verification need, external contract, data-safety
+  reason, or local development workflow is named.
 - Runtime and CLI dependencies come from the project Nix flake.
 - Enterprise requirements are first-class, not later add-ons.
 - Authorization is a core product concern, not a controller-level afterthought.
@@ -57,11 +60,9 @@ decisions into this file or into formal OpenSpec specs.
   likely separate Hex packages when they become substantial.
 - Office Graph will have an internal agent runtime for graph-aware automatic
   agents and embedded conversations.
-- The MVP direction is an agent-governed company work graph: a
-  department-neutral work graph, first-class internal agent runtime, and
-  software review/fix/verification as the first deep proving workflow.
-  Department-specific workflow packs are an expansion pattern, not the first
-  product surface.
+- The MVP direction is a company work system where humans and agents both do
+  assigned work. Software review/fix/verification is the first deep proving
+  workflow. Department-specific workflow packs can come later.
 - First buyer, daily user, and metric: target AI-forward company leadership,
   operations leadership, AI/platform leadership, or department leaders who own
   governed human-agent execution across teams; the daily user is a
@@ -152,9 +153,8 @@ decisions into this file or into formal OpenSpec specs.
   payloads. Revisions reconstruct meaningful state changes; audit records
   explain sensitive actor behavior and policy decisions.
 - Code organization must assume a large backend. Use a modular monolith with
-  explicit bounded contexts, the Boundary library, DDD-style domain boundaries,
-  clear public APIs per context, and dependency rules that prevent lateral
-  coupling.
+  clear public APIs between areas. Boundary remains the enforcement tool for
+  dependency rules; it should not make simple code harder to navigate.
 - Some domains should be designed so they can later be extracted into reusable
   libraries for future projects. Authentication/identity, authorization,
   integration primitives, revision/audit primitives, and the agent runtime are
@@ -164,11 +164,11 @@ decisions into this file or into formal OpenSpec specs.
 
 ## Current Working Direction
 
-- Product frame: company-wide agent-native work graph with department-specific
-  projections, integrations, and agent libraries.
-- MVP frame: agent-governed company work graph. The graph is the system of
-  record, the internal runtime makes the graph active, and department packs are
-  later extensions over shared primitives.
+- Product frame: company-wide work records with team-specific views,
+  integrations, and agent support.
+- MVP frame: company work records that humans and agents can act on. The
+  internal runtime makes those records active, and department packs are later
+  extensions.
 - First buyer/user/metric frame: AI-forward cross-functional leaders buy
   governed human-agent execution; cross-functional work owners and agent
   operators use it daily; the flagship metric is packet-backed verified
@@ -177,8 +177,8 @@ decisions into this file or into formal OpenSpec specs.
   including PR review comments, fixes, commits, Sentry events, CI results, and
   code-review evidence. This is the first deep proof point, not a restriction
   on the company-wide product frame.
-- Core loop: signal -> question -> decision -> work packet
-  -> human or agent run -> evidence -> verification -> reusable context.
+- Core loop: incoming item -> clarify it -> assign work -> run it -> attach
+  proof -> mark verified -> reuse the result later.
 - Signal sources should eventually include anything an organization uses:
   chat, documents, tickets, GitHub, Sentry, CI, design tools, marketing tools,
   social platforms, finance systems, spreadsheets, email, and manual intake.
@@ -194,11 +194,10 @@ decisions into this file or into formal OpenSpec specs.
 - Initial value: reduce ambiguity before delegation, preserve decisions, set
   autonomy boundaries, run graph-aware agents, link completion to evidence, and
   make prior work reusable in future context.
-- Near-term product surface: inbox, work item triage, work packet view, run
-  view, evidence and verification view, focused trace/debug detail, and
-  integration settings. Question queues, graph conversations, and agent
-  execution internals require workflow justification before becoming default
-  operator-facing vocabulary.
+- Near-term product UI: inbox, work item triage, work packet view, run view,
+  evidence and verification view, focused trace/debug detail, and integration
+  settings. Question queues, graph conversations, and agent execution internals
+  require workflow justification before becoming default operator-facing words.
 - Enterprise identity testing should not require paid hosted IdPs during
   normal development. Use a local identity lab with authentik for OIDC, SAML,
   and SCIM, optional Keycloak for OIDC/SAML compatibility, and a repo-owned

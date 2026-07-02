@@ -1,9 +1,8 @@
 ## MODIFIED Requirements
 
 ### Requirement: Console Presents Workflow Inbox And Item Detail
-The operator console SHALL let an operator inspect the actionable workflow
-inbox and selected item detail from the shared operator workflow projection
-through the GraphQL product frontend path.
+The operator console SHALL let an operator inspect the actionable workflow inbox
+and selected item detail through the GraphQL product frontend path.
 
 #### Scenario: Inbox rows are available
 - **WHEN** the GraphQL operator workflow inbox projection returns one or more
@@ -27,9 +26,9 @@ through the GraphQL product frontend path.
 
 #### Scenario: Item detail is selected
 - **WHEN** an operator selects an inbox row
-- **THEN** the console MUST fetch or reuse the selected item detail projection
-  and show its typed identity, source context, proposed-change status, affected
-  graph links, audit or revision traces, and safe next actions
+- **THEN** the console MUST fetch or reuse the selected item detail and show its
+  typed identity, source context, proposed-change status, affected graph links,
+  audit or revision traces, and safe next actions
 
 #### Scenario: Item detail cannot be loaded
 - **WHEN** item detail loading fails because the item is missing, unauthorized,

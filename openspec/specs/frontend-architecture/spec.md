@@ -1,7 +1,8 @@
 # frontend-architecture Specification
 
 ## Purpose
-TBD - created by archiving change stabilize-architecture-foundation. Update Purpose after archive.
+Define the React frontend structure, data-loading, shared UI, and verification
+rules for Office Graph product screens.
 ## Requirements
 ### Requirement: Frontend Foundation Before Additional Product Routes
 
@@ -11,17 +12,15 @@ adding additional product routes beyond the first operator console.
 #### Scenario: New product route is proposed
 
 - **WHEN** a change proposes a new product route, screen family, or navigation
-  surface
+  area
 - **THEN** the change MUST use accepted route ownership, feature module,
-  projection-client, component primitive, styling token, and verification
-  conventions
+  data hook, component primitive, styling token, and verification conventions
 
 #### Scenario: Navigation item has no implemented route
 
-- **WHEN** the UI displays navigation for a product surface
-- **THEN** the surface MUST either route to implemented behavior or be rendered
-  as a non-interactive unavailable affordance backed by an accepted product
-  decision
+- **WHEN** the UI displays navigation for a product area
+- **THEN** the area MUST either route to implemented behavior or be rendered as
+  a non-interactive unavailable item backed by an accepted product decision
 
 ### Requirement: Shared UI Primitives And Tokens
 
@@ -51,22 +50,35 @@ status and domain mapping logic.
 
 ### Requirement: Projection Client Boundary
 
-Office Graph SHALL route frontend data access through feature-owned projection
-client interfaces rather than direct ad hoc fetch calls inside components.
+Office Graph SHALL route frontend data access through feature-owned data hooks
+or clients rather than direct ad hoc fetch calls inside components.
 
-#### Scenario: Feature reads backend projection
+#### Scenario: Feature reads backend data
 
-- **WHEN** a feature route or panel reads an Office Graph projection
-- **THEN** the feature MUST call a typed projection client or hook that returns
-  a frontend view model independent of GraphQL response shape, temporary JSON
-  migration shapes, or future socket/live invalidation payloads
+- **WHEN** a feature route or panel reads Office Graph backend data
+- **THEN** the feature MUST call a typed hook or client that returns a frontend
+  view model independent of raw GraphQL response shape or future socket/live
+  invalidation payloads
 
-#### Scenario: Transport adapter changes
+#### Scenario: Old adapter has no current caller
 
-- **WHEN** a projection moves from a temporary JSON adapter to the GraphQL
-  product adapter or adds socket/live invalidation
-- **THEN** component props and rendering logic MUST remain stable unless the
-  projection contract itself changes through OpenSpec
+- **WHEN** a feature moves to the current product API path and an old adapter no
+  longer has a current caller
+- **THEN** the implementation MUST delete the old adapter and rewrite tests
+  around the current data path instead of preserving adapter compatibility
+
+### Requirement: Product Frontend Uses Current API Path
+Office Graph SHALL keep product frontend code on the current accepted API path.
+
+#### Scenario: Product UI reads operator workflow data
+- **WHEN** the React product UI reads operator workflow data
+- **THEN** it MUST use the current GraphQL product path unless an accepted
+  OpenSpec change names a current reason for another path
+
+#### Scenario: Demo compatibility code remains
+- **WHEN** demo-era frontend code remains after a product path replaces it
+- **THEN** the implementation MUST delete it or document the current workflow
+  that still uses it
 
 ### Requirement: Server State Is Managed Deliberately
 
@@ -119,4 +131,3 @@ feature grows beyond a narrow screen.
   hooks, workbench layout, inbox list, item detail, readiness panel, run panel,
   and verification panel into focused modules before adding more screen
   behavior
-

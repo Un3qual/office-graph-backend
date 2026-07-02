@@ -1,27 +1,23 @@
 ## MODIFIED Requirements
 
-### Requirement: Projection Clients Hide GraphQL And Realtime Shape
+### Requirement: Frontend Data Hooks Hide GraphQL And Realtime Shape
 
-Office Graph SHALL keep frontend projection clients stable across GraphQL
-response shapes and future socket/live realtime invalidation payloads.
-Temporary JSON migration shapes MAY be supported during a transport migration,
-but product frontend code MUST NOT retain a JSON adapter once an accepted
-GraphQL projection path exists for that surface.
+Office Graph SHALL keep frontend data hooks stable across GraphQL response
+shapes and future socket/live realtime invalidation payloads.
 
-#### Scenario: Projection is exposed through migration and product transports
+#### Scenario: Old JSON migration adapter has no current caller
 
-- **WHEN** both temporary JSON API and GraphQL expose an operator-facing
-  projection during migration
-- **THEN** frontend projection clients MUST normalize field naming, pagination,
-  error envelopes, and relationship shapes into a single feature view model,
-  with GraphQL as the desired product frontend transport
+- **WHEN** GraphQL is the accepted product frontend path and an old JSON adapter
+  has no current caller
+- **THEN** the frontend MUST delete the JSON adapter instead of preserving a
+  migration shape
 
-#### Scenario: Product projection is GraphQL-ready
-- **WHEN** the product frontend has an accepted GraphQL projection for an
-  operator-facing surface
-- **THEN** the frontend projection client MUST use GraphQL as the product path
-  and MUST NOT preserve temporary JSON migration support as a component-facing
-  compatibility requirement
+#### Scenario: Product data path is GraphQL-ready
+- **WHEN** the product frontend has an accepted GraphQL read for an
+  operator-facing UI
+- **THEN** the frontend data hook MUST use GraphQL as the product path and MUST
+  NOT preserve JSON migration support as a component-facing compatibility
+  requirement
 
 #### Scenario: Realtime update arrives
 

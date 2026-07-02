@@ -1,19 +1,18 @@
 # backend-architecture Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define the backend structure rules for the Office Graph Phoenix/Ash app.
 ## Requirements
 ### Requirement: Modular Monolith First
 
-Office Graph SHALL start as a modular monolith with explicit domain
-boundaries, not as microservices.
+Office Graph SHALL start as a modular monolith with clear public APIs between
+backend areas, not as microservices.
 
 #### Scenario: Application structure is chosen
 
 - **WHEN** the initial backend is generated
-- **THEN** it must organize code around bounded contexts and public domain
-  interfaces rather than around controllers, schemas, or integration vendors
-  alone
+- **THEN** it must organize code around backend areas with public APIs rather
+  than around controllers, schemas, or integration vendors alone
 
 #### Scenario: Service split is proposed
 
@@ -21,14 +20,14 @@ boundaries, not as microservices.
 - **THEN** the proposal must identify the concrete scaling, ownership,
   deployment, reuse, or isolation requirement that justifies the split
 
-### Requirement: Boundary And DDD Dependency Rules
+### Requirement: Cross-Context Dependencies Use Public APIs
 
-Office Graph SHALL use the Boundary library and DDD-style context rules to
-control dependencies in the large backend.
+Office Graph SHALL use public APIs between backend areas and the Boundary
+library to enforce dependency rules.
 
 #### Scenario: Domain depends on another domain
 
-- **WHEN** one context needs behavior from another context
+- **WHEN** one backend area needs behavior from another backend area
 - **THEN** the dependency must go through declared public APIs, actions,
   policies, events, queries, or behaviours rather than reaching into internal
   modules

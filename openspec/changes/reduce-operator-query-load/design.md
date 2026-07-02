@@ -6,13 +6,12 @@ The captured `/operator` page load issued 162 SQL queries:
 - `GET /api/operator-workflow/items/:id`: 55 queries
 - `POST /api/operator-workflow/packet-readiness`: 52 queries
 
-The Phoenix `/operator` app shell itself does not query the database. The
-React app currently defaults to the JSON projection adapter, which fans out to
-the `/api/operator-workflow/*` routes. That choice matches the first minimal
-console implementation, but it now lags the durable API direction:
-`ash-api-surface` says product frontend reads should normally use GraphQL, and
-`frontend-architecture` already requires a projection-client boundary that can
-move from a temporary JSON adapter to GraphQL without changing components.
+The Phoenix `/operator` app shell itself does not query the database. At the
+time of the captured page load, the React app defaulted to a JSON adapter that
+called `/api/operator-workflow/*` routes. That choice matched the first minimal
+console implementation, but the current product direction is simpler: the
+product frontend reads operator workflow data through GraphQL. JSON routes may
+remain only for current backend callers or integration contracts.
 
 Changing the frontend transport alone will not solve the query count. The JSON
 controllers and GraphQL resolvers both call `OfficeGraph.ApiSupport`, which
@@ -24,8 +23,7 @@ projection assembly that builds each inbox row independently.
 
 **Goals:**
 
-- Make GraphQL the default operator-console product transport while keeping the
-  existing JSON adapter available for compatibility and parity tests.
+- Make GraphQL the operator-console product data path.
 - Keep `OperatorWorkflowProjectionClient` as the frontend boundary so panels
   consume stable view models rather than transport response shapes.
 - Reduce one page load by eliminating duplicate selected-item work and repeated
@@ -49,23 +47,23 @@ projection assembly that builds each inbox row independently.
 
 ## Decisions
 
-### Default the Product UI to GraphQL
+### Use GraphQL For The Product UI
 
-`createDefaultOperatorWorkflowProjectionClient/0` should instantiate the
-GraphQL adapter with a small `/graphql` HTTP fetcher. The JSON adapter remains
-explicitly constructible for compatibility, tests, and customer/integration
-surface parity.
+The operator frontend should call GraphQL through the current feature-owned
+data client or hooks. A frontend JSON adapter is not a product fallback. Backend
+JSON routes may remain only when a current backend caller, integration contract,
+or verification need is named.
 
 Alternative considered: leave JSON as the UI transport and only optimize the
 backend. That would reduce query count but keep the console out of alignment
 with the API direction that product reads use GraphQL as the normal transport.
 
-### Keep the Projection Client as the Frontend Contract
+### Keep Components Off Raw API Shapes
 
 The GraphQL adapter already maps camelCase GraphQL fields into the same
 snake_case frontend view model consumed by the current components. The
 implementation should keep panels, layout, and presentation helpers unaware of
-GraphQL or JSON response shapes.
+GraphQL response shapes.
 
 Alternative considered: let components call GraphQL directly. That would make
 the migration faster locally but violate the frontend architecture requirement
@@ -86,8 +84,8 @@ GraphQL selection query can be considered later if the projection contract
 needs a dedicated read shape.
 
 Alternative considered: introduce a new composite endpoint immediately. That
-would reduce page-load round trips but expands the transport surface before the
-shared projection and batching problems are fixed.
+would reduce page-load round trips but adds another API shape before the shared
+backend read and batching problems are fixed.
 
 ### Carry Trusted Session Context Instead of Bootstrapping Per Read
 
@@ -113,7 +111,7 @@ Alternative considered: memoize local bootstrap globally. That helps local dev
 but can hide revocation/session freshness behavior and is less representative
 of real authenticated request handling.
 
-### Batch Projection Assembly Under Both Transports
+### Batch Backend Read Assembly
 
 `operator_inbox/1` should assemble rows through a batched builder that also
 serves `operator_workflow_item/2` with a one-event input. The builder should:
@@ -134,9 +132,8 @@ the duplicated verification outcome path should not force a second summary read
 when the frontend already has run state.
 
 Alternative considered: rely on GraphQL dataloaders. The current GraphQL fields
-are coarse projection fields rather than nested resource resolvers, and JSON
-must retain equivalent behavior. Batching belongs in the shared projection
-contract first.
+are coarse workflow reads rather than nested resource resolvers. Batching
+belongs in the shared backend read first so any current API path benefits.
 
 ### Add Query-Count Regression Coverage
 
@@ -151,9 +148,9 @@ link projection paths.
 
 ## Risks / Trade-offs
 
-- GraphQL default reveals frontend adapter bugs not hit by the JSON adapter.
-  Mitigation: keep the projection-client tests and add a default-client test
-  before switching the app shell path.
+- GraphQL product reads reveal frontend data bugs that the old JSON path hid.
+  Mitigation: keep focused frontend data tests and route tests around the
+  current GraphQL path.
 - Query-count tests can become brittle when legitimate fixed-cost reads are
   added. Mitigation: assert upper bounds and scaling behavior separately, and
   keep the threshold documented in the test.
@@ -165,15 +162,15 @@ link projection paths.
   `%SessionContext{}` values and preserve rejection of client-supplied
   `session_context` maps.
 - Batching in `OfficeGraph.Projections` will add in-memory grouping code.
-  Mitigation: keep existing row-builder helpers as formatting functions and
-  add tests for JSON/GraphQL parity after the batching change.
+  Mitigation: keep existing row-builder helpers as formatting functions and add
+  tests for current API behavior after the batching change.
 
 ## Migration Plan
 
 1. Add query-count helpers and a failing regression test that captures current
    operator projection growth.
-2. Switch the default frontend adapter to GraphQL through the existing
-   projection-client boundary; keep JSON adapter tests.
+2. Switch the frontend to the current GraphQL data path and remove old frontend
+   JSON adapter tests unless a current caller is named.
 3. Reuse selected inbox row detail and avoid redundant verification-outcome
    reads when run state is sufficient.
 4. Install/carry trusted session context for operator workflow reads and avoid
@@ -182,10 +179,8 @@ link projection paths.
 6. Run OpenSpec validation, focused backend/frontend tests, query-count tests,
    and the existing frontend verification command.
 
-Rollback is straightforward: the JSON adapter remains available, and the
-batched projection builder preserves the public projection contract. If the
-GraphQL default causes a release issue, the default adapter can temporarily
-switch back to JSON while backend batching remains valid for both transports.
+Rollback is a git revert or a focused fix to the GraphQL path. JSON is not a
+product UI fallback unless a current caller or data-safety reason is named.
 
 ## Open Questions
 
