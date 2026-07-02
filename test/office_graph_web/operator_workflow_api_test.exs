@@ -14,14 +14,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   test "GraphQL exposes operator inbox and item detail", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-inbox")
+    {:ok, _newer_intake} = submit_manual_intake(bootstrap.session, "graphql-inbox-newer")
 
     inbox =
       graphql(
         conn,
         """
-        query Inbox {
-          operatorInbox {
+        query Inbox($limit: Int, $offset: Int) {
+          operatorInbox(limit: $limit, offset: $offset) {
             empty
+            hasMore
+            limit
+            nextOffset
+            offset
             sourceWatermark
             rows {
               normalizedEventId
@@ -34,10 +39,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{}
+        %{limit: 1, offset: 1}
       )
 
     assert inbox["empty"] == false
+    assert inbox["hasMore"] == false
+    assert inbox["limit"] == 1
+    assert inbox["nextOffset"] == nil
+    assert inbox["offset"] == 1
     assert [row] = inbox["rows"]
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"

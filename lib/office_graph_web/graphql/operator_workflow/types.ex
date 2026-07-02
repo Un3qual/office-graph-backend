@@ -66,6 +66,13 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
       resolve(fn inbox, _, _ -> {:ok, Map.fetch!(inbox, :empty?)} end)
     end
 
+    field :has_more, non_null(:boolean) do
+      resolve(fn inbox, _, _ -> {:ok, Map.fetch!(inbox, :has_more?)} end)
+    end
+
+    field :limit, non_null(:integer)
+    field :next_offset, :integer
+    field :offset, non_null(:integer)
     field :source_watermark, :id
     field :rows, non_null(list_of(non_null(:operator_workflow_item)))
   end

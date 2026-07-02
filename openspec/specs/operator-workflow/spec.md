@@ -101,12 +101,14 @@ operator workflow item is considered complete.
   reason codes
 
 ### Requirement: Operator Workflow Uses The GraphQL Product Path
+
 Office Graph SHALL expose current operator workflow projections and commands
 through the GraphQL product path. Retired JSON API shapes MAY appear only as
 historical compatibility references or explicitly named migration/deletion
 targets.
 
 #### Scenario: Workflow state is read
+
 - **WHEN** the GraphQL product path reads the operator workflow inbox, item
   detail, packet readiness, run state, evidence state, or verification outcome
 - **THEN** the path MUST use the same public backend read function,
@@ -114,6 +116,7 @@ targets.
   reasons, empty-state semantics, and source watermark
 
 #### Scenario: Workflow command is executed
+
 - **WHEN** the GraphQL product path submits manual intake, applies proposed
   changes, prepares or starts a packet-backed run, records observation or
   evidence, or verifies completion

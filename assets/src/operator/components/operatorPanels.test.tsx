@@ -106,7 +106,16 @@ describe("operator panels", () => {
     render(
       <InboxList
         inbox={queryResult<OperatorInbox>({
-          data: { type: "operator_inbox", empty: false, sourceWatermark: "op_123", rows: [row] },
+          data: {
+            type: "operator_inbox",
+            empty: false,
+            hasMore: false,
+            limit: 50,
+            nextOffset: null,
+            offset: 0,
+            sourceWatermark: "op_123",
+            rows: [row]
+          },
           error: new Error("Unable to refresh inbox."),
           fetchStatus: "idle",
           isError: true,
@@ -135,7 +144,16 @@ describe("operator panels", () => {
     render(
       <InboxList
         inbox={queryResult<OperatorInbox>({
-          data: { type: "operator_inbox", empty: false, sourceWatermark: "op_123", rows: [blocked] },
+          data: {
+            type: "operator_inbox",
+            empty: false,
+            hasMore: false,
+            limit: 50,
+            nextOffset: null,
+            offset: 0,
+            sourceWatermark: "op_123",
+            rows: [blocked]
+          },
           fetchStatus: "idle",
           isError: false,
           isPending: false,

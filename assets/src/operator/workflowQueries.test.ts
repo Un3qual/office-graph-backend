@@ -16,6 +16,10 @@ describe("operator workflow GraphQL queries", () => {
 
     await expect(fetchOperatorInbox(fetcher)).resolves.toMatchObject({
       empty: false,
+      hasMore: false,
+      limit: 50,
+      nextOffset: null,
+      offset: 0,
       sourceWatermark: "op_123",
       rows: [
         {

@@ -7,9 +7,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
   object :operator_workflow_queries do
     field :operator_inbox, non_null(:operator_inbox) do
-      resolve(fn _, resolution ->
+      arg(:limit, :integer)
+      arg(:offset, :integer)
+
+      resolve(fn args, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, inbox} <- Projections.operator_inbox(session_context) do
+             {:ok, inbox} <- Projections.operator_inbox(session_context, args) do
           {:ok, inbox}
         else
           error -> Errors.to_absinthe(error)

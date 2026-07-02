@@ -60,6 +60,10 @@ export type OperatorWorkflowItem = {
 export type OperatorInbox = {
   type: "operator_inbox";
   empty: boolean;
+  hasMore: boolean;
+  limit: number;
+  nextOffset: number | null;
+  offset: number;
   sourceWatermark: string | null;
   rows: OperatorWorkflowItem[];
 };

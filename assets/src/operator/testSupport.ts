@@ -28,6 +28,10 @@ export function createGraphQLTestFetcher(responses: Record<string, unknown>): Gr
 export const graphQLInbox = {
   type: "operator_inbox",
   empty: false,
+  hasMore: false,
+  limit: 50,
+  nextOffset: null,
+  offset: 0,
   sourceWatermark: "op_123",
   rows: [
     {

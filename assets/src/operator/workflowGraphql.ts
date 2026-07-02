@@ -47,6 +47,10 @@ export const operatorInboxQuery = `
     operatorInbox {
       type
       empty
+      hasMore
+      limit
+      nextOffset
+      offset
       sourceWatermark
       rows { ${itemFields} }
     }

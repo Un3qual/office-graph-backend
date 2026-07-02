@@ -24,17 +24,28 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     "review_finding" => ReviewFinding,
     "verification_check" => VerificationCheck
   }
-  @operator_inbox_limit 50
+  @default_operator_inbox_limit 50
+  @max_operator_inbox_limit 100
 
-  def operator_inbox(session_context) do
+  def operator_inbox(session_context, opts \\ []) do
+    limit = page_limit(opts)
+    offset = page_offset(opts)
+
     with :ok <- authorize_read(session_context),
-         {:ok, events} <- read_intake_events(session_context),
+         {:ok, events} <- read_intake_events(session_context, limit, offset),
          {:ok, rows} <- build_intake_rows(session_context, events) do
+      has_more? = length(events) > limit
+      rows = Enum.take(rows, limit)
+
       {:ok,
        %{
          type: "operator_inbox",
          rows: rows,
          empty?: rows == [],
+         has_more?: has_more?,
+         limit: limit,
+         next_offset: if(has_more?, do: offset + limit),
+         offset: offset,
          source_watermark: source_watermark(rows)
        }}
     end
@@ -54,16 +65,43 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     )
   end
 
-  defp read_intake_events(session_context) do
+  defp read_intake_events(session_context, limit, offset) do
     NormalizedIntakeEvent
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(@operator_inbox_limit)
+    |> Ash.Query.limit(limit + 1)
+    |> Ash.Query.offset(offset)
     |> Ash.read(authorize?: false)
   end
+
+  defp page_limit(opts) do
+    opts
+    |> option(:limit, @default_operator_inbox_limit)
+    |> bounded_integer(@default_operator_inbox_limit, 1, @max_operator_inbox_limit)
+  end
+
+  defp page_offset(opts) do
+    opts
+    |> option(:offset, 0)
+    |> bounded_integer(0, 0, :infinity)
+  end
+
+  defp option(opts, key, default) when is_map(opts), do: Map.get(opts, key, default)
+  defp option(opts, key, default) when is_list(opts), do: Keyword.get(opts, key, default)
+
+  defp bounded_integer(value, _default, min, max) when is_integer(value) do
+    value
+    |> max(min)
+    |> clamp_max(max)
+  end
+
+  defp bounded_integer(_value, default, _min, _max), do: default
+
+  defp clamp_max(value, :infinity), do: value
+  defp clamp_max(value, max), do: Kernel.min(value, max)
 
   defp read_intake_event(session_context, id) do
     NormalizedIntakeEvent
