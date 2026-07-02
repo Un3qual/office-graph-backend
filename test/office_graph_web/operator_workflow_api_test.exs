@@ -20,13 +20,13 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       graphql(
         conn,
         """
-        query Inbox($limit: Int, $offset: Int) {
-          operatorInbox(limit: $limit, offset: $offset) {
+        query Inbox($limit: Int, $afterCursor: String) {
+          operatorInbox(limit: $limit, afterCursor: $afterCursor) {
             empty
             hasMore
             limit
-            nextOffset
-            offset
+            nextCursor
+            afterCursor
             sourceWatermark
             rows {
               normalizedEventId
@@ -39,15 +39,47 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{limit: 1, offset: 1}
+        %{limit: 1}
       )
 
     assert inbox["empty"] == false
-    assert inbox["hasMore"] == false
+    assert inbox["hasMore"] == true
     assert inbox["limit"] == 1
-    assert inbox["nextOffset"] == nil
-    assert inbox["offset"] == 1
-    assert [row] = inbox["rows"]
+    assert is_binary(inbox["nextCursor"])
+    assert inbox["afterCursor"] == nil
+
+    next_inbox =
+      graphql(
+        conn,
+        """
+        query Inbox($limit: Int, $afterCursor: String) {
+          operatorInbox(limit: $limit, afterCursor: $afterCursor) {
+            empty
+            hasMore
+            limit
+            nextCursor
+            afterCursor
+            sourceWatermark
+            rows {
+              normalizedEventId
+              status
+              allowedNextActions
+              blockerReasons
+              source { identity replayIdentity outcome }
+              proposedChangeStatus { pending applied rejected total }
+            }
+          }
+        }
+        """,
+        %{limit: 1, afterCursor: inbox["nextCursor"]}
+      )
+
+    assert next_inbox["empty"] == false
+    assert next_inbox["hasMore"] == false
+    assert next_inbox["limit"] == 1
+    assert next_inbox["nextCursor"] == nil
+    assert next_inbox["afterCursor"] == inbox["nextCursor"]
+    assert [row] = next_inbox["rows"]
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"
     assert row["allowedNextActions"] == ["apply_proposed_changes"]

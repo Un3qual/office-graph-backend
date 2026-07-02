@@ -112,8 +112,8 @@ describe("operator panels", () => {
             empty: false,
             hasMore: false,
             limit: 50,
-            nextOffset: null,
-            offset: 0,
+            nextCursor: null,
+            afterCursor: null,
             sourceWatermark: "op_123",
             rows: [row]
           },
@@ -125,6 +125,7 @@ describe("operator panels", () => {
         })}
         onNextPage={vi.fn()}
         onPreviousPage={vi.fn()}
+        canPageBackward={false}
         onSelect={vi.fn()}
         rows={[row]}
         selectedId={row.normalizedEventId}
@@ -152,8 +153,8 @@ describe("operator panels", () => {
             empty: false,
             hasMore: false,
             limit: 50,
-            nextOffset: null,
-            offset: 0,
+            nextCursor: null,
+            afterCursor: null,
             sourceWatermark: "op_123",
             rows: [blocked]
           },
@@ -164,6 +165,7 @@ describe("operator panels", () => {
         })}
         onNextPage={vi.fn()}
         onPreviousPage={vi.fn()}
+        canPageBackward={false}
         onSelect={vi.fn()}
         rows={[blocked]}
         selectedId={blocked.normalizedEventId}
@@ -186,8 +188,8 @@ describe("operator panels", () => {
             empty: false,
             hasMore: true,
             limit: 50,
-            nextOffset: 100,
-            offset: 50,
+            nextCursor: "cursor_2",
+            afterCursor: "cursor_1",
             sourceWatermark: "op_123",
             rows: [row]
           },
@@ -198,6 +200,7 @@ describe("operator panels", () => {
         })}
         onNextPage={onNextPage}
         onPreviousPage={onPreviousPage}
+        canPageBackward={true}
         onSelect={vi.fn()}
         rows={[row]}
         selectedId={row.normalizedEventId}
@@ -207,7 +210,7 @@ describe("operator panels", () => {
     screen.getByRole("button", { name: "Previous" }).click();
     screen.getByRole("button", { name: "Next" }).click();
 
-    expect(screen.getByRole("region", { name: "Inbox" })).toHaveTextContent("Page 2");
+    expect(screen.getByRole("region", { name: "Inbox" })).toHaveTextContent("1 row");
     expect(onPreviousPage).toHaveBeenCalledTimes(1);
     expect(onNextPage).toHaveBeenCalledTimes(1);
   });

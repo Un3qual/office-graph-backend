@@ -62,15 +62,15 @@ export type OperatorInbox = {
   empty: boolean;
   hasMore: boolean;
   limit: number;
-  nextOffset: number | null;
-  offset: number;
+  nextCursor: string | null;
+  afterCursor: string | null;
   sourceWatermark: string | null;
   rows: OperatorWorkflowItem[];
 };
 
 export type OperatorInboxPage = {
   limit: number;
-  offset: number;
+  afterCursor: string | null;
 };
 
 export type PacketReadinessInput = {

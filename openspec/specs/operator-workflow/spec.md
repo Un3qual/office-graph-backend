@@ -51,6 +51,12 @@ intake and proposed graph state into actionable triage rows.
   recommended next action rather than presenting an enabled apply or handoff
   command
 
+#### Scenario: Inbox is paged
+- **WHEN** the operator inbox has more rows than the requested limit
+- **THEN** the projection and GraphQL product path MUST return an opaque next
+  cursor and accept that cursor for the next page without offset-based
+  pagination
+
 ### Requirement: Readiness Guides Packet Handoff
 Office Graph SHALL guide operators from triaged graph work to a stable work
 packet version before execution starts.

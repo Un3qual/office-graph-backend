@@ -6,6 +6,7 @@ import type { OperatorInbox, OperatorWorkflowItem } from "../workflowTypes";
 import { formatLabel, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
+  canPageBackward: boolean;
   inbox: UseQueryResult<OperatorInbox>;
   onNextPage: () => void;
   onPreviousPage: () => void;
@@ -14,10 +15,17 @@ type Props = {
   onSelect: (id: string) => void;
 };
 
-export function InboxList({ inbox, onNextPage, onPreviousPage, onSelect, rows, selectedId }: Props) {
+export function InboxList({
+  canPageBackward,
+  inbox,
+  onNextPage,
+  onPreviousPage,
+  onSelect,
+  rows,
+  selectedId
+}: Props) {
   const hasStaleData = inbox.isError && rows.length > 0;
-  const canPageBackward = Boolean(inbox.data && inbox.data.offset > 0);
-  const canPageForward = Boolean(inbox.data?.hasMore && inbox.data.nextOffset !== null);
+  const canPageForward = Boolean(inbox.data?.hasMore && inbox.data.nextCursor !== null);
 
   return (
     <section aria-label="Inbox" className="inbox-pane">
@@ -62,10 +70,7 @@ export function InboxList({ inbox, onNextPage, onPreviousPage, onSelect, rows, s
       ) : null}
       {inbox.data ? (
         <div aria-label="Inbox pagination" className="inbox-pagination">
-          <span>
-            Page {Math.floor(inbox.data.offset / inbox.data.limit) + 1}
-            {rows.length > 0 ? ` · ${rows.length} rows` : ""}
-          </span>
+          <span>{rows.length === 1 ? "1 row" : `${rows.length} rows`}</span>
           <button type="button" disabled={!canPageBackward} onClick={onPreviousPage}>
             Previous
           </button>

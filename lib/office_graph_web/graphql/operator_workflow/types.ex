@@ -71,8 +71,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     end
 
     field :limit, non_null(:integer)
-    field :next_offset, :integer
-    field :offset, non_null(:integer)
+    field :next_cursor, :string
+    field :after_cursor, :string
     field :source_watermark, :id
     field :rows, non_null(list_of(non_null(:operator_workflow_item)))
   end

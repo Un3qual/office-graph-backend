@@ -30,8 +30,8 @@ export const graphQLInbox = {
   empty: false,
   hasMore: false,
   limit: 50,
-  nextOffset: null,
-  offset: 0,
+  nextCursor: null,
+  afterCursor: null,
   sourceWatermark: "op_123",
   rows: [
     {

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   operatorInboxQuery,
   operatorItemQuery,
@@ -34,7 +34,7 @@ const emptyPacketReadinessInput: PacketReadinessInput = {
 
 export const operatorQueryKeys = {
   inbox: (page: OperatorInboxPage) =>
-    ["operator", "workflow", "inbox", page.limit, page.offset] as const,
+    ["operator", "workflow", "inbox", page.limit, page.afterCursor] as const,
   item: (normalizedEventId: string) =>
     ["operator", "workflow", "item", normalizedEventId] as const,
   packetReadiness: (input: PacketReadinessInput) =>
@@ -97,7 +97,8 @@ export async function fetchOperatorRunState(
 export function useOperatorInboxQuery(fetchGraphQL: GraphQLFetcher, page: OperatorInboxPage) {
   return useQuery({
     queryKey: operatorQueryKeys.inbox(page),
-    queryFn: ({ signal }) => fetchOperatorInbox(fetchGraphQL, page, signal)
+    queryFn: ({ signal }) => fetchOperatorInbox(fetchGraphQL, page, signal),
+    placeholderData: keepPreviousData
   });
 }
 
@@ -170,4 +171,4 @@ function sortedIds(ids: string[]) {
   return [...ids].sort();
 }
 
-export const defaultOperatorInboxPage: OperatorInboxPage = { limit: 50, offset: 0 };
+export const defaultOperatorInboxPage: OperatorInboxPage = { limit: 50, afterCursor: null };

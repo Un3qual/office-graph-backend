@@ -18,8 +18,8 @@ describe("operator workflow GraphQL queries", () => {
       empty: false,
       hasMore: false,
       limit: 50,
-      nextOffset: null,
-      offset: 0,
+      nextCursor: null,
+      afterCursor: null,
       sourceWatermark: "op_123",
       rows: [
         {
@@ -33,18 +33,18 @@ describe("operator workflow GraphQL queries", () => {
     });
     expect(fetcher).toHaveBeenCalledWith({
       query: expect.stringContaining("operatorInbox"),
-      variables: { limit: 50, offset: 0 }
+      variables: { limit: 50, afterCursor: null }
     });
   });
 
-  it("sends inbox page parameters through the GraphQL request", async () => {
+  it("sends inbox cursor parameters through the GraphQL request", async () => {
     const fetcher = createGraphQLTestFetcher({ operatorInbox: graphQLInbox });
 
-    await fetchOperatorInbox(fetcher, { limit: 25, offset: 50 });
+    await fetchOperatorInbox(fetcher, { limit: 25, afterCursor: "cursor_1" });
 
     expect(fetcher).toHaveBeenCalledWith({
       query: expect.stringContaining("operatorInbox"),
-      variables: { limit: 25, offset: 50 }
+      variables: { limit: 25, afterCursor: "cursor_1" }
     });
   });
 
@@ -57,7 +57,7 @@ describe("operator workflow GraphQL queries", () => {
     });
 
     await client.fetchQuery({
-      queryKey: operatorQueryKeys.inbox({ limit: 50, offset: 0 }),
+      queryKey: operatorQueryKeys.inbox({ limit: 50, afterCursor: null }),
       queryFn: () => fetchOperatorInbox(fetcher)
     });
     await client.fetchQuery({
@@ -69,7 +69,7 @@ describe("operator workflow GraphQL queries", () => {
       queryFn: () => fetchOperatorRunState(fetcher, "run_1")
     });
 
-    expect(client.getQueryData(operatorQueryKeys.inbox({ limit: 50, offset: 0 }))).toMatchObject({
+    expect(client.getQueryData(operatorQueryKeys.inbox({ limit: 50, afterCursor: null }))).toMatchObject({
       empty: false
     });
     expect(client.getQueryData(operatorQueryKeys.item("evt_1"))).toMatchObject({

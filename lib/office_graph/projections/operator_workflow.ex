@@ -29,13 +29,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   def operator_inbox(session_context, opts \\ []) do
     limit = page_limit(opts)
-    offset = page_offset(opts)
 
     with :ok <- authorize_read(session_context),
-         {:ok, events} <- read_intake_events(session_context, limit, offset),
-         {:ok, rows} <- build_intake_rows(session_context, events) do
+         {:ok, cursor} <- page_cursor(opts),
+         {:ok, events} <- read_intake_events(session_context, limit, cursor),
+         page_events = Enum.take(events, limit),
+         {:ok, rows} <- build_intake_rows(session_context, page_events) do
       has_more? = length(events) > limit
-      rows = Enum.take(rows, limit)
 
       {:ok,
        %{
@@ -44,8 +44,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          empty?: rows == [],
          has_more?: has_more?,
          limit: limit,
-         next_offset: if(has_more?, do: offset + limit),
-         offset: offset,
+         next_cursor: next_cursor(has_more?, page_events),
+         after_cursor: option(opts, :after_cursor, nil),
          source_watermark: source_watermark(rows)
        }}
     end
@@ -65,16 +65,25 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     )
   end
 
-  defp read_intake_events(session_context, limit, offset) do
+  defp read_intake_events(session_context, limit, cursor) do
     NormalizedIntakeEvent
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
     )
+    |> apply_inbox_cursor(cursor)
     |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(limit + 1)
-    |> Ash.Query.offset(offset)
     |> Ash.read(authorize?: false)
+  end
+
+  defp apply_inbox_cursor(query, nil), do: query
+
+  defp apply_inbox_cursor(query, %{inserted_at: inserted_at, id: id}) do
+    Ash.Query.filter(
+      query,
+      inserted_at < ^inserted_at or (inserted_at == ^inserted_at and id < ^id)
+    )
   end
 
   defp page_limit(opts) do
@@ -83,10 +92,34 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     |> bounded_integer(@default_operator_inbox_limit, 1, @max_operator_inbox_limit)
   end
 
-  defp page_offset(opts) do
-    opts
-    |> option(:offset, 0)
-    |> bounded_integer(0, 0, :infinity)
+  defp page_cursor(opts), do: decode_cursor(option(opts, :after_cursor, nil))
+
+  defp decode_cursor(nil), do: {:ok, nil}
+
+  defp decode_cursor(cursor) when is_binary(cursor) do
+    with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
+         [inserted_at_iso, id] <- String.split(decoded, "|", parts: 2),
+         {:ok, inserted_at, _zone} <- DateTime.from_iso8601(inserted_at_iso),
+         {:ok, id} <- Ecto.UUID.cast(id) do
+      {:ok, %{inserted_at: inserted_at, id: id}}
+    else
+      _error -> {:error, {:invalid_field, :after_cursor}}
+    end
+  end
+
+  defp decode_cursor(_cursor), do: {:error, {:invalid_field, :after_cursor}}
+
+  defp next_cursor(false, _events), do: nil
+
+  defp next_cursor(true, events) do
+    events
+    |> List.last()
+    |> encode_cursor()
+  end
+
+  defp encode_cursor(%{inserted_at: inserted_at, id: id}) do
+    "#{DateTime.to_iso8601(inserted_at)}|#{id}"
+    |> Base.url_encode64(padding: false)
   end
 
   defp option(opts, key, default) when is_map(opts), do: Map.get(opts, key, default)

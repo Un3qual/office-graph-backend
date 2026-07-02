@@ -11,7 +11,11 @@ import {
 import type { GraphQLFetcher, OperatorWorkflowItem } from "./workflowTypes";
 
 export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
-  const [inboxPage, setInboxPage] = useState(defaultOperatorInboxPage);
+  const [inboxNavigation, setInboxNavigation] = useState({
+    page: defaultOperatorInboxPage,
+    previousCursors: [] as Array<string | null>
+  });
+  const inboxPage = inboxNavigation.page;
   const inboxQuery = useOperatorInboxQuery(fetchGraphQL, inboxPage);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
@@ -47,15 +51,30 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
   }, []);
 
   const loadNextInboxPage = useCallback(() => {
-    const nextOffset = inboxQuery.data?.nextOffset;
+    const nextCursor = inboxQuery.data?.nextCursor;
 
-    if (typeof nextOffset === "number") {
-      setInboxPage((page) => ({ ...page, offset: nextOffset }));
+    if (nextCursor) {
+      setInboxNavigation(({ page, previousCursors }) => ({
+        page: { ...page, afterCursor: nextCursor },
+        previousCursors: [...previousCursors, page.afterCursor]
+      }));
     }
-  }, [inboxQuery.data?.nextOffset]);
+  }, [inboxQuery.data?.nextCursor]);
 
   const loadPreviousInboxPage = useCallback(() => {
-    setInboxPage((page) => ({ ...page, offset: Math.max(0, page.offset - page.limit) }));
+    setInboxNavigation(({ page, previousCursors }) => {
+      if (previousCursors.length === 0) {
+        return { page, previousCursors };
+      }
+
+      const nextPreviousCursors = previousCursors.slice(0, -1);
+      const previousCursor = previousCursors[previousCursors.length - 1] ?? null;
+
+      return {
+        page: { ...page, afterCursor: previousCursor },
+        previousCursors: nextPreviousCursors
+      };
+    });
   }, []);
 
   const selectedInboxItem = useMemo(
@@ -72,6 +91,7 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
   const verification = runStateQuery.data ? verificationOutcomeFromRunState(runStateQuery.data) : null;
 
   return {
+    canPageBackward: inboxNavigation.previousCursors.length > 0,
     inboxQuery,
     inboxPage,
     itemQuery,

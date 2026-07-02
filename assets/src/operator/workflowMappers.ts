@@ -20,8 +20,8 @@ export function graphQLInbox(value: unknown): OperatorInbox {
     empty: booleanValue(inbox.empty),
     hasMore: booleanValue(inbox.hasMore),
     limit: numberValue(inbox.limit),
-    nextOffset: nullableNumber(inbox.nextOffset),
-    offset: numberValue(inbox.offset),
+    nextCursor: nullableString(inbox.nextCursor),
+    afterCursor: nullableString(inbox.afterCursor),
     sourceWatermark: nullableString(inbox.sourceWatermark),
     rows: arrayValue(inbox.rows).map(graphQLItem)
   };
@@ -292,10 +292,6 @@ function stringValue(value: unknown) {
 
 function nullableString(value: unknown) {
   return typeof value === "string" ? value : null;
-}
-
-function nullableNumber(value: unknown) {
-  return typeof value === "number" ? value : null;
 }
 
 function booleanValue(value: unknown) {

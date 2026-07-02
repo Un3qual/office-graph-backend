@@ -8,7 +8,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   object :operator_workflow_queries do
     field :operator_inbox, non_null(:operator_inbox) do
       arg(:limit, :integer)
-      arg(:offset, :integer)
+      arg(:after_cursor, :string)
 
       resolve(fn args, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),

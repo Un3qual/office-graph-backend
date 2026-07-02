@@ -43,14 +43,14 @@ const itemFields = `
 `;
 
 export const operatorInboxQuery = `
-  query OperatorInbox($limit: Int, $offset: Int) {
-    operatorInbox(limit: $limit, offset: $offset) {
+  query OperatorInbox($limit: Int, $afterCursor: String) {
+    operatorInbox(limit: $limit, afterCursor: $afterCursor) {
       type
       empty
       hasMore
       limit
-      nextOffset
-      offset
+      nextCursor
+      afterCursor
       sourceWatermark
       rows { ${itemFields} }
     }

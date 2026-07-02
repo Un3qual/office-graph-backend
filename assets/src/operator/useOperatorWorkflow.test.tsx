@@ -66,7 +66,7 @@ describe("useOperatorWorkflow", () => {
     });
   });
 
-  it("loads the next inbox page through GraphQL page variables", async () => {
+  it("loads the next inbox page through GraphQL cursor variables", async () => {
     const nextRow = {
       ...graphQLInbox.rows[0],
       normalizedEventId: "evt_2",
@@ -77,9 +77,15 @@ describe("useOperatorWorkflow", () => {
         return {
           data: {
             operatorInbox:
-              variables.offset === 50
-                ? { ...graphQLInbox, hasMore: false, nextOffset: null, offset: 50, rows: [nextRow] }
-                : { ...graphQLInbox, hasMore: true, nextOffset: 50, offset: 0 }
+              variables.afterCursor === "cursor_1"
+                ? {
+                    ...graphQLInbox,
+                    hasMore: false,
+                    nextCursor: null,
+                    afterCursor: "cursor_1",
+                    rows: [nextRow]
+                  }
+                : { ...graphQLInbox, hasMore: true, nextCursor: "cursor_1", afterCursor: null }
           }
         };
       }
@@ -115,9 +121,65 @@ describe("useOperatorWorkflow", () => {
     });
     expect(fetcher).toHaveBeenCalledWith(
       expect.objectContaining({
-        variables: { limit: 50, offset: 50 }
+        variables: { limit: 50, afterCursor: "cursor_1" }
       })
     );
+  });
+
+  it("returns to the prior inbox cursor when loading the previous page", async () => {
+    const fetcher = vi.fn(async ({ query, variables }: GraphQLRequest) => {
+      if (query.includes("operatorInbox")) {
+        return {
+          data: {
+            operatorInbox:
+              variables.afterCursor === "cursor_1"
+                ? { ...graphQLInbox, hasMore: false, nextCursor: null, afterCursor: "cursor_1" }
+                : { ...graphQLInbox, hasMore: true, nextCursor: "cursor_1", afterCursor: null }
+          }
+        };
+      }
+
+      return {
+        data: {
+          operatorPacketReadiness: {
+            type: "packet_readiness",
+            ready: true,
+            status: "packet_ready",
+            allowedNextActions: [],
+            blockerReasons: [],
+            sourceLinks: [],
+            requiredChecks: [],
+            sourceWatermark: null
+          }
+        }
+      };
+    });
+
+    renderWithQueryClient(<WorkflowProbe fetchGraphQL={fetcher} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_1");
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Next page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledWith(
+        expect.objectContaining({ variables: { limit: 50, afterCursor: "cursor_1" } })
+      );
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Previous page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledWith(
+        expect.objectContaining({ variables: { limit: 50, afterCursor: null } })
+      );
+    });
   });
 });
 
@@ -151,6 +213,9 @@ function WorkflowProbe({
       </button>
       <button type="button" onClick={workflow.loadNextInboxPage}>
         Next page
+      </button>
+      <button type="button" onClick={workflow.loadPreviousInboxPage}>
+        Previous page
       </button>
       <p data-testid="selected-id">{workflow.selectedId ?? "none"}</p>
       <p>{workflow.selectedItem?.normalizedEventId ?? "none"}</p>

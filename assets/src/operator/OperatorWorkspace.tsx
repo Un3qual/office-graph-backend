@@ -15,6 +15,7 @@ export function OperatorWorkspace({ workflow }: Props) {
     <OperatorLayout
       inbox={
         <InboxList
+          canPageBackward={workflow.canPageBackward}
           inbox={workflow.inboxQuery}
           onNextPage={workflow.loadNextInboxPage}
           onPreviousPage={workflow.loadPreviousInboxPage}

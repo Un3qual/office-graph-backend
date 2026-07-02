@@ -126,7 +126,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
-  test "operator inbox limits the hot path page size and exposes the next page" do
+  test "operator inbox limits the hot path page size and exposes the next cursor" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
     for index <- 1..51 do
@@ -137,17 +137,18 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert length(inbox.rows) == 50
     assert inbox.limit == 50
-    assert inbox.offset == 0
+    assert inbox.after_cursor == nil
     assert inbox.has_more? == true
-    assert inbox.next_offset == 50
+    assert is_binary(inbox.next_cursor)
 
-    assert {:ok, next_page} = Projections.operator_inbox(bootstrap.session, offset: 50)
+    assert {:ok, next_page} =
+             Projections.operator_inbox(bootstrap.session, after_cursor: inbox.next_cursor)
 
     assert length(next_page.rows) == 1
     assert next_page.limit == 50
-    assert next_page.offset == 50
+    assert next_page.after_cursor == inbox.next_cursor
     assert next_page.has_more? == false
-    assert next_page.next_offset == nil
+    assert next_page.next_cursor == nil
   end
 
   test "trusted session capabilities are revalidated for projection reads" do
