@@ -10,7 +10,7 @@ type Props = {
 };
 
 export function ReadinessPanel({ readiness, readinessQuery }: Props) {
-  const isLoading = readinessQuery.fetchStatus === "fetching";
+  const isLoading = readinessQuery.fetchStatus === "fetching" || (readinessQuery.isPending && readinessQuery.fetchStatus === "paused");
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
 
   return (
