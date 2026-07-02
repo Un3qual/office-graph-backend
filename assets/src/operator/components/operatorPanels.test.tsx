@@ -26,6 +26,21 @@ describe("operator panels", () => {
     expect(screen.queryByText("Loading item detail...")).not.toBeInTheDocument();
   });
 
+  it("keeps the item detail loading state while the first fetch is paused", () => {
+    render(
+      <ItemSummary
+        item={null}
+        itemQuery={queryResult<OperatorWorkflowItem>({
+          fetchStatus: "paused",
+          isError: false,
+          isPending: true
+        })}
+      />
+    );
+
+    expect(screen.getByText("Loading item detail...")).toBeInTheDocument();
+  });
+
   it("labels stale readiness data when a refetch fails", () => {
     render(
       <ReadinessPanel
