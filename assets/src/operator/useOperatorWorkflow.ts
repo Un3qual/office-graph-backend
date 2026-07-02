@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  packetReadinessForLoadedItem,
-  packetReadinessInputForItem,
-  runIdForItem
-} from "./workflowDerived";
+import { packetReadinessInputForItem, runIdForItem } from "./workflowDerived";
 import { verificationOutcomeFromRunState } from "./workflowMappers";
 import {
   useOperatorInboxQuery,
@@ -37,13 +33,8 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
 
   const itemQuery = useOperatorItemQuery(fetchGraphQL, selectedId, Boolean(selectedId && !selectedInboxItem));
   const selectedItem = selectedInboxItem ?? itemQuery.data ?? null;
-  const derivedReadiness = selectedItem ? packetReadinessForLoadedItem(selectedItem) : null;
   const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
-  const readinessQuery = usePacketReadinessQuery(
-    fetchGraphQL,
-    readinessInput,
-    Boolean(selectedItem && !derivedReadiness)
-  );
+  const readinessQuery = usePacketReadinessQuery(fetchGraphQL, readinessInput, Boolean(selectedItem));
   const runId = runIdForItem(selectedItem);
   const runStateQuery = useOperatorRunStateQuery(fetchGraphQL, runId, Boolean(runId));
   const verification = runStateQuery.data ? verificationOutcomeFromRunState(runStateQuery.data) : null;
@@ -51,7 +42,7 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
   return {
     inboxQuery,
     itemQuery,
-    readiness: derivedReadiness ?? readinessQuery.data ?? null,
+    readiness: readinessQuery.data ?? null,
     readinessQuery,
     rows: inboxQuery.data?.rows ?? [],
     runId,
