@@ -16,9 +16,11 @@ export function OperatorWorkspace({ workflow }: Props) {
       inbox={
         <InboxList
           inbox={workflow.inboxQuery}
+          onNextPage={workflow.loadNextInboxPage}
+          onPreviousPage={workflow.loadPreviousInboxPage}
           rows={workflow.rows}
           selectedId={workflow.selectedId}
-          onSelect={workflow.selectItem}
+          onSelect={workflow.selectInboxItem}
         />
       }
       detail={<ItemSummary item={workflow.selectedItem} itemQuery={workflow.itemQuery} />}
@@ -26,6 +28,7 @@ export function OperatorWorkspace({ workflow }: Props) {
         <>
           <ReadinessPanel
             readiness={workflow.readiness}
+            readinessInput={workflow.readinessInput}
             readinessQuery={workflow.readinessQuery}
           />
           <RunPanel runId={workflow.runId} runState={workflow.runStateQuery} />

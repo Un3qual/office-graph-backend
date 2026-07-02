@@ -7,13 +7,17 @@ import { formatLabel, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
   inbox: UseQueryResult<OperatorInbox>;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
   rows: OperatorWorkflowItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 };
 
-export function InboxList({ inbox, onSelect, rows, selectedId }: Props) {
+export function InboxList({ inbox, onNextPage, onPreviousPage, onSelect, rows, selectedId }: Props) {
   const hasStaleData = inbox.isError && rows.length > 0;
+  const canPageBackward = Boolean(inbox.data && inbox.data.offset > 0);
+  const canPageForward = Boolean(inbox.data?.hasMore && inbox.data.nextOffset !== null);
 
   return (
     <section aria-label="Inbox" className="inbox-pane">
@@ -54,6 +58,20 @@ export function InboxList({ inbox, onSelect, rows, selectedId }: Props) {
               </button>
             );
           })}
+        </div>
+      ) : null}
+      {inbox.data ? (
+        <div aria-label="Inbox pagination" className="inbox-pagination">
+          <span>
+            Page {Math.floor(inbox.data.offset / inbox.data.limit) + 1}
+            {rows.length > 0 ? ` · ${rows.length} rows` : ""}
+          </span>
+          <button type="button" disabled={!canPageBackward} onClick={onPreviousPage}>
+            Previous
+          </button>
+          <button type="button" disabled={!canPageForward} onClick={onNextPage}>
+            Next
+          </button>
         </div>
       ) : null}
     </section>

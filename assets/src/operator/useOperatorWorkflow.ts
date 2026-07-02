@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { packetReadinessInputForItem, runIdForItem } from "./workflowDerived";
 import { verificationOutcomeFromRunState } from "./workflowMappers";
 import {
+  defaultOperatorInboxPage,
   useOperatorInboxQuery,
   useOperatorItemQuery,
   useOperatorRunStateQuery,
@@ -10,22 +11,52 @@ import {
 import type { GraphQLFetcher, OperatorWorkflowItem } from "./workflowTypes";
 
 export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
-  const inboxQuery = useOperatorInboxQuery(fetchGraphQL);
+  const [inboxPage, setInboxPage] = useState(defaultOperatorInboxPage);
+  const inboxQuery = useOperatorInboxQuery(fetchGraphQL, inboxPage);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
 
   useEffect(() => {
     if (!inboxQuery.data) {
       return;
     }
 
+    const rowIds = new Set(inboxQuery.data.rows.map((row) => row.normalizedEventId));
     const firstId = inboxQuery.data.rows[0]?.normalizedEventId ?? null;
 
     if (selectedId === null) {
       setSelectedId(firstId);
+      setSelectedSource("inbox");
     } else if (firstId === null) {
       setSelectedId(null);
+      setSelectedSource("inbox");
+    } else if (selectedSource === "inbox" && !rowIds.has(selectedId)) {
+      setSelectedId(firstId);
+      setSelectedSource("inbox");
     }
-  }, [inboxQuery.data, selectedId]);
+  }, [inboxQuery.data, selectedId, selectedSource]);
+
+  const selectInboxItem = useCallback((id: string) => {
+    setSelectedId(id);
+    setSelectedSource("inbox");
+  }, []);
+
+  const selectItem = useCallback((id: string) => {
+    setSelectedId(id);
+    setSelectedSource("external");
+  }, []);
+
+  const loadNextInboxPage = useCallback(() => {
+    const nextOffset = inboxQuery.data?.nextOffset;
+
+    if (typeof nextOffset === "number") {
+      setInboxPage((page) => ({ ...page, offset: nextOffset }));
+    }
+  }, [inboxQuery.data?.nextOffset]);
+
+  const loadPreviousInboxPage = useCallback(() => {
+    setInboxPage((page) => ({ ...page, offset: Math.max(0, page.offset - page.limit) }));
+  }, []);
 
   const selectedInboxItem = useMemo(
     () => inboxQuery.data?.rows.find((row) => row.normalizedEventId === selectedId) ?? null,
@@ -42,15 +73,20 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
 
   return {
     inboxQuery,
+    inboxPage,
     itemQuery,
+    loadNextInboxPage,
+    loadPreviousInboxPage,
     readiness: readinessQuery.data ?? null,
+    readinessInput,
     readinessQuery,
     rows: inboxQuery.data?.rows ?? [],
     runId,
     runStateQuery,
     selectedId,
     selectedItem: selectedItem as OperatorWorkflowItem | null,
-    selectItem: setSelectedId,
+    selectInboxItem,
+    selectItem,
     verification
   };
 }

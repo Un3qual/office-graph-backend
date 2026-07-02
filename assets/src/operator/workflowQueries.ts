@@ -13,6 +13,7 @@ import {
 } from "./workflowMappers";
 import type {
   GraphQLFetcher,
+  OperatorInboxPage,
   OperatorInbox,
   OperatorRunState,
   OperatorWorkflowItem,
@@ -32,7 +33,8 @@ const emptyPacketReadinessInput: PacketReadinessInput = {
 };
 
 export const operatorQueryKeys = {
-  inbox: () => ["operator", "workflow", "inbox"] as const,
+  inbox: (page: OperatorInboxPage) =>
+    ["operator", "workflow", "inbox", page.limit, page.offset] as const,
   item: (normalizedEventId: string) =>
     ["operator", "workflow", "item", normalizedEventId] as const,
   packetReadiness: (input: PacketReadinessInput) =>
@@ -54,9 +56,10 @@ export const operatorQueryKeys = {
 
 export async function fetchOperatorInbox(
   fetchGraphQL: GraphQLFetcher,
+  page: OperatorInboxPage = defaultOperatorInboxPage,
   signal?: AbortSignal
 ): Promise<OperatorInbox> {
-  const data = await requestGraphQL(fetchGraphQL, operatorInboxQuery, {}, signal);
+  const data = await requestGraphQL(fetchGraphQL, operatorInboxQuery, page, signal);
 
   return graphQLInbox(data.operatorInbox);
 }
@@ -91,10 +94,10 @@ export async function fetchOperatorRunState(
   return graphQLRunState(data.operatorRunState);
 }
 
-export function useOperatorInboxQuery(fetchGraphQL: GraphQLFetcher) {
+export function useOperatorInboxQuery(fetchGraphQL: GraphQLFetcher, page: OperatorInboxPage) {
   return useQuery({
-    queryKey: operatorQueryKeys.inbox(),
-    queryFn: ({ signal }) => fetchOperatorInbox(fetchGraphQL, signal)
+    queryKey: operatorQueryKeys.inbox(page),
+    queryFn: ({ signal }) => fetchOperatorInbox(fetchGraphQL, page, signal)
   });
 }
 
@@ -166,3 +169,5 @@ async function requestGraphQL(
 function sortedIds(ids: string[]) {
   return [...ids].sort();
 }
+
+export const defaultOperatorInboxPage: OperatorInboxPage = { limit: 50, offset: 0 };

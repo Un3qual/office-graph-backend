@@ -43,8 +43,8 @@ const itemFields = `
 `;
 
 export const operatorInboxQuery = `
-  query OperatorInbox {
-    operatorInbox {
+  query OperatorInbox($limit: Int, $offset: Int) {
+    operatorInbox(limit: $limit, offset: $offset) {
       type
       empty
       hasMore

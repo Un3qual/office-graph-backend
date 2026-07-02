@@ -2,9 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import type { ReactElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createGraphQLTestFetcher, graphQLInbox } from "./testSupport";
 import { useOperatorWorkflow } from "./useOperatorWorkflow";
+import type { GraphQLRequest } from "./workflowTypes";
 
 describe("useOperatorWorkflow", () => {
   it("keeps an explicitly selected out-of-inbox item selected", async () => {
@@ -45,13 +46,88 @@ describe("useOperatorWorkflow", () => {
       expect(screen.getByTestId("selected-id")).toHaveTextContent("none");
     });
   });
+
+  it("resets inbox selections that disappear from the current page", async () => {
+    const nextRow = {
+      ...graphQLInbox.rows[0],
+      normalizedEventId: "evt_2",
+      typedId: { type: "normalized_intake_event", id: "evt_2" }
+    };
+    const fetcher = createGraphQLTestFetcher({
+      operatorInbox: { ...graphQLInbox, rows: [nextRow] }
+    });
+
+    renderWithQueryClient(
+      <WorkflowProbe fetchGraphQL={fetcher} initialInboxSelectedId="evt_stale" />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_2");
+    });
+  });
+
+  it("loads the next inbox page through GraphQL page variables", async () => {
+    const nextRow = {
+      ...graphQLInbox.rows[0],
+      normalizedEventId: "evt_2",
+      typedId: { type: "normalized_intake_event", id: "evt_2" }
+    };
+    const fetcher = vi.fn(async ({ query, variables }: GraphQLRequest) => {
+      if (query.includes("operatorInbox")) {
+        return {
+          data: {
+            operatorInbox:
+              variables.offset === 50
+                ? { ...graphQLInbox, hasMore: false, nextOffset: null, offset: 50, rows: [nextRow] }
+                : { ...graphQLInbox, hasMore: true, nextOffset: 50, offset: 0 }
+          }
+        };
+      }
+
+      return {
+        data: {
+          operatorPacketReadiness: {
+            type: "packet_readiness",
+            ready: true,
+            status: "packet_ready",
+            allowedNextActions: [],
+            blockerReasons: [],
+            sourceLinks: [],
+            requiredChecks: [],
+            sourceWatermark: null
+          }
+        }
+      };
+    });
+
+    renderWithQueryClient(<WorkflowProbe fetchGraphQL={fetcher} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_1");
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Next page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_2");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: { limit: 50, offset: 50 }
+      })
+    );
+  });
 });
 
 function WorkflowProbe({
   fetchGraphQL,
+  initialInboxSelectedId,
   initialSelectedId
 }: {
   fetchGraphQL: Parameters<typeof useOperatorWorkflow>[0];
+  initialInboxSelectedId?: string;
   initialSelectedId?: string;
 }) {
   const workflow = useOperatorWorkflow(fetchGraphQL);
@@ -62,10 +138,19 @@ function WorkflowProbe({
     }
   }, [initialSelectedId, workflow.selectItem]);
 
+  useEffect(() => {
+    if (initialInboxSelectedId) {
+      workflow.selectInboxItem(initialInboxSelectedId);
+    }
+  }, [initialInboxSelectedId, workflow.selectInboxItem]);
+
   return (
     <div>
       <button type="button" onClick={() => workflow.selectItem("evt_external")}>
         Select external
+      </button>
+      <button type="button" onClick={workflow.loadNextInboxPage}>
+        Next page
       </button>
       <p data-testid="selected-id">{workflow.selectedId ?? "none"}</p>
       <p>{workflow.selectedItem?.normalizedEventId ?? "none"}</p>

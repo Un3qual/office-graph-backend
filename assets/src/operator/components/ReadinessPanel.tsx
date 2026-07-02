@@ -1,15 +1,16 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Badge } from "../../ui/Badge";
 import { Panel, PanelRows } from "../../ui/Panel";
-import type { PacketReadiness } from "../workflowTypes";
+import type { PacketReadiness, PacketReadinessInput } from "../workflowTypes";
 import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
 
 type Props = {
   readiness: PacketReadiness | null;
+  readinessInput: PacketReadinessInput | null;
   readinessQuery: UseQueryResult<PacketReadiness>;
 };
 
-export function ReadinessPanel({ readiness, readinessQuery }: Props) {
+export function ReadinessPanel({ readiness, readinessInput, readinessQuery }: Props) {
   const isLoading = isQueryLoading(readinessQuery);
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
 
@@ -31,6 +32,10 @@ export function ReadinessPanel({ readiness, readinessQuery }: Props) {
               ["Ready", readiness.ready ? "Yes" : "No"],
               ["Actions", listText(readiness.allowedNextActions)],
               ["Blockers", listText(readiness.blockerReasons)],
+              ["Objective", readinessInput?.objective || "None"],
+              ["Context", readinessInput?.contextSummary || "None"],
+              ["Success criteria", readinessInput?.successCriteria || "None"],
+              ["Autonomy", formatLabel(readinessInput?.autonomyPosture)],
               ["Sources", readiness.sourceLinks.map((link) => link.title).join(", ") || "None"],
               [
                 "Required checks",

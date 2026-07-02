@@ -31,6 +31,15 @@ export function RunPanel({ runId, runState }: Props) {
               ["Execution", formatLabel(runState.data.run.executionState)],
               ["Verification", formatLabel(runState.data.run.verificationState)],
               [
+                "Required checks",
+                runState.data.requiredChecks
+                  .map(
+                    (check) =>
+                      `${check.verificationCheckId}: ${formatLabel(check.state)}`
+                  )
+                  .join(", ") || "None"
+              ],
+              [
                 "Suggested evidence",
                 runState.data.evidenceCandidates.map((candidate) => candidate.claim).join(", ") ||
                   "None"

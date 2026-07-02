@@ -45,6 +45,7 @@ describe("operator panels", () => {
     render(
       <ReadinessPanel
         readiness={packetReadiness}
+        readinessInput={packetReadinessInput}
         readinessQuery={queryResult<PacketReadiness>({
           data: packetReadiness,
           error: new Error("Unable to refresh readiness."),
@@ -122,6 +123,8 @@ describe("operator panels", () => {
           isPending: false,
           isSuccess: false
         })}
+        onNextPage={vi.fn()}
+        onPreviousPage={vi.fn()}
         onSelect={vi.fn()}
         rows={[row]}
         selectedId={row.normalizedEventId}
@@ -159,6 +162,8 @@ describe("operator panels", () => {
           isPending: false,
           isSuccess: true
         })}
+        onNextPage={vi.fn()}
+        onPreviousPage={vi.fn()}
         onSelect={vi.fn()}
         rows={[blocked]}
         selectedId={blocked.normalizedEventId}
@@ -166,6 +171,83 @@ describe("operator panels", () => {
     );
 
     expect(screen.getByRole("button", { name: /blockers duplicate intake/i })).toBeInTheDocument();
+  });
+
+  it("renders inbox pagination controls from page metadata", () => {
+    const row = graphQLItem(graphQLInbox.rows[0]);
+    const onNextPage = vi.fn();
+    const onPreviousPage = vi.fn();
+
+    render(
+      <InboxList
+        inbox={queryResult<OperatorInbox>({
+          data: {
+            type: "operator_inbox",
+            empty: false,
+            hasMore: true,
+            limit: 50,
+            nextOffset: 100,
+            offset: 50,
+            sourceWatermark: "op_123",
+            rows: [row]
+          },
+          fetchStatus: "idle",
+          isError: false,
+          isPending: false,
+          isSuccess: true
+        })}
+        onNextPage={onNextPage}
+        onPreviousPage={onPreviousPage}
+        onSelect={vi.fn()}
+        rows={[row]}
+        selectedId={row.normalizedEventId}
+      />
+    );
+
+    screen.getByRole("button", { name: "Previous" }).click();
+    screen.getByRole("button", { name: "Next" }).click();
+
+    expect(screen.getByRole("region", { name: "Inbox" })).toHaveTextContent("Page 2");
+    expect(onPreviousPage).toHaveBeenCalledTimes(1);
+    expect(onNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows packet handoff context in readiness details", () => {
+    render(
+      <ReadinessPanel
+        readiness={packetReadiness}
+        readinessInput={packetReadinessInput}
+        readinessQuery={queryResult<PacketReadiness>({
+          data: packetReadiness,
+          fetchStatus: "idle",
+          isError: false,
+          isPending: false
+        })}
+      />
+    );
+
+    expect(screen.getByText(packetReadinessInput.objective)).toBeInTheDocument();
+    expect(screen.getByText(packetReadinessInput.contextSummary)).toBeInTheDocument();
+    expect(screen.getByText(packetReadinessInput.successCriteria)).toBeInTheDocument();
+    expect(screen.getByText("Human supervised")).toBeInTheDocument();
+  });
+
+  it("shows required checks in run state details", () => {
+    const runState = mapRunState(graphQLRunState);
+
+    render(
+      <RunPanel
+        runId="run_1"
+        runState={queryResult<OperatorRunState>({
+          data: runState,
+          fetchStatus: "idle",
+          isError: false,
+          isPending: false
+        })}
+      />
+    );
+
+    expect(screen.getByText("check_1: Open")).toBeInTheDocument();
   });
 });
 
@@ -190,4 +272,15 @@ const packetReadiness: PacketReadiness = {
   sourceLinks: [{ type: "task", id: "task_1", graphItemId: "graph_1", title: "Task" }],
   requiredChecks: [{ id: "check_1", graphItemId: "graph_1", state: "required" }],
   sourceWatermark: null
+};
+
+const packetReadinessInput = {
+  title: "Console packet",
+  objective: "Verify console state",
+  contextSummary: "Console shows pending evidence",
+  requirements: "Use latest projection",
+  successCriteria: "Evidence accepted",
+  autonomyPosture: "human_supervised",
+  sourceGraphItemIds: ["graph_1"],
+  verificationCheckIds: ["check_1"]
 };

@@ -68,6 +68,11 @@ export type OperatorInbox = {
   rows: OperatorWorkflowItem[];
 };
 
+export type OperatorInboxPage = {
+  limit: number;
+  offset: number;
+};
+
 export type PacketReadinessInput = {
   title: string;
   objective: string;

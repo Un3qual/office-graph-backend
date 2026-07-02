@@ -33,7 +33,18 @@ describe("operator workflow GraphQL queries", () => {
     });
     expect(fetcher).toHaveBeenCalledWith({
       query: expect.stringContaining("operatorInbox"),
-      variables: {}
+      variables: { limit: 50, offset: 0 }
+    });
+  });
+
+  it("sends inbox page parameters through the GraphQL request", async () => {
+    const fetcher = createGraphQLTestFetcher({ operatorInbox: graphQLInbox });
+
+    await fetchOperatorInbox(fetcher, { limit: 25, offset: 50 });
+
+    expect(fetcher).toHaveBeenCalledWith({
+      query: expect.stringContaining("operatorInbox"),
+      variables: { limit: 25, offset: 50 }
     });
   });
 
@@ -46,7 +57,7 @@ describe("operator workflow GraphQL queries", () => {
     });
 
     await client.fetchQuery({
-      queryKey: operatorQueryKeys.inbox(),
+      queryKey: operatorQueryKeys.inbox({ limit: 50, offset: 0 }),
       queryFn: () => fetchOperatorInbox(fetcher)
     });
     await client.fetchQuery({
@@ -58,7 +69,9 @@ describe("operator workflow GraphQL queries", () => {
       queryFn: () => fetchOperatorRunState(fetcher, "run_1")
     });
 
-    expect(client.getQueryData(operatorQueryKeys.inbox())).toMatchObject({ empty: false });
+    expect(client.getQueryData(operatorQueryKeys.inbox({ limit: 50, offset: 0 }))).toMatchObject({
+      empty: false
+    });
     expect(client.getQueryData(operatorQueryKeys.item("evt_1"))).toMatchObject({
       normalizedEventId: "evt_1"
     });
