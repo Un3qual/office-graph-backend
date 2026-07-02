@@ -65,17 +65,33 @@ describe("operator workflow GraphQL queries", () => {
 
   it("uses order-independent packet readiness query keys without mutating inputs", () => {
     const input = {
+      title: "Packet A",
+      objective: "Objective A",
+      contextSummary: "Context A",
+      requirements: "Requirements A",
+      successCriteria: "Success A",
+      autonomyPosture: "human_supervised",
       sourceGraphItemIds: ["source_b", "source_a"],
       verificationCheckIds: ["check_b", "check_a"]
     };
 
     expect(operatorQueryKeys.packetReadiness(input)).toEqual(
       operatorQueryKeys.packetReadiness({
+        ...input,
         sourceGraphItemIds: ["source_a", "source_b"],
         verificationCheckIds: ["check_a", "check_b"]
       })
     );
+    expect(operatorQueryKeys.packetReadiness(input)).not.toEqual(
+      operatorQueryKeys.packetReadiness({ ...input, title: "Packet B" })
+    );
     expect(input).toEqual({
+      title: "Packet A",
+      objective: "Objective A",
+      contextSummary: "Context A",
+      requirements: "Requirements A",
+      successCriteria: "Success A",
+      autonomyPosture: "human_supervised",
       sourceGraphItemIds: ["source_b", "source_a"],
       verificationCheckIds: ["check_b", "check_a"]
     });
@@ -131,7 +147,16 @@ describe("operator workflow GraphQL queries", () => {
 
     await fetchPacketReadiness(
       fetcher,
-      { sourceGraphItemIds: [], verificationCheckIds: [] },
+      {
+        title: "Packet A",
+        objective: "Objective A",
+        contextSummary: "Context A",
+        requirements: "Requirements A",
+        successCriteria: "Success A",
+        autonomyPosture: "human_supervised",
+        sourceGraphItemIds: [],
+        verificationCheckIds: []
+      },
       signal
     );
 
