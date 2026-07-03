@@ -77,12 +77,12 @@ Office Graph SHALL test duplicate manual intake handling.
 
 ### Requirement: API Smoke Tests
 
-Office Graph SHALL test both API surfaces against the same domain behavior.
+Office Graph SHALL test both API endpoints against the same domain behavior.
 
 #### Scenario: API smoke tests run
 
 - **WHEN** GraphQL and JSON API smoke tests exercise the walking-skeleton flow
-- **THEN** both surfaces MUST produce equivalent durable state, authorization
+- **THEN** both API endpoints MUST produce equivalent durable state, authorization
   decisions, validation outcomes, and operation correlation linkage
 
 ### Requirement: Architecture Conformance Gate

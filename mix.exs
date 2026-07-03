@@ -11,6 +11,11 @@ defmodule OfficeGraph.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      dialyzer: [
+        plt_add_deps: :app_tree,
+        plt_add_apps: [:ex_unit],
+        flags: [:error_handling, :underspecs]
+      ],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -27,7 +32,13 @@ defmodule OfficeGraph.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test, verify: :test, "architecture.conformance": :test]
+      preferred_envs: [
+        precommit: :test,
+        verify: :test,
+        "architecture.conformance": :test,
+        "static.analysis": :test,
+        typecheck: :test
+      ]
     ]
   end
 
@@ -52,11 +63,17 @@ defmodule OfficeGraph.MixProject do
       {:absinthe, "~> 1.11"},
       {:absinthe_plug, "~> 1.5"},
       {:boundary, "~> 0.10.4", runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4.2", only: [:dev, :test], runtime: false},
+      {:reach, "~> 2.7", only: [:dev, :test], runtime: false},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:ecto_dev_logger, "~> 0.15.0", only: :dev}
     ]
   end
 
@@ -79,12 +96,20 @@ defmodule OfficeGraph.MixProject do
       "assets.build": ["assets.setup", "cmd --cd assets pnpm run build"],
       "assets.deploy": ["assets.build", "phx.digest"],
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
+      "static.analysis": [
+        "credo --strict",
+        "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
+        "reach.check --arch --smells --strict"
+      ],
+      typecheck: ["dialyzer --quiet-with-result"],
       release: ["assets.deploy", "release"],
       "boundary.check": ["compile --force --warnings-as-errors"],
       verify: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
+        "static.analysis",
+        "typecheck",
         "architecture.conformance",
         "frontend.verify",
         "test"
@@ -94,10 +119,26 @@ defmodule OfficeGraph.MixProject do
         "deps.unlock --unused",
         "format --check-formatted",
         "boundary.check",
+        "static.analysis",
+        "typecheck",
         "architecture.conformance",
         "frontend.verify",
         "test"
       ]
+    ]
+  end
+
+  defp ex_dna_paths do
+    [
+      "lib/office_graph/*.ex",
+      "lib/office_graph/runs/changes/*.ex",
+      "lib/office_graph/work_graph/changes/*.ex",
+      "lib/office_graph/work_graph/proposal_commands.ex",
+      "lib/office_graph/work_graph/command_support.ex",
+      "lib/office_graph/work_graph/queries.ex",
+      "lib/office_graph/work_graph/verification_commands.ex",
+      "lib/office_graph/work_packets/changes/*.ex",
+      "lib/office_graph/work_packets/readiness.ex"
     ]
   end
 end

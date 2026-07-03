@@ -37,8 +37,8 @@ provider webhooks, sync jobs, and integration adapters.
 - **THEN** the update path records operation/sync context and uses the same
   lifecycle, revision, audit, and tombstone rules as other equivalent writes
 
-### Requirement: API Surface Reuse
-GraphQL and JSON API surfaces SHALL expose transport-specific shapes over the
+### Requirement: GraphQL And JSON Share Domain Logic
+GraphQL and JSON API endpoints SHALL expose transport-specific shapes over the
 same domain contracts rather than separate business logic implementations.
 
 #### Scenario: A capability is exposed through both APIs
@@ -61,10 +61,10 @@ rather than through direct table access or duplicated policy logic.
 #### Scenario: Capability interface field is resolved
 - **WHEN** an Absinthe resolver resolves shared interface fields such as
   closable, updatable, reactable, comment-like, approvable, subscribable,
-  projection-capable, or configurable-field behavior
+  available in projection reads, or configurable-field behavior
 - **THEN** it MUST call the owning public domain query/capability contract and
   authorization boundary needed to compute both resource state and
-  viewer-specific affordances
+  viewer action fields
 
 #### Scenario: Interface implementor is added
 - **WHEN** a new resource type implements an existing GraphQL capability

@@ -4,6 +4,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   use Ash.Resource.Change
 
   alias OfficeGraph.Runs.Run
+  alias OfficeGraph.Runs.Changes.ScopedRead
   alias OfficeGraph.WorkPackets.WorkPacketRequiredCheck
 
   require Ash.Query
@@ -15,7 +16,15 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
     organization_id = Ash.Changeset.get_attribute(changeset, :organization_id)
     workspace_id = Ash.Changeset.get_attribute(changeset, :workspace_id)
 
-    with {:ok, run} <- fetch_scoped_run(run_id, organization_id, workspace_id),
+    with {:ok, run} <-
+           ScopedRead.fetch(
+             Run,
+             run_id,
+             organization_id,
+             workspace_id,
+             :run_id,
+             "run_id must reference an existing run in the target scope"
+           ),
          :ok <-
            validate_packet_required_check(
              run,
@@ -27,34 +36,6 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
     else
       {:error, field, message} ->
         Ash.Changeset.add_error(changeset, field: field, message: message)
-    end
-  end
-
-  defp fetch_scoped_run(nil, _organization_id, _workspace_id) do
-    {:error, :run_id, "run_id must reference an existing run in the target scope"}
-  end
-
-  defp fetch_scoped_run(_run_id, nil, _workspace_id) do
-    {:error, :organization_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_run(_run_id, _organization_id, nil) do
-    {:error, :workspace_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_run(run_id, organization_id, workspace_id) do
-    Run
-    |> Ash.Query.filter(id == ^run_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = run} ->
-        {:ok, run}
-
-      {:ok, _missing_or_cross_scope} ->
-        {:error, :run_id, "run_id must reference an existing run in the target scope"}
-
-      {:error, error} ->
-        {:error, :run_id, "run_id lookup failed: #{format_lookup_error(error)}"}
     end
   end
 
@@ -95,7 +76,4 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
     )
     |> Ash.exists?(authorize?: false)
   end
-
-  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_lookup_error(error), do: inspect(error)
 end

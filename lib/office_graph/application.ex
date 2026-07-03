@@ -9,6 +9,8 @@ defmodule OfficeGraph.Application do
 
   @impl true
   def start(_type, _args) do
+    maybe_install_ecto_dev_logger()
+
     children = [
       OfficeGraphWeb.Telemetry,
       OfficeGraph.Repo,
@@ -32,5 +34,11 @@ defmodule OfficeGraph.Application do
   def config_change(changed, _new, removed) do
     OfficeGraphWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  if Code.ensure_loaded?(Ecto.DevLogger) do
+    defp maybe_install_ecto_dev_logger, do: Ecto.DevLogger.install(OfficeGraph.Repo)
+  else
+    defp maybe_install_ecto_dev_logger, do: :ok
   end
 end

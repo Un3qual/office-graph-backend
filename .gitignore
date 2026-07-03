@@ -40,3 +40,7 @@ office_graph-*.tar
 /priv/static/*.gz
 /priv/static/*-*.ico
 /priv/static/*-*.txt
+
+# Static-analysis reports.
+/reach_report/
+.ex_dna_cache

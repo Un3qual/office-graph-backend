@@ -55,8 +55,6 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
     Map.get(changeset.attributes, field) || scope_value(changeset.data, field)
   end
 
-  defp read_scope(_subject, _field), do: nil
-
   defp changeset_scope(changeset) do
     organization_id = read_scope(changeset, :organization_id)
     workspace_id = read_scope(changeset, :workspace_id)
@@ -73,10 +71,7 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
   end
 
   defp read_action?(context) when is_map(context) do
-    case Map.get(context, :action) do
-      %{type: :read} -> true
-      _action -> false
-    end
+    match?(%{type: :read}, Map.get(context, :action))
   end
 
   defp read_action?(_context), do: false

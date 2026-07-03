@@ -75,5 +75,4 @@ defmodule OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion do
   end
 
   defp format_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_error(error), do: inspect(error)
 end

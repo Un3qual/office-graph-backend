@@ -36,8 +36,7 @@ defmodule OfficeGraph.Authorization do
     Repo.transaction(fn ->
       capabilities =
         @owner_capabilities
-        |> Map.values()
-        |> Enum.map(&ensure_capability!/1)
+        |> Enum.map(fn {_capability, key} -> ensure_capability!(key) end)
 
       role =
         get_or_create!(
@@ -253,43 +252,7 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp get_or_create!(resource, lookup, attrs) do
-    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
-      {:ok, nil} ->
-        attrs =
-          attrs
-          |> Map.new()
-          |> Map.put_new(:id, Ecto.UUID.generate())
-
-        insert_then_fetch!(resource, lookup, attrs)
-
-      {:ok, record} ->
-        record
-
-      {:error, error} ->
-        raise error
-    end
-  end
-
-  defp insert_then_fetch!(resource, lookup, attrs) do
-    {table, conflict_target, uuid_fields} = insert_contract!(resource, attrs)
-    now = DateTime.utc_now()
-
-    insert_attrs =
-      attrs
-      |> Map.put(:inserted_at, now)
-      |> Map.put(:updated_at, now)
-      |> dump_uuid_fields(uuid_fields)
-
-    Repo.insert_all(table, [insert_attrs],
-      on_conflict: :nothing,
-      conflict_target: conflict_target
-    )
-
-    case Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false) do
-      {:ok, nil} -> raise "#{inspect(resource)} not found after create"
-      {:ok, record} -> record
-      {:error, refetch_error} -> raise refetch_error
-    end
+    Repo.get_or_insert!(resource, lookup, attrs, &insert_contract!/2)
   end
 
   defp insert_contract!(Capability, _attrs), do: {"capabilities", [:key], [:id]}
@@ -317,11 +280,5 @@ defmodule OfficeGraph.Authorization do
 
   defp insert_contract!(PolicyBundle, _attrs) do
     {"policy_bundles", [:organization_id, :version], [:id, :organization_id]}
-  end
-
-  defp dump_uuid_fields(attrs, fields) do
-    Enum.reduce(fields, attrs, fn field, acc ->
-      Map.update!(acc, field, &Ecto.UUID.dump!/1)
-    end)
   end
 end

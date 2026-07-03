@@ -18,7 +18,7 @@ defmodule OfficeGraph.Verification do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Content
-  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Operations
   alias OfficeGraph.Repo
   alias OfficeGraph.{Audit, Revisions}
   alias OfficeGraph.Runs
@@ -56,8 +56,8 @@ defmodule OfficeGraph.Verification do
   end
 
   def create_evidence_candidate(session_context, operation, attrs) when is_map(attrs) do
-    with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @evidence_candidate_create_action),
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- Operations.validate_operation_action(operation, @evidence_candidate_create_action),
          :ok <-
            Authorization.authorize_operation(
              session_context,
@@ -70,8 +70,8 @@ defmodule OfficeGraph.Verification do
   end
 
   def accept_evidence_candidate(session_context, operation, candidate, attrs) do
-    with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @evidence_accept_action),
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- Operations.validate_operation_action(operation, @evidence_accept_action),
          :ok <- validate_scope(session_context, candidate),
          :ok <-
            Authorization.authorize_operation(session_context, operation, :evidence_accept,
@@ -121,7 +121,7 @@ defmodule OfficeGraph.Verification do
   end
 
   defp create_evidence_candidate_record!(session_context, operation, attrs) do
-    ash_create!(
+    Repo.ash_create!(
       EvidenceCandidate,
       %{
         id: Ecto.UUID.generate(),
@@ -186,7 +186,7 @@ defmodule OfficeGraph.Verification do
     now = DateTime.utc_now()
 
     graph_item =
-      ash_create!(
+      Repo.ash_create!(
         GraphItem,
         %{
           id: evidence_graph_item_id,
@@ -199,7 +199,7 @@ defmodule OfficeGraph.Verification do
       )
 
     evidence_item =
-      ash_create!(
+      Repo.ash_create!(
         EvidenceItem,
         %{
           id: evidence_id,
@@ -234,7 +234,7 @@ defmodule OfficeGraph.Verification do
       maybe_create_evidence_artifact_relationship!(evidence_item, artifact)
 
     verification_result =
-      ash_create!(
+      Repo.ash_create!(
         VerificationResult,
         %{
           id: Ecto.UUID.generate(),
@@ -672,12 +672,7 @@ defmodule OfficeGraph.Verification do
   end
 
   defp lock_operation!(operation_id) do
-    OperationCorrelation
-    |> Ash.Query.filter(id == ^operation_id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> Repo.rollback({:not_found, OperationCorrelation, operation_id})
+    case Operations.lock_operation(operation_id) do
       {:ok, operation} -> operation
       {:error, error} -> Repo.rollback(error)
     end
@@ -712,7 +707,7 @@ defmodule OfficeGraph.Verification do
   end
 
   defp create_relationship!(source_item_id, target_item_id, relationship_type) do
-    ash_create!(
+    Repo.ash_create!(
       GraphRelationship,
       %{
         id: Ecto.UUID.generate(),
@@ -740,38 +735,6 @@ defmodule OfficeGraph.Verification do
   defp validate_scope!(session_context, record) do
     case validate_scope(session_context, record) do
       :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp validate_operation_context(session_context, operation)
-       when is_map(session_context) and is_map(operation) do
-    if operation.principal_id == session_context.principal_id and
-         operation.session_id == session_context.session_id and
-         operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  defp validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
-
-  defp validate_operation_action(operation, expected_action) do
-    case operation.action do
-      ^expected_action -> :ok
-      _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
-    end
-  end
-
-  defp ash_create!(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
       {:error, error} -> Repo.rollback(error)
     end
   end

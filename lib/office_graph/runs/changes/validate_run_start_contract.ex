@@ -3,6 +3,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
 
   use Ash.Resource.Change
 
+  alias OfficeGraph.Runs.Changes.ScopedRead
   alias OfficeGraph.WorkPackets
 
   alias OfficeGraph.WorkPackets.{
@@ -26,7 +27,14 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
     workspace_id = Ash.Changeset.get_attribute(changeset, :workspace_id)
 
     with {:ok, packet_version} <-
-           fetch_scoped_packet_version(work_packet_version_id, organization_id, workspace_id) do
+           ScopedRead.fetch(
+             WorkPacketVersion,
+             work_packet_version_id,
+             organization_id,
+             workspace_id,
+             :work_packet_version_id,
+             "work_packet_version_id must reference a ready packet version"
+           ) do
       changeset
       |> validate_packet_version_belongs(packet_version, work_packet_id)
       |> validate_packet_version_ready(packet_version)
@@ -34,37 +42,6 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
     else
       {:error, field, message} ->
         Ash.Changeset.add_error(changeset, field: field, message: message)
-    end
-  end
-
-  defp fetch_scoped_packet_version(nil, _organization_id, _workspace_id) do
-    {:error, :work_packet_version_id,
-     "work_packet_version_id must reference a ready packet version"}
-  end
-
-  defp fetch_scoped_packet_version(_version_id, nil, _workspace_id) do
-    {:error, :organization_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_packet_version(_version_id, _organization_id, nil) do
-    {:error, :workspace_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_packet_version(version_id, organization_id, workspace_id) do
-    WorkPacketVersion
-    |> Ash.Query.filter(id == ^version_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = packet_version} ->
-        {:ok, packet_version}
-
-      {:ok, _missing_or_cross_scope} ->
-        {:error, :work_packet_version_id,
-         "work_packet_version_id must reference a ready packet version"}
-
-      {:error, error} ->
-        {:error, :work_packet_version_id,
-         "work_packet_version_id lookup failed: #{format_lookup_error(error)}"}
     end
   end
 
@@ -178,7 +155,4 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
       )
     end
   end
-
-  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_lookup_error(error), do: inspect(error)
 end

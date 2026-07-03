@@ -1,5 +1,7 @@
 defmodule OfficeGraph do
-  use Boundary, deps: [OfficeGraph.Repo], exports: [ApiSupport]
+  use Boundary,
+    deps: [OfficeGraph.Repo],
+    exports: [ApiSupport, Identity.SessionContext, PacketRunVerification, Projections]
 
   @moduledoc """
   OfficeGraph keeps the contexts that define your domain

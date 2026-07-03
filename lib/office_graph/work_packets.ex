@@ -13,7 +13,7 @@ defmodule OfficeGraph.WorkPackets do
     exports: []
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Operations
   alias OfficeGraph.Repo
 
   alias OfficeGraph.WorkPackets.{
@@ -31,8 +31,8 @@ defmodule OfficeGraph.WorkPackets do
   @work_packet_create_action "work_packet.create"
 
   def create_packet(session_context, operation, attrs) when is_map(attrs) do
-    with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @work_packet_create_action),
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- Operations.validate_operation_action(operation, @work_packet_create_action),
          :ok <-
            Authorization.authorize_operation(session_context, operation, :work_packet_create,
              organization_id: session_context.organization_id
@@ -43,6 +43,14 @@ defmodule OfficeGraph.WorkPackets do
 
   def ready_for_execution_attrs?(attrs) when is_map(attrs) do
     Readiness.ready?(attrs)
+  end
+
+  def readiness_blocker_reasons(attrs) when is_map(attrs) do
+    Readiness.blocker_reasons(attrs)
+  end
+
+  def missing_string_blocker(attrs, key, reason) when is_map(attrs) do
+    Readiness.missing_string_blocker(attrs, key, reason)
   end
 
   def mismatched_source_check_ids(source_graph_item_ids, verification_checks) do
@@ -196,7 +204,7 @@ defmodule OfficeGraph.WorkPackets do
          version_id
        ) do
     packet =
-      ash_create!(
+      Repo.ash_create!(
         WorkPacket,
         %{
           id: packet_id,
@@ -208,7 +216,7 @@ defmodule OfficeGraph.WorkPackets do
       )
 
     version =
-      ash_create!(
+      Repo.ash_create!(
         WorkPacketVersion,
         %{
           id: version_id,
@@ -231,7 +239,7 @@ defmodule OfficeGraph.WorkPackets do
       attrs
       |> Map.get(:source_graph_item_ids, [])
       |> Enum.map(fn graph_item_id ->
-        ash_create!(
+        Repo.ash_create!(
           WorkPacketSourceReference,
           %{
             id: Ecto.UUID.generate(),
@@ -247,7 +255,7 @@ defmodule OfficeGraph.WorkPackets do
       attrs
       |> Map.get(:verification_check_ids, [])
       |> Enum.map(fn verification_check_id ->
-        ash_create!(
+        Repo.ash_create!(
           WorkPacketRequiredCheck,
           %{
             id: Ecto.UUID.generate(),
@@ -264,7 +272,7 @@ defmodule OfficeGraph.WorkPackets do
       |> Ash.Changeset.for_update(:set_current_version, %{
         current_version_id: version.id
       })
-      |> ash_update!()
+      |> Repo.ash_update!()
 
     %{
       packet: packet,
@@ -272,27 +280,6 @@ defmodule OfficeGraph.WorkPackets do
       source_references: source_references,
       required_checks: required_checks
     }
-  end
-
-  defp validate_operation_context(session_context, operation)
-       when is_map(session_context) and is_map(operation) do
-    if operation.principal_id == session_context.principal_id and
-         operation.session_id == session_context.session_id and
-         operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  defp validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
-
-  defp validate_operation_action(operation, expected_action) do
-    case operation.action do
-      ^expected_action -> :ok
-      _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
-    end
   end
 
   defp existing_packet_result(session_context, operation) do
@@ -395,12 +382,7 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp lock_operation!(operation_id) do
-    OperationCorrelation
-    |> Ash.Query.filter(id == ^operation_id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> Repo.rollback({:not_found, OperationCorrelation, operation_id})
+    case Operations.lock_operation(operation_id) do
       {:ok, operation} -> operation
       {:error, error} -> Repo.rollback(error)
     end
@@ -419,29 +401,6 @@ defmodule OfficeGraph.WorkPackets do
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
   end
-
-  defp ash_create!(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp ash_update!(changeset) do
-    changeset
-    |> Ash.update(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp unwrap_notification_result({record, _notifications}), do: record
 
   defp normalize_transaction_result({:ok, result}), do: {:ok, result}
   defp normalize_transaction_result({:error, error}), do: {:error, error}

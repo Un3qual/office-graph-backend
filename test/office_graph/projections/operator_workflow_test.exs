@@ -7,6 +7,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Projections
+  alias OfficeGraph.QueryCounter
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
@@ -94,6 +95,72 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert work_run_link.id == run_result.run.id
     assert work_run_link.graph_item_id == nil
     assert work_run_link.state == run_result.run.aggregate_state
+  end
+
+  test "operator inbox query count stays bounded across applied rows and graph resources" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    for index <- 1..3 do
+      key = "query-scaling-#{index}"
+      {:ok, intake} = submit_manual_intake(bootstrap.session, key)
+      {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+      {:ok, _run_result} = create_ready_run(bootstrap.session, applied.verification_check)
+    end
+
+    {{:ok, inbox}, queries} =
+      QueryCounter.count(fn -> Projections.operator_inbox(bootstrap.session) end)
+
+    assert length(inbox.rows) >= 3
+
+    # Accepted budget: each known projection source is read at most once as rows,
+    # applied operations, graph resources, packet links, and runs grow.
+    assert QueryCounter.source_count(queries, "proposed_graph_changes") <= 1
+    assert QueryCounter.source_count(queries, "audit_records") <= 1
+    assert QueryCounter.source_count(queries, "revisions") <= 1
+    assert QueryCounter.source_count(queries, "signals") <= 1
+    assert QueryCounter.source_count(queries, "tasks") <= 1
+    assert QueryCounter.source_count(queries, "review_findings") <= 1
+    assert QueryCounter.source_count(queries, "verification_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_required_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_sources") <= 1
+    assert QueryCounter.source_count(queries, "runs") <= 1
+  end
+
+  test "operator inbox limits the hot path page size and exposes the next cursor" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    for index <- 1..51 do
+      {:ok, _intake} = submit_manual_intake(bootstrap.session, "page-limit-#{index}")
+    end
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+
+    assert length(inbox.rows) == 50
+    assert inbox.limit == 50
+    assert inbox.after_cursor == nil
+    assert inbox.has_more? == true
+    assert is_binary(inbox.next_cursor)
+
+    assert {:ok, next_page} =
+             Projections.operator_inbox(bootstrap.session, after_cursor: inbox.next_cursor)
+
+    assert length(next_page.rows) == 1
+    assert next_page.limit == 50
+    assert next_page.after_cursor == inbox.next_cursor
+    assert next_page.has_more? == false
+    assert next_page.next_cursor == nil
+  end
+
+  test "trusted session capabilities are revalidated for projection reads" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, _intake} = submit_manual_intake(bootstrap.session, "trusted-auth-query")
+
+    {{:ok, inbox}, queries} =
+      QueryCounter.count(fn -> Projections.operator_inbox(bootstrap.session) end)
+
+    assert inbox.empty? == false
+
+    assert QueryCounter.source_count(queries, "role_assignments") >= 1
   end
 
   test "terminal linked work runs replace packet handoff status" do

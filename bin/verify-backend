@@ -26,6 +26,8 @@ fi
 mix compile --warnings-as-errors
 mix format --check-formatted
 mix boundary.check
+mix static.analysis
+mix typecheck
 mix architecture.conformance
 mix test
 openspec validate --specs --strict

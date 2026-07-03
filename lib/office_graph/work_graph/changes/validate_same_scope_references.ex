@@ -90,7 +90,6 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   end
 
   defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_lookup_error(error), do: inspect(error)
 
   defp validate_resource_identity(record, field, reference_opts, changeset) do
     expected_resource_type = Keyword.get(reference_opts, :resource_type)

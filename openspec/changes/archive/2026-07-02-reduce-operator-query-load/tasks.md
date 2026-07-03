@@ -1,0 +1,45 @@
+## 1. Regression Baseline
+
+- [x] 1.1 Add an Ecto telemetry query-count helper for focused projection/API tests.
+- [x] 1.2 Add an operator workflow projection scaling test with multiple applied inbox rows and linked graph resources.
+- [x] 1.3 Capture current query-count behavior in a failing or threshold-marked test that identifies bootstrap/auth, selected-item duplication, and projection fan-out separately.
+
+## 2. Frontend Transport And Request Fanout
+
+- [x] 2.1 Add a small GraphQL HTTP fetcher for the operator workflow projection client.
+- [x] 2.2 Switch the operator frontend to the GraphQL data path.
+- [x] 2.3 Add frontend tests proving the console path uses GraphQL and returns the expected view model shape.
+- [x] 2.4 Reuse the selected inbox row as initial item detail instead of immediately refetching the same normalized event.
+- [x] 2.5 Avoid a separate verification-outcome read when loaded run state already contains the verification data required by the panel.
+
+## 3. Session Context And Authorization
+
+- [x] 3.1 Route hand-written operator workflow JSON reads through a server-controlled local owner/session context path rather than request-time bootstrap in each `ApiSupport.read_operator_*` call.
+- [x] 3.2 Update GraphQL operator workflow resolvers to pass the trusted request actor/session context into `ApiSupport`.
+- [x] 3.3 Preserve rejection of client-supplied `session_context` maps for JSON routes.
+- [x] 3.4 Teach authorization reads to use trusted session capability facts for the current scope without re-querying capability and role tables on each projection read.
+- [x] 3.5 Add tests for forbidden bootstrap-disabled behavior and trusted session-context reuse.
+
+## 4. Batched Projection Assembly
+
+- [x] 4.1 Refactor `OfficeGraph.Projections.operator_inbox/1` and `operator_workflow_item/2` to use one shared batched row builder.
+- [x] 4.2 Batch proposed-change reads by normalized intake event ids.
+- [x] 4.3 Batch audit and revision trace reads by applied operation ids.
+- [x] 4.4 Batch graph resource link reads by resource type and id.
+- [x] 4.5 Batch graph relationship, work-packet required-check, work-packet source, and linked-run reads across all rows.
+- [x] 4.6 Preserve existing status, reason-code, blocker, audit-trace, revision-trace, graph-link, and source-watermark semantics.
+
+## 5. Verification
+
+- [x] 5.1 Run focused operator workflow API safety tests for current JSON and GraphQL routes that remain.
+- [x] 5.2 Run focused frontend projection-client and operator console tests.
+- [x] 5.3 Run the query-count scaling test and document the accepted budget.
+- [x] 5.4 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, frontend verification, and OpenSpec strict validation from the Nix shell.
+- [x] 5.5 Document ongoing query-shape review expectations for optimization and N+1 prevention.
+
+## 6. Follow-Up Query Optimization
+
+- [x] 6.1 Reuse packet-readiness data derivable from the selected inbox row so the initial ready-for-packet selection does not issue a second GraphQL readiness read.
+- [x] 6.2 Keep local owner bootstrap request scoped and document that the operator optimization must not introduce VM-lifetime authorization or session caches.
+- [x] 6.3 Remove the request-validated session shortcut so packet-readiness authorization continues through the normal session validation boundary.
+- [x] 6.4 Re-run focused frontend/backend regression tests plus OpenSpec strict validation for the follow-up optimizations.

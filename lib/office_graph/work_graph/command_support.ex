@@ -3,6 +3,7 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
 
   alias OfficeGraph.Audit
   alias OfficeGraph.Content
+  alias OfficeGraph.Operations
   alias OfficeGraph.Repo
   alias OfficeGraph.Revisions
 
@@ -111,26 +112,9 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
     end
   end
 
-  def validate_operation_context(session_context, operation)
-      when is_map(session_context) and is_map(operation) do
-    if operation.principal_id == session_context.principal_id and
-         operation.session_id == session_context.session_id and
-         operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
-  end
+  defdelegate validate_operation_context(session_context, operation), to: Operations
 
-  def validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
-
-  def validate_operation_action(operation, expected_action) do
-    case operation.action do
-      ^expected_action -> :ok
-      _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
-    end
-  end
+  defdelegate validate_operation_action(operation, expected_action), to: Operations
 
   def validate_open_review_finding!(%{lifecycle_state: "open"}), do: :ok
 

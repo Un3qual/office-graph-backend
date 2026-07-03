@@ -61,7 +61,8 @@ defmodule OfficeGraph.Identity do
         session_id: session.id,
         organization_id: tenant.organization.id,
         workspace_id: tenant.workspace.id,
-        capabilities: MapSet.new(capabilities)
+        capabilities: MapSet.new(capabilities),
+        trusted?: true
       }
     end)
   end
@@ -98,28 +99,20 @@ defmodule OfficeGraph.Identity do
   def validate_session_context(_session_context), do: {:error, :forbidden}
 
   defp active_principal?(principal_id) do
-    case Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false) do
-      {:ok, %Principal{status: "active"}} -> true
-      _other -> false
-    end
+    match?(
+      {:ok, %Principal{status: "active"}},
+      Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false)
+    )
   end
 
   defp get_or_create!(resource, lookup, attrs) do
-    case fetch_existing(resource, lookup) do
-      {:ok, nil} ->
-        attrs =
-          attrs
-          |> Map.new()
-          |> Map.put_new(:id, Ecto.UUID.generate())
-
-        insert_then_fetch!(resource, lookup, attrs)
-
-      {:ok, record} ->
-        record
-
-      {:error, error} ->
-        raise error
-    end
+    Repo.get_or_insert!(
+      resource,
+      lookup,
+      attrs,
+      fn resource, _attrs -> insert_contract!(resource) end,
+      &fetch_existing/2
+    )
   end
 
   defp fetch_existing(Session, lookup) do
@@ -140,28 +133,6 @@ defmodule OfficeGraph.Identity do
     Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false)
   end
 
-  defp insert_then_fetch!(resource, lookup, attrs) do
-    {table, conflict_target, uuid_fields} = insert_contract!(resource)
-    now = DateTime.utc_now()
-
-    insert_attrs =
-      attrs
-      |> Map.put(:inserted_at, now)
-      |> Map.put(:updated_at, now)
-      |> dump_uuid_fields(uuid_fields)
-
-    Repo.insert_all(table, [insert_attrs],
-      on_conflict: :nothing,
-      conflict_target: conflict_target
-    )
-
-    case fetch_existing(resource, lookup) do
-      {:ok, nil} -> raise "#{inspect(resource)} not found after create"
-      {:ok, record} -> record
-      {:error, refetch_error} -> raise refetch_error
-    end
-  end
-
   defp insert_contract!(Principal), do: {"principals", [:email], [:id]}
 
   defp insert_contract!(PrincipalProfile) do
@@ -173,11 +144,5 @@ defmodule OfficeGraph.Identity do
      {:unsafe_fragment,
       "(principal_id, organization_id, workspace_id, purpose) WHERE revoked_at IS NULL"},
      [:id, :principal_id, :organization_id, :workspace_id]}
-  end
-
-  defp dump_uuid_fields(attrs, fields) do
-    Enum.reduce(fields, attrs, fn field, acc ->
-      Map.update!(acc, field, &Ecto.UUID.dump!/1)
-    end)
   end
 end
