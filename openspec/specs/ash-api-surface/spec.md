@@ -27,6 +27,24 @@ Phoenix JSON controllers.
   `/api/v1` route; a mounted library without exercised generated reads is not
   enough evidence that the API uses Ash
 
+#### Scenario: Generated API declaration names a field or route
+
+- **WHEN** an Ash domain or resource declares generated GraphQL fields,
+  GraphQL types, JSON API routes, or JSON API types
+- **THEN** the declaration MUST stay declarative and MUST NOT reference
+  `OfficeGraphWeb`, Plug/Phoenix request or response modules, Absinthe
+  resolver modules, request session loading, transport serializers, or
+  response-envelope mapping
+
+#### Scenario: Generated API declaration needs transport behavior
+
+- **WHEN** a generated AshGraphql or AshJsonApi declaration needs request
+  context loading, response shaping, workflow orchestration, mixed-resource
+  projection assembly, or transport-specific error mapping
+- **THEN** the behavior MUST move to the appropriate `OfficeGraphWeb.GraphQL.*`
+  or `OfficeGraphWeb.JsonApi.*` module as custom transport code backed by a
+  public domain, command, or projection contract
+
 #### Scenario: Resource API shape needs transport-specific presentation
 
 - **WHEN** GraphQL or JSON API needs field naming, pagination, filtering,

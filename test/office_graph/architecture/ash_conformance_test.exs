@@ -618,6 +618,41 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "generated Ash API declarations stay declarative" do
+    forbidden_patterns = [
+      "OfficeGraphWeb.",
+      "Absinthe.",
+      "Plug.",
+      "Phoenix.Controller",
+      "RequestSession",
+      "Serializer",
+      "Controller",
+      "put_status",
+      "send_resp",
+      "json(conn",
+      "render(conn"
+    ]
+
+    offenders =
+      ash_api_declaration_files()
+      |> Enum.flat_map(fn path ->
+        source = File.read!(path)
+
+        for pattern <- forbidden_patterns,
+            source =~ pattern do
+          "#{path} contains #{inspect(pattern)}"
+        end
+      end)
+
+    assert offenders == [],
+           """
+           Generated AshGraphql/AshJsonApi declarations must stay declarative.
+           Keep request/session loading, response mapping, serializers, controllers, and custom Absinthe resolver behavior in OfficeGraphWeb transport modules.
+
+           #{format_errors(offenders)}
+           """
+  end
+
   test "ApiSupport only bootstraps the local API owner" do
     source = File.read!("lib/office_graph/api_support.ex")
 
@@ -2100,6 +2135,19 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     |> Enum.flat_map(&scan_file_for_ash_authorization_bypasses/1)
     |> Enum.uniq_by(&{&1.path, &1.function})
     |> Enum.sort_by(&{&1.path, &1.function})
+  end
+
+  defp ash_api_declaration_files do
+    "lib/office_graph/**/*.ex"
+    |> Path.wildcard()
+    |> Enum.filter(fn path ->
+      source = File.read!(path)
+
+      source =~ "AshGraphql.Domain" or source =~ "AshJsonApi.Domain" or
+        source =~ "AshGraphql.Resource" or source =~ "AshJsonApi.Resource" or
+        Regex.match?(~r/^\s+graphql do$/m, source) or Regex.match?(~r/^\s+json_api do$/m, source)
+    end)
+    |> Enum.sort()
   end
 
   defp scan_file_for_ash_authorization_bypasses(path) do
