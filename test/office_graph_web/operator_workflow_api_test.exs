@@ -11,36 +11,33 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
+  @inbox_query """
+  query Inbox($limit: Int, $afterCursor: String) {
+    operatorInbox(limit: $limit, afterCursor: $afterCursor) {
+      empty
+      hasMore
+      limit
+      nextCursor
+      afterCursor
+      sourceWatermark
+      rows {
+        normalizedEventId
+        status
+        allowedNextActions
+        blockerReasons
+        source { identity replayIdentity outcome }
+        proposedChangeStatus { pending applied rejected total }
+      }
+    }
+  }
+  """
+
   test "GraphQL exposes operator inbox and item detail", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-inbox")
     {:ok, _newer_intake} = submit_manual_intake(bootstrap.session, "graphql-inbox-newer")
 
-    inbox =
-      graphql(
-        conn,
-        """
-        query Inbox($limit: Int, $afterCursor: String) {
-          operatorInbox(limit: $limit, afterCursor: $afterCursor) {
-            empty
-            hasMore
-            limit
-            nextCursor
-            afterCursor
-            sourceWatermark
-            rows {
-              normalizedEventId
-              status
-              allowedNextActions
-              blockerReasons
-              source { identity replayIdentity outcome }
-              proposedChangeStatus { pending applied rejected total }
-            }
-          }
-        }
-        """,
-        %{limit: 1}
-      )
+    inbox = graphql(conn, @inbox_query, %{limit: 1})
 
     assert inbox["empty"] == false
     assert inbox["hasMore"] == true
@@ -48,31 +45,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert is_binary(inbox["nextCursor"])
     assert inbox["afterCursor"] == nil
 
-    next_inbox =
-      graphql(
-        conn,
-        """
-        query Inbox($limit: Int, $afterCursor: String) {
-          operatorInbox(limit: $limit, afterCursor: $afterCursor) {
-            empty
-            hasMore
-            limit
-            nextCursor
-            afterCursor
-            sourceWatermark
-            rows {
-              normalizedEventId
-              status
-              allowedNextActions
-              blockerReasons
-              source { identity replayIdentity outcome }
-              proposedChangeStatus { pending applied rejected total }
-            }
-          }
-        }
-        """,
-        %{limit: 1, afterCursor: inbox["nextCursor"]}
-      )
+    next_inbox = graphql(conn, @inbox_query, %{limit: 1, afterCursor: inbox["nextCursor"]})
 
     assert next_inbox["empty"] == false
     assert next_inbox["hasMore"] == false

@@ -181,6 +181,92 @@ describe("useOperatorWorkflow", () => {
       );
     });
   });
+
+  it("loads an empty-string inbox cursor when the backend returns one", async () => {
+    const nextRow = {
+      ...graphQLInbox.rows[0],
+      normalizedEventId: "evt_empty_cursor",
+      typedId: { type: "normalized_intake_event", id: "evt_empty_cursor" }
+    };
+    const fetcher = vi.fn(async ({ query, variables }: GraphQLRequest) => {
+      if (query.includes("operatorInbox")) {
+        return {
+          data: {
+            operatorInbox:
+              variables.afterCursor === ""
+                ? {
+                    ...graphQLInbox,
+                    hasMore: false,
+                    nextCursor: null,
+                    afterCursor: "",
+                    rows: [nextRow]
+                  }
+                : { ...graphQLInbox, hasMore: true, nextCursor: "", afterCursor: null }
+          }
+        };
+      }
+
+      return packetReadinessResponse();
+    });
+
+    renderWithQueryClient(<WorkflowProbe fetchGraphQL={fetcher} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_1");
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Next page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-cursor")).toHaveTextContent("empty");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({ variables: { limit: 50, afterCursor: "" } })
+    );
+  });
+
+  it("does not duplicate cursor history when next page is requested repeatedly", async () => {
+    const fetcher = vi.fn(async ({ query, variables }: GraphQLRequest) => {
+      if (query.includes("operatorInbox")) {
+        return {
+          data: {
+            operatorInbox:
+              variables.afterCursor === "cursor_1"
+                ? { ...graphQLInbox, hasMore: false, nextCursor: null, afterCursor: "cursor_1" }
+                : { ...graphQLInbox, hasMore: true, nextCursor: "cursor_1", afterCursor: null }
+          }
+        };
+      }
+
+      return packetReadinessResponse();
+    });
+
+    renderWithQueryClient(<WorkflowProbe fetchGraphQL={fetcher} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_1");
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Next page" }).click();
+      screen.getByRole("button", { name: "Next page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-cursor")).toHaveTextContent("cursor_1");
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Previous page" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-cursor")).toHaveTextContent("first");
+    });
+    expect(screen.getByTestId("can-page-backward")).toHaveTextContent("no");
+  });
 });
 
 function WorkflowProbe({
@@ -218,6 +304,10 @@ function WorkflowProbe({
         Previous page
       </button>
       <p data-testid="selected-id">{workflow.selectedId ?? "none"}</p>
+      <p data-testid="inbox-cursor">
+        {workflow.inboxPage.afterCursor === "" ? "empty" : workflow.inboxPage.afterCursor ?? "first"}
+      </p>
+      <p data-testid="can-page-backward">{workflow.canPageBackward ? "yes" : "no"}</p>
       <p>{workflow.selectedItem?.normalizedEventId ?? "none"}</p>
     </div>
   );
@@ -227,4 +317,21 @@ function renderWithQueryClient(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+function packetReadinessResponse() {
+  return {
+    data: {
+      operatorPacketReadiness: {
+        type: "packet_readiness",
+        ready: true,
+        status: "packet_ready",
+        allowedNextActions: [],
+        blockerReasons: [],
+        sourceLinks: [],
+        requiredChecks: [],
+        sourceWatermark: null
+      }
+    }
+  };
 }

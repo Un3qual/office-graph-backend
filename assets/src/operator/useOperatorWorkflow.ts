@@ -51,12 +51,13 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
   }, []);
 
   const loadNextInboxPage = useCallback(() => {
-    const nextCursor = inboxQuery.data?.nextCursor;
+    const nextCursor = inboxQuery.data?.nextCursor ?? null;
 
-    if (nextCursor) {
+    if (nextCursor !== null) {
       setInboxNavigation(({ page, previousCursors }) => ({
-        page: { ...page, afterCursor: nextCursor },
-        previousCursors: [...previousCursors, page.afterCursor]
+        page: page.afterCursor === nextCursor ? page : { ...page, afterCursor: nextCursor },
+        previousCursors:
+          page.afterCursor === nextCursor ? previousCursors : [...previousCursors, page.afterCursor]
       }));
     }
   }, [inboxQuery.data?.nextCursor]);
