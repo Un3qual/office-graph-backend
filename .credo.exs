@@ -51,7 +51,7 @@
          ]}
       ],
       checks: %{
-        enabled: [
+        extra: [
           {Credo.Check.Warning.ExpensiveEmptyEnumCheck, []},
           {Credo.Check.Refactor.AppendSingleItem, []},
           {Credo.Check.Refactor.DoubleBooleanNegation, []},
@@ -64,7 +64,16 @@
           {Credo.Check.Refactor.UnlessWithElse, []}
         ],
         disabled: [
-          {Credo.Check.Design.DuplicatedCode, false}
+          {Credo.Check.Design.AliasUsage, []},
+          {Credo.Check.Design.DuplicatedCode, []},
+          {Credo.Check.Readability.AliasOrder, []},
+          {Credo.Check.Readability.ModuleDoc, []},
+          {Credo.Check.Readability.WithSingleClause, []},
+          {Credo.Check.Refactor.CyclomaticComplexity, []},
+          {Credo.Check.Refactor.Nesting, []},
+          {Credo.Check.Refactor.RedundantWithClauseResult, []},
+          {ExSlop.Check.Readability.NarratorDoc, []},
+          {ExSlop.Check.Refactor.LengthComparison, []}
         ]
       }
     }

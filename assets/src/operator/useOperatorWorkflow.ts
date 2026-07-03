@@ -31,7 +31,7 @@ export function useOperatorWorkflow(fetchGraphQL: GraphQLFetcher) {
     if (selectedId === null) {
       setSelectedId(firstId);
       setSelectedSource("inbox");
-    } else if (firstId === null) {
+    } else if (selectedSource === "inbox" && firstId === null) {
       setSelectedId(null);
       setSelectedSource("inbox");
     } else if (selectedSource === "inbox" && !rowIds.has(selectedId)) {

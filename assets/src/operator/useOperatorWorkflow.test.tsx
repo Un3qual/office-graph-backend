@@ -40,10 +40,34 @@ describe("useOperatorWorkflow", () => {
       operatorInbox: { ...graphQLInbox, empty: true, rows: [] }
     });
 
-    renderWithQueryClient(<WorkflowProbe fetchGraphQL={fetcher} initialSelectedId="evt_stale" />);
+    renderWithQueryClient(
+      <WorkflowProbe fetchGraphQL={fetcher} initialInboxSelectedId="evt_stale" />
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId("selected-id")).toHaveTextContent("none");
+    });
+  });
+
+  it("keeps an externally selected item when the inbox page is empty", async () => {
+    const externalItem = {
+      ...graphQLInbox.rows[0],
+      normalizedEventId: "evt_external",
+      typedId: { type: "normalized_intake_event", id: "evt_external" },
+      graphLinks: []
+    };
+    const fetcher = createGraphQLTestFetcher({
+      operatorInbox: { ...graphQLInbox, empty: true, rows: [] },
+      operatorWorkflowItem: externalItem
+    });
+
+    renderWithQueryClient(
+      <WorkflowProbe fetchGraphQL={fetcher} initialSelectedId="evt_external" />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-id")).toHaveTextContent("evt_external");
+      expect(screen.getByTestId("selected-item")).toHaveTextContent("evt_external");
     });
   });
 
@@ -308,7 +332,7 @@ function WorkflowProbe({
         {workflow.inboxPage.afterCursor === "" ? "empty" : workflow.inboxPage.afterCursor ?? "first"}
       </p>
       <p data-testid="can-page-backward">{workflow.canPageBackward ? "yes" : "no"}</p>
-      <p>{workflow.selectedItem?.normalizedEventId ?? "none"}</p>
+      <p data-testid="selected-item">{workflow.selectedItem?.normalizedEventId ?? "none"}</p>
     </div>
   );
 }

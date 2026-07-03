@@ -45,6 +45,7 @@ intake and proposed graph state into actionable triage rows.
   raw tables directly
 
 #### Scenario: Triage row is not actionable
+
 - **WHEN** an intake row is invalid, unauthorized, duplicate, already applied,
   rejected, stale, or missing required context
 - **THEN** the inbox projection MUST expose a safe status, reason code, and
@@ -52,16 +53,19 @@ intake and proposed graph state into actionable triage rows.
   command
 
 #### Scenario: Inbox is paged
+
 - **WHEN** the operator inbox has more rows than the requested limit
 - **THEN** the projection and GraphQL product path MUST return an opaque next
   cursor and accept that cursor for the next page without offset-based
   pagination
 
 ### Requirement: Readiness Guides Packet Handoff
+
 Office Graph SHALL guide operators from triaged graph work to a stable work
 packet version before execution starts.
 
 #### Scenario: Packet can be prepared
+
 - **WHEN** a triaged task, review finding, and required verification check have
   enough context for human or operator-run execution
 - **THEN** the workflow MUST be able to present packet-ready inputs including

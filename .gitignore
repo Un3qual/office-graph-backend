@@ -43,3 +43,4 @@ office_graph-*.tar
 
 # Static-analysis reports.
 /reach_report/
+.ex_dna_cache

@@ -37,7 +37,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-inbox")
     {:ok, _newer_intake} = submit_manual_intake(bootstrap.session, "graphql-inbox-newer")
 
-    inbox = graphql(conn, @inbox_query, %{limit: 1})
+    inbox = graphql(conn, @inbox_query, %{limit: 1}, "operatorInbox")
 
     assert inbox["empty"] == false
     assert inbox["hasMore"] == true
@@ -45,7 +45,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert is_binary(inbox["nextCursor"])
     assert inbox["afterCursor"] == nil
 
-    next_inbox = graphql(conn, @inbox_query, %{limit: 1, afterCursor: inbox["nextCursor"]})
+    next_inbox =
+      graphql(conn, @inbox_query, %{limit: 1, afterCursor: inbox["nextCursor"]}, "operatorInbox")
 
     assert next_inbox["empty"] == false
     assert next_inbox["hasMore"] == false
@@ -77,7 +78,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: intake.normalized_event.id}
+        %{id: intake.normalized_event.id},
+        "operatorWorkflowItem"
       )
 
     assert item["status"] == "ready_for_packet"
@@ -139,7 +141,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{input: camelize_keys(readiness_input)}
+        %{input: camelize_keys(readiness_input)},
+        "operatorPacketReadiness"
       )
 
     assert readiness["status"] == "packet_ready"
@@ -182,7 +185,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: run_result.run.id}
+        %{id: run_result.run.id},
+        "operatorRunState"
       )
 
     assert run_state["status"] == "awaiting_evidence_acceptance"
@@ -218,7 +222,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: accepted.work_run.id}
+        %{id: accepted.work_run.id},
+        "operatorVerificationOutcome"
       )
 
     assert outcome["status"] == "verified"
@@ -260,7 +265,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             sourceGraphItemIds: nil,
             verificationCheckIds: nil
           }
-        }
+        },
+        "operatorPacketReadiness"
       )
 
     assert readiness["status"] == "blocked"
@@ -289,7 +295,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             }
           }
           """,
-          %{}
+          %{},
+          "operatorInbox"
         )
 
       assert [%{"normalizedEventId" => ^event_id}] = response["rows"]
@@ -309,14 +316,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     end)
   end
 
-  defp graphql(conn, query, variables) do
+  defp graphql(conn, query, variables, field) do
     response =
       conn
       |> post(~p"/graphql", %{query: query, variables: variables})
       |> json_response(200)
 
     assert response["errors"] in [nil, []]
-    response["data"] |> Map.values() |> hd()
+    Map.fetch!(response["data"], field)
   end
 
   defp camelize_keys(map) do
