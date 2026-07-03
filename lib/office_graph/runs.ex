@@ -14,6 +14,7 @@ defmodule OfficeGraph.Runs do
     exports: []
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.Operations
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
@@ -31,8 +32,8 @@ defmodule OfficeGraph.Runs do
   @execution_observation_record_action "execution_observation.record"
 
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
-    with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @work_run_start_action),
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- Operations.validate_operation_action(operation, @work_run_start_action),
          :ok <-
            Authorization.authorize_operation(session_context, operation, :work_run_start,
              organization_id: session_context.organization_id
@@ -42,8 +43,9 @@ defmodule OfficeGraph.Runs do
   end
 
   def record_observation(session_context, operation, run, attrs) when is_map(attrs) do
-    with :ok <- validate_operation_context(session_context, operation),
-         :ok <- validate_operation_action(operation, @execution_observation_record_action),
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <-
+           Operations.validate_operation_action(operation, @execution_observation_record_action),
          {:ok, run} <- reload_run(session_context, run),
          :ok <-
            Authorization.authorize_operation(
@@ -479,12 +481,7 @@ defmodule OfficeGraph.Runs do
   end
 
   defp lock_operation!(operation_id) do
-    OperationCorrelation
-    |> Ash.Query.filter(id == ^operation_id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> Repo.rollback({:not_found, OperationCorrelation, operation_id})
+    case Operations.lock_operation(operation_id) do
       {:ok, operation} -> operation
       {:error, error} -> Repo.rollback(error)
     end
@@ -759,27 +756,6 @@ defmodule OfficeGraph.Runs do
       :ok
     else
       {:error, :forbidden}
-    end
-  end
-
-  defp validate_operation_context(session_context, operation)
-       when is_map(session_context) and is_map(operation) do
-    if operation.principal_id == session_context.principal_id and
-         operation.session_id == session_context.session_id and
-         operation.organization_id == session_context.organization_id and
-         operation.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  defp validate_operation_context(_session_context, _operation), do: {:error, :forbidden}
-
-  defp validate_operation_action(operation, expected_action) do
-    case operation.action do
-      ^expected_action -> :ok
-      _other -> {:error, {:invalid_operation_action, operation.id, expected_action}}
     end
   end
 

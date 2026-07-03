@@ -36,8 +36,7 @@ defmodule OfficeGraph.Authorization do
     Repo.transaction(fn ->
       capabilities =
         @owner_capabilities
-        |> Map.values()
-        |> Enum.map(&ensure_capability!/1)
+        |> Enum.map(fn {_capability, key} -> ensure_capability!(key) end)
 
       role =
         get_or_create!(

@@ -151,5 +151,4 @@ defmodule OfficeGraph.Runs.Changes.ValidateObservationRunReferences do
   end
 
   defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_lookup_error(error), do: inspect(error)
 end

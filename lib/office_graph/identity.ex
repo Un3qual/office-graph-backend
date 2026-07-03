@@ -99,10 +99,10 @@ defmodule OfficeGraph.Identity do
   def validate_session_context(_session_context), do: {:error, :forbidden}
 
   defp active_principal?(principal_id) do
-    case Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false) do
-      {:ok, %Principal{status: "active"}} -> true
-      _other -> false
-    end
+    match?(
+      {:ok, %Principal{status: "active"}},
+      Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false)
+    )
   end
 
   defp get_or_create!(resource, lookup, attrs) do

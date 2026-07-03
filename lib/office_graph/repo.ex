@@ -1,6 +1,8 @@
 defmodule OfficeGraph.Repo do
   use Boundary, top_level?: true, deps: [], exports: []
 
+  @dialyzer {:nowarn_function, all_tenants: 0}
+
   use AshPostgres.Repo,
     otp_app: :office_graph,
     warn_on_missing_ash_functions?: false

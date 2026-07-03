@@ -296,8 +296,15 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp validate_required_types(proposed_changes) do
     types = Enum.map(proposed_changes, & &1.change_type)
-    unique_types = Enum.uniq(types)
-    duplicate_type = Enum.find(unique_types, &(Enum.count(types, fn type -> type == &1 end) > 1))
+
+    duplicate_type =
+      types
+      |> Enum.frequencies()
+      |> Enum.find_value(fn
+        {type, count} when count > 1 -> type
+        _type_count -> nil
+      end)
+
     unexpected_type = Enum.find(types, &(&1 not in @required_change_types))
     missing_type = Enum.find(@required_change_types, &(&1 not in types))
 

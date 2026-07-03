@@ -230,7 +230,6 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
   defp same_actor?(_actor, _principal_id, _session_id), do: false
 
   defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
-  defp format_lookup_error(error), do: inspect(error)
 end
 
 defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.ValidateUniqueNormalizedEventChangeType do

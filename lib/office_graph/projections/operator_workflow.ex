@@ -133,7 +133,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   defp bounded_integer(_value, default, _min, _max), do: default
 
-  defp clamp_max(value, :infinity), do: value
   defp clamp_max(value, max), do: Kernel.min(value, max)
 
   defp read_intake_event(session_context, id) do
@@ -577,7 +576,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     do: "not_actionable"
 
   defp intake_status(_event, proposed_changes, graph_links, run_links) do
-    statuses = Enum.map(proposed_changes, & &1.status)
+    status_summary = proposed_change_status_summary(proposed_changes)
     linked_run_status = latest_linked_run_status(run_links)
 
     cond do
@@ -587,16 +586,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       proposed_changes == [] ->
         "not_actionable"
 
-      Enum.any?(statuses, &(&1 == "rejected")) ->
+      status_summary.has_rejected ->
         "not_actionable"
 
-      Enum.any?(statuses, &(&1 == "pending")) ->
+      status_summary.has_pending ->
         "pending_triage"
 
-      Enum.all?(statuses, &(&1 == "applied")) and satisfied_verification_links?(graph_links) ->
+      status_summary.all_applied and satisfied_verification_links?(graph_links) ->
         "verified"
 
-      Enum.all?(statuses, &(&1 == "applied")) ->
+      status_summary.all_applied ->
         "ready_for_packet"
 
       true ->
@@ -621,16 +620,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp intake_reason_codes(%{outcome: "duplicate"}, _proposed_changes), do: ["duplicate_intake"]
 
   defp intake_reason_codes(_event, proposed_changes) do
-    statuses = Enum.map(proposed_changes, & &1.status)
+    status_summary = proposed_change_status_summary(proposed_changes)
 
     cond do
       proposed_changes == [] ->
         ["no_proposed_changes"]
 
-      Enum.any?(statuses, &(&1 == "rejected")) ->
+      status_summary.has_rejected ->
         ["rejected_proposed_change"]
 
-      Enum.any?(statuses, &(&1 not in ["pending", "applied"])) ->
+      status_summary.has_unknown ->
         ["unknown_proposed_change_state"]
 
       true ->
@@ -639,12 +638,44 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   end
 
   defp proposed_change_status(proposed_changes) do
+    summary = proposed_change_status_summary(proposed_changes)
+
     %{
-      pending: Enum.count(proposed_changes, &(&1.status == "pending")),
-      applied: Enum.count(proposed_changes, &(&1.status == "applied")),
-      rejected: Enum.count(proposed_changes, &(&1.status == "rejected")),
-      total: length(proposed_changes)
+      pending: summary.pending,
+      applied: summary.applied,
+      rejected: summary.rejected,
+      total: summary.total
     }
+  end
+
+  defp proposed_change_status_summary(proposed_changes) do
+    Enum.reduce(
+      proposed_changes,
+      %{
+        pending: 0,
+        applied: 0,
+        rejected: 0,
+        total: 0,
+        has_pending: false,
+        has_rejected: false,
+        has_unknown: false,
+        all_applied: true
+      },
+      fn proposed_change, acc ->
+        acc = %{
+          acc
+          | total: acc.total + 1,
+            all_applied: acc.all_applied and proposed_change.status == "applied"
+        }
+
+        case proposed_change.status do
+          "pending" -> %{acc | pending: acc.pending + 1, has_pending: true}
+          "applied" -> %{acc | applied: acc.applied + 1}
+          "rejected" -> %{acc | rejected: acc.rejected + 1, has_rejected: true}
+          _status -> %{acc | has_unknown: true}
+        end
+      end
+    )
   end
 
   defp blocker_reasons("not_actionable", reason_codes), do: reason_codes

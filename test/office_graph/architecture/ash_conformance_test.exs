@@ -795,8 +795,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     frontend_offenders =
       ["assets/src/App.tsx", "assets/src/main.tsx", "assets/src/operator/**/*.ts*"]
       |> Enum.flat_map(&Path.wildcard/1)
-      |> Enum.reject(&String.ends_with?(&1, ".test.ts"))
-      |> Enum.reject(&String.ends_with?(&1, ".test.tsx"))
+      |> Enum.reject(&(String.ends_with?(&1, ".test.ts") or String.ends_with?(&1, ".test.tsx")))
       |> Enum.filter(&(File.read!(&1) =~ old_route_prefix))
 
     assert frontend_offenders == [],
