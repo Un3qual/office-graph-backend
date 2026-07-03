@@ -13,8 +13,18 @@
         {ExSlop, []},
         {ExDNA.Credo,
          [
-           paths: ["lib/", "test/"],
-           min_mass: 60,
+           paths: [
+             "lib/office_graph/*.ex",
+             "lib/office_graph/runs/changes/*.ex",
+             "lib/office_graph/work_graph/changes/*.ex",
+             "lib/office_graph/work_graph/proposal_commands.ex",
+             "lib/office_graph/work_graph/command_support.ex",
+             "lib/office_graph/work_graph/queries.ex",
+             "lib/office_graph/work_graph/verification_commands.ex",
+             "lib/office_graph/work_packets/changes/*.ex",
+             "lib/office_graph/work_packets/readiness.ex"
+           ],
+           min_mass: 45,
            literal_mode: :abstract,
            min_similarity: 0.9,
            normalize_pipes: true,

@@ -191,7 +191,7 @@ defmodule OfficeGraph.Runs do
 
   defp create_observation!(session_context, operation, run, attrs) do
     observation =
-      ash_create!(
+      Repo.ash_create!(
         ExecutionObservation,
         %{
           id: Ecto.UUID.generate(),
@@ -263,7 +263,7 @@ defmodule OfficeGraph.Runs do
          run_id
        ) do
     run =
-      ash_create!(
+      Repo.ash_create!(
         Run,
         %{
           id: run_id,
@@ -282,7 +282,7 @@ defmodule OfficeGraph.Runs do
 
     run_required_checks =
       Enum.map(required_checks, fn required_check ->
-        ash_create!(
+        Repo.ash_create!(
           RunRequiredCheck,
           %{
             id: Ecto.UUID.generate(),
@@ -756,17 +756,6 @@ defmodule OfficeGraph.Runs do
       :ok
     else
       {:error, :forbidden}
-    end
-  end
-
-  defp ash_create!(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
     end
   end
 

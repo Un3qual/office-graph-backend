@@ -4,6 +4,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateObservationRunReferences do
   use Ash.Resource.Change
 
   alias OfficeGraph.Runs.{Run, RunRequiredCheck}
+  alias OfficeGraph.Runs.Changes.ScopedRead
   alias OfficeGraph.WorkGraph.VerificationCheck
   alias OfficeGraph.WorkPackets.WorkPacketSourceReference
 
@@ -17,41 +18,21 @@ defmodule OfficeGraph.Runs.Changes.ValidateObservationRunReferences do
     organization_id = Ash.Changeset.get_attribute(changeset, :organization_id)
     workspace_id = Ash.Changeset.get_attribute(changeset, :workspace_id)
 
-    with {:ok, run} <- fetch_scoped_run(run_id, organization_id, workspace_id) do
+    with {:ok, run} <-
+           ScopedRead.fetch(
+             Run,
+             run_id,
+             organization_id,
+             workspace_id,
+             :work_run_id,
+             "work_run_id must reference an existing run in the target scope"
+           ) do
       changeset
       |> validate_verification_check(run, verification_check_id)
       |> validate_graph_item(run, verification_check_id, graph_item_id)
     else
       {:error, field, message} ->
         Ash.Changeset.add_error(changeset, field: field, message: message)
-    end
-  end
-
-  defp fetch_scoped_run(nil, _organization_id, _workspace_id) do
-    {:error, :work_run_id, "work_run_id must reference an existing run in the target scope"}
-  end
-
-  defp fetch_scoped_run(_run_id, nil, _workspace_id) do
-    {:error, :organization_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_run(_run_id, _organization_id, nil) do
-    {:error, :workspace_id, "target organization_id and workspace_id are required"}
-  end
-
-  defp fetch_scoped_run(run_id, organization_id, workspace_id) do
-    Run
-    |> Ash.Query.filter(id == ^run_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = run} ->
-        {:ok, run}
-
-      {:ok, _missing_or_cross_scope} ->
-        {:error, :work_run_id, "work_run_id must reference an existing run in the target scope"}
-
-      {:error, error} ->
-        {:error, :work_run_id, "work_run_id lookup failed: #{format_lookup_error(error)}"}
     end
   end
 

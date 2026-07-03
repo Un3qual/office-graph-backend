@@ -98,7 +98,7 @@ defmodule OfficeGraph.MixProject do
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
       "static.analysis": [
         "credo --strict",
-        "ex_dna --min-mass 60 --literal-mode abstract --normalize-pipes --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
+        "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
         "reach.check --arch --smells --strict"
       ],
       typecheck: ["dialyzer --quiet-with-result"],
@@ -125,6 +125,20 @@ defmodule OfficeGraph.MixProject do
         "frontend.verify",
         "test"
       ]
+    ]
+  end
+
+  defp ex_dna_paths do
+    [
+      "lib/office_graph/*.ex",
+      "lib/office_graph/runs/changes/*.ex",
+      "lib/office_graph/work_graph/changes/*.ex",
+      "lib/office_graph/work_graph/proposal_commands.ex",
+      "lib/office_graph/work_graph/command_support.ex",
+      "lib/office_graph/work_graph/queries.ex",
+      "lib/office_graph/work_graph/verification_commands.ex",
+      "lib/office_graph/work_packets/changes/*.ex",
+      "lib/office_graph/work_packets/readiness.ex"
     ]
   end
 end

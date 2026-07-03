@@ -204,7 +204,7 @@ defmodule OfficeGraph.WorkPackets do
          version_id
        ) do
     packet =
-      ash_create!(
+      Repo.ash_create!(
         WorkPacket,
         %{
           id: packet_id,
@@ -216,7 +216,7 @@ defmodule OfficeGraph.WorkPackets do
       )
 
     version =
-      ash_create!(
+      Repo.ash_create!(
         WorkPacketVersion,
         %{
           id: version_id,
@@ -239,7 +239,7 @@ defmodule OfficeGraph.WorkPackets do
       attrs
       |> Map.get(:source_graph_item_ids, [])
       |> Enum.map(fn graph_item_id ->
-        ash_create!(
+        Repo.ash_create!(
           WorkPacketSourceReference,
           %{
             id: Ecto.UUID.generate(),
@@ -255,7 +255,7 @@ defmodule OfficeGraph.WorkPackets do
       attrs
       |> Map.get(:verification_check_ids, [])
       |> Enum.map(fn verification_check_id ->
-        ash_create!(
+        Repo.ash_create!(
           WorkPacketRequiredCheck,
           %{
             id: Ecto.UUID.generate(),
@@ -272,7 +272,7 @@ defmodule OfficeGraph.WorkPackets do
       |> Ash.Changeset.for_update(:set_current_version, %{
         current_version_id: version.id
       })
-      |> ash_update!()
+      |> Repo.ash_update!()
 
     %{
       packet: packet,
@@ -401,29 +401,6 @@ defmodule OfficeGraph.WorkPackets do
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
   end
-
-  defp ash_create!(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp ash_update!(changeset) do
-    changeset
-    |> Ash.update(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp unwrap_notification_result({record, _notifications}), do: record
 
   defp normalize_transaction_result({:ok, result}), do: {:ok, result}
   defp normalize_transaction_result({:error, error}), do: {:error, error}

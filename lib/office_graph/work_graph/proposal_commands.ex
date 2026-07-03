@@ -113,69 +113,45 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
   end
 
   def create_review_finding(session_context, operation, task, attrs) do
-    with :ok <- Support.validate_operation_context(session_context, operation),
-         :ok <- Support.validate_operation_action(operation, @proposed_change_apply_action) do
-      finding_id = Ecto.UUID.generate()
-      graph_item_id = Ecto.UUID.generate()
-
-      Support.transaction(fn ->
-        task =
-          Task
-          |> Support.ash_get_for_update(task.id)
-          |> Support.unwrap_ash()
-
-        document = Support.create_document!(session_context, operation, attrs[:body] || "")
-
-        graph_item =
-          Support.create_graph_item!(
-            graph_item_id,
-            session_context,
-            "review_finding",
-            finding_id,
-            attrs[:title]
-          )
-
-        review_finding =
-          Support.ash_create(
-            ReviewFinding,
-            %{
-              id: finding_id,
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: graph_item_id,
-              task_id: task.id,
-              body_document_id: document.id,
-              title: attrs[:title]
-            },
-            session_context
-          )
-          |> Support.unwrap_ash()
-
-        relationship =
-          Support.create_relationship!(
-            task.graph_item_id,
-            graph_item_id,
-            "has_review_finding"
-          )
-
-        Support.trace!(operation, "review_finding.create", "review_finding", review_finding.id)
-
-        %{graph_item: graph_item, review_finding: review_finding, relationship: relationship}
-      end)
-      |> transaction_result(:review_finding)
-    end
+    create_child_node(session_context, operation, task, attrs, %{
+      parent_resource: Task,
+      child_resource: ReviewFinding,
+      child_key: :review_finding,
+      resource_type: "review_finding",
+      relationship_type: "has_review_finding",
+      trace_action: "review_finding.create",
+      trace_resource: "review_finding",
+      child_attrs: fn task, document ->
+        %{task_id: task.id, body_document_id: document.id}
+      end
+    })
   end
 
   def create_verification_check(session_context, operation, review_finding, attrs) do
+    create_child_node(session_context, operation, review_finding, attrs, %{
+      parent_resource: ReviewFinding,
+      child_resource: VerificationCheck,
+      child_key: :verification_check,
+      resource_type: "verification_check",
+      relationship_type: "requires_verification",
+      trace_action: "verification_check.create",
+      trace_resource: "verification_check",
+      child_attrs: fn review_finding, document ->
+        %{review_finding_id: review_finding.id, description_document_id: document.id}
+      end
+    })
+  end
+
+  defp create_child_node(session_context, operation, parent, attrs, opts) do
     with :ok <- Support.validate_operation_context(session_context, operation),
          :ok <- Support.validate_operation_action(operation, @proposed_change_apply_action) do
-      check_id = Ecto.UUID.generate()
+      child_id = Ecto.UUID.generate()
       graph_item_id = Ecto.UUID.generate()
 
       Support.transaction(fn ->
-        review_finding =
-          ReviewFinding
-          |> Support.ash_get_for_update(review_finding.id)
+        parent =
+          opts.parent_resource
+          |> Support.ash_get_for_update(parent.id)
           |> Support.unwrap_ash()
 
         document = Support.create_document!(session_context, operation, attrs[:body] || "")
@@ -184,48 +160,44 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
           Support.create_graph_item!(
             graph_item_id,
             session_context,
-            "verification_check",
-            check_id,
+            opts.resource_type,
+            child_id,
             attrs[:title]
           )
 
-        verification_check =
-          Support.ash_create(
-            VerificationCheck,
+        child_attrs =
+          Map.merge(
             %{
-              id: check_id,
+              id: child_id,
               organization_id: session_context.organization_id,
               workspace_id: session_context.workspace_id,
               graph_item_id: graph_item_id,
-              review_finding_id: review_finding.id,
-              description_document_id: document.id,
               title: attrs[:title]
             },
+            opts.child_attrs.(parent, document)
+          )
+
+        child =
+          Support.ash_create(
+            opts.child_resource,
+            child_attrs,
             session_context
           )
           |> Support.unwrap_ash()
 
         relationship =
           Support.create_relationship!(
-            review_finding.graph_item_id,
+            parent.graph_item_id,
             graph_item_id,
-            "requires_verification"
+            opts.relationship_type
           )
 
-        Support.trace!(
-          operation,
-          "verification_check.create",
-          "verification_check",
-          verification_check.id
-        )
+        Support.trace!(operation, opts.trace_action, opts.trace_resource, child.id)
 
-        %{
-          graph_item: graph_item,
-          verification_check: verification_check,
-          relationship: relationship
-        }
+        %{graph_item: graph_item, relationship: relationship}
+        |> Map.put(opts.child_key, child)
       end)
-      |> transaction_result(:verification_check)
+      |> transaction_result(opts.child_key)
     end
   end
 

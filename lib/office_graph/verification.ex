@@ -121,7 +121,7 @@ defmodule OfficeGraph.Verification do
   end
 
   defp create_evidence_candidate_record!(session_context, operation, attrs) do
-    ash_create!(
+    Repo.ash_create!(
       EvidenceCandidate,
       %{
         id: Ecto.UUID.generate(),
@@ -186,7 +186,7 @@ defmodule OfficeGraph.Verification do
     now = DateTime.utc_now()
 
     graph_item =
-      ash_create!(
+      Repo.ash_create!(
         GraphItem,
         %{
           id: evidence_graph_item_id,
@@ -199,7 +199,7 @@ defmodule OfficeGraph.Verification do
       )
 
     evidence_item =
-      ash_create!(
+      Repo.ash_create!(
         EvidenceItem,
         %{
           id: evidence_id,
@@ -234,7 +234,7 @@ defmodule OfficeGraph.Verification do
       maybe_create_evidence_artifact_relationship!(evidence_item, artifact)
 
     verification_result =
-      ash_create!(
+      Repo.ash_create!(
         VerificationResult,
         %{
           id: Ecto.UUID.generate(),
@@ -707,7 +707,7 @@ defmodule OfficeGraph.Verification do
   end
 
   defp create_relationship!(source_item_id, target_item_id, relationship_type) do
-    ash_create!(
+    Repo.ash_create!(
       GraphRelationship,
       %{
         id: Ecto.UUID.generate(),
@@ -735,17 +735,6 @@ defmodule OfficeGraph.Verification do
   defp validate_scope!(session_context, record) do
     case validate_scope(session_context, record) do
       :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp ash_create!(resource, attrs) do
-    resource
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, record, notifications} -> unwrap_notification_result({record, notifications})
-      {:ok, record} -> record
       {:error, error} -> Repo.rollback(error)
     end
   end
