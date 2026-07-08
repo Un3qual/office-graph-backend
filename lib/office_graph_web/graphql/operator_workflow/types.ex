@@ -1,5 +1,6 @@
 defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   use Absinthe.Schema.Notation
+  use Absinthe.Relay.Schema.Notation, :modern
 
   object :operator_typed_id do
     field :type, non_null(:string)
@@ -40,7 +41,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :resources, non_null(list_of(non_null(:operator_typed_id)))
   end
 
-  object :operator_workflow_item do
+  node object(:operator_workflow_item,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_workflow_item_id/2
+       ) do
     field :type, non_null(:string)
     field :typed_id, non_null(:operator_typed_id)
     field :normalized_event_id, non_null(:id)
@@ -58,6 +61,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :audit_trace, non_null(:operator_trace)
     field :revision_trace, non_null(:operator_trace)
   end
+
+  connection(node_type: :operator_workflow_item)
 
   object :operator_inbox do
     field :type, non_null(:string)
@@ -209,4 +214,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_graph_item_ids, list_of(non_null(:id))
     field :verification_check_ids, list_of(non_null(:id))
   end
+
+  def operator_workflow_item_id(%{normalized_event_id: normalized_event_id}, _resolution) do
+    normalized_event_id
+  end
+
+  def operator_workflow_item_id(_item, _resolution), do: nil
 end

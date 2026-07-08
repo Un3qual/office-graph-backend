@@ -20,6 +20,9 @@ defmodule OfficeGraph.WorkGraph do
     VerificationCommands
   }
 
+  defdelegate graphql_node_type(value), to: Queries
+  defdelegate graphql_node(session_context, type, id), to: Queries
+
   defdelegate get_verification_check(session_context, id),
     to: Queries
 

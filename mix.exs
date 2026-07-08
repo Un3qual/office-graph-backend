@@ -61,6 +61,7 @@ defmodule OfficeGraph.MixProject do
       {:ash_graphql, "~> 1.9"},
       {:ash_json_api, "~> 1.6"},
       {:absinthe, "~> 1.11"},
+      {:absinthe_relay, "~> 1.6"},
       {:absinthe_plug, "~> 1.5"},
       {:boundary, "~> 0.10.4", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

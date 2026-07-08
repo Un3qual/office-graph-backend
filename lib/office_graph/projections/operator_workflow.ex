@@ -28,25 +28,17 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   @max_operator_inbox_limit 100
 
   def operator_inbox(session_context, opts \\ []) do
-    limit = page_limit(opts)
-
-    with :ok <- authorize_read(session_context),
-         {:ok, cursor} <- page_cursor(opts),
-         {:ok, events} <- read_intake_events(session_context, limit, cursor),
-         page_events = Enum.take(events, limit),
-         {:ok, rows} <- build_intake_rows(session_context, page_events) do
-      has_more? = length(events) > limit
-
+    with {:ok, page} <- read_intake_rows_page(session_context, opts) do
       {:ok,
        %{
          type: "operator_inbox",
-         rows: rows,
-         empty?: rows == [],
-         has_more?: has_more?,
-         limit: limit,
-         next_cursor: next_cursor(has_more?, page_events),
-         after_cursor: option(opts, :after_cursor, nil),
-         source_watermark: source_watermark(rows)
+         rows: page.rows,
+         empty?: page.rows == [],
+         has_more?: page.has_more?,
+         limit: page.limit,
+         next_cursor: next_cursor(page.has_more?, page.events),
+         after_cursor: page.after_cursor,
+         source_watermark: source_watermark(page.rows)
        }}
     end
   end
@@ -56,6 +48,37 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          {:ok, event} <- read_intake_event(session_context, normalized_event_id),
          {:ok, [row]} <- build_intake_rows(session_context, [event]) do
       {:ok, row}
+    end
+  end
+
+  def operator_workflow_items_page(session_context, opts) do
+    with {:ok, page} <- read_intake_rows_page(session_context, opts) do
+      {:ok,
+       %{
+         rows: page.rows,
+         row_edges: workflow_item_edges(page.rows, page.events),
+         has_next_page?: page.has_more?,
+         has_previous_page?: not is_nil(page.after_cursor)
+       }}
+    end
+  end
+
+  defp read_intake_rows_page(session_context, opts) do
+    limit = page_limit(opts)
+
+    with :ok <- authorize_read(session_context),
+         {:ok, cursor} <- page_cursor(opts),
+         {:ok, events} <- read_intake_events(session_context, limit, cursor),
+         page_events = Enum.take(events, limit),
+         {:ok, rows} <- build_intake_rows(session_context, page_events) do
+      {:ok,
+       %{
+         rows: rows,
+         events: page_events,
+         has_more?: length(events) > limit,
+         limit: limit,
+         after_cursor: option(opts, :after_cursor, nil)
+       }}
     end
   end
 
@@ -124,6 +147,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   defp option(opts, key, default) when is_map(opts), do: Map.get(opts, key, default)
   defp option(opts, key, default) when is_list(opts), do: Keyword.get(opts, key, default)
+
+  defp workflow_item_edges(rows, events) do
+    rows
+    |> Enum.zip(events)
+    |> Enum.map(fn {row, event} -> {row, cursor: encode_cursor(event)} end)
+  end
 
   defp bounded_integer(value, _default, min, max) when is_integer(value) do
     value

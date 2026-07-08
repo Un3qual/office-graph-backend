@@ -68,8 +68,9 @@ expansion pattern rather than the first product surface.
   departments.
 - Software workflows are early examples and dogfooding paths, not the whole
   product identity.
-- Frontend will be React from day one, but frontend implementation is not
-  starting yet.
+- Frontend is React from day one. The first Phoenix-served React operator
+  console now exists as the initial product UI slice; additional product
+  routes should wait for accepted frontend-platform architecture.
 - Phoenix LiveView is forbidden for the product UI.
 - Both GraphQL and JSON API are required.
 - Office Graph will have an internal agent runtime for automatic agents and
@@ -755,7 +756,8 @@ Discussion output:
 
 Questions to answer:
 
-- What React application architecture is appropriate once frontend work starts?
+- What React application architecture is appropriate now that the first
+  operator console exists and future product routes need a shared foundation?
 - Which data belongs on GraphQL versus JSON API?
 - Which screens are mandatory for MVP: inbox, question queue, work packet,
   mini graph, node-scoped chat, agent run, verification,
@@ -1125,8 +1127,13 @@ requirements by themselves; product requirements become durable only when they
 are captured in `openspec/project.md`, a formal OpenSpec change, or an archived
 spec.
 
-Backend code generation must not start until these cross-change blockers are
-resolved:
+Most of this remediation has now been promoted through archived OpenSpec
+changes and durable specs. Treat this section as historical context plus a
+current guardrail, not as the live execution queue.
+
+The original backend-code-generation gate blocked the first Phoenix/Ash
+walking skeleton until these cross-change questions were resolved enough for a
+minimal implementation:
 
 - identity and authorization schema inventory
 - authentication mechanics
@@ -1174,7 +1181,7 @@ and API polling should use the same raw archive, normalized event, idempotency,
 replay, adapter output, and domain-action routing contract after the manual
 path proves the loop.
 
-Current remediation dependency order:
+Historical remediation dependency order:
 
 ```text
 define-office-graph-foundation
@@ -1201,8 +1208,9 @@ those facts.
 
 ### Canonical Concept Ownership
 
-These active changes may reference each other, but each shared concept should
-have one canonical owner before promotion into durable specs:
+The archived remediation changes may reference each other, but each shared
+concept should have one canonical owner before future changes promote or revise
+durable specs:
 
 | Concept | Canonical owner | Referencing changes |
 | --- | --- | --- |
@@ -1216,17 +1224,23 @@ have one canonical owner before promotion into durable specs:
 | JSON storage policy | `design-persistence-model/specs/json-storage-policy` | revision/audit, integrations |
 | Ingestion adapter contract | `design-ingestion-and-integrations/specs/provider-adapter-contract` | persistence, code organization, change proposals |
 | Change proposal lifecycle | `design-proposed-graph-changes` | ingestion, agent runtime, work packets, code organization |
-| Check/evidence/verification vocabulary | `design-runs-and-verification` when created | foundation, governance, persistence |
+| Check/evidence/verification vocabulary | `design-runs-and-verification` | foundation, governance, persistence |
 
 `define-office-graph-foundation` is durable product framing. It should not be
 promoted wholesale into duplicate canonical authorization, persistence,
 work-graph, or backend-architecture specs when more granular changes own the
 actual durable requirements.
 
-### Backend Implementation-Readiness Gate
+### Backend Expansion Guardrail
 
-The first backend app-generation change may start only when all items below
-are true:
+The first backend walking skeleton has already been generated and archived.
+Do not use the historical gate below to block current maintenance,
+architecture stabilization, or frontend-platform planning. For future backend
+expansion, require the current owning specs to validate, any active change to
+validate, and implementation work to follow the current Ash/domain, API,
+authorization, audit, projection, and verification specs.
+
+Historical first-app-generation checklist:
 
 - `design-identity-and-authorization-schema` exists and validates.
 - `design-identity-and-authentication` exists and validates.
@@ -1249,11 +1263,11 @@ are true:
 - Code organization tasks 3.1 through 3.6 are complete.
 - All active changes pass `openspec validate --changes --strict`.
 
-After this gate is satisfied and approved, the next OpenSpec change should be
-`first-backend-walking-skeleton`. It should generate the Phoenix API app,
-configure Boundary, create only the minimal Ash/Ecto resources needed for the
-walking skeleton, and include verification commands for compile, format,
-tests, Boundary, and OpenSpec.
+Historical note: the `first-backend-walking-skeleton` change generated the
+Phoenix API app, Boundary setup, and minimal Ash/Ecto resources for the walking
+skeleton, then moved into the archive. As of July 2026, the current documented
+frontend-planning follow-up is `design-product-frontend-platform` before adding
+more product routes.
 
 Verification vocabulary for future specs:
 

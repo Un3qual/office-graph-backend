@@ -28,7 +28,9 @@ decisions into this file or into formal OpenSpec specs.
 - Development Postgres runs through Docker Compose. The project Nix shell
   remains the entrypoint for application/runtime CLI tools, but local database
   process management should be documented as `docker compose` commands.
-- Frontend stack: React from day one, though frontend work has not started yet.
+- Frontend stack: React from day one. The first Phoenix-served React operator
+  console now exists as the initial product UI slice; additional product
+  routes should wait for accepted frontend-platform architecture.
 - Phoenix LiveView is forbidden for the product UI.
 - Tailwind CSS is forbidden for product UI, prototypes, examples, generated
   code, design-system work, and temporary scaffolding. Do not introduce

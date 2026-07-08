@@ -24,6 +24,8 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
+  defp normalize(%Ash.Error.Forbidden{}), do: normalize(:forbidden)
+
   defp normalize({:missing_proposed_change, id}) do
     %{
       detail: "A proposed change could not be found.",
@@ -122,13 +124,25 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
-  defp normalize(_error) do
-    %{
-      detail: "Validation failed.",
-      extensions: %{code: "validation_failed"}
-    }
+  defp normalize(error) do
+    if ash_forbidden_error?(error) do
+      normalize(:forbidden)
+    else
+      %{
+        detail: "Validation failed.",
+        extensions: %{code: "validation_failed"}
+      }
+    end
   end
 
   defp format_reason({kind, value}), do: %{kind: kind, value: value}
   defp format_reason(reason), do: reason
+
+  defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true
+
+  defp ash_forbidden_error?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ash_forbidden_error?/1)
+  end
+
+  defp ash_forbidden_error?(_error), do: false
 end

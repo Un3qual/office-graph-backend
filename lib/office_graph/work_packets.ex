@@ -30,6 +30,15 @@ defmodule OfficeGraph.WorkPackets do
 
   @work_packet_create_action "work_packet.create"
 
+  def graphql_node_type(%WorkPacket{}), do: :work_packet
+  def graphql_node_type(_value), do: nil
+
+  def graphql_node(session_context, :work_packet, id) do
+    Ash.get(WorkPacket, id, actor: session_context, not_found_error?: false)
+  end
+
+  def graphql_node(_session_context, _type, _id), do: {:ok, nil}
+
   def create_packet(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, @work_packet_create_action),

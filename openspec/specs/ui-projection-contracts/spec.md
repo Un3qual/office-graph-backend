@@ -146,6 +146,14 @@ shapes and future socket/live realtime invalidation payloads.
 - **THEN** the frontend MUST delete the JSON adapter instead of preserving a
   migration shape, parity tests, or component-facing compatibility requirement
 
+#### Scenario: Product data path is GraphQL-ready
+
+- **WHEN** the product frontend has an accepted GraphQL read for an
+  operator-facing UI
+- **THEN** the frontend data hook MUST use GraphQL as the product path and MUST
+  NOT preserve JSON migration support as a component-facing compatibility
+  requirement
+
 #### Scenario: Realtime update arrives
 
 - **WHEN** realtime delivery notifies a frontend projection about changed

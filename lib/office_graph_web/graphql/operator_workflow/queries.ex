@@ -1,6 +1,8 @@
 defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   use Absinthe.Schema.Notation
+  use Absinthe.Relay.Schema.Notation, :modern
 
+  alias Absinthe.Relay.Connection
   alias OfficeGraph.Projections
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.RequestSession
@@ -16,6 +18,40 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
           {:ok, inbox}
         else
           error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
+    connection field :operator_workflow_items,
+                 node_type: :operator_workflow_item,
+                 paginate: :forward do
+      resolve(fn args, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, :forward, limit} <- Connection.limit(args, 100),
+             {:ok, page} <-
+               Projections.operator_workflow_items_page(session_context,
+                 limit: limit,
+                 after_cursor: Map.get(args, :after)
+               ) do
+          {:ok, connection} =
+            Connection.from_slice(page.row_edges, 0,
+              has_next_page: page.has_next_page?,
+              has_previous_page: page.has_previous_page?
+            )
+
+          {:ok, connection}
+        else
+          {:ok, _direction, _limit} ->
+            Errors.to_absinthe({:error, {:invalid_field, :first}})
+
+          {:error, {:invalid_field, :after_cursor}} ->
+            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
+
+          {:error, reason} when is_binary(reason) ->
+            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
+
+          error ->
+            Errors.to_absinthe(error)
         end
       end)
     end
