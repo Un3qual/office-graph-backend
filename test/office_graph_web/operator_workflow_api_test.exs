@@ -386,6 +386,26 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
            ]
   end
 
+  test "GraphQL operator workflow Relay connection preserves forbidden errors" do
+    with_local_api_owner_bootstrap(false, fn ->
+      response =
+        build_conn()
+        |> post(~p"/graphql", %{
+          query: """
+          query RelayInbox {
+            operatorWorkflowItems(first: 1) {
+              edges { node { normalizedEventId } }
+            }
+          }
+          """,
+          variables: %{}
+        })
+        |> json_response(200)
+
+      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+    end)
+  end
+
   test "GraphQL operator workflow reads use a trusted request actor when bootstrap is disabled" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-trusted-context")

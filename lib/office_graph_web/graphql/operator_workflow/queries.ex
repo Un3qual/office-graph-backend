@@ -41,9 +41,17 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
           {:ok, connection}
         else
-          {:ok, _direction, _limit} -> Errors.to_absinthe({:error, {:invalid_field, :first}})
-          {:error, _reason} -> Errors.to_absinthe({:error, {:invalid_field, :pagination}})
-          error -> Errors.to_absinthe(error)
+          {:ok, _direction, _limit} ->
+            Errors.to_absinthe({:error, {:invalid_field, :first}})
+
+          {:error, {:invalid_field, :after_cursor}} ->
+            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
+
+          {:error, reason} when is_binary(reason) ->
+            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
+
+          error ->
+            Errors.to_absinthe(error)
         end
       end)
     end
