@@ -28,9 +28,9 @@ References checked while preparing this design:
 
 - Lock React Router Framework Mode as the frontend route architecture.
 - Keep the first platform layout conventional, route-first, and shallow.
-- Require a serious Relay decision before implementation, compared against
-  TanStack Query plus generated GraphQL operation types.
-- Use one GraphQL server-state cache/client model for product GraphQL data.
+- Use Relay as the product GraphQL server-state cache/client model.
+- Keep TanStack Query out of product GraphQL server state so product records do
+  not have competing caches.
 - Make backend-provided commands and UI affordances explicit, including hidden,
   disabled, redacted, and safe-explanation states.
 - Define concrete verification gates that match the project today.
@@ -38,8 +38,8 @@ References checked while preparing this design:
 **Non-Goals:**
 
 - Do not implement React Router Framework Mode in this design change.
-- Do not add Relay, TanStack Query changes, GraphQL Code Generator, or new
-  package dependencies in this design change.
+- Do not add Relay runtime packages, React Router Framework Mode packages, or
+  other new package dependencies in this design change.
 - Do not add new product screens.
 - Do not introduce SSR, RSC, Next.js, micro-frontends, module federation,
   Tailwind, shadcn, a generic data-grid framework, or broad visual regression.
@@ -92,13 +92,9 @@ assets/
         types.ts
         tests/
 
-    relay/              # only if Relay is selected
+    relay/
       environment.ts
       fetchGraphQL.ts
-
-    graphql/            # only if TanStack Query + codegen is selected
-      fetchGraphQL.ts
-      generated/
 
     ui/
       Badge.tsx
@@ -117,32 +113,33 @@ Rules:
 - `AppProviders.tsx` means React app wrappers such as Relay environment,
   router integration, session/app context, feature flags, or app config. It
   does not mean external integration provider adapters.
-- Avoid `viewModels.ts` and MVVM-style vocabulary. If Relay is selected, use
-  fragments and generated Relay types. If TanStack Query plus codegen is
-  selected, use `types.ts`, `data.ts`, and small mapping helpers only where
-  needed.
+- Avoid `viewModels.ts` and MVVM-style vocabulary. Use Relay fragments and
+  generated Relay types for product GraphQL data. Use `types.ts`, `data.ts`,
+  and small mapping helpers only for route-local non-Relay concerns where they
+  are genuinely needed.
 - Do not introduce `platform` or `domains` folders until at least two product
   routes prove a real shared boundary that cannot stay in route folders or
   shallow `ui`.
 
-### 3. Decide Relay before implementation
+### 3. Use Relay for product GraphQL server state
 
-Relay must be evaluated as a first-class option, not an afterthought. Office
+Relay is the selected product GraphQL client model for implementation. Office
 Graph is graph-shaped, GraphQL-first, authorization-sensitive, and likely to
 need stable object identity, pagination, fragment ownership, and normalized
 updates. Those are Relay strengths.
 
-The implementation decision should be one of:
+Implementation should use React Router Framework Mode plus Relay. Relay should
+own product GraphQL server state through a Relay environment, route/root
+queries, fragments, generated types, connection-compatible pagination where
+lists can grow, and mutation payloads or explicit invalidation paths that keep
+the store coherent.
 
-1. React Router Framework Mode plus Relay.
-2. React Router Framework Mode plus TanStack Query and generated GraphQL
-   operation types.
+The project must not use TanStack Query as a competing cache for the same
+product GraphQL data. It is acceptable to introduce TanStack Query later for
+non-GraphQL or non-product server state only if a real need appears and an
+accepted OpenSpec change defines the boundary.
 
-The project must not use both Relay and TanStack Query as competing caches for
-the same product GraphQL data. It is acceptable to keep TanStack Query later
-for non-GraphQL or non-product server state only if a real need appears.
-
-Decision criteria:
+The first implementation still needs to verify:
 
 - GraphQL schema compatibility with Relay object identity and connections.
 - Authorization and redaction behavior.
@@ -193,7 +190,7 @@ run:
 - TypeScript typecheck.
 - Component tests for shared UI and route components.
 - Route smoke tests for built routes.
-- Relay compiler or GraphQL codegen check, depending on the selected client.
+- Relay compiler check.
 - Import-boundary tests for route/shared UI separation.
 - Phoenix app-shell asset test.
 - Focused backend query-count tests only for projection reads that can grow by
@@ -212,9 +209,9 @@ protecting.
 - **React Router Framework Mode may require build integration changes** ->
   Keep the first implementation small and verify Phoenix app-shell asset output
   before moving more screens.
-- **TanStack Query remains familiar from the current operator reset** ->
-  Familiarity is not enough; choose it only if it beats Relay for this product
-  after the explicit comparison.
+- **TanStack Query remains useful for some apps** -> Keep it out of product
+  GraphQL server state here so Relay owns product record identity and cache
+  updates consistently.
 - **Authorization affordance contracts can grow large** -> Keep first fields to
   command identity, state, safe explanation, required fields, target ids, and
   optional trace or decision link when authorized.
@@ -222,16 +219,14 @@ protecting.
 ## Migration Plan
 
 1. Finalize this design and spec delta.
-2. Decide Relay vs TanStack Query plus generated GraphQL operation types before
-   implementation begins.
-3. Implement React Router Framework Mode in the smallest Phoenix-served SPA
+2. Implement React Router Framework Mode in the smallest Phoenix-served SPA
    slice that keeps `/operator` working.
-4. Move operator route ownership under the route-first layout.
-5. Replace old frontend JSON adapter assumptions with the selected GraphQL
-   client model.
-6. Add only the concrete verification gates needed for the selected client and
-   route layout.
-7. Defer additional product routes until the route-first foundation passes its
+3. Move operator route ownership under the route-first layout.
+4. Replace old frontend JSON adapter assumptions with Relay-backed product
+   GraphQL reads.
+5. Add only the concrete verification gates needed for Relay and the route
+   layout.
+6. Defer additional product routes until the route-first foundation passes its
    verification gate.
 
 Rollback for implementation should be straightforward: keep the existing

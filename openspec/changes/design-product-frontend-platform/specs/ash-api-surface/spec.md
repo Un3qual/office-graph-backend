@@ -3,7 +3,7 @@
 ### Requirement: Product GraphQL Supports Route-Owned Frontend Operations
 Office Graph SHALL treat the product GraphQL path as the frontend's primary
 data and command surface and keep it compatible with route-owned operations
-from the selected frontend GraphQL client.
+from Relay.
 
 #### Scenario: Route-owned GraphQL operation is introduced
 - **WHEN** a frontend route adds a product GraphQL read, mutation, or
@@ -13,20 +13,12 @@ from the selected frontend GraphQL client.
   tests that exercise the same backend projection or command contract used by
   other entrypoints
 
-#### Scenario: Relay is selected as the product GraphQL client
-- **WHEN** the frontend platform selects Relay
+#### Scenario: Relay-backed product operation is introduced
+- **WHEN** a frontend route adds a Relay-backed product GraphQL operation
 - **THEN** product GraphQL reads MUST preserve stable object identity,
   connection-compatible pagination where lists can grow, fragment-friendly
   field ownership, and mutation payloads that support safe store updates or
   explicit invalidation without requiring a JSON adapter fallback
-
-#### Scenario: TanStack Query and generated operation types are selected
-- **WHEN** the frontend platform selects TanStack Query plus generated GraphQL
-  operation types
-- **THEN** product GraphQL operations MUST provide stable operation names,
-  typed variables and results, explicit pagination/filtering inputs, safe
-  structured errors, and returned invalidation hints where commands affect
-  projection-backed routes
 
 #### Scenario: Product UI asks for JSON API compatibility
 - **WHEN** a product UI route can read or command workflow state through the

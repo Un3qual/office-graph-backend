@@ -45,54 +45,44 @@ has enough real screens to justify them.
 #### Scenario: App providers are introduced
 - **WHEN** the frontend platform adds top-level React providers
 - **THEN** the file SHOULD use a clear name such as `AppProviders.tsx` and MUST
-  contain only React application wrappers such as the selected GraphQL client
-  provider, router integration, session context, feature flags, or app config;
-  it MUST NOT be confused with external integration provider adapters
+  contain only React application wrappers such as the Relay provider, router
+  integration, session context, feature flags, or app config; it MUST NOT be
+  confused with external integration provider adapters
 
-### Requirement: Product GraphQL Client Model Is Singular
-Office Graph SHALL choose one product GraphQL server-state model for the
-frontend platform before implementation code depends on it.
+### Requirement: Product GraphQL Client Model Uses Relay
+Office Graph SHALL use Relay as the product GraphQL server-state model for the
+frontend platform.
 
-#### Scenario: GraphQL client decision is made
+#### Scenario: Frontend platform implementation starts
 - **WHEN** the frontend platform implementation starts
-- **THEN** the design MUST choose Relay or TanStack Query plus generated
-  GraphQL operation types for product GraphQL server state, and MUST document
-  why the selected client fits Office Graph's projection, authorization,
-  pagination, realtime, and testing requirements
+- **THEN** product GraphQL server state MUST use Relay and MUST document any
+  schema compatibility work needed for Office Graph's projection,
+  authorization, pagination, realtime, and testing requirements
 
-#### Scenario: Relay is selected
-- **WHEN** Relay is selected as the product GraphQL client
+#### Scenario: Product route consumes GraphQL data
+- **WHEN** a product route consumes GraphQL data
 - **THEN** route data and components MUST follow Relay conventions for
   environment setup, route/root queries, fragments, pagination, generated
   types, and store updates instead of adding a parallel homemade view-model or
   TanStack Query cache layer for the same GraphQL data
 
-#### Scenario: TanStack Query and generated operation types are selected
-- **WHEN** TanStack Query plus generated GraphQL operation types is selected
-- **THEN** route data modules MUST own named operations, generated result and
-  variable types, mapping helpers only where needed, query key factories, and
-  cache invalidation rules instead of scattering raw `fetch` or GraphQL
-  response objects through components
-
 #### Scenario: Product GraphQL data is cached
 - **WHEN** a product route reads GraphQL server state
-- **THEN** it MUST use the selected GraphQL client/cache model and MUST NOT
-  run Relay and TanStack Query as competing caches for the same product
-  GraphQL records
+- **THEN** it MUST use Relay and MUST NOT run TanStack Query as a competing
+  cache for the same product GraphQL records
 
 ## MODIFIED Requirements
 
 ### Requirement: Operator Server State Uses Query Hooks
-Office Graph SHALL use the selected product GraphQL client model for operator
-workflow server state.
+Office Graph SHALL use Relay for operator workflow server state.
 
 #### Scenario: Operator route reads workflow data
 
 - **WHEN** the operator React route reads inbox, selected item detail, packet
   readiness, run state, or verification state
-- **THEN** those reads MUST go through route-owned GraphQL data code using the
-  selected client model, with stable operation ownership, generated or inferred
-  types, and explicit loading, empty, error, and loaded states
+- **THEN** those reads MUST go through route-owned Relay data code with stable
+  operation ownership, generated Relay types, and explicit loading, empty,
+  error, and loaded states
 
 #### Scenario: Operator UI needs local interaction state
 
@@ -103,16 +93,16 @@ workflow server state.
 
 ### Requirement: Feature Data Hooks
 
-Office Graph SHALL route frontend data access through route-owned data modules,
+Office Graph SHALL route frontend data access through route-owned Relay data,
 Relay fragments, or typed feature clients rather than direct ad hoc fetch calls
 inside components.
 
 #### Scenario: Feature reads backend data
 
 - **WHEN** a feature route or panel reads Office Graph backend data
-- **THEN** the feature MUST consume data through the selected GraphQL client
-  model as route data, Relay fragment data, or typed UI data independent of raw
-  transport response shape or future socket/live invalidation payloads
+- **THEN** the feature MUST consume product GraphQL data through Relay route
+  data, Relay fragment data, or typed UI data independent of raw transport
+  response shape or future socket/live invalidation payloads
 
 #### Scenario: Old adapter has no current caller
 
@@ -124,9 +114,8 @@ inside components.
 #### Scenario: Product frontend has GraphQL coverage
 
 - **WHEN** the React product frontend has a GraphQL read for a feature route
-- **THEN** the product UI MUST use the GraphQL path directly through the
-  selected route-owned GraphQL client model and MUST NOT keep a frontend JSON
-  adapter as a compatibility requirement
+- **THEN** the product UI MUST use the GraphQL path directly through Relay and
+  MUST NOT keep a frontend JSON adapter as a compatibility requirement
 
 ### Requirement: Server State Is Managed Deliberately
 
@@ -137,9 +126,8 @@ state in the React app.
 
 - **WHEN** backend projection data is read by multiple routes, panels, or
   realtime invalidation paths
-- **THEN** the frontend MUST use the selected product GraphQL client/cache model
-  for loading, deduplication, cancellation, stale markers, refetching, and
-  error state
+- **THEN** the frontend MUST use Relay for loading, deduplication,
+  cancellation, stale markers, refetching, and error state
 
 #### Scenario: Local UI selection is needed
 

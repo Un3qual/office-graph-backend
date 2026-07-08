@@ -1,26 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: UI Projection Contracts Support The Selected GraphQL Client
+### Requirement: UI Projection Contracts Support Relay
 Office Graph SHALL shape product UI projection contracts so they can be consumed
-through the frontend platform's selected GraphQL client model without a
-parallel JSON adapter or route-specific transport workaround.
+through Relay without a parallel JSON adapter or route-specific transport
+workaround.
 
-#### Scenario: Relay is selected
+#### Scenario: Product route consumes projection through Relay
 - **WHEN** a product route consumes a projection through Relay
 - **THEN** the projection contract MUST define stable GraphQL object identity,
   pagination shape, fragment-safe field ownership, redaction behavior, and
   invalidation or update semantics that allow Relay components to declare data
   dependencies without reading hidden transport fields
 
-#### Scenario: TanStack Query and generated operation types are selected
-- **WHEN** a product route consumes a projection through TanStack Query and
-  generated GraphQL operation types
-- **THEN** the projection contract MUST define named operations, variable
-  shape, result shape, pagination, redaction behavior, and invalidation hints
-  that can be tested without exposing raw backend internals to components
-
 #### Scenario: GraphQL client model changes
-- **WHEN** an accepted change replaces the selected product GraphQL client model
+- **WHEN** an accepted change replaces Relay as the product GraphQL client model
 - **THEN** the projection contract MUST be updated in OpenSpec before route
   implementation changes so components do not drift across incompatible
   GraphQL data ownership patterns
