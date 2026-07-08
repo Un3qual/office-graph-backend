@@ -1,35 +1,44 @@
 defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  @operator_asset_paths [
+  @legacy_vite_asset_paths [
     "/assets/operator/main.css",
     "/assets/operator/main.js"
   ]
 
-  test "serves the React operator console app shell", %{conn: conn} do
+  test "serves the React Router operator console app shell", %{conn: conn} do
     html =
       conn
       |> get(~p"/operator")
       |> html_response(200)
 
-    assert html =~ ~s(id="operator-console-root")
-    assert html =~ "Operator Console"
-    assert html =~ ~s(href="/assets/operator/main.css")
-    assert html =~ ~s(src="/assets/operator/main.js")
+    assert html =~ "window.__reactRouterContext"
+    assert html =~ "Office Graph"
+    assert react_router_asset_paths(html) != []
+    refute html =~ ~s(id="operator-console-root")
+    refute html =~ ~s(href="/assets/operator/main.css")
+    refute html =~ ~s(src="/assets/operator/main.js")
     refute html =~ "data-phx-main"
     refute html =~ "live_socket"
   end
 
-  test "app shell assets match the frontend build contract", %{conn: conn} do
+  test "app shell assets match the React Router build contract", %{conn: conn} do
     html =
       conn
       |> get(~p"/operator")
       |> html_response(200)
 
-    assert app_shell_asset_paths(html) == [
-             "/assets/operator/main.css",
-             "/assets/operator/main.js"
-           ]
+    shell_asset_paths = react_router_asset_paths(html)
+
+    assert "/assets/operator/main.css" not in shell_asset_paths
+    assert "/assets/operator/main.js" not in shell_asset_paths
+    assert Enum.any?(shell_asset_paths, &String.ends_with?(&1, ".js"))
+    assert Enum.any?(shell_asset_paths, &String.ends_with?(&1, ".css"))
+
+    for asset_path <- shell_asset_paths do
+      assert File.exists?(react_router_build_asset_path(asset_path)),
+             "Expected React Router build asset #{asset_path} to exist"
+    end
 
     assert File.exists?("assets/package.json"),
            "Frontend package metadata must live under assets/package.json"
@@ -37,20 +46,19 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert File.exists?("assets/pnpm-lock.yaml"),
            "Frontend dependency lockfile must live under assets/pnpm-lock.yaml"
 
-    assert File.exists?("assets/vite.config.ts"),
-           "Frontend Vite config must live under assets/vite.config.ts"
+    assert File.exists?("assets/vite.react-router.config.ts"),
+           "Frontend React Router Vite config must live under assets/vite.react-router.config.ts"
 
     package_json = File.read!("assets/package.json")
-    vite_config = File.read!("assets/vite.config.ts")
     aliases = Mix.Project.config()[:aliases]
 
     assert package_json =~ ~s("packageManager": "pnpm@)
     assert package_json =~ ~s("verify:app-shell")
-    assert package_json =~ ~s("build": "vite build")
-    assert vite_config =~ ~s(outDir: "../priv/static")
-    assert vite_config =~ ~s|resolve(__dirname, "src/main.tsx")|
-    assert vite_config =~ ~s|entryFileNames: "assets/operator/[name].js"|
-    assert vite_config =~ ~s|assetFileNames: "assets/operator/[name][extname]"|
+
+    assert package_json =~
+             ~s("router:build": "react-router build --config vite.react-router.config.ts")
+
+    assert package_json =~ "pnpm run router:build && pnpm run verify:app-shell"
     assert aliases[:setup] == ["deps.get", "assets.setup", "ecto.setup"]
     assert aliases[:"assets.setup"] == ["cmd --cd assets pnpm install --frozen-lockfile"]
     assert aliases[:"assets.build"] == ["assets.setup", "cmd --cd assets pnpm run build"]
@@ -61,26 +69,30 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert OfficeGraph.MixProject.cli()[:preferred_envs][:verify] == :test
   end
 
-  test "operator app shell fails when required built assets are missing", %{conn: conn} do
-    moved_assets =
-      Enum.map(@operator_asset_paths, fn asset_path ->
-        path = static_asset_path(asset_path)
-        backup_path = path <> ".missing-test"
+  test "serves React Router build assets referenced by the app shell", %{conn: conn} do
+    html =
+      conn
+      |> get(~p"/operator")
+      |> html_response(200)
 
-        assert File.exists?(path),
-               "Expected test fixture asset #{asset_path} to exist at #{path}"
+    asset_path = Enum.find(react_router_asset_paths(html), &String.ends_with?(&1, ".js"))
 
-        File.rename!(path, backup_path)
-        {asset_path, path, backup_path}
-      end)
+    assert asset_path
 
-    on_exit(fn ->
-      Enum.each(moved_assets, fn {_asset_path, path, backup_path} ->
-        if File.exists?(backup_path) do
-          File.rename!(backup_path, path)
-        end
-      end)
-    end)
+    conn
+    |> get(asset_path)
+    |> response(200)
+  end
+
+  test "operator app shell fails when required React Router build assets are missing", %{
+    conn: conn
+  } do
+    assert_legacy_vite_assets_exist!()
+
+    missing_asset = react_router_build_asset_to_move!()
+    on_exit(fn -> restore_moved_asset(missing_asset) end)
+
+    File.rename!(missing_asset.path, missing_asset.backup_path)
 
     body =
       conn
@@ -88,17 +100,67 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
       |> response(503)
 
     assert body =~ "Operator console assets are missing"
+    assert body =~ missing_asset.asset_path
+  end
 
-    for {asset_path, _path, _backup_path} <- moved_assets do
-      assert body =~ asset_path
+  defp react_router_asset_paths(html) do
+    ~r/(?:href|src)="([^"]+)"|import\s+["']([^"']+)["']/
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match | captures] -> Enum.find(captures, &(&1 != "")) end)
+    |> Enum.filter(&String.starts_with?(&1, "/assets/"))
+    |> Enum.uniq()
+  end
+
+  defp react_router_build_asset_to_move! do
+    html = File.read!(react_router_build_index_path())
+
+    asset_path =
+      html
+      |> react_router_asset_paths()
+      |> Enum.find(&String.ends_with?(&1, ".js"))
+
+    assert asset_path, "Expected React Router index.html to reference a JavaScript asset"
+
+    path = react_router_build_asset_path(asset_path)
+    backup_path = path <> ".missing-test"
+
+    assert File.exists?(path),
+           "Expected React Router build asset #{asset_path} to exist at #{path}"
+
+    refute_backup_exists(backup_path)
+
+    %{asset_path: asset_path, path: path, backup_path: backup_path}
+  end
+
+  defp react_router_build_index_path do
+    Path.expand("../../assets/build/client/index.html", __DIR__)
+  end
+
+  defp react_router_build_asset_path(asset_path) do
+    Path.join(react_router_build_assets_dir(), String.trim_leading(asset_path, "/assets/"))
+  end
+
+  defp react_router_build_assets_dir do
+    Path.expand("../../assets/build/client/assets", __DIR__)
+  end
+
+  defp assert_legacy_vite_assets_exist! do
+    @legacy_vite_asset_paths
+    |> Enum.map(&static_asset_path/1)
+    |> Enum.each(fn path ->
+      assert File.exists?(path), "Expected legacy Vite asset to remain present at #{path}"
+    end)
+  end
+
+  defp restore_moved_asset(%{path: path, backup_path: backup_path}) do
+    if File.exists?(backup_path) do
+      File.rename!(backup_path, path)
     end
   end
 
-  defp app_shell_asset_paths(html) do
-    ~r/(?:href|src)="([^"]+)"/
-    |> Regex.scan(html, capture: :all_but_first)
-    |> List.flatten()
-    |> Enum.filter(&String.starts_with?(&1, "/assets/operator/"))
+  defp refute_backup_exists(backup_path) do
+    refute File.exists?(backup_path),
+           "Refusing to overwrite existing missing-asset backup #{backup_path}"
   end
 
   defp static_asset_path(asset_path) do
