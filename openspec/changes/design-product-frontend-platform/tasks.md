@@ -7,10 +7,10 @@
 
 ## 2. React Router Framework Mode Foundation
 
-- [ ] 2.1 Add React Router Framework Mode configuration under `assets` without changing Phoenix product routing semantics beyond serving the built SPA.
-- [ ] 2.2 Create the route root, route config, and route-owned operator module using the accepted route-first layout.
-- [ ] 2.3 Add `AppProviders.tsx` for React application wrappers only, including the Relay provider and any required app/session context.
-- [ ] 2.4 Keep shared UI shallow under the accepted layout and avoid `platform`, `domains`, `shared/design`, or `shared/ui` folders unless a concrete repeated-code need is documented.
+- [x] 2.1 Add React Router Framework Mode configuration under `assets` without changing Phoenix product routing semantics beyond serving the built SPA.
+- [x] 2.2 Create the route root, route config, and route-owned operator module using the accepted route-first layout.
+- [x] 2.3 Add `AppProviders.tsx` for React application wrappers only, including the Relay provider and any required app/session context.
+- [x] 2.4 Keep shared UI shallow under the accepted layout and avoid `platform`, `domains`, `shared/design`, or `shared/ui` folders unless a concrete repeated-code need is documented.
 
 ## 3. Operator Route Migration
 
