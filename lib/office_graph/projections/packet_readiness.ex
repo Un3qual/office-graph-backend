@@ -2,6 +2,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
   @moduledoc false
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.Projections.CommandAffordance
   alias OfficeGraph.WorkGraph.{GraphItem, VerificationCheck}
   alias OfficeGraph.WorkPackets
 
@@ -22,12 +23,16 @@ defmodule OfficeGraph.Projections.PacketReadiness do
 
       ready? = blockers == []
 
+      command_affordances =
+        packet_command_affordances(ready?, blockers, source_links, required_checks)
+
       {:ok,
        %{
          type: "packet_readiness",
          ready?: ready?,
          status: if(ready?, do: "packet_ready", else: "blocked"),
-         allowed_next_actions: if(ready?, do: ["create_work_packet"], else: []),
+         allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
+         command_affordances: command_affordances,
          blocker_reasons: blockers,
          source_links: source_links,
          required_checks: required_checks,
@@ -171,7 +176,54 @@ defmodule OfficeGraph.Projections.PacketReadiness do
            organization_id: session_context.organization_id
          ) do
       :ok -> []
-      {:error, :forbidden} -> ["missing_work_packet_create_capability"]
+      {:error, :forbidden} -> ["policy_restricted"]
     end
+  end
+
+  defp packet_command_affordances(ready?, blockers, source_links, required_checks) do
+    cond do
+      "policy_restricted" in blockers ->
+        [
+          CommandAffordance.hidden(
+            "create_work_packet",
+            "This command is not available for the current operator.",
+            reason_codes: ["policy_restricted"],
+            blocker_reasons: ["policy_restricted"],
+            required_fields: CommandAffordance.packet_required_fields()
+          )
+        ]
+
+      ready? ->
+        [
+          CommandAffordance.enabled(
+            "create_work_packet",
+            "Create a work packet from the selected sources and checks.",
+            required_fields: CommandAffordance.packet_required_fields(),
+            target_ids: packet_target_ids(source_links, required_checks)
+          )
+        ]
+
+      true ->
+        [
+          CommandAffordance.disabled(
+            "create_work_packet",
+            "Resolve packet readiness blockers before creating a work packet.",
+            reason_codes: blockers,
+            blocker_reasons: blockers,
+            required_fields: CommandAffordance.packet_required_fields(),
+            target_ids: packet_target_ids(source_links, required_checks)
+          )
+        ]
+    end
+  end
+
+  defp packet_target_ids(source_links, required_checks) do
+    source_targets =
+      Enum.map(source_links, &CommandAffordance.target_id("graph_item", &1.graph_item_id))
+
+    check_targets =
+      Enum.map(required_checks, &CommandAffordance.target_id("verification_check", &1.id))
+
+    CommandAffordance.compact_target_ids(source_targets ++ check_targets)
   end
 end

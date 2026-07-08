@@ -24,6 +24,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         normalizedEventId
         status
         allowedNextActions
+        commandAffordances {
+          identity
+          state
+          reasonCodes
+          blockerReasons
+          safeExplanation
+          requiredFields
+          targetIds { type id }
+          traceLinks { type id }
+          decisionLinks { type id }
+        }
         blockerReasons
         source { identity replayIdentity outcome }
         proposedChangeStatus { pending applied rejected total }
@@ -48,6 +59,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           normalizedEventId
           status
           allowedNextActions
+          commandAffordances {
+            identity
+            state
+            reasonCodes
+            blockerReasons
+            safeExplanation
+            requiredFields
+            targetIds { type id }
+            traceLinks { type id }
+            decisionLinks { type id }
+          }
         }
       }
     }
@@ -79,6 +101,27 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"
     assert row["allowedNextActions"] == ["apply_proposed_changes"]
+
+    assert [
+             %{
+               "identity" => "apply_proposed_changes",
+               "state" => "enabled",
+               "reasonCodes" => [],
+               "blockerReasons" => [],
+               "safeExplanation" => "Apply pending proposed changes for this intake.",
+               "requiredFields" => [],
+               "targetIds" => [
+                 %{
+                   "type" => "normalized_intake_event",
+                   "id" => normalized_event_id
+                 }
+               ],
+               "traceLinks" => [],
+               "decisionLinks" => []
+             }
+           ] = row["commandAffordances"]
+
+    assert normalized_event_id == intake.normalized_event.id
     assert row["source"]["replayIdentity"] == "paste:graphql-inbox"
     assert row["proposedChangeStatus"]["pending"] == 4
 
@@ -92,6 +135,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           operatorWorkflowItem(id: $id) {
             status
             allowedNextActions
+            commandAffordances {
+              identity
+              state
+              reasonCodes
+              blockerReasons
+              safeExplanation
+              requiredFields
+              targetIds { type id }
+              traceLinks { type id }
+              decisionLinks { type id }
+            }
             blockerReasons
             graphLinks { type id graphItemId state }
             graphRelationships { relationshipType }
@@ -107,6 +161,26 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert item["status"] == "ready_for_packet"
     assert item["allowedNextActions"] == ["prepare_packet"]
     assert item["blockerReasons"] == []
+    assert [prepare_command] = item["commandAffordances"]
+    assert prepare_command["identity"] == "prepare_packet"
+    assert prepare_command["state"] == "enabled"
+    assert prepare_command["reasonCodes"] == []
+    assert prepare_command["blockerReasons"] == []
+    assert prepare_command["safeExplanation"] == "Prepare a work packet from the applied intake."
+
+    assert prepare_command["requiredFields"] == [
+             "title",
+             "objective",
+             "context_summary",
+             "requirements",
+             "success_criteria",
+             "autonomy_posture",
+             "source_graph_item_ids",
+             "verification_check_ids"
+           ]
+
+    assert %{"type" => "operation"} = hd(prepare_command["traceLinks"])
+    assert prepare_command["decisionLinks"] == []
 
     assert Enum.map(item["graphLinks"], & &1["type"]) == [
              "signal",
@@ -123,6 +197,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert Enum.find(item["graphLinks"], &(&1["type"] == "verification_check"))["id"] ==
              applied.verification_check.id
+
+    prepare_targets = prepare_command["targetIds"]
+
+    assert %{"type" => "verification_check", "id" => applied.verification_check.id} in prepare_targets
 
     assert Enum.map(item["graphRelationships"], & &1["relationshipType"]) == [
              "produced_task",
@@ -244,6 +322,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             status
             ready
             allowedNextActions
+            commandAffordances {
+              identity
+              state
+              reasonCodes
+              blockerReasons
+              safeExplanation
+              requiredFields
+              targetIds { type id }
+              traceLinks { type id }
+              decisionLinks { type id }
+            }
             blockerReasons
             requiredChecks { id graphItemId state }
           }
@@ -256,6 +345,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert readiness["status"] == "packet_ready"
     assert readiness["ready"] == true
     assert readiness["allowedNextActions"] == ["create_work_packet"]
+    assert [create_packet] = readiness["commandAffordances"]
+    assert create_packet["identity"] == "create_work_packet"
+    assert create_packet["state"] == "enabled"
+    assert create_packet["reasonCodes"] == []
+    assert create_packet["blockerReasons"] == []
+
+    assert create_packet["safeExplanation"] ==
+             "Create a work packet from the selected sources and checks."
 
     assert [%{"id" => check_id, "graphItemId" => graph_item_id, "state" => "required"}] =
              readiness["requiredChecks"]
@@ -287,6 +384,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           operatorRunState(id: $id) {
             status
             allowedNextActions
+            commandAffordances {
+              identity
+              state
+              reasonCodes
+              blockerReasons
+              safeExplanation
+              requiredFields
+              targetIds { type id }
+              traceLinks { type id }
+              decisionLinks { type id }
+            }
             run { id aggregateState verificationState }
             missingEvidence { verificationCheckId reason }
             evidenceCandidates { id state verificationCheckId executionObservationId }
@@ -299,9 +407,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert run_state["status"] == "awaiting_evidence_acceptance"
     assert run_state["allowedNextActions"] == ["accept_evidence"]
+    assert [accept_evidence] = run_state["commandAffordances"]
+    assert accept_evidence["identity"] == "accept_evidence"
+    assert accept_evidence["state"] == "enabled"
+    assert accept_evidence["reasonCodes"] == []
+    assert accept_evidence["blockerReasons"] == []
+
+    assert accept_evidence["safeExplanation"] ==
+             "Accept a candidate as evidence for a missing check."
+
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
     assert hd(run_state["evidenceCandidates"])["id"] == candidate.id
+    assert %{"type" => "evidence_candidate", "id" => candidate.id} in accept_evidence["targetIds"]
 
     assert hd(run_state["evidenceCandidates"])["executionObservationId"] ==
              observation_result.observation.id

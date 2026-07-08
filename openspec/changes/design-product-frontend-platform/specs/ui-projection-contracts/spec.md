@@ -58,7 +58,7 @@ raw infrastructure mechanics.
 ### Requirement: Allowed Commands Come From Backend Reads
 
 Office Graph SHALL provide allowed commands and UI affordances through backend
-reads when the UI needs to start, continue, or explain workflow actions.
+reads when the UI needs to start, continue, or explain workflow commands.
 
 #### Scenario: UI renders packet readiness or run-start command
 

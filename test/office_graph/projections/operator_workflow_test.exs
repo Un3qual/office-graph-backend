@@ -28,6 +28,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert row.reason_codes == []
     assert row.blocker_reasons == []
     assert row.allowed_next_actions == ["apply_proposed_changes"]
+    normalized_event_id = intake.normalized_event.id
+
+    assert [
+             %{
+               identity: "apply_proposed_changes",
+               state: "enabled",
+               reason_codes: [],
+               blocker_reasons: [],
+               safe_explanation: "Apply pending proposed changes for this intake.",
+               required_fields: [],
+               target_ids: [
+                 %{type: "normalized_intake_event", id: ^normalized_event_id}
+               ],
+               trace_links: [],
+               decision_links: []
+             }
+           ] = row.command_affordances
+
     assert row.operation_watermark == intake.normalized_event.operation_id
 
     assert row.source == %{
@@ -59,6 +77,26 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert detail.status == "ready_for_packet"
     assert detail.allowed_next_actions == ["prepare_packet"]
     assert detail.blocker_reasons == []
+    assert [prepare_command] = detail.command_affordances
+    assert prepare_command.identity == "prepare_packet"
+    assert prepare_command.state == "enabled"
+    assert prepare_command.reason_codes == []
+    assert prepare_command.blocker_reasons == []
+    assert prepare_command.safe_explanation == "Prepare a work packet from the applied intake."
+
+    assert prepare_command.required_fields == [
+             "title",
+             "objective",
+             "context_summary",
+             "requirements",
+             "success_criteria",
+             "autonomy_posture",
+             "source_graph_item_ids",
+             "verification_check_ids"
+           ]
+
+    assert %{type: "operation", id: detail.audit_trace.operation_id} in prepare_command.trace_links
+    assert prepare_command.decision_links == []
 
     graph_link_types = Enum.map(detail.graph_links, & &1.type)
     assert graph_link_types == ["signal", "task", "review_finding", "verification_check"]
@@ -71,6 +109,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert Enum.find(detail.graph_links, &(&1.type == "verification_check")).id ==
              applied.verification_check.id
+
+    assert %{type: "verification_check", id: applied.verification_check.id} in prepare_command.target_ids
 
     assert Enum.map(detail.graph_relationships, & &1.relationship_type) == [
              "produced_task",
@@ -300,6 +340,30 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert ready.status == "packet_ready"
     assert ready.blocker_reasons == []
     assert ready.allowed_next_actions == ["create_work_packet"]
+    assert [create_packet] = ready.command_affordances
+    assert create_packet.identity == "create_work_packet"
+    assert create_packet.state == "enabled"
+    assert create_packet.reason_codes == []
+    assert create_packet.blocker_reasons == []
+
+    assert create_packet.safe_explanation ==
+             "Create a work packet from the selected sources and checks."
+
+    assert create_packet.required_fields == [
+             "title",
+             "objective",
+             "context_summary",
+             "requirements",
+             "success_criteria",
+             "autonomy_posture",
+             "source_graph_item_ids",
+             "verification_check_ids"
+           ]
+
+    assert %{type: "graph_item", id: verification_check.graph_item_id} in create_packet.target_ids
+    assert %{type: "verification_check", id: verification_check.id} in create_packet.target_ids
+    assert create_packet.trace_links == []
+    assert create_packet.decision_links == []
 
     assert ready.required_checks == [
              %{
@@ -319,6 +383,17 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert missing_title.allowed_next_actions == []
     assert missing_title.blocker_reasons == ["missing_title"]
 
+    assert [
+             %{
+               identity: "create_work_packet",
+               state: "disabled",
+               reason_codes: ["missing_title"],
+               blocker_reasons: ["missing_title"],
+               safe_explanation:
+                 "Resolve packet readiness blockers before creating a work packet."
+             }
+           ] = missing_title.command_affordances
+
     assert {:ok, blank_title} =
              Projections.packet_readiness(bootstrap.session, %{ready_attrs | title: " "})
 
@@ -333,7 +408,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert unauthorized.ready? == false
     assert unauthorized.status == "blocked"
     assert unauthorized.allowed_next_actions == []
-    assert unauthorized.blocker_reasons == ["missing_work_packet_create_capability"]
+    assert unauthorized.blocker_reasons == ["policy_restricted"]
+
+    assert [
+             %{
+               identity: "create_work_packet",
+               state: "hidden",
+               reason_codes: ["policy_restricted"],
+               blocker_reasons: ["policy_restricted"],
+               safe_explanation: "This command is not available for the current operator.",
+               target_ids: []
+             }
+           ] = unauthorized.command_affordances
+
+    refute inspect(unauthorized.command_affordances) =~ "work_packet_create"
 
     {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
 
@@ -436,6 +524,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert initial_state.status == "awaiting_execution"
     assert initial_state.allowed_next_actions == ["record_observation"]
+    assert [record_observation] = initial_state.command_affordances
+    assert record_observation.identity == "record_observation"
+    assert record_observation.state == "enabled"
+    assert record_observation.reason_codes == []
+    assert record_observation.blocker_reasons == []
+    assert record_observation.safe_explanation == "Record execution observations for this run."
+    assert record_observation.required_fields == ["observations"]
+    assert %{type: "work_run", id: run_result.run.id} in record_observation.target_ids
+
+    assert %{type: "verification_check", id: verification_check.id} in record_observation.target_ids
 
     assert initial_state.missing_evidence == [
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
@@ -460,6 +558,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert awaiting_evidence.status == "awaiting_evidence_acceptance"
     assert awaiting_evidence.allowed_next_actions == ["accept_evidence"]
+    assert [accept_evidence] = awaiting_evidence.command_affordances
+    assert accept_evidence.identity == "accept_evidence"
+    assert accept_evidence.state == "enabled"
+    assert accept_evidence.reason_codes == []
+    assert accept_evidence.blocker_reasons == []
+
+    assert accept_evidence.safe_explanation ==
+             "Accept a candidate as evidence for a missing check."
+
+    assert accept_evidence.required_fields == ["evidence_candidate_id", "title", "body", "result"]
 
     assert [
              %{
@@ -473,6 +581,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert candidate_id == candidate.id
     assert observation_id == observation_result.observation.id
+    assert %{type: "evidence_candidate", id: candidate.id} in accept_evidence.target_ids
 
     {:ok, accepted} =
       accept_candidate(bootstrap.session, candidate, key: "operator-run-state", result: "passed")
@@ -482,6 +591,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert verified_state.status == "verified"
     assert verified_state.allowed_next_actions == []
+    assert verified_state.command_affordances == []
     assert verified_state.missing_evidence == []
     assert [%{id: evidence_item_id, state: "accepted"}] = verified_state.evidence_items
     assert evidence_item_id == accepted.evidence_item.id

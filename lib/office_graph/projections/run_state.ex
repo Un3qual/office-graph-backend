@@ -1,6 +1,7 @@
 defmodule OfficeGraph.Projections.RunState do
   @moduledoc false
 
+  alias OfficeGraph.Projections.CommandAffordance
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph.EvidenceCandidate
@@ -40,11 +41,13 @@ defmodule OfficeGraph.Projections.RunState do
 
   defp build_run_state(summary, evidence_candidates) do
     status = run_status(summary, evidence_candidates)
+    command_affordances = run_command_affordances(status, summary, evidence_candidates)
 
     %{
       type: "operator_run_state",
       status: status,
-      allowed_next_actions: run_next_actions(status),
+      allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
+      command_affordances: command_affordances,
       source_watermark: summary.run.id,
       packet: %{
         id: summary.packet.id,
@@ -140,10 +143,47 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp run_next_actions("awaiting_execution"), do: ["record_observation"]
-  defp run_next_actions("awaiting_evidence"), do: ["create_evidence_candidate"]
-  defp run_next_actions("awaiting_evidence_acceptance"), do: ["accept_evidence"]
-  defp run_next_actions(_status), do: []
+  defp run_command_affordances("awaiting_execution", summary, _evidence_candidates) do
+    [
+      CommandAffordance.enabled(
+        "record_observation",
+        "Record execution observations for this run.",
+        required_fields: ["observations"],
+        target_ids: run_target_ids(summary)
+      )
+    ]
+  end
+
+  defp run_command_affordances("awaiting_evidence", summary, _evidence_candidates) do
+    [
+      CommandAffordance.enabled(
+        "create_evidence_candidate",
+        "Create an evidence candidate for missing verification evidence.",
+        required_fields: [
+          "claim",
+          "source_kind",
+          "source_identity",
+          "freshness_state",
+          "trust_basis"
+        ],
+        target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
+      )
+    ]
+  end
+
+  defp run_command_affordances("awaiting_evidence_acceptance", summary, evidence_candidates) do
+    [
+      CommandAffordance.enabled(
+        "accept_evidence",
+        "Accept a candidate as evidence for a missing check.",
+        required_fields: ["evidence_candidate_id", "title", "body", "result"],
+        target_ids:
+          run_target_ids(summary) ++ acceptable_candidate_target_ids(summary, evidence_candidates)
+      )
+    ]
+  end
+
+  defp run_command_affordances(_status, _summary, _evidence_candidates), do: []
 
   defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
     missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
@@ -153,6 +193,35 @@ defmodule OfficeGraph.Projections.RunState do
         MapSet.member?(missing_check_ids, candidate.verification_check_id) and
         Verification.acceptable_evidence_source?(candidate)
     end)
+  end
+
+  defp run_target_ids(summary) do
+    check_targets =
+      Enum.map(summary.missing_evidence, fn missing ->
+        CommandAffordance.target_id("verification_check", missing.verification_check_id)
+      end)
+
+    [CommandAffordance.target_id("work_run", summary.run.id) | check_targets]
+    |> CommandAffordance.compact_target_ids()
+  end
+
+  defp observation_target_ids(summary) do
+    summary.observations
+    |> Enum.map(&CommandAffordance.target_id("execution_observation", &1.id))
+    |> CommandAffordance.compact_target_ids()
+  end
+
+  defp acceptable_candidate_target_ids(summary, evidence_candidates) do
+    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
+
+    evidence_candidates
+    |> Enum.filter(fn candidate ->
+      candidate.candidate_state == "candidate" and
+        MapSet.member?(missing_check_ids, candidate.verification_check_id) and
+        Verification.acceptable_evidence_source?(candidate)
+    end)
+    |> Enum.map(&CommandAffordance.target_id("evidence_candidate", &1.id))
+    |> CommandAffordance.compact_target_ids()
   end
 
   defp evidence_candidate_projection(candidate) do
