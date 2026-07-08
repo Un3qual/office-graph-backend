@@ -1,12 +1,17 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Badge } from "../../ui/Badge";
-import { Panel, PanelRows } from "../../ui/Panel";
-import type { OperatorRunState } from "../workflowTypes";
-import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { Panel, PanelRows } from "../../../../src/ui/Panel";
+import {
+  enabledCommandIdentities,
+  formatLabel,
+  isQueryLoading,
+  listText,
+  statusTone
+} from "../presentation";
+import type { OperatorRunState, QueryState } from "../types";
 
 type Props = {
   runId: string | null;
-  runState: UseQueryResult<OperatorRunState>;
+  runState: QueryState<OperatorRunState>;
 };
 
 export function RunPanel({ runId, runState }: Props) {
@@ -26,8 +31,16 @@ export function RunPanel({ runId, runState }: Props) {
           <PanelRows
             rows={[
               ["Packet", runState.data.packet.title],
-              ["Objective", runState.data.packetVersion.objective],
-              ["Actions", listText(runState.data.allowedNextActions)],
+              ["Objective", runState.data.packetVersion.objective ?? "None"],
+              [
+                "Actions",
+                listText(
+                  enabledCommandIdentities(
+                    runState.data.commandAffordances,
+                    runState.data.allowedNextActions
+                  )
+                )
+              ],
               ["Execution", formatLabel(runState.data.run.executionState)],
               ["Verification", formatLabel(runState.data.run.verificationState)],
               [
@@ -35,7 +48,7 @@ export function RunPanel({ runId, runState }: Props) {
                 runState.data.requiredChecks
                   .map(
                     (check) =>
-                      `${check.verificationCheckId}: ${formatLabel(check.state)}`
+                      `${check.verificationCheckId ?? "unknown"}: ${formatLabel(check.state)}`
                   )
                   .join(", ") || "None"
               ],

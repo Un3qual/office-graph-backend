@@ -1,5 +1,5 @@
-import type { FetchStatus } from "@tanstack/react-query";
-import type { BadgeTone } from "../ui/Badge";
+import type { BadgeTone } from "../../../src/ui/Badge";
+import type { OperatorCommandAffordance, QueryState } from "./types";
 
 export function formatLabel(value: string | null | undefined) {
   if (!value) {
@@ -11,12 +11,23 @@ export function formatLabel(value: string | null | undefined) {
   return label.slice(0, 1).toUpperCase() + label.slice(1);
 }
 
-export function listText(values: string[]) {
+export function listText(values: readonly string[]) {
   return values.length > 0 ? values.map(formatLabel).join(", ") : "None";
 }
 
-export function isQueryLoading(query: { fetchStatus: FetchStatus; isPending: boolean }) {
+export function isQueryLoading(query: Pick<QueryState<unknown>, "fetchStatus" | "isPending">) {
   return query.fetchStatus === "fetching" || (query.isPending && query.fetchStatus === "paused");
+}
+
+export function enabledCommandIdentities(
+  affordances: readonly OperatorCommandAffordance[],
+  fallback: readonly string[]
+) {
+  const enabled = affordances
+    .filter((affordance) => affordance.state === "enabled")
+    .map((affordance) => affordance.identity);
+
+  return enabled.length > 0 ? enabled : fallback;
 }
 
 export function statusTone(status: string): BadgeTone {

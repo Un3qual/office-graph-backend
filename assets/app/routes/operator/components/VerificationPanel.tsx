@@ -1,7 +1,7 @@
-import { Badge } from "../../ui/Badge";
-import { Panel, PanelRows } from "../../ui/Panel";
-import type { VerificationOutcome } from "../workflowTypes";
-import { formatLabel, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { Panel, PanelRows } from "../../../../src/ui/Panel";
+import { formatLabel, statusTone } from "../presentation";
+import type { VerificationOutcome } from "../types";
 
 type Props = {
   verification: VerificationOutcome | null;

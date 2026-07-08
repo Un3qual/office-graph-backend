@@ -1,13 +1,19 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Badge } from "../../ui/Badge";
-import { EmptyState } from "../../ui/EmptyState";
-import { PanelRows } from "../../ui/Panel";
-import type { OperatorWorkflowItem } from "../workflowTypes";
-import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { EmptyState } from "../../../../src/ui/EmptyState";
+import { PanelRows } from "../../../../src/ui/Panel";
+import { itemTitle } from "../derived";
+import {
+  enabledCommandIdentities,
+  formatLabel,
+  isQueryLoading,
+  listText,
+  statusTone
+} from "../presentation";
+import type { OperatorWorkflowItem, QueryState } from "../types";
 
 type Props = {
   item: OperatorWorkflowItem | null;
-  itemQuery: UseQueryResult<OperatorWorkflowItem>;
+  itemQuery: QueryState<OperatorWorkflowItem>;
 };
 
 export function ItemSummary({ item, itemQuery }: Props) {
@@ -17,7 +23,7 @@ export function ItemSummary({ item, itemQuery }: Props) {
     <section aria-label="Item detail" className="detail-pane">
       <div className="detail-header">
         <p className="eyebrow">Selected item</p>
-        <h2>{item?.title ?? "No item selected"}</h2>
+        <h2>{item ? itemTitle(item) : "No item selected"}</h2>
       </div>
       {!item && isLoading ? <EmptyState title="Loading item detail..." /> : null}
       {itemQuery.isError ? (
@@ -61,7 +67,10 @@ export function ItemSummary({ item, itemQuery }: Props) {
           </dl>
           <PanelRows
             rows={[
-              ["Actions", listText(item.allowedNextActions)],
+              [
+                "Actions",
+                listText(enabledCommandIdentities(item.commandAffordances, item.allowedNextActions))
+              ],
               ["Blockers", listText(item.blockerReasons)],
               ["Suggestions", proposedChangeText(item)],
               ["Graph links", item.graphLinks.map((link) => link.title).join(", ") || "None"],
@@ -84,7 +93,7 @@ function proposedChangeText(item: OperatorWorkflowItem) {
   return `${proposed.pending} pending, ${proposed.applied} applied, ${proposed.rejected} rejected`;
 }
 
-function traceText(operationId: string | null, resourceCount: number) {
+function traceText(operationId: string | null | undefined, resourceCount: number) {
   return operationId ? `${operationId} (${resourceCount} resources)` : `${resourceCount} resources`;
 }
 

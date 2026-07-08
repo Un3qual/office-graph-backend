@@ -14,10 +14,10 @@
 
 ## 3. Operator Route Migration
 
-- [ ] 3.1 Move the existing `/operator` React surface into the route-owned module without adding new product behavior.
-- [ ] 3.2 Replace old operator data hooks or mappers with Relay root queries, fragments, and generated Relay types.
-- [ ] 3.3 Remove frontend JSON adapter assumptions for operator workflow reads once GraphQL route data covers the current behavior.
-- [ ] 3.4 Preserve current operator loading, empty, error, selected-row, readiness, run, and verification states.
+- [x] 3.1 Move the existing `/operator` React surface into the route-owned module without adding new product behavior.
+- [x] 3.2 Replace old operator data hooks or mappers with Relay root queries, fragments, and generated Relay types.
+- [x] 3.3 Remove frontend JSON adapter assumptions for operator workflow reads once GraphQL route data covers the current behavior.
+- [x] 3.4 Preserve current operator loading, empty, error, selected-row, readiness, run, and verification states.
 
 ## 4. Command Affordance Contract
 
@@ -27,7 +27,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Add or update frontend typecheck and component tests for the route-first operator module.
+- [x] 5.1 Add or update frontend typecheck and component tests for the route-first operator module.
 - [x] 5.2 Add the Relay compiler check to frontend verification.
 - [ ] 5.3 Add import-boundary tests that prevent shared UI from importing route internals, GraphQL documents, product command logic, or domain-specific product vocabulary.
 - [ ] 5.4 Keep or update Phoenix app-shell asset tests so `/operator` fails when the built React Router assets are missing.

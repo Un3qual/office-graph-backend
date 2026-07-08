@@ -30,10 +30,15 @@ export const OperatorWorkflowRouteQuery = graphql`
 `;
 
 export const OperatorWorkflowItemFragment = graphql`
-  fragment OperatorWorkflowItemFragment on OperatorWorkflowItem {
+  fragment OperatorWorkflowItemFragment on OperatorWorkflowItem @inline {
     id
     type
+    typedId {
+      type
+      id
+    }
     normalizedEventId
+    duplicateOfId
     status
     reasonCodes
     source {
@@ -49,6 +54,14 @@ export const OperatorWorkflowItemFragment = graphql`
     }
     blockerReasons
     allowedNextActions
+    commandAffordances {
+      identity
+      state
+      reasonCodes
+      blockerReasons
+      safeExplanation
+      requiredFields
+    }
     operationWatermark
     sourceWatermark
     graphLinks {
@@ -67,18 +80,132 @@ export const OperatorWorkflowItemFragment = graphql`
     auditTrace {
       operationId
       resourceCount
-      resources {
-        type
-        id
-      }
     }
     revisionTrace {
       operationId
       resourceCount
-      resources {
-        type
-        id
-      }
+    }
+  }
+`;
+
+export const OperatorPacketReadinessFragment = graphql`
+  fragment OperatorPacketReadinessFragment on OperatorPacketReadiness @inline {
+    type
+    ready
+    status
+    allowedNextActions
+    commandAffordances {
+      identity
+      state
+      reasonCodes
+      blockerReasons
+      safeExplanation
+      requiredFields
+    }
+    blockerReasons
+    sourceLinks {
+      title
+    }
+    requiredChecks {
+      state
+    }
+    sourceWatermark
+  }
+`;
+
+export const OperatorPacketReadinessQuery = graphql`
+  query OperatorPacketReadinessQuery($input: OperatorPacketReadinessInput!) {
+    operatorPacketReadiness(input: $input) {
+      ...OperatorPacketReadinessFragment
+    }
+  }
+`;
+
+export const OperatorRunStateFragment = graphql`
+  fragment OperatorRunStateFragment on OperatorRunState @inline {
+    type
+    status
+    allowedNextActions
+    commandAffordances {
+      identity
+      state
+      reasonCodes
+      blockerReasons
+      safeExplanation
+      requiredFields
+    }
+    sourceWatermark
+    packet {
+      id
+      title
+      state
+    }
+    packetVersion {
+      id
+      versionNumber
+      lifecycleState
+      objective
+    }
+    run {
+      id
+      aggregateState
+      executionState
+      verificationState
+    }
+    requiredChecks {
+      verificationCheckId
+      state
+    }
+    observations {
+      id
+      verificationCheckId
+      graphItemId
+      normalizedStatus
+      freshnessState
+      trustBasis
+      sourceKind
+      sourceIdentity
+    }
+    evidenceCandidates {
+      id
+      verificationCheckId
+      executionObservationId
+      claim
+      state
+      freshnessState
+      trustBasis
+      sourceKind
+      sourceIdentity
+    }
+    evidenceItems {
+      id
+      state
+      candidateId
+      workRunId
+    }
+    verificationResults {
+      id
+      result
+      verificationCheckId
+      evidenceItemId
+      operationId
+      actorPrincipalId
+      policyBasis
+      targetGraphItemId
+      workRunId
+      workPacketVersionId
+    }
+    missingEvidence {
+      verificationCheckId
+      reason
+    }
+  }
+`;
+
+export const OperatorRunStateQuery = graphql`
+  query OperatorRunStateQuery($id: ID!) {
+    operatorRunState(id: $id) {
+      ...OperatorRunStateFragment
     }
   }
 `;

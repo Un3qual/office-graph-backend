@@ -1,13 +1,13 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Badge } from "../../ui/Badge";
-import { EmptyState } from "../../ui/EmptyState";
-import { PaneHeader } from "../../ui/Panel";
-import type { OperatorInbox, OperatorWorkflowItem } from "../workflowTypes";
-import { formatLabel, listText, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { EmptyState } from "../../../../src/ui/EmptyState";
+import { PaneHeader } from "../../../../src/ui/Panel";
+import { itemTitle } from "../derived";
+import { enabledCommandIdentities, formatLabel, listText, statusTone } from "../presentation";
+import type { OperatorInbox, OperatorWorkflowItem, QueryState } from "../types";
 
 type Props = {
   canPageBackward: boolean;
-  inbox: UseQueryResult<OperatorInbox>;
+  inbox: QueryState<OperatorInbox>;
   onNextPage: () => void;
   onPreviousPage: () => void;
   rows: OperatorWorkflowItem[];
@@ -45,10 +45,11 @@ export function InboxList({
       {rows.length > 0 ? (
         <div className="inbox-list">
           {rows.map((row) => {
+            const commands = enabledCommandIdentities(row.commandAffordances, row.allowedNextActions);
             const context =
               row.blockerReasons.length > 0
                 ? `Blockers ${listText(row.blockerReasons)}`
-                : `Actions ${listText(row.allowedNextActions)}`;
+                : `Actions ${listText(commands)}`;
 
             return (
               <button
@@ -57,7 +58,7 @@ export function InboxList({
                 key={row.normalizedEventId}
                 onClick={() => onSelect(row.normalizedEventId)}
               >
-                <span className="row-title">{row.title}</span>
+                <span className="row-title">{itemTitle(row)}</span>
                 <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
                 <span className="row-source">{row.source.identity}</span>
                 <span className="row-meta">

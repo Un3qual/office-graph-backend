@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<149f2222293eddddc6ca856a0eab0148>>
+ * @generated SignedSource<<fef766b558cd6e666bcd5c2d9cda5caa>>
  * @lightSyntaxTransform
  */
 
@@ -64,10 +64,291 @@ v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "__typename",
+  "name": "type",
   "storageKey": null
 },
 v5 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorTypedId",
+  "kind": "LinkedField",
+  "name": "typedId",
+  "plural": false,
+  "selections": [
+    (v4/*:: as any*/),
+    (v3/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v6 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "normalizedEventId",
+  "storageKey": null
+},
+v7 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "duplicateOfId",
+  "storageKey": null
+},
+v8 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "status",
+  "storageKey": null
+},
+v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "reasonCodes",
+  "storageKey": null
+},
+v10 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "identity",
+  "storageKey": null
+},
+v11 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorSource",
+  "kind": "LinkedField",
+  "name": "source",
+  "plural": false,
+  "selections": [
+    (v10/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "replayIdentity",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "outcome",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v12 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorProposedChangeStatus",
+  "kind": "LinkedField",
+  "name": "proposedChangeStatus",
+  "plural": false,
+  "selections": [
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "pending",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "applied",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "rejected",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "total",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v13 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "blockerReasons",
+  "storageKey": null
+},
+v14 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "allowedNextActions",
+  "storageKey": null
+},
+v15 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "state",
+  "storageKey": null
+},
+v16 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorCommandAffordance",
+  "kind": "LinkedField",
+  "name": "commandAffordances",
+  "plural": true,
+  "selections": [
+    (v10/*:: as any*/),
+    (v15/*:: as any*/),
+    (v9/*:: as any*/),
+    (v13/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "safeExplanation",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "requiredFields",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v17 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "operationWatermark",
+  "storageKey": null
+},
+v18 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "sourceWatermark",
+  "storageKey": null
+},
+v19 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorGraphLink",
+  "kind": "LinkedField",
+  "name": "graphLinks",
+  "plural": true,
+  "selections": [
+    (v4/*:: as any*/),
+    (v3/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "graphItemId",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "title",
+      "storageKey": null
+    },
+    (v15/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v20 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorGraphRelationship",
+  "kind": "LinkedField",
+  "name": "graphRelationships",
+  "plural": true,
+  "selections": [
+    (v3/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "sourceGraphItemId",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "targetGraphItemId",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "relationshipType",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v21 = [
+  {
+    "alias": null,
+    "args": null,
+    "kind": "ScalarField",
+    "name": "operationId",
+    "storageKey": null
+  },
+  {
+    "alias": null,
+    "args": null,
+    "kind": "ScalarField",
+    "name": "resourceCount",
+    "storageKey": null
+  }
+],
+v22 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorTrace",
+  "kind": "LinkedField",
+  "name": "auditTrace",
+  "plural": false,
+  "selections": (v21/*:: as any*/),
+  "storageKey": null
+},
+v23 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorTrace",
+  "kind": "LinkedField",
+  "name": "revisionTrace",
+  "plural": false,
+  "selections": (v21/*:: as any*/),
+  "storageKey": null
+},
+v24 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "__typename",
+  "storageKey": null
+},
+v25 = {
   "alias": null,
   "args": null,
   "concreteType": "PageInfo",
@@ -106,7 +387,7 @@ v5 = {
   ],
   "storageKey": null
 },
-v6 = [
+v26 = [
   {
     "kind": "Variable",
     "name": "after",
@@ -116,42 +397,6 @@ v6 = [
     "kind": "Variable",
     "name": "first",
     "variableName": "first"
-  }
-],
-v7 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "type",
-  "storageKey": null
-},
-v8 = [
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "operationId",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "resourceCount",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorTypedId",
-    "kind": "LinkedField",
-    "name": "resources",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v3/*:: as any*/)
-    ],
-    "storageKey": null
   }
 ];
 return {
@@ -191,18 +436,39 @@ return {
                 "selections": [
                   (v3/*:: as any*/),
                   {
+                    "kind": "InlineDataFragmentSpread",
+                    "name": "OperatorWorkflowItemFragment",
+                    "selections": [
+                      (v3/*:: as any*/),
+                      (v4/*:: as any*/),
+                      (v5/*:: as any*/),
+                      (v6/*:: as any*/),
+                      (v7/*:: as any*/),
+                      (v8/*:: as any*/),
+                      (v9/*:: as any*/),
+                      (v11/*:: as any*/),
+                      (v12/*:: as any*/),
+                      (v13/*:: as any*/),
+                      (v14/*:: as any*/),
+                      (v16/*:: as any*/),
+                      (v17/*:: as any*/),
+                      (v18/*:: as any*/),
+                      (v19/*:: as any*/),
+                      (v20/*:: as any*/),
+                      (v22/*:: as any*/),
+                      (v23/*:: as any*/)
+                    ],
                     "args": null,
-                    "kind": "FragmentSpread",
-                    "name": "OperatorWorkflowItemFragment"
+                    "argumentDefinitions": []
                   },
-                  (v4/*:: as any*/)
+                  (v24/*:: as any*/)
                 ],
                 "storageKey": null
               }
             ],
             "storageKey": null
           },
-          (v5/*:: as any*/)
+          (v25/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -221,7 +487,7 @@ return {
     "selections": [
       {
         "alias": null,
-        "args": (v6/*:: as any*/),
+        "args": (v26/*:: as any*/),
         "concreteType": "OperatorWorkflowItemConnection",
         "kind": "LinkedField",
         "name": "operatorWorkflowItems",
@@ -245,228 +511,37 @@ return {
                 "plural": false,
                 "selections": [
                   (v3/*:: as any*/),
+                  (v4/*:: as any*/),
+                  (v5/*:: as any*/),
+                  (v6/*:: as any*/),
                   (v7/*:: as any*/),
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "normalizedEventId",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "status",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "reasonCodes",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorSource",
-                    "kind": "LinkedField",
-                    "name": "source",
-                    "plural": false,
-                    "selections": [
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "identity",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "replayIdentity",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "outcome",
-                        "storageKey": null
-                      }
-                    ],
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorProposedChangeStatus",
-                    "kind": "LinkedField",
-                    "name": "proposedChangeStatus",
-                    "plural": false,
-                    "selections": [
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "pending",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "applied",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "rejected",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "total",
-                        "storageKey": null
-                      }
-                    ],
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "blockerReasons",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "allowedNextActions",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "operationWatermark",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "sourceWatermark",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorGraphLink",
-                    "kind": "LinkedField",
-                    "name": "graphLinks",
-                    "plural": true,
-                    "selections": [
-                      (v7/*:: as any*/),
-                      (v3/*:: as any*/),
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "graphItemId",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "title",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "state",
-                        "storageKey": null
-                      }
-                    ],
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorGraphRelationship",
-                    "kind": "LinkedField",
-                    "name": "graphRelationships",
-                    "plural": true,
-                    "selections": [
-                      (v3/*:: as any*/),
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "sourceGraphItemId",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "targetGraphItemId",
-                        "storageKey": null
-                      },
-                      {
-                        "alias": null,
-                        "args": null,
-                        "kind": "ScalarField",
-                        "name": "relationshipType",
-                        "storageKey": null
-                      }
-                    ],
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorTrace",
-                    "kind": "LinkedField",
-                    "name": "auditTrace",
-                    "plural": false,
-                    "selections": (v8/*:: as any*/),
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "concreteType": "OperatorTrace",
-                    "kind": "LinkedField",
-                    "name": "revisionTrace",
-                    "plural": false,
-                    "selections": (v8/*:: as any*/),
-                    "storageKey": null
-                  },
-                  (v4/*:: as any*/)
+                  (v8/*:: as any*/),
+                  (v9/*:: as any*/),
+                  (v11/*:: as any*/),
+                  (v12/*:: as any*/),
+                  (v13/*:: as any*/),
+                  (v14/*:: as any*/),
+                  (v16/*:: as any*/),
+                  (v17/*:: as any*/),
+                  (v18/*:: as any*/),
+                  (v19/*:: as any*/),
+                  (v20/*:: as any*/),
+                  (v22/*:: as any*/),
+                  (v23/*:: as any*/),
+                  (v24/*:: as any*/)
                 ],
                 "storageKey": null
               }
             ],
             "storageKey": null
           },
-          (v5/*:: as any*/)
+          (v25/*:: as any*/)
         ],
         "storageKey": null
       },
       {
         "alias": null,
-        "args": (v6/*:: as any*/),
+        "args": (v26/*:: as any*/),
         "filters": null,
         "handle": "connection",
         "key": "OperatorWorkflowRoute_operatorWorkflowItems",
@@ -476,7 +551,7 @@ return {
     ]
   },
   "params": {
-    "cacheID": "b9af1d278326a35df668b36244dddedc",
+    "cacheID": "74ac5104b9c459bf9af4709a9f495bdd",
     "id": null,
     "metadata": {
       "connection": [
@@ -492,7 +567,7 @@ return {
     },
     "name": "OperatorWorkflowRouteQuery",
     "operationKind": "query",
-    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n        __typename\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  normalizedEventId\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    relationshipType\n  }\n  auditTrace {\n    operationId\n    resourceCount\n    resources {\n      type\n      id\n    }\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n    resources {\n      type\n      id\n    }\n  }\n}\n"
+    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n        __typename\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  typedId {\n    type\n    id\n  }\n  normalizedEventId\n  duplicateOfId\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n  }\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    relationshipType\n  }\n  auditTrace {\n    operationId\n    resourceCount\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n  }\n}\n"
   }
 };
 })();

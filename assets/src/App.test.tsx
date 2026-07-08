@@ -1,17 +1,19 @@
 import { render, screen } from "@testing-library/react";
+import {
+  Environment,
+  Network,
+  RecordSource,
+  Store,
+  type FetchFunction,
+  type GraphQLResponse
+} from "relay-runtime";
 import { describe, expect, it } from "vitest";
+import { getOfficeGraphDataID } from "../app/relay/environment";
 import { App } from "./App";
-import { createGraphQLTestFetcher, graphQLInbox } from "./operator/testSupport";
 
 describe("operator console app shell", () => {
   it("renders the primary workbench regions", async () => {
-    render(
-      <App
-        fetchGraphQL={createGraphQLTestFetcher({
-          operatorInbox: { ...graphQLInbox, empty: true, rows: [] }
-        })}
-      />
-    );
+    render(<App relayEnvironment={createRelayTestEnvironment(emptyOperatorNetwork)} />);
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Operator Console" })
@@ -25,3 +27,31 @@ describe("operator console app shell", () => {
     expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
   });
 });
+
+function createRelayTestEnvironment(fetch: FetchFunction) {
+  return new Environment({
+    getDataID: getOfficeGraphDataID,
+    network: Network.create(fetch),
+    store: new Store(new RecordSource())
+  });
+}
+
+const emptyOperatorNetwork: FetchFunction = async (request): Promise<GraphQLResponse> => {
+  if (request.name === "OperatorWorkflowRouteQuery") {
+    return {
+      data: {
+        operatorWorkflowItems: {
+          edges: [],
+          pageInfo: {
+            hasNextPage: false,
+            hasPreviousPage: false,
+            startCursor: null,
+            endCursor: null
+          }
+        }
+      }
+    };
+  }
+
+  throw new Error(`Unexpected Relay request in app-shell test: ${request.name}`);
+};
