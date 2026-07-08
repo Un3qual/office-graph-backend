@@ -66,6 +66,9 @@ importers:
       jsdom:
         specifier: ^26.0.0
         version: 26.1.0
+      relay-compiler:
+        specifier: ^21.0.1
+        version: 21.0.1
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -1144,6 +1147,10 @@ packages:
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
+
+  relay-compiler@21.0.1:
+    resolution: {integrity: sha512-Wqlg3MtHyBlAYByVo24Wy9H3n2bAw991gPmzdo3XfNv+TzhI8zuGogtiae+7NORI7zhghgZaHC7Sp8S8ZPRYEA==}
+    hasBin: true
 
   relay-runtime@21.0.1:
     resolution: {integrity: sha512-OS+We56sp6gkGVEcce9VCNOeg/sMbxT9unEoerQPgNAICHowSWrXNc6LJxF2OqjypxYF7kaLDSPPiaPii2Pw1g==}
@@ -2426,6 +2433,8 @@ snapshots:
     dependencies:
       indent-string: 4.0.0
       strip-indent: 3.0.0
+
+  relay-compiler@21.0.1: {}
 
   relay-runtime@21.0.1:
     dependencies:

@@ -3,7 +3,7 @@
 - [x] 1.1 Record Relay as the selected product GraphQL client model in the implementation notes.
 - [x] 1.2 Remove TanStack Query plus generated GraphQL operation types from the product GraphQL implementation scope.
 - [x] 1.3 Add `absinthe_relay` and verify the operator workflow schema path plus current generated product reads support Relay object identity and connection-compatible pagination before route migration depends on them.
-- [ ] 1.4 Verify Relay fragments, generated TypeScript, mutation payload shape, and test ergonomics when the frontend Relay compiler path is introduced.
+- [x] 1.4 Verify Relay fragments, generated TypeScript, mutation payload shape, and test ergonomics when the frontend Relay compiler path is introduced.
 
 ## 2. React Router Framework Mode Foundation
 
@@ -28,7 +28,7 @@
 ## 5. Verification
 
 - [ ] 5.1 Add or update frontend typecheck and component tests for the route-first operator module.
-- [ ] 5.2 Add the Relay compiler check to frontend verification.
+- [x] 5.2 Add the Relay compiler check to frontend verification.
 - [ ] 5.3 Add import-boundary tests that prevent shared UI from importing route internals, GraphQL documents, product command logic, or domain-specific product vocabulary.
 - [ ] 5.4 Keep or update Phoenix app-shell asset tests so `/operator` fails when the built React Router assets are missing.
 - [ ] 5.5 Run the project Nix-shell verification commands for OpenSpec, frontend tests, backend tests affected by the app shell, and formatting.

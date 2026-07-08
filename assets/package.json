@@ -10,11 +10,14 @@
     "router:build": "react-router build --config vite.react-router.config.ts",
     "router:routes": "react-router routes --config vite.react-router.config.ts",
     "router:typegen": "react-router typegen --config vite.react-router.config.ts",
+    "relay:schema": "node scripts/graphql-schema.mjs --write",
+    "relay": "pnpm run relay:schema && relay-compiler --noWatchman",
+    "relay:check": "node scripts/graphql-schema.mjs --check && relay-compiler --noWatchman --validate",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify:app-shell": "node scripts/verify-app-shell-assets.mjs",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run verify:app-shell && pnpm run router:build"
+    "verify": "pnpm run relay:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run verify:app-shell && pnpm run router:build"
   },
   "dependencies": {
     "@react-router/node": "8.1.0",
@@ -38,6 +41,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "jsdom": "^26.0.0",
+    "relay-compiler": "^21.0.1",
     "typescript": "^5.8.0",
     "vite": "^7.0.0",
     "vitest": "^3.2.0"
