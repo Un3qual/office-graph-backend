@@ -7,7 +7,8 @@ defmodule OfficeGraph.WorkGraph.Domain do
 
   graphql do
     queries do
-      list OfficeGraph.WorkGraph.Signal, :list_signals, :read, paginate_with: nil
+      get OfficeGraph.WorkGraph.Signal, :get_signal, :read
+      list OfficeGraph.WorkGraph.Signal, :list_signals, :read, relay?: true
     end
   end
 

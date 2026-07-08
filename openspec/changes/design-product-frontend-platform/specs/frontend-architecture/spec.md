@@ -63,8 +63,8 @@ frontend platform.
 - **WHEN** a product route consumes GraphQL data
 - **THEN** route data and components MUST follow Relay conventions for
   environment setup, route/root queries, fragments, pagination, generated
-  types, and store updates instead of adding a parallel homemade view-model or
-  TanStack Query cache layer for the same GraphQL data
+  types, Node IDs, and store updates instead of adding a parallel homemade
+  view-model or TanStack Query cache layer for the same GraphQL data
 
 #### Scenario: Product GraphQL data is cached
 - **WHEN** a product route reads GraphQL server state

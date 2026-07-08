@@ -12,6 +12,19 @@ workaround.
   invalidation or update semantics that allow Relay components to declare data
   dependencies without reading hidden transport fields
 
+#### Scenario: Projection object has stable identity
+- **WHEN** a product projection object has a stable product identity
+- **THEN** the GraphQL object MUST expose an opaque Relay Node `id`, and raw
+  database identifiers MUST remain in explicit compatibility, trace, or command
+  input fields only when the UI has a current need for them
+
+#### Scenario: Projection list can grow
+- **WHEN** a product projection field returns a list that can grow with rows,
+  graph links, runs, checks, evidence, observations, or integration records
+- **THEN** the GraphQL field MUST expose Relay-style connection pagination with
+  `edges`, edge cursors, and `pageInfo` rather than a route-specific rows/cursor
+  object shape
+
 #### Scenario: GraphQL client model changes
 - **WHEN** an accepted change replaces Relay as the product GraphQL client model
 - **THEN** the projection contract MUST be updated in OpenSpec before route

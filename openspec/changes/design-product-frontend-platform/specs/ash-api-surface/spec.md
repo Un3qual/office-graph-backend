@@ -20,6 +20,20 @@ from Relay.
   field ownership, and mutation payloads that support safe store updates or
   explicit invalidation without requiring a JSON adapter fallback
 
+#### Scenario: Product GraphQL object has stable identity
+- **WHEN** a product GraphQL object represents a stable resource or projection
+  object
+- **THEN** it MUST implement Relay Node identity with an opaque `id`, while raw
+  resource identifiers MUST be exposed only through explicitly named fields
+  needed for command inputs, audit traces, or compatibility during migration
+
+#### Scenario: Product GraphQL operation returns a growing list
+- **WHEN** a product GraphQL read returns a list that can grow beyond one
+  screenful or one command response
+- **THEN** it MUST use Relay connection shape with `edges`, per-edge cursors,
+  and `pageInfo`, using the Absinthe Relay server package rather than a
+  route-specific pagination object
+
 #### Scenario: Product UI asks for JSON API compatibility
 - **WHEN** a product UI route can read or command workflow state through the
   product GraphQL path
@@ -40,6 +54,13 @@ surfaces for safe reads before exposing generated lifecycle writes.
 - **THEN** it MUST use GraphQL as the normal product API, while REST/JSON API
   remains a customer integration surface and not the preferred internal UI
   transport
+
+#### Scenario: Generated GraphQL read is exposed
+
+- **WHEN** a generated AshGraphql read is exposed for product frontend use
+- **THEN** stable resource objects MUST expose opaque Relay Node `id` values
+  and growing generated list reads MUST use Relay connection shape rather than
+  raw arrays
 
 #### Scenario: JSON API resource reads are mounted
 

@@ -32,6 +32,28 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   }
   """
 
+  @relay_inbox_query """
+  query RelayInbox($first: Int!, $after: String) {
+    operatorWorkflowItems(first: $first, after: $after) {
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+      edges {
+        cursor
+        node {
+          id
+          normalizedEventId
+          status
+          allowedNextActions
+        }
+      }
+    }
+  }
+  """
+
   test "GraphQL exposes operator inbox and item detail", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-inbox")
@@ -110,6 +132,58 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert item["auditTrace"]["resourceCount"] == 4
     assert item["revisionTrace"]["resourceCount"] == 4
+  end
+
+  test "GraphQL exposes Relay node ids and connection pagination for operator workflow items",
+       %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, older_intake} = submit_manual_intake(bootstrap.session, "relay-inbox-older")
+    {:ok, _newer_intake} = submit_manual_intake(bootstrap.session, "relay-inbox-newer")
+
+    first_page = graphql(conn, @relay_inbox_query, %{first: 1}, "operatorWorkflowItems")
+
+    assert first_page["pageInfo"]["hasNextPage"] == true
+    assert first_page["pageInfo"]["hasPreviousPage"] == false
+    assert is_binary(first_page["pageInfo"]["endCursor"])
+    assert [%{"cursor" => first_cursor, "node" => first_node}] = first_page["edges"]
+    assert is_binary(first_cursor)
+    assert is_binary(first_node["id"])
+    assert first_node["id"] != first_node["normalizedEventId"]
+
+    second_page =
+      graphql(
+        conn,
+        @relay_inbox_query,
+        %{first: 1, after: first_page["pageInfo"]["endCursor"]},
+        "operatorWorkflowItems"
+      )
+
+    assert second_page["pageInfo"]["hasNextPage"] == false
+    assert second_page["pageInfo"]["hasPreviousPage"] == true
+    assert [%{"node" => second_node}] = second_page["edges"]
+    assert second_node["normalizedEventId"] == older_intake.normalized_event.id
+
+    node =
+      graphql(
+        conn,
+        """
+        query Node($id: ID!) {
+          node(id: $id) {
+            id
+            ... on OperatorWorkflowItem {
+              normalizedEventId
+              status
+            }
+          }
+        }
+        """,
+        %{id: second_node["id"]},
+        "node"
+      )
+
+    assert node["id"] == second_node["id"]
+    assert node["normalizedEventId"] == older_intake.normalized_event.id
+    assert node["status"] == "pending_triage"
   end
 
   test "GraphQL exposes packet readiness, run state, and verification outcome", %{conn: conn} do

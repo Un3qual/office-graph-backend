@@ -7,7 +7,8 @@ defmodule OfficeGraph.WorkPackets.Domain do
 
   graphql do
     queries do
-      list OfficeGraph.WorkPackets.WorkPacket, :list_work_packets, :read, paginate_with: nil
+      get OfficeGraph.WorkPackets.WorkPacket, :get_work_packet, :read
+      list OfficeGraph.WorkPackets.WorkPacket, :list_work_packets, :read, relay?: true
     end
   end
 

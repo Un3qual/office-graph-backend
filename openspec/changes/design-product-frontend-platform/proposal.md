@@ -16,6 +16,9 @@ product path, and the project's ban on Tailwind and LiveView product UI.
 - Select Relay as the product GraphQL server-state model for implementation.
   The implementation MUST NOT add TanStack Query as a competing cache for the
   same product GraphQL data.
+- Add the Absinthe Relay server package and establish Relay-compatible product
+  GraphQL primitives: opaque Node IDs for stable product objects and
+  connection-style pagination for lists that can grow.
 - Clarify that shared UI stays shallow and generic until repeated real screens
   prove deeper boundaries are needed.
 - Replace ambiguous "actions" language in frontend planning with product
@@ -25,8 +28,8 @@ product path, and the project's ban on Tailwind and LiveView product UI.
   import-boundary checks, app-shell asset checks, and focused backend
   query-count tests where projection reads can grow.
 - Keep this change design-first. It does not add new product routes, migrate
-  the existing operator console, add Relay runtime packages, add React Router
-  Framework Mode, or change Phoenix routing by itself.
+  the existing operator console, add frontend Relay runtime packages, add
+  React Router Framework Mode, or change Phoenix routing by itself.
 
 ## Capabilities
 
@@ -43,8 +46,8 @@ product path, and the project's ban on Tailwind and LiveView product UI.
   commands and affordances, not generic frontend-inferred actions, and that UI
   data contracts must work with Relay.
 - `ash-api-surface`: Clarifies that the product GraphQL surface must support
-  frontend-owned route operations without pushing the product UI back to JSON
-  adapters or hand-written transport sprawl.
+  frontend-owned Relay route operations with Node IDs and connections, without
+  pushing the product UI back to JSON adapters or hand-written transport sprawl.
 
 ## Impact
 
@@ -53,5 +56,5 @@ product path, and the project's ban on Tailwind and LiveView product UI.
 - Affects product GraphQL operation ownership, Relay setup, and frontend tests.
 - Affects durable OpenSpec requirements for frontend architecture, UI
   projection contracts, and the GraphQL product API path.
-- Does not change backend behavior, Phoenix routes, frontend runtime code, or
-  package dependencies in this design change.
+- Adds a backend Absinthe Relay dependency and schema contract work, but does
+  not change Phoenix routes or frontend runtime code in this change.

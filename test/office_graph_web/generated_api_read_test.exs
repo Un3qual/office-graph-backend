@@ -18,20 +18,20 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
 
       assert response["errors"] in [nil, []]
 
-      assert [signal] = response["data"]["listSignals"]
-      assert signal["id"] == fixtures.local.signal.id
+      assert [signal] = connection_nodes(response["data"]["listSignals"])
+      assert signal["id"] != fixtures.local.signal.id
       assert signal["title"] == fixtures.local.signal.title
       assert signal["organizationId"] == fixtures.local.bootstrap.organization.id
       assert signal["workspaceId"] == fixtures.local.bootstrap.workspace.id
 
-      assert [work_packet] = response["data"]["listWorkPackets"]
-      assert work_packet["id"] == fixtures.local.packet.id
+      assert [work_packet] = connection_nodes(response["data"]["listWorkPackets"])
+      assert work_packet["id"] != fixtures.local.packet.id
       assert work_packet["title"] == fixtures.local.packet.title
       assert work_packet["organizationId"] == fixtures.local.bootstrap.organization.id
       assert work_packet["workspaceId"] == fixtures.local.bootstrap.workspace.id
 
-      assert [work_run] = response["data"]["listWorkRuns"]
-      assert work_run["id"] == fixtures.local.run.id
+      assert [work_run] = connection_nodes(response["data"]["listWorkRuns"])
+      assert work_run["id"] != fixtures.local.run.id
       assert work_run["workPacketId"] == fixtures.local.packet.id
       assert work_run["organizationId"] == fixtures.local.bootstrap.organization.id
       assert work_run["workspaceId"] == fixtures.local.bootstrap.workspace.id
@@ -39,6 +39,36 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       refute signal["id"] == fixtures.foreign.signal.id
       refute work_packet["id"] == fixtures.foreign.packet.id
       refute work_run["id"] == fixtures.foreign.run.id
+
+      node =
+        conn
+        |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal["id"]}})
+        |> json_response(200)
+
+      assert node["errors"] in [nil, []]
+      assert node["data"]["node"]["id"] == signal["id"]
+      assert node["data"]["node"]["title"] == signal["title"]
+
+      packet_node =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_node_query(),
+          variables: %{id: work_packet["id"]}
+        })
+        |> json_response(200)
+
+      assert packet_node["errors"] in [nil, []]
+      assert packet_node["data"]["node"]["id"] == work_packet["id"]
+      assert packet_node["data"]["node"]["title"] == work_packet["title"]
+
+      run_node =
+        conn
+        |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: work_run["id"]}})
+        |> json_response(200)
+
+      assert run_node["errors"] in [nil, []]
+      assert run_node["data"]["node"]["id"] == work_run["id"]
+      assert run_node["data"]["node"]["state"] == work_run["state"]
     end
 
     test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
@@ -52,7 +82,11 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
           |> json_response(200)
 
         assert [%{"code" => "forbidden"} | _rest] = response["errors"]
-        assert response["data"] in [nil, %{"listSignals" => nil}]
+
+        assert response["data"] in [
+                 nil,
+                 %{"listSignals" => nil, "listWorkPackets" => nil, "listWorkRuns" => nil}
+               ]
       after
         Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
       end
@@ -142,29 +176,104 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   defp generated_reads_query do
     """
     query GeneratedResourceReads {
-      listSignals {
-        id
-        title
-        state
-        organizationId
-        workspaceId
+      listSignals(first: 10) {
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
+        edges {
+          cursor
+          node {
+            id
+            title
+            state
+            organizationId
+            workspaceId
+          }
+        }
       }
-      listWorkPackets {
-        id
-        title
-        state
-        organizationId
-        workspaceId
+      listWorkPackets(first: 10) {
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
+        edges {
+          cursor
+          node {
+            id
+            title
+            state
+            organizationId
+            workspaceId
+          }
+        }
       }
-      listWorkRuns {
-        id
-        state
-        workPacketId
-        organizationId
-        workspaceId
+      listWorkRuns(first: 10) {
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
+        edges {
+          cursor
+          node {
+            id
+            state
+            workPacketId
+            organizationId
+            workspaceId
+          }
+        }
       }
     }
     """
+  end
+
+  defp generated_node_query do
+    """
+    query GeneratedNode($id: ID!) {
+      node(id: $id) {
+        id
+        ... on Signal {
+          title
+          state
+        }
+        ... on WorkPacket {
+          title
+          state
+        }
+        ... on WorkRun {
+          state
+          workPacketId
+        }
+      }
+    }
+    """
+  end
+
+  defp connection_nodes(connection) do
+    assert %{
+             "edges" => edges,
+             "pageInfo" => %{
+               "hasNextPage" => false,
+               "hasPreviousPage" => false,
+               "startCursor" => start_cursor,
+               "endCursor" => end_cursor
+             }
+           } = connection
+
+    assert is_binary(start_cursor)
+    assert is_binary(end_cursor)
+
+    Enum.map(edges, fn edge ->
+      assert is_binary(edge["cursor"])
+      edge["node"]
+    end)
   end
 
   defp json_api_get(conn, path) do

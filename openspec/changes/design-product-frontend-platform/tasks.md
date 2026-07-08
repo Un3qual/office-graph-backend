@@ -2,7 +2,8 @@
 
 - [x] 1.1 Record Relay as the selected product GraphQL client model in the implementation notes.
 - [x] 1.2 Remove TanStack Query plus generated GraphQL operation types from the product GraphQL implementation scope.
-- [ ] 1.3 Verify the current Absinthe/AshGraphql schema supports Relay object identity, connection-compatible pagination, fragments, generated TypeScript, mutation payloads, and test ergonomics before route migration depends on it.
+- [x] 1.3 Add `absinthe_relay` and verify the operator workflow schema path plus current generated product reads support Relay object identity and connection-compatible pagination before route migration depends on them.
+- [ ] 1.4 Verify Relay fragments, generated TypeScript, mutation payload shape, and test ergonomics when the frontend Relay compiler path is introduced.
 
 ## 2. React Router Framework Mode Foundation
 

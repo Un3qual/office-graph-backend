@@ -79,6 +79,7 @@ defmodule OfficeGraph.Runs.Run do
     read :read do
       primary? true
       public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do

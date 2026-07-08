@@ -7,7 +7,8 @@ defmodule OfficeGraph.Runs.Domain do
 
   graphql do
     queries do
-      list OfficeGraph.Runs.Run, :list_work_runs, :read, paginate_with: nil
+      get OfficeGraph.Runs.Run, :get_work_run, :read
+      list OfficeGraph.Runs.Run, :list_work_runs, :read, relay?: true
     end
   end
 

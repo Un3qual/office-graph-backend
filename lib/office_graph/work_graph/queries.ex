@@ -1,9 +1,18 @@
 defmodule OfficeGraph.WorkGraph.Queries do
   @moduledoc false
 
-  alias OfficeGraph.WorkGraph.VerificationCheck
+  alias OfficeGraph.WorkGraph.{Signal, VerificationCheck}
 
   require Ash.Query
+
+  def graphql_node_type(%Signal{}), do: :signal
+  def graphql_node_type(_value), do: nil
+
+  def graphql_node(session_context, :signal, id) do
+    Ash.get(Signal, id, actor: session_context, not_found_error?: false)
+  end
+
+  def graphql_node(_session_context, _type, _id), do: {:ok, nil}
 
   def get_verification_check(session_context, id) do
     VerificationCheck

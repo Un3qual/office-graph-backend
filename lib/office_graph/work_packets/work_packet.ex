@@ -50,6 +50,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   actions do
     read :read do
       primary? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do

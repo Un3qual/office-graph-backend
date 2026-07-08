@@ -29,6 +29,8 @@ References checked while preparing this design:
 - Lock React Router Framework Mode as the frontend route architecture.
 - Keep the first platform layout conventional, route-first, and shallow.
 - Use Relay as the product GraphQL server-state cache/client model.
+- Use `absinthe_relay` on the server so product GraphQL objects and growing
+  lists follow Relay's Node and Connection contracts.
 - Keep TanStack Query out of product GraphQL server state so product records do
   not have competing caches.
 - Make backend-provided commands and UI affordances explicit, including hidden,
@@ -38,8 +40,8 @@ References checked while preparing this design:
 **Non-Goals:**
 
 - Do not implement React Router Framework Mode in this design change.
-- Do not add Relay runtime packages, React Router Framework Mode packages, or
-  other new package dependencies in this design change.
+- Do not add frontend Relay runtime packages, React Router Framework Mode
+  packages, or other frontend package dependencies in this design change.
 - Do not add new product screens.
 - Do not introduce SSR, RSC, Next.js, micro-frontends, module federation,
   Tailwind, shadcn, a generic data-grid framework, or broad visual regression.
@@ -130,9 +132,14 @@ updates. Those are Relay strengths.
 
 Implementation should use React Router Framework Mode plus Relay. Relay should
 own product GraphQL server state through a Relay environment, route/root
-queries, fragments, generated types, connection-compatible pagination where
-lists can grow, and mutation payloads or explicit invalidation paths that keep
-the store coherent.
+queries, fragments, generated types, Node IDs for stable product objects,
+connection-compatible pagination where lists can grow, and mutation payloads or
+explicit invalidation paths that keep the store coherent.
+
+Server GraphQL work should use the Hex `absinthe_relay` package for Relay
+helpers. AshGraphql already has some Relay foundation types, so schema wiring
+must avoid duplicate `Node` or `PageInfo` definitions and make the selected
+Relay owner explicit.
 
 The project must not use TanStack Query as a competing cache for the same
 product GraphQL data. It is acceptable to introduce TanStack Query later for
@@ -202,8 +209,9 @@ protecting.
 
 ## Risks / Trade-offs
 
-- **Relay may force schema work** -> Evaluate Relay against current Absinthe and
-  AshGraphql output before implementation commits to it.
+- **Relay forces schema work** -> Add `absinthe_relay`, make stable product
+  objects Node-compatible, and expose growing product lists through Relay
+  connections before the React route depends on them.
 - **Route-first folders can duplicate small helpers early** -> Prefer a little
   duplication until two real routes prove the correct shared boundary.
 - **React Router Framework Mode may require build integration changes** ->
@@ -235,8 +243,9 @@ verification pass.
 
 ## Open Questions
 
-- Does current Absinthe/AshGraphql output satisfy Relay's object identity and
-  connection expectations, or is a small schema adjustment needed?
+- Which future stable product object or projection types, beyond the generated
+  Signal, WorkPacket, WorkRun, and OperatorWorkflowItem paths, need explicit
+  Node conversion before routes depend on them?
 - Should generated GraphQL artifacts live under `assets/app/relay/` or a
   generated folder outside `app/` to keep route source cleaner?
 - Which first command affordance fields are enough for `/operator` without

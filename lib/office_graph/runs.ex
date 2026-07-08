@@ -31,6 +31,15 @@ defmodule OfficeGraph.Runs do
   @work_run_start_action "work_run.start"
   @execution_observation_record_action "execution_observation.record"
 
+  def graphql_node_type(%Run{}), do: :work_run
+  def graphql_node_type(_value), do: nil
+
+  def graphql_node(session_context, :work_run, id) do
+    Ash.get(Run, id, actor: session_context, not_found_error?: false)
+  end
+
+  def graphql_node(_session_context, _type, _id), do: {:ok, nil}
+
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, @work_run_start_action),
