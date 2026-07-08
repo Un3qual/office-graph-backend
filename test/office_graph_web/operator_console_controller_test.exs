@@ -1,5 +1,10 @@
 defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
-  use OfficeGraphWeb.ConnCase, async: true
+  use OfficeGraphWeb.ConnCase, async: false
+
+  @operator_asset_paths [
+    "/assets/operator/main.css",
+    "/assets/operator/main.js"
+  ]
 
   test "serves the React operator console app shell", %{conn: conn} do
     html =
@@ -56,10 +61,50 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert OfficeGraph.MixProject.cli()[:preferred_envs][:verify] == :test
   end
 
+  test "operator app shell fails when required built assets are missing", %{conn: conn} do
+    moved_assets =
+      Enum.map(@operator_asset_paths, fn asset_path ->
+        path = static_asset_path(asset_path)
+        backup_path = path <> ".missing-test"
+
+        assert File.exists?(path),
+               "Expected test fixture asset #{asset_path} to exist at #{path}"
+
+        File.rename!(path, backup_path)
+        {asset_path, path, backup_path}
+      end)
+
+    on_exit(fn ->
+      Enum.each(moved_assets, fn {_asset_path, path, backup_path} ->
+        if File.exists?(backup_path) do
+          File.rename!(backup_path, path)
+        end
+      end)
+    end)
+
+    body =
+      conn
+      |> get(~p"/operator")
+      |> response(503)
+
+    assert body =~ "Operator console assets are missing"
+
+    for {asset_path, _path, _backup_path} <- moved_assets do
+      assert body =~ asset_path
+    end
+  end
+
   defp app_shell_asset_paths(html) do
     ~r/(?:href|src)="([^"]+)"/
     |> Regex.scan(html, capture: :all_but_first)
     |> List.flatten()
     |> Enum.filter(&String.starts_with?(&1, "/assets/operator/"))
+  end
+
+  defp static_asset_path(asset_path) do
+    Application.app_dir(
+      :office_graph,
+      Path.join("priv/static", String.trim_leading(asset_path, "/"))
+    )
   end
 end

@@ -29,6 +29,6 @@
 
 - [x] 5.1 Add or update frontend typecheck and component tests for the route-first operator module.
 - [x] 5.2 Add the Relay compiler check to frontend verification.
-- [ ] 5.3 Add import-boundary tests that prevent shared UI from importing route internals, GraphQL documents, product command logic, or domain-specific product vocabulary.
-- [ ] 5.4 Keep or update Phoenix app-shell asset tests so `/operator` fails when the built React Router assets are missing.
-- [ ] 5.5 Run the project Nix-shell verification commands for OpenSpec, frontend tests, backend tests affected by the app shell, and formatting.
+- [x] 5.3 Add import-boundary tests that prevent shared UI from importing route internals, GraphQL documents, product command logic, or domain-specific product vocabulary.
+- [x] 5.4 Keep or update Phoenix app-shell asset tests so `/operator` fails when the built React Router assets are missing.
+- [x] 5.5 Run the project Nix-shell verification commands for OpenSpec, frontend tests, backend tests affected by the app shell, and formatting.

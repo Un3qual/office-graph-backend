@@ -16,8 +16,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "verify:import-boundaries": "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts",
     "verify:app-shell": "node scripts/verify-app-shell-assets.mjs",
-    "verify": "pnpm run relay:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run verify:app-shell && pnpm run router:build"
+    "verify": "pnpm run relay:check && pnpm run typecheck && pnpm run verify:import-boundaries && pnpm run test && pnpm run build && pnpm run verify:app-shell && pnpm run router:build"
   },
   "dependencies": {
     "@react-router/node": "8.1.0",
