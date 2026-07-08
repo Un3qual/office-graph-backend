@@ -19,15 +19,51 @@ export function isQueryLoading(query: Pick<QueryState<unknown>, "fetchStatus" | 
   return query.fetchStatus === "fetching" || (query.isPending && query.fetchStatus === "paused");
 }
 
-export function enabledCommandIdentities(
+export function commandAffordanceListText(
   affordances: readonly OperatorCommandAffordance[],
   fallback: readonly string[]
 ) {
-  const enabled = affordances
-    .filter((affordance) => affordance.state === "enabled")
-    .map((affordance) => affordance.identity);
+  if (affordances.length === 0) {
+    return listText(fallback);
+  }
 
-  return enabled.length > 0 ? enabled : fallback;
+  return affordances.map(commandAffordanceText).join(", ");
+}
+
+function commandAffordanceText(affordance: OperatorCommandAffordance) {
+  const state = affordance.state.toLowerCase();
+
+  if (state === "enabled") {
+    return formatLabel(affordance.identity);
+  }
+
+  if (state === "disabled") {
+    return [
+      `${formatLabel(affordance.identity)} disabled`,
+      affordance.safeExplanation,
+      affordance.blockerReasons.length > 0
+        ? `Blockers ${listText(affordance.blockerReasons)}`
+        : null
+    ]
+      .filter(Boolean)
+      .join(" - ");
+  }
+
+  if (state === "hidden") {
+    return safeUnavailableCommandText("Hidden command", affordance.reasonCodes);
+  }
+
+  if (state === "redacted") {
+    return safeUnavailableCommandText("Redacted command", affordance.reasonCodes);
+  }
+
+  return safeUnavailableCommandText("Unavailable command", affordance.reasonCodes);
+}
+
+function safeUnavailableCommandText(label: string, reasonCodes: readonly string[]) {
+  const reasonText = reasonCodes.length > 0 ? listText(reasonCodes) : null;
+
+  return reasonText ? `${label}: ${reasonText}` : label;
 }
 
 export function statusTone(status: string): BadgeTone {

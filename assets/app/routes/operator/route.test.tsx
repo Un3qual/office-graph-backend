@@ -136,6 +136,95 @@ describe("operator route", () => {
       );
     });
   });
+
+  it("renders command affordance states without leaking hidden or redacted policy details", async () => {
+    const sensitiveAffordances = [
+      {
+        identity: "prepare_packet",
+        state: "enabled",
+        reasonCodes: [],
+        blockerReasons: [],
+        safeExplanation: "Prepare a work packet from the applied intake.",
+        requiredFields: [],
+        targetIds: [],
+        traceLinks: [],
+        decisionLinks: []
+      },
+      {
+        identity: "accept_evidence",
+        state: "disabled",
+        reasonCodes: ["missing_accepted_evidence"],
+        blockerReasons: ["missing accepted evidence"],
+        safeExplanation: "Accept evidence after a candidate is selected.",
+        requiredFields: ["evidence_item_id"],
+        targetIds: [],
+        traceLinks: [],
+        decisionLinks: []
+      },
+      {
+        identity: "delete_restricted_packet",
+        state: "hidden",
+        reasonCodes: ["policy_hidden"],
+        blockerReasons: ["requires secret_policy_bundle_alpha"],
+        safeExplanation: "Secret graph item graph_secret_99 exists in a restricted compartment.",
+        requiredFields: ["restricted_resource_id"],
+        targetIds: [],
+        traceLinks: [],
+        decisionLinks: []
+      },
+      {
+        identity: "inspect_vip_target",
+        state: "redacted",
+        reasonCodes: ["target_redacted"],
+        blockerReasons: ["tenant policy map alpha"],
+        safeExplanation: "VIP target graph_secret_42 is restricted by policy bundle alpha.",
+        requiredFields: ["target_graph_item_id"],
+        targetIds: [],
+        traceLinks: [],
+        decisionLinks: []
+      }
+    ];
+    const network = createOperatorNetwork({
+      workflowItems: [
+        operatorWorkflowItem({
+          allowedNextActions: ["legacy_sensitive_fallback"],
+          commandAffordances: sensitiveAffordances
+        })
+      ],
+      readiness: operatorPacketReadiness({
+        allowedNextActions: ["legacy_sensitive_readiness_fallback"],
+        commandAffordances: sensitiveAffordances
+      }),
+      runState: operatorRunState({
+        allowedNextActions: ["legacy_sensitive_run_fallback"],
+        commandAffordances: sensitiveAffordances
+      })
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const itemDetail = await screen.findByRole("region", { name: "Item detail" });
+    await screen.findByRole("region", { name: "Packet Readiness" });
+    await screen.findByRole("region", { name: "Run State" });
+
+    expect(itemDetail).toHaveTextContent("Commands");
+    expect(itemDetail).toHaveTextContent("Prepare packet");
+    expect(itemDetail).toHaveTextContent("Accept evidence disabled");
+    expect(itemDetail).toHaveTextContent("Accept evidence after a candidate is selected.");
+    expect(itemDetail).toHaveTextContent("Hidden command: Policy hidden");
+    expect(itemDetail).toHaveTextContent("Redacted command: Target redacted");
+
+    const renderedText = document.body.textContent ?? "";
+
+    expect(renderedText).not.toMatch(/legacy sensitive/i);
+    expect(renderedText).not.toMatch(/delete restricted packet/i);
+    expect(renderedText).not.toMatch(/inspect vip target/i);
+    expect(renderedText).not.toMatch(/graph_secret_99|graph_secret_42/i);
+    expect(renderedText).not.toMatch(/secret policy bundle alpha/i);
+    expect(renderedText).not.toMatch(/tenant policy map alpha/i);
+    expect(renderedText).not.toMatch(/restricted resource id/i);
+    expect(renderedText).not.toMatch(/target graph item id/i);
+  });
 });
 
 function renderWithRelay(ui: ReactElement, network: FetchFunction) {
@@ -380,6 +469,8 @@ type OperatorWorkflowItemPayload = {
   id: string;
   normalizedEventId: string;
   typedId: { type: string; id: string };
+  allowedNextActions: string[];
+  commandAffordances: CommandAffordancePayload[];
   source: { identity: string; replayIdentity: string; outcome: string };
   graphLinks: Array<{
     type: string;
@@ -391,10 +482,26 @@ type OperatorWorkflowItemPayload = {
 };
 
 type OperatorPacketReadinessPayload = {
+  allowedNextActions: string[];
+  commandAffordances: CommandAffordancePayload[];
   sourceLinks: Array<{ type: string; id: string; graphItemId: string; title: string }>;
   requiredChecks: Array<{ id: string; graphItemId: string; state: string }>;
 };
 
 type OperatorRunStatePayload = {
+  allowedNextActions: string[];
+  commandAffordances: CommandAffordancePayload[];
   status: string;
+};
+
+type CommandAffordancePayload = {
+  identity: string;
+  state: string;
+  reasonCodes: string[];
+  blockerReasons: string[];
+  safeExplanation: string;
+  requiredFields: string[];
+  targetIds: Array<{ type: string; id: string }>;
+  traceLinks: Array<unknown>;
+  decisionLinks: Array<unknown>;
 };

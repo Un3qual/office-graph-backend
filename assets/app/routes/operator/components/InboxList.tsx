@@ -2,7 +2,7 @@ import { Badge } from "../../../../src/ui/Badge";
 import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PaneHeader } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
-import { enabledCommandIdentities, formatLabel, listText, statusTone } from "../presentation";
+import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
 import type { OperatorInbox, OperatorWorkflowItem, QueryState } from "../types";
 
 type Props = {
@@ -39,17 +39,20 @@ export function InboxList({
       {hasStaleData ? <p className="muted-text">Showing last loaded inbox.</p> : null}
       {inbox.isSuccess && rows.length === 0 ? (
         <EmptyState title="No operator workflow items.">
-          There are no actionable manual intake or verification items right now.
+          There are no manual intake or verification commands ready right now.
         </EmptyState>
       ) : null}
       {rows.length > 0 ? (
         <div className="inbox-list">
           {rows.map((row) => {
-            const commands = enabledCommandIdentities(row.commandAffordances, row.allowedNextActions);
+            const commands = commandAffordanceListText(
+              row.commandAffordances,
+              row.allowedNextActions
+            );
             const context =
-              row.blockerReasons.length > 0
+              commands === "None" && row.blockerReasons.length > 0
                 ? `Blockers ${listText(row.blockerReasons)}`
-                : `Actions ${listText(commands)}`;
+                : `Commands ${commands}`;
 
             return (
               <button

@@ -3,7 +3,7 @@ import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PanelRows } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
 import {
-  enabledCommandIdentities,
+  commandAffordanceListText,
   formatLabel,
   isQueryLoading,
   listText,
@@ -68,8 +68,8 @@ export function ItemSummary({ item, itemQuery }: Props) {
           <PanelRows
             rows={[
               [
-                "Actions",
-                listText(enabledCommandIdentities(item.commandAffordances, item.allowedNextActions))
+                "Commands",
+                commandAffordanceListText(item.commandAffordances, item.allowedNextActions)
               ],
               ["Blockers", listText(item.blockerReasons)],
               ["Suggestions", proposedChangeText(item)],

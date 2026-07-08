@@ -1,7 +1,7 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import {
-  enabledCommandIdentities,
+  commandAffordanceListText,
   formatLabel,
   isQueryLoading,
   listText,
@@ -36,12 +36,10 @@ export function ReadinessPanel({ readiness, readinessInput, readinessQuery }: Pr
               ["Mode", readiness.isDerived ? "Prepare packet context" : "Backend readiness"],
               ["Ready", readiness.ready ? "Yes" : "No"],
               [
-                "Actions",
-                listText(
-                  enabledCommandIdentities(
-                    readiness.commandAffordances,
-                    readiness.allowedNextActions
-                  )
+                "Commands",
+                commandAffordanceListText(
+                  readiness.commandAffordances,
+                  readiness.allowedNextActions
                 )
               ],
               ["Blockers", listText(readiness.blockerReasons)],

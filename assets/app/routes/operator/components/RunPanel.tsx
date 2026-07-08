@@ -1,7 +1,7 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import {
-  enabledCommandIdentities,
+  commandAffordanceListText,
   formatLabel,
   isQueryLoading,
   listText,
@@ -33,12 +33,10 @@ export function RunPanel({ runId, runState }: Props) {
               ["Packet", runState.data.packet.title],
               ["Objective", runState.data.packetVersion.objective ?? "None"],
               [
-                "Actions",
-                listText(
-                  enabledCommandIdentities(
-                    runState.data.commandAffordances,
-                    runState.data.allowedNextActions
-                  )
+                "Commands",
+                commandAffordanceListText(
+                  runState.data.commandAffordances,
+                  runState.data.allowedNextActions
                 )
               ],
               ["Execution", formatLabel(runState.data.run.executionState)],

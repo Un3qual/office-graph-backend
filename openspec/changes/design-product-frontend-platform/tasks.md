@@ -23,7 +23,7 @@
 
 - [x] 4.1 Rename frontend planning and implementation language from generic "actions" to product commands and UI affordances where it refers to Office Graph workflow behavior.
 - [x] 4.2 Ensure operator workflow projections provide command identity, affordance state, blocker reasons, safe explanations, required fields, target ids, and optional trace or decision links when authorized.
-- [ ] 4.3 Add tests that disabled, hidden, and redacted command affordances render without leaking policy-sensitive details.
+- [x] 4.3 Add tests that disabled, hidden, and redacted command affordances render without leaking policy-sensitive details.
 
 ## 5. Verification
 
