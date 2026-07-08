@@ -57,11 +57,14 @@ describe("operator frontend architecture", () => {
     expect(packageJson.dependencies).toHaveProperty("relay-runtime");
     expect(packageJson.dependencies).toHaveProperty("@react-router/node");
     expect(packageJson.devDependencies).toHaveProperty("@react-router/dev");
+    expect(packageJson.devDependencies).not.toHaveProperty("@types/react-relay");
+    expect(packageJson.devDependencies).not.toHaveProperty("@types/relay-runtime");
     expect(packageJson.scripts).toMatchObject({
       "router:build": "react-router build --config vite.react-router.config.ts",
       "router:routes": "react-router routes --config vite.react-router.config.ts",
       "router:typegen": "react-router typegen"
     });
+    expect(packageJson.scripts.verify).toContain("pnpm run router:build");
   });
 
   it("keeps the new framework layout shallow and route-first", () => {

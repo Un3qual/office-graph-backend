@@ -186,6 +186,40 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert node["status"] == "pending_triage"
   end
 
+  test "GraphQL operator workflow Relay cursors remain stable when new intake arrives between pages",
+       %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, older_intake} = submit_manual_intake(bootstrap.session, "relay-stable-older")
+    {:ok, newer_intake} = submit_manual_intake(bootstrap.session, "relay-stable-newer")
+    base_inserted_at = DateTime.utc_now() |> DateTime.add(-120, :second)
+
+    force_intake_inserted_at!(
+      older_intake.normalized_event.id,
+      DateTime.add(base_inserted_at, -60, :second)
+    )
+
+    force_intake_inserted_at!(newer_intake.normalized_event.id, base_inserted_at)
+
+    first_page = graphql(conn, @relay_inbox_query, %{first: 1}, "operatorWorkflowItems")
+
+    assert [%{"node" => first_node}] = first_page["edges"]
+    assert first_node["normalizedEventId"] == newer_intake.normalized_event.id
+
+    {:ok, _newest_intake} = submit_manual_intake(bootstrap.session, "relay-stable-newest")
+
+    second_page =
+      graphql(
+        conn,
+        @relay_inbox_query,
+        %{first: 1, after: first_page["pageInfo"]["endCursor"]},
+        "operatorWorkflowItems"
+      )
+
+    assert [%{"node" => second_node}] = second_page["edges"]
+    refute second_node["normalizedEventId"] == first_node["normalizedEventId"]
+    assert second_node["normalizedEventId"] == older_intake.normalized_event.id
+  end
+
   test "GraphQL exposes packet readiness, run state, and verification outcome", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -445,6 +479,13 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     OfficeGraph.Repo.query!(
       "UPDATE principal_profiles SET display_name = $1, updated_at = $2 WHERE id = $3",
       [display_name, now, Ecto.UUID.dump!(profile_id)]
+    )
+  end
+
+  defp force_intake_inserted_at!(normalized_event_id, inserted_at) do
+    OfficeGraph.Repo.query!(
+      "UPDATE normalized_intake_events SET inserted_at = $1, updated_at = $1 WHERE id = $2",
+      [inserted_at, Ecto.UUID.dump!(normalized_event_id)]
     )
   end
 

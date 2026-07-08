@@ -43,6 +43,6 @@ Current implementation status:
   through the root `node(id:)` field.
 - `OperatorWorkflowItem` is Node-compatible through a global Relay `id`.
 - `operatorWorkflowItems(first:, after:)` exposes operator workflow items as a
-  forward Relay connection.
+  forward Relay connection with stable `inserted_at`/`id` keyset cursors.
 - The existing `operatorInbox` field remains for the current pre-Relay
   frontend and should be retired during the operator route migration.

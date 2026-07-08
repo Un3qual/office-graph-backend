@@ -27,9 +27,9 @@ product path, and the project's ban on Tailwind and LiveView product UI.
   typecheck, component tests, route smoke tests, Relay compiler checks,
   import-boundary checks, app-shell asset checks, and focused backend
   query-count tests where projection reads can grow.
-- Keep this change design-first. It does not add new product routes, migrate
-  the existing operator console, add frontend Relay runtime packages, add
-  React Router Framework Mode, or change Phoenix routing by itself.
+- Land the initial backend Relay contract and React Router Framework Mode
+  foundation while keeping the existing `/operator` Phoenix shell behavior
+  intact until the operator route migration and app-shell handoff steps.
 
 ## Capabilities
 
@@ -56,5 +56,7 @@ product path, and the project's ban on Tailwind and LiveView product UI.
 - Affects product GraphQL operation ownership, Relay setup, and frontend tests.
 - Affects durable OpenSpec requirements for frontend architecture, UI
   projection contracts, and the GraphQL product API path.
-- Adds a backend Absinthe Relay dependency and schema contract work, but does
-  not change Phoenix routes or frontend runtime code in this change.
+- Adds a backend Absinthe Relay dependency, schema contract work, frontend
+  Relay runtime wiring, and React Router Framework Mode foundation files, but
+  does not migrate the existing operator console or change Phoenix routing in
+  this change.

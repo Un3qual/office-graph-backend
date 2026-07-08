@@ -61,18 +61,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   def operator_workflow_items_page(session_context, opts) do
     limit = page_limit(opts)
-    offset = page_offset(opts)
 
     with :ok <- authorize_read(session_context),
-         {:ok, events} <- read_intake_events_slice(session_context, limit, offset),
+         {:ok, cursor} <- page_cursor(opts),
+         {:ok, events} <- read_intake_events(session_context, limit, cursor),
          page_events = Enum.take(events, limit),
          {:ok, rows} <- build_intake_rows(session_context, page_events) do
+      after_cursor = option(opts, :after_cursor, nil)
+
       {:ok,
        %{
          rows: rows,
-         offset: offset,
+         row_edges: workflow_item_edges(rows, page_events),
          has_next_page?: length(events) > limit,
-         has_previous_page?: offset > 0
+         has_previous_page?: not is_nil(after_cursor)
        }}
     end
   end
@@ -95,18 +97,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     |> Ash.read(authorize?: false)
   end
 
-  defp read_intake_events_slice(session_context, limit, offset) do
-    NormalizedIntakeEvent
-    |> Ash.Query.filter(
-      organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(limit + 1)
-    |> Ash.Query.offset(offset)
-    |> Ash.read(authorize?: false)
-  end
-
   defp apply_inbox_cursor(query, nil), do: query
 
   defp apply_inbox_cursor(query, %{inserted_at: inserted_at, id: id}) do
@@ -120,12 +110,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     opts
     |> option(:limit, @default_operator_inbox_limit)
     |> bounded_integer(@default_operator_inbox_limit, 1, @max_operator_inbox_limit)
-  end
-
-  defp page_offset(opts) do
-    opts
-    |> option(:offset, 0)
-    |> non_negative_integer(0)
   end
 
   defp page_cursor(opts), do: decode_cursor(option(opts, :after_cursor, nil))
@@ -161,6 +145,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp option(opts, key, default) when is_map(opts), do: Map.get(opts, key, default)
   defp option(opts, key, default) when is_list(opts), do: Keyword.get(opts, key, default)
 
+  defp workflow_item_edges(rows, events) do
+    rows
+    |> Enum.zip(events)
+    |> Enum.map(fn {row, event} -> {row, cursor: encode_cursor(event)} end)
+  end
+
   defp bounded_integer(value, _default, min, max) when is_integer(value) do
     value
     |> max(min)
@@ -170,12 +160,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp bounded_integer(_value, default, _min, _max), do: default
 
   defp clamp_max(value, max), do: Kernel.min(value, max)
-
-  defp non_negative_integer(value, _default) when is_integer(value) do
-    max(value, 0)
-  end
-
-  defp non_negative_integer(_value, default), do: default
 
   defp read_intake_event(session_context, id) do
     NormalizedIntakeEvent

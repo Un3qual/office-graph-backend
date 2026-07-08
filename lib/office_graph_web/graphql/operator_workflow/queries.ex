@@ -28,14 +28,13 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       resolve(fn args, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, :forward, limit} <- Connection.limit(args, 100),
-             {:ok, offset} <- Connection.offset(args),
              {:ok, page} <-
                Projections.operator_workflow_items_page(session_context,
                  limit: limit,
-                 offset: offset || 0
+                 after_cursor: Map.get(args, :after)
                ) do
           {:ok, connection} =
-            Connection.from_slice(page.rows, page.offset,
+            Connection.from_slice(page.row_edges, 0,
               has_next_page: page.has_next_page?,
               has_previous_page: page.has_previous_page?
             )

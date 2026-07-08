@@ -39,9 +39,10 @@ References checked while preparing this design:
 
 **Non-Goals:**
 
-- Do not implement React Router Framework Mode in this design change.
-- Do not add frontend Relay runtime packages, React Router Framework Mode
-  packages, or other frontend package dependencies in this design change.
+- Do not migrate the existing operator console into React Router route modules
+  until the route migration step.
+- Do not switch Phoenix `/operator` serving to the React Router build output
+  until the app-shell handoff step verifies generated assets.
 - Do not add new product screens.
 - Do not introduce SSR, RSC, Next.js, micro-frontends, module federation,
   Tailwind, shadcn, a generic data-grid framework, or broad visual regression.
