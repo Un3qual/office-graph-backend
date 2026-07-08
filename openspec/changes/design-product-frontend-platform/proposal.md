@@ -1,4 +1,4 @@
-## Why
+# Why
 
 The first React operator console proved the Phoenix-served product UI path, but
 its current shape should not become the pattern for every future screen.

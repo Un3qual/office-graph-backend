@@ -91,6 +91,52 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
       end
     end
+
+    test "node(id:) returns structured forbidden errors when no actor can be bootstrapped",
+         %{conn: conn} do
+      seed_generated_read_fixtures()
+      signal_id = generated_signal_node_id(conn)
+
+      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
+      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+
+      try do
+        response =
+          conn
+          |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
+          |> json_response(200)
+
+        assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+        assert response["data"] in [nil, %{"node" => nil}]
+      after
+        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
+      end
+    end
+
+    test "return structured forbidden errors for generated node refetches without an actor",
+         %{conn: conn} do
+      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
+      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+
+      relay_id =
+        Absinthe.Relay.Node.to_global_id(
+          :signal,
+          Ecto.UUID.generate(),
+          OfficeGraphWeb.GraphQL.Schema
+        )
+
+      try do
+        response =
+          conn
+          |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: relay_id}})
+          |> json_response(200)
+
+        assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+        assert response["data"] in [nil, %{"node" => nil}]
+      after
+        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
+      end
+    end
   end
 
   describe "generated AshJsonApi reads" do
@@ -274,6 +320,18 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert is_binary(edge["cursor"])
       edge["node"]
     end)
+  end
+
+  defp generated_signal_node_id(conn) do
+    response =
+      conn
+      |> post(~p"/graphql", %{query: generated_reads_query()})
+      |> json_response(200)
+
+    assert response["errors"] in [nil, []]
+
+    [signal] = connection_nodes(response["data"]["listSignals"])
+    signal["id"]
   end
 
   defp json_api_get(conn, path) do

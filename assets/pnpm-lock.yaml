@@ -33,7 +33,7 @@ importers:
         specifier: ^21.0.1
         version: 21.0.1(react@19.2.7)
       react-router:
-        specifier: ^8.1.0
+        specifier: 8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       relay-runtime:
         specifier: ^21.0.1

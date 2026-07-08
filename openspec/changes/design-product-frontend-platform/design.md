@@ -1,4 +1,4 @@
-## Context
+# Context
 
 Office Graph has one Phoenix-served React operator console. That proved the
 basic product UI path, but the current frontend should not define every future

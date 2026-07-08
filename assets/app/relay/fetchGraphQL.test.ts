@@ -4,7 +4,56 @@ import { fetchGraphQL } from "./fetchGraphQL";
 
 describe("fetchGraphQL", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("returns GraphQL data for successful responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        data: { ok: true }
+      })
+    );
+    vi.stubGlobal(
+      "fetch",
+      fetchMock
+    );
+
+    await expect(fetchGraphQL(request("HappyQuery"), { id: "ok" })).resolves.toEqual({
+      data: { ok: true }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/graphql",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        signal: expect.any(AbortSignal)
+      })
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: "query HappyQuery { ok }",
+      variables: { id: "ok" }
+    });
+  });
+
+  it("requires compiled GraphQL text", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const missingText = {
+      ...request("MissingText"),
+      text: null
+    };
+
+    await expect(fetchGraphQL(missingText, {})).rejects.toThrow(
+      'Relay request "MissingText" is missing compiled GraphQL text.'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("throws a status-aware error when an HTTP failure response is not JSON", async () => {
@@ -39,6 +88,61 @@ describe("fetchGraphQL", () => {
     await expect(fetchGraphQL(request("ValidationQuery"), {})).resolves.toEqual({
       errors: [{ message: "Validation failed" }]
     });
+  });
+
+  it("throws when a successful response body is empty", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 200 })));
+
+    await expect(fetchGraphQL(request("EmptyQuery"), {})).rejects.toThrow(
+      'GraphQL request "EmptyQuery" returned an invalid JSON response.'
+    );
+  });
+
+  it("throws when a successful response body is invalid JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 200 })));
+
+    await expect(fetchGraphQL(request("InvalidJsonQuery"), {})).rejects.toThrow(
+      'GraphQL request "InvalidJsonQuery" returned an invalid JSON response.'
+    );
+  });
+
+  it("throws when a successful response is valid JSON but not a GraphQL response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ok: true })));
+
+    await expect(fetchGraphQL(request("ShapeQuery"), {})).rejects.toThrow(
+      'GraphQL request "ShapeQuery" returned an invalid JSON response.'
+    );
+  });
+
+  it("aborts GraphQL requests that exceed the request timeout", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = fetchGraphQL(request("SlowQuery"), {});
+    const outcome = result.then(
+      () => "resolved",
+      (error: unknown) => (error instanceof DOMException ? error.name : String(error))
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(outcome).resolves.toBe("AbortError");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/graphql",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    );
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

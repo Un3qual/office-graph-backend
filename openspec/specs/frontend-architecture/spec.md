@@ -70,7 +70,7 @@ frontend architecture.
 - **THEN** the implementation MUST prefer the accepted frontend architecture over
   demo compatibility
 
-### Requirement: Operator Server State Uses Query Hooks
+### Requirement: Operator Server State Uses Relay
 Office Graph SHALL use Relay for operator workflow server state.
 
 #### Scenario: Operator route reads workflow data
@@ -88,18 +88,19 @@ Office Graph SHALL use Relay for operator workflow server state.
 - **THEN** the state MUST remain local React state or an accepted URL parameter
   and MUST NOT be hidden in the server-state cache as durable product state
 
-### Requirement: Feature Data Hooks
+### Requirement: Feature Data Access
 
-Office Graph SHALL route frontend data access through route-owned Relay data,
-Relay fragments, or typed feature clients rather than direct ad hoc fetch calls
-inside components.
+Office Graph SHALL route product GraphQL data access through route-owned Relay
+data and Relay fragments. Typed feature clients are reserved for non-GraphQL
+integrations or other accepted non-product-GraphQL data paths, and components
+MUST NOT issue direct ad hoc fetch calls.
 
 #### Scenario: Feature reads backend data
 
 - **WHEN** a feature route or panel reads Office Graph backend data
-- **THEN** the feature MUST consume product GraphQL data through Relay route
-  data, Relay fragment data, or typed UI data independent of raw transport
-  response shape or future socket/live invalidation payloads
+- **THEN** product GraphQL data MUST flow through Relay route data or Relay
+  fragment data, independent of raw transport response shape or future
+  socket/live invalidation payloads
 
 #### Scenario: Old adapter has no current caller
 

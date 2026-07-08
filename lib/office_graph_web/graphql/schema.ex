@@ -52,8 +52,11 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
           end
 
         %{type: type, id: id}, resolution ->
-          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution) do
-            Projections.generated_graphql_node(session_context, type, id)
+          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+               {:ok, node} <- Projections.generated_graphql_node(session_context, type, id) do
+            {:ok, node}
+          else
+            error -> Errors.to_absinthe(error)
           end
       end)
     end

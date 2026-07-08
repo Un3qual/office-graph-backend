@@ -1,4 +1,4 @@
-## GraphQL Client Decision
+# GraphQL Client Decision
 
 Relay is selected as the product GraphQL client model for this change.
 
