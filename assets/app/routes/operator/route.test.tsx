@@ -74,6 +74,16 @@ describe("operator route", () => {
     expect(screen.queryByRole("button", { name: /apply/i })).not.toBeInTheDocument();
   });
 
+  it("treats a nullable Relay workflow connection as an empty inbox", async () => {
+    const network = createOperatorNetwork({ workflowItems: null });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
+    expect(screen.getByText("No packet readiness selected.")).toBeInTheDocument();
+    expect(screen.queryByText(/GraphQL operator workflow connection/i)).not.toBeInTheDocument();
+  });
+
   it("shows Relay loading errors", async () => {
     const network = vi.fn(async () => {
       throw new Error("GraphQL unavailable");
@@ -134,6 +144,116 @@ describe("operator route", () => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
         "Review second packet"
       );
+    });
+  });
+
+  it("clears selection-scoped panels while loading a newly selected item", async () => {
+    const secondReadiness = deferredGraphQLResponse();
+    const secondRunState = deferredGraphQLResponse();
+    const secondItem = operatorWorkflowItem({
+      id: "operator_workflow_item_global_2",
+      normalizedEventId: "evt_2",
+      typedId: { type: "normalized_intake_event", id: "evt_2" },
+      graphLinks: [
+        {
+          type: "verification_check",
+          id: "check_2",
+          graphItemId: "graph_2",
+          title: "Review second packet",
+          state: "required"
+        },
+        {
+          type: "work_run",
+          id: "run_2",
+          graphItemId: null,
+          title: "Second verification run",
+          state: "running"
+        }
+      ]
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem(), secondItem], variables);
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        const input = variables.input as { verificationCheckIds: string[] };
+
+        if (input.verificationCheckIds.includes("check_2")) {
+          return secondReadiness.promise;
+        }
+
+        return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        if (variables.id === "run_2") {
+          return secondRunState.promise;
+        }
+
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const secondRow = await screen.findByRole("button", { name: /evt_2/i });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Run console verification"
+      );
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Awaiting evidence acceptance"
+      );
+    });
+
+    fireEvent.click(secondRow);
+
+    await waitFor(() => {
+      expect(secondRow).toHaveAttribute("aria-current", "true");
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Loading readiness..."
+      );
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).not.toHaveTextContent(
+        "Run console verification"
+      );
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Loading run state..."
+      );
+      expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
+        "Awaiting evidence acceptance"
+      );
+    });
+
+    secondReadiness.resolve({
+      data: {
+        operatorPacketReadiness: operatorPacketReadiness({
+          sourceLinks: [
+            {
+              type: "verification_check",
+              id: "check_2",
+              graphItemId: "graph_2",
+              title: "Review second packet"
+            }
+          ],
+          requiredChecks: [{ id: "check_2", graphItemId: "graph_2", state: "required" }]
+        })
+      }
+    });
+    secondRunState.resolve({
+      data: {
+        operatorRunState: operatorRunState({ status: "verified" })
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Review second packet"
+      );
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
     });
   });
 
@@ -244,28 +364,13 @@ function createOperatorNetwork({
   readiness,
   runState
 }: {
-  workflowItems: ReturnType<typeof operatorWorkflowItem>[];
+  workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null;
   readiness?: ReturnType<typeof operatorPacketReadiness>;
   runState?: ReturnType<typeof operatorRunState>;
 }) {
   return vi.fn(async (request, variables): Promise<GraphQLResponse> => {
     if (request.name === "OperatorWorkflowRouteQuery") {
-      return {
-        data: {
-          operatorWorkflowItems: {
-            edges: workflowItems.map((node, index) => ({
-              cursor: `cursor_${index + 1}`,
-              node
-            })),
-            pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: Boolean(variables.after),
-              startCursor: workflowItems.length > 0 ? "cursor_1" : null,
-              endCursor: workflowItems.length > 0 ? `cursor_${workflowItems.length}` : null
-            }
-          }
-        }
-      };
+      return workflowConnectionResponse(workflowItems, variables);
     }
 
     if (request.name === "OperatorPacketReadinessQuery") {
@@ -286,6 +391,41 @@ function createOperatorNetwork({
 
     throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
   });
+}
+
+function workflowConnectionResponse(
+  workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null,
+  variables: Readonly<Record<string, unknown>>
+): GraphQLResponse {
+  if (workflowItems === null) {
+    return { data: { operatorWorkflowItems: null } };
+  }
+
+  return {
+    data: {
+      operatorWorkflowItems: {
+        edges: workflowItems.map((node, index) => ({
+          cursor: `cursor_${index + 1}`,
+          node
+        })),
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: Boolean(variables.after),
+          startCursor: workflowItems.length > 0 ? "cursor_1" : null,
+          endCursor: workflowItems.length > 0 ? `cursor_${workflowItems.length}` : null
+        }
+      }
+    }
+  };
+}
+
+function deferredGraphQLResponse() {
+  let resolve!: (value: GraphQLResponse) => void;
+  const promise = new Promise<GraphQLResponse>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
 }
 
 function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = {}) {

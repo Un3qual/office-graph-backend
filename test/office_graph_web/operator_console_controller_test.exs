@@ -15,6 +15,12 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert html =~ "window.__reactRouterContext"
     assert html =~ "Office Graph"
     assert react_router_asset_paths(html) != []
+
+    assert Enum.all?(
+             react_router_asset_paths(html),
+             &String.starts_with?(&1, "/assets/react-router/")
+           )
+
     refute html =~ ~s(id="operator-console-root")
     refute html =~ ~s(href="/assets/operator/main.css")
     refute html =~ ~s(src="/assets/operator/main.js")
@@ -49,6 +55,9 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert File.exists?("assets/vite.react-router.config.ts"),
            "Frontend React Router Vite config must live under assets/vite.react-router.config.ts"
 
+    assert File.exists?(react_router_static_index_path()),
+           "React Router app shell must be staged into priv/static/assets/react-router/index.html"
+
     package_json = File.read!("assets/package.json")
     aliases = Mix.Project.config()[:aliases]
 
@@ -58,10 +67,18 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     assert package_json =~
              ~s("router:build": "react-router build --config vite.react-router.config.ts")
 
-    assert package_json =~ "pnpm run router:build && pnpm run verify:app-shell"
+    assert package_json =~ ~s("router:deploy": "pnpm run router:build)
+    assert package_json =~ "pnpm run router:deploy && pnpm run verify:app-shell"
     assert aliases[:setup] == ["deps.get", "assets.setup", "ecto.setup"]
     assert aliases[:"assets.setup"] == ["cmd --cd assets pnpm install --frozen-lockfile"]
-    assert aliases[:"assets.build"] == ["assets.setup", "cmd --cd assets pnpm run build"]
+
+    assert aliases[:"assets.build"] == [
+             "assets.setup",
+             "cmd --cd assets pnpm run build",
+             "cmd --cd assets pnpm run router:deploy",
+             "cmd --cd assets pnpm run verify:app-shell"
+           ]
+
     assert aliases[:"assets.deploy"] == ["assets.build", "phx.digest"]
     assert aliases[:"frontend.verify"] == ["assets.setup", "cmd --cd assets pnpm run verify"]
     assert aliases[:release] == ["assets.deploy", "release"]
@@ -112,7 +129,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   end
 
   defp react_router_build_asset_to_move! do
-    html = File.read!(react_router_build_index_path())
+    html = File.read!(react_router_static_index_path())
 
     asset_path =
       html
@@ -132,16 +149,19 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     %{asset_path: asset_path, path: path, backup_path: backup_path}
   end
 
-  defp react_router_build_index_path do
-    Path.expand("../../assets/build/client/index.html", __DIR__)
+  defp react_router_static_index_path do
+    Path.join(react_router_static_assets_dir(), "index.html")
   end
 
   defp react_router_build_asset_path(asset_path) do
-    Path.join(react_router_build_assets_dir(), String.trim_leading(asset_path, "/assets/"))
+    Path.join(
+      react_router_static_assets_dir(),
+      String.replace_prefix(asset_path, "/assets/react-router/", "")
+    )
   end
 
-  defp react_router_build_assets_dir do
-    Path.expand("../../assets/build/client/assets", __DIR__)
+  defp react_router_static_assets_dir do
+    Path.expand("../../priv/static/assets/react-router", __DIR__)
   end
 
   defp assert_legacy_vite_assets_exist! do

@@ -279,6 +279,7 @@ export const updateOperatorWorkflowAfterVerification: SelectorStoreUpdater<
   const runID = payload?.getLinkedRecord("run")?.getValue("id");
 
   if (typeof runID === "string") {
+    store.getRoot().getLinkedRecord("operatorRunState", { id: runID })?.invalidateRecord();
     store.get(runID)?.invalidateRecord();
   }
 };

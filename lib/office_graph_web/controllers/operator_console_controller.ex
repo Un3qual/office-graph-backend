@@ -1,9 +1,9 @@
 defmodule OfficeGraphWeb.OperatorConsoleController do
   use OfficeGraphWeb, :controller
 
-  @react_router_build_root Path.expand("../../../assets/build/client", __DIR__)
-  @react_router_assets_root Path.join(@react_router_build_root, "assets")
-  @react_router_index_path Path.join(@react_router_build_root, "index.html")
+  @react_router_asset_prefix "/assets/react-router/"
+  @react_router_index_asset_path "/assets/react-router/index.html"
+  @source_static_root Path.expand("../../../priv/static", __DIR__)
 
   def index(conn, _params) do
     case app_shell() do
@@ -35,11 +35,11 @@ defmodule OfficeGraphWeb.OperatorConsoleController do
   end
 
   defp app_shell do
-    with {:ok, html} <- File.read(@react_router_index_path),
+    with {:ok, html} <- File.read(react_router_index_path()),
          [] <- missing_assets(html) do
       {:ok, html}
     else
-      {:error, _reason} -> {:error, ["assets/build/client/index.html"]}
+      {:error, _reason} -> {:error, [@react_router_index_asset_path]}
       missing_assets when is_list(missing_assets) -> {:error, missing_assets}
     end
   end
@@ -78,20 +78,40 @@ defmodule OfficeGraphWeb.OperatorConsoleController do
     |> Enum.uniq()
   end
 
-  defp react_router_asset_file("/assets/" <> asset_name),
-    do: react_router_asset_file([asset_name])
+  defp react_router_index_path do
+    Path.join(react_router_static_root(), "assets/react-router/index.html")
+  end
+
+  defp react_router_static_root do
+    app_static_root = Application.app_dir(:office_graph, "priv/static")
+
+    if File.regular?(Path.join(app_static_root, "assets/react-router/index.html")) do
+      app_static_root
+    else
+      @source_static_root
+    end
+  end
+
+  defp react_router_asset_file(@react_router_asset_prefix <> asset_name),
+    do: static_asset_file(["react-router", asset_name])
 
   defp react_router_asset_file(path_segments) when is_list(path_segments) do
-    relative_path = Path.join(path_segments)
-    file_path = Path.expand(relative_path, @react_router_assets_root)
-    assets_root = Path.expand(@react_router_assets_root)
+    case path_segments do
+      ["react-router" | asset_segments] -> static_asset_file(["react-router" | asset_segments])
+      _ -> :error
+    end
+  end
 
-    if String.starts_with?(file_path, assets_root <> "/") and File.regular?(file_path) do
+  defp react_router_asset_file(_asset_path), do: :error
+
+  defp static_asset_file(path_segments) do
+    static_root = Path.expand(react_router_static_root())
+    file_path = Path.expand(Path.join(["assets" | path_segments]), static_root)
+
+    if String.starts_with?(file_path, static_root <> "/") and File.regular?(file_path) do
       {:ok, file_path}
     else
       :error
     end
   end
-
-  defp react_router_asset_file(_asset_path), do: :error
 end

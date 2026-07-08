@@ -94,7 +94,12 @@ defmodule OfficeGraph.MixProject do
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
-      "assets.build": ["assets.setup", "cmd --cd assets pnpm run build"],
+      "assets.build": [
+        "assets.setup",
+        "cmd --cd assets pnpm run build",
+        "cmd --cd assets pnpm run router:deploy",
+        "cmd --cd assets pnpm run verify:app-shell"
+      ],
       "assets.deploy": ["assets.build", "phx.digest"],
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
       "static.analysis": [

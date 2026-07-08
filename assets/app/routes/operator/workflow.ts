@@ -174,7 +174,7 @@ function usePacketReadinessRelayQuery(input: PacketReadinessInput | null) {
 
     let isCurrent = true;
 
-    setQuery(startLoading);
+    setQuery(loadingQueryState());
 
     const subscription = fetchQuery<OperatorPacketReadinessOperation>(
       relayEnvironment,
@@ -215,7 +215,7 @@ function useOperatorRunStateRelayQuery(runId: string | null) {
 
     let isCurrent = true;
 
-    setQuery(startLoading);
+    setQuery(loadingQueryState());
 
     const subscription = fetchQuery<OperatorRunStateOperation>(
       relayEnvironment,
@@ -251,7 +251,7 @@ function workflowConnectionFromRelay(
   const connection = data.operatorWorkflowItems;
 
   if (!connection) {
-    throw new Error("The GraphQL operator workflow connection was empty.");
+    return emptyOperatorInbox(page);
   }
 
   const rows = (connection.edges ?? []).flatMap((edge) => {
@@ -325,6 +325,17 @@ function idleQueryState<T>(): QueryState<T> {
   };
 }
 
+function loadingQueryState<T>(): QueryState<T> {
+  return {
+    data: null,
+    error: null,
+    fetchStatus: "fetching",
+    isError: false,
+    isPending: true,
+    isSuccess: false
+  };
+}
+
 function startLoading<T>(state: QueryState<T>): QueryState<T> {
   return {
     ...state,
@@ -333,6 +344,19 @@ function startLoading<T>(state: QueryState<T>): QueryState<T> {
     isError: false,
     isPending: state.data === null,
     isSuccess: state.data !== null
+  };
+}
+
+function emptyOperatorInbox(page: OperatorInboxPage): OperatorInbox {
+  return {
+    type: "operator_inbox",
+    empty: true,
+    hasMore: false,
+    limit: page.first,
+    nextCursor: null,
+    afterCursor: page.after,
+    sourceWatermark: null,
+    rows: []
   };
 }
 
