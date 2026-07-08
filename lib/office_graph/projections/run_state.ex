@@ -11,7 +11,7 @@ defmodule OfficeGraph.Projections.RunState do
   def operator_run_state(session_context, run_id) do
     with {:ok, summary} <- Runs.get_summary(session_context, run_id),
          {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id) do
-      {:ok, build_run_state(summary, evidence_candidates)}
+      {:ok, build_run_state(session_context, summary, evidence_candidates)}
     end
   end
 
@@ -39,9 +39,11 @@ defmodule OfficeGraph.Projections.RunState do
     |> Ash.read(authorize?: false)
   end
 
-  defp build_run_state(summary, evidence_candidates) do
+  defp build_run_state(session_context, summary, evidence_candidates) do
     status = run_status(summary, evidence_candidates)
-    command_affordances = run_command_affordances(status, summary, evidence_candidates)
+
+    command_affordances =
+      run_command_affordances(session_context, status, summary, evidence_candidates)
 
     %{
       type: "operator_run_state",
@@ -143,18 +145,59 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp run_command_affordances("awaiting_execution", summary, _evidence_candidates) do
+  defp run_command_affordances(
+         session_context,
+         "awaiting_execution",
+         summary,
+         _evidence_candidates
+       ) do
+    if CommandAffordance.authorized?(session_context, :execution_observation_record) do
+      record_observation_affordance(summary)
+    else
+      [CommandAffordance.policy_restricted("record_observation")]
+    end
+  end
+
+  defp run_command_affordances(
+         session_context,
+         "awaiting_evidence",
+         summary,
+         _evidence_candidates
+       ) do
+    if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
+      create_evidence_candidate_affordance(summary)
+    else
+      [CommandAffordance.policy_restricted("create_evidence_candidate")]
+    end
+  end
+
+  defp run_command_affordances(
+         session_context,
+         "awaiting_evidence_acceptance",
+         summary,
+         evidence_candidates
+       ) do
+    if CommandAffordance.authorized?(session_context, :evidence_accept) do
+      accept_evidence_affordance(summary, evidence_candidates)
+    else
+      [CommandAffordance.policy_restricted("accept_evidence")]
+    end
+  end
+
+  defp run_command_affordances(_session_context, _status, _summary, _evidence_candidates), do: []
+
+  defp record_observation_affordance(summary) do
     [
       CommandAffordance.enabled(
         "record_observation",
         "Record execution observations for this run.",
-        required_fields: ["observations"],
+        required_fields: CommandAffordance.observation_required_fields(),
         target_ids: run_target_ids(summary)
       )
     ]
   end
 
-  defp run_command_affordances("awaiting_evidence", summary, _evidence_candidates) do
+  defp create_evidence_candidate_affordance(summary) do
     [
       CommandAffordance.enabled(
         "create_evidence_candidate",
@@ -171,7 +214,7 @@ defmodule OfficeGraph.Projections.RunState do
     ]
   end
 
-  defp run_command_affordances("awaiting_evidence_acceptance", summary, evidence_candidates) do
+  defp accept_evidence_affordance(summary, evidence_candidates) do
     [
       CommandAffordance.enabled(
         "accept_evidence",
@@ -182,8 +225,6 @@ defmodule OfficeGraph.Projections.RunState do
       )
     ]
   end
-
-  defp run_command_affordances(_status, _summary, _evidence_candidates), do: []
 
   defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
     missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)

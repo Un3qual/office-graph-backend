@@ -2,7 +2,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.ApiSupport
+  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
@@ -549,6 +551,57 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     end)
   end
 
+  test "GraphQL operator workflow command affordances are authorization-aware", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-read-only-affordance")
+    read_only_session = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+    event_id = intake.normalized_event.id
+
+    with_local_api_owner_bootstrap(false, fn ->
+      inbox =
+        conn
+        |> Ash.PlugHelpers.set_actor(read_only_session)
+        |> graphql(
+          """
+          query Inbox {
+            operatorInbox {
+              rows {
+                normalizedEventId
+                status
+                allowedNextActions
+                commandAffordances {
+                  identity
+                  state
+                  reasonCodes
+                  blockerReasons
+                  safeExplanation
+                  targetIds { type id }
+                }
+              }
+            }
+          }
+          """,
+          %{},
+          "operatorInbox"
+        )
+
+      assert row = Enum.find(inbox["rows"], &(&1["normalizedEventId"] == event_id))
+      assert row["status"] == "pending_triage"
+      assert row["allowedNextActions"] == []
+
+      assert [
+               %{
+                 "identity" => "apply_proposed_changes",
+                 "state" => "hidden",
+                 "reasonCodes" => ["policy_restricted"],
+                 "blockerReasons" => ["policy_restricted"],
+                 "safeExplanation" => "This command is not available for the current operator.",
+                 "targetIds" => []
+               }
+             ] = row["commandAffordances"]
+    end)
+  end
+
   test "local owner bootstrap stays request scoped instead of VM cached" do
     with_local_api_owner_bootstrap(true, fn ->
       assert {:ok, bootstrap} = ApiSupport.bootstrap_local_api_owner()
@@ -618,6 +671,89 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       "UPDATE principal_profiles SET display_name = $1, updated_at = $2 WHERE id = $3",
       [display_name, now, Ecto.UUID.dump!(profile_id)]
     )
+  end
+
+  defp create_session_with_capabilities!(bootstrap, capability_keys) do
+    suffix = System.unique_integer([:positive])
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    role_id = Ecto.UUID.generate()
+
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: principal_id,
+          email: "operator-api-read-only-#{suffix}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: session_id,
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "operator_api_read_only_#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    role =
+      Ash.create!(
+        Role,
+        %{
+          id: role_id,
+          organization_id: bootstrap.organization.id,
+          key: "operator_api_read_only_#{suffix}",
+          name: "Operator API Read Only #{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Enum.each(capability_keys, fn capability_key ->
+      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
+
+      Ash.create!(
+        RoleCapability,
+        %{
+          id: Ecto.UUID.generate(),
+          role_id: role.id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+    end)
+
+    Ash.create!(
+      RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: principal.id,
+        role_id: role.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new(capability_keys)
+    }
   end
 
   defp force_intake_inserted_at!(normalized_event_id, inserted_at) do

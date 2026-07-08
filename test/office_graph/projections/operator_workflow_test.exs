@@ -66,6 +66,31 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert row.revision_trace == %{operation_id: nil, resource_count: 0, resources: []}
   end
 
+  test "operator workflow command affordances require command capabilities" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "read-only-apply")
+    read_only_session = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+
+    assert {:ok, inbox} = Projections.operator_inbox(read_only_session)
+    assert row = Enum.find(inbox.rows, &(&1.normalized_event_id == intake.normalized_event.id))
+
+    assert row.status == "pending_triage"
+    assert row.allowed_next_actions == []
+
+    assert [
+             %{
+               identity: "apply_proposed_changes",
+               state: "hidden",
+               reason_codes: ["policy_restricted"],
+               blocker_reasons: ["policy_restricted"],
+               safe_explanation: "This command is not available for the current operator.",
+               target_ids: []
+             }
+           ] = row.command_affordances
+
+    refute inspect(row.command_affordances) =~ "proposed_change.apply"
+  end
+
   test "operator workflow item exposes applied graph links and traces" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "applied-triage")
@@ -530,7 +555,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert record_observation.reason_codes == []
     assert record_observation.blocker_reasons == []
     assert record_observation.safe_explanation == "Record execution observations for this run."
-    assert record_observation.required_fields == ["observations"]
+
+    assert record_observation.required_fields == [
+             "observation_source_kind",
+             "observation_source_identity",
+             "observation_idempotency_key",
+             "observed_status",
+             "normalized_status",
+             "freshness_state",
+             "trust_basis",
+             "verification_check_id",
+             "source_graph_item_id",
+             "observation_rationale"
+           ]
+
     assert %{type: "work_run", id: run_result.run.id} in record_observation.target_ids
 
     assert %{type: "verification_check", id: verification_check.id} in record_observation.target_ids
@@ -749,6 +787,66 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert result_id == accepted.verification_result.id
   end
 
+  test "operator run state command affordances require command capabilities" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+    read_only_session = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+
+    assert {:ok, initial_state} =
+             Projections.operator_run_state(read_only_session, run_result.run.id)
+
+    assert initial_state.status == "awaiting_execution"
+    assert initial_state.allowed_next_actions == []
+    assert [record_observation] = initial_state.command_affordances
+    assert record_observation.identity == "record_observation"
+    assert record_observation.state == "hidden"
+    assert record_observation.reason_codes == ["policy_restricted"]
+    assert record_observation.blocker_reasons == ["policy_restricted"]
+    assert record_observation.target_ids == []
+    refute inspect(record_observation) =~ "execution_observation.record"
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "read-only-run-state"
+      )
+
+    assert {:ok, awaiting_evidence} =
+             Projections.operator_run_state(read_only_session, run_result.run.id)
+
+    assert awaiting_evidence.status == "awaiting_evidence"
+    assert awaiting_evidence.allowed_next_actions == []
+    assert [create_candidate] = awaiting_evidence.command_affordances
+    assert create_candidate.identity == "create_evidence_candidate"
+    assert create_candidate.state == "hidden"
+    assert create_candidate.reason_codes == ["policy_restricted"]
+    assert create_candidate.blocker_reasons == ["policy_restricted"]
+    assert create_candidate.target_ids == []
+    refute inspect(create_candidate) =~ "evidence_candidate.create"
+
+    {:ok, _candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "read-only-run-state"
+      )
+
+    assert {:ok, awaiting_acceptance} =
+             Projections.operator_run_state(read_only_session, run_result.run.id)
+
+    assert awaiting_acceptance.status == "awaiting_evidence_acceptance"
+    assert awaiting_acceptance.allowed_next_actions == []
+    assert [accept_evidence] = awaiting_acceptance.command_affordances
+    assert accept_evidence.identity == "accept_evidence"
+    assert accept_evidence.state == "hidden"
+    assert accept_evidence.reason_codes == ["policy_restricted"]
+    assert accept_evidence.blocker_reasons == ["policy_restricted"]
+    assert accept_evidence.target_ids == []
+    refute inspect(accept_evidence) =~ "evidence.accept"
+  end
+
   defp submit_manual_intake(session, key) do
     {:ok, operation} =
       Operations.start_operation(session, :manual_intake_submit,
@@ -826,6 +924,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   end
 
   defp create_read_only_session!(bootstrap) do
+    create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+  end
+
+  defp create_session_with_capabilities!(bootstrap, capability_keys) do
     suffix = System.unique_integer([:positive])
     principal_id = Ecto.UUID.generate()
     session_id = Ecto.UUID.generate()
@@ -858,8 +960,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         authorize?: false
       )
 
-    capability = Ash.get!(Capability, %{key: "skeleton.read"}, authorize?: false)
-
     role =
       Ash.create!(
         Role,
@@ -873,16 +973,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         authorize?: false
       )
 
-    Ash.create!(
-      RoleCapability,
-      %{
-        id: Ecto.UUID.generate(),
-        role_id: role.id,
-        capability_id: capability.id
-      },
-      action: :create,
-      authorize?: false
-    )
+    Enum.each(capability_keys, fn capability_key ->
+      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
+
+      Ash.create!(
+        RoleCapability,
+        %{
+          id: Ecto.UUID.generate(),
+          role_id: role.id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+    end)
 
     Ash.create!(
       RoleAssignment,
@@ -902,7 +1006,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       session_id: session.id,
       organization_id: bootstrap.organization.id,
       workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(["skeleton.read"])
+      capabilities: MapSet.new(capability_keys)
     }
   end
 

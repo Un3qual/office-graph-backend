@@ -18,7 +18,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
         |> Kernel.++(source_blockers)
         |> Kernel.++(check_blockers)
         |> Kernel.++(source_check_blockers(attrs, required_checks))
-        |> Kernel.++(packet_create_action_blockers(session_context))
+        |> Kernel.++(packet_create_command_blockers(session_context))
         |> Enum.uniq()
 
       ready? = blockers == []
@@ -171,7 +171,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp packet_create_action_blockers(session_context) do
+  defp packet_create_command_blockers(session_context) do
     case Authorization.authorize(session_context, :work_packet_create,
            organization_id: session_context.organization_id
          ) do

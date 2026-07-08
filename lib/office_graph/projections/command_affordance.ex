@@ -1,6 +1,8 @@
 defmodule OfficeGraph.Projections.CommandAffordance do
   @moduledoc false
 
+  alias OfficeGraph.Authorization
+
   @packet_required_fields [
     "title",
     "objective",
@@ -12,7 +14,21 @@ defmodule OfficeGraph.Projections.CommandAffordance do
     "verification_check_ids"
   ]
 
+  @observation_required_fields [
+    "observation_source_kind",
+    "observation_source_identity",
+    "observation_idempotency_key",
+    "observed_status",
+    "normalized_status",
+    "freshness_state",
+    "trust_basis",
+    "verification_check_id",
+    "source_graph_item_id",
+    "observation_rationale"
+  ]
+
   def packet_required_fields, do: @packet_required_fields
+  def observation_required_fields, do: @observation_required_fields
 
   def enabled(identity, safe_explanation, opts \\ []) do
     new(identity, "enabled", safe_explanation, opts)
@@ -42,6 +58,29 @@ defmodule OfficeGraph.Projections.CommandAffordance do
       trace_links: Keyword.get(opts, :trace_links, []),
       decision_links: Keyword.get(opts, :decision_links, [])
     }
+  end
+
+  def policy_restricted(identity, opts \\ []) do
+    hidden(
+      identity,
+      "This command is not available for the current operator.",
+      Keyword.merge(
+        [
+          reason_codes: ["policy_restricted"],
+          blocker_reasons: ["policy_restricted"],
+          target_ids: [],
+          trace_links: [],
+          decision_links: []
+        ],
+        opts
+      )
+    )
+  end
+
+  def authorized?(session_context, capability) do
+    Authorization.authorize(session_context, capability,
+      organization_id: session_context.organization_id
+    ) == :ok
   end
 
   def enabled_identities(command_affordances) do
