@@ -9,7 +9,7 @@
     "dev": "vite --host 127.0.0.1",
     "router:build": "react-router build --config vite.react-router.config.ts",
     "router:routes": "react-router routes --config vite.react-router.config.ts",
-    "router:typegen": "react-router typegen",
+    "router:typegen": "react-router typegen --config vite.react-router.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

@@ -2,6 +2,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
@@ -71,6 +72,41 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert run_node["data"]["node"]["state"] == work_run["state"]
     end
 
+    test "generated get reads accept Relay IDs returned by connection lists", %{conn: conn} do
+      seed_generated_read_fixtures()
+
+      reads =
+        conn
+        |> post(~p"/graphql", %{query: generated_reads_query()})
+        |> json_response(200)
+
+      assert reads["errors"] in [nil, []]
+
+      [signal] = connection_nodes(reads["data"]["listSignals"])
+      [work_packet] = connection_nodes(reads["data"]["listWorkPackets"])
+      [work_run] = connection_nodes(reads["data"]["listWorkRuns"])
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_gets_query(),
+          variables: %{
+            signalId: signal["id"],
+            workPacketId: work_packet["id"],
+            workRunId: work_run["id"]
+          }
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      assert response["data"]["getSignal"]["id"] == signal["id"]
+      assert response["data"]["getSignal"]["title"] == signal["title"]
+      assert response["data"]["getWorkPacket"]["id"] == work_packet["id"]
+      assert response["data"]["getWorkPacket"]["title"] == work_packet["title"]
+      assert response["data"]["getWorkRun"]["id"] == work_run["id"]
+      assert response["data"]["getWorkRun"]["state"] == work_run["state"]
+    end
+
     test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
       original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
       Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
@@ -111,6 +147,33 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       after
         Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
       end
+    end
+
+    test "node(id:) preserves forbidden errors from trusted actors without read grants",
+         %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+
+      signal_id =
+        Absinthe.Relay.Node.to_global_id(
+          :signal,
+          fixtures.local.signal.id,
+          OfficeGraphWeb.GraphQL.Schema
+        )
+
+      forbidden_actor =
+        create_ungranted_session_context!(
+          fixtures.local.bootstrap,
+          "generated-node-forbidden"
+        )
+
+      response =
+        conn
+        |> Ash.PlugHelpers.set_actor(forbidden_actor)
+        |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
+        |> json_response(200)
+
+      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert response["data"] in [nil, %{"node" => nil}]
     end
 
     test "return structured forbidden errors for generated node refetches without an actor",
@@ -280,6 +343,28 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
     """
   end
 
+  defp generated_gets_query do
+    """
+    query GeneratedGets($signalId: ID!, $workPacketId: ID!, $workRunId: ID!) {
+      getSignal(id: $signalId) {
+        id
+        title
+        state
+      }
+      getWorkPacket(id: $workPacketId) {
+        id
+        title
+        state
+      }
+      getWorkRun(id: $workRunId) {
+        id
+        state
+        workPacketId
+      }
+    }
+    """
+  end
+
   defp generated_node_query do
     """
     query GeneratedNode($id: ID!) {
@@ -332,6 +417,45 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
 
     [signal] = connection_nodes(response["data"]["listSignals"])
     signal["id"]
+  end
+
+  defp create_ungranted_session_context!(bootstrap, purpose) do
+    suffix = System.unique_integer([:positive])
+
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email: "#{purpose}-#{suffix}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: purpose
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new()
+    }
   end
 
   defp json_api_get(conn, path) do

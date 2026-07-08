@@ -62,7 +62,7 @@ describe("operator frontend architecture", () => {
     expect(packageJson.scripts).toMatchObject({
       "router:build": "react-router build --config vite.react-router.config.ts",
       "router:routes": "react-router routes --config vite.react-router.config.ts",
-      "router:typegen": "react-router typegen"
+      "router:typegen": "react-router typegen --config vite.react-router.config.ts"
     });
     expect(packageJson.scripts.verify).toContain("pnpm run router:build");
   });
