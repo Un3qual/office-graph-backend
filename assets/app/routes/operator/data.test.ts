@@ -26,6 +26,7 @@ describe("operator Relay route data", () => {
       )
     };
     const store = {
+      invalidateStore: vi.fn(),
       getRoot: vi.fn(() => root),
       getRootField: vi.fn((fieldName: string) =>
         fieldName === "executePacketRunVerification" ? mutationPayload : null
@@ -36,6 +37,7 @@ describe("operator Relay route data", () => {
     data.updateOperatorWorkflowAfterVerification(store as never, null);
 
     expect(data.operatorWorkflowRouteRootID()).toBe("client:root");
+    expect(store.invalidateStore).toHaveBeenCalledTimes(1);
     expect(root.invalidateRecord).toHaveBeenCalledTimes(1);
     expect(root.getLinkedRecord).toHaveBeenCalledWith("operatorRunState", { id: "run_1" });
     expect(runStateProjection.invalidateRecord).toHaveBeenCalledTimes(1);

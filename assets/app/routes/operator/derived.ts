@@ -29,17 +29,16 @@ export function packetReadinessForItem(
   input: PacketReadinessInput
 ): PacketReadiness {
   const command = preparePacketAffordance(item);
-  const ready = command?.state === "enabled" && packetReadinessInputComplete(input);
   const sourceLinks = item.graphLinks.filter((link) => link.graphItemId && link.type !== "work_run");
   const requiredChecks = item.graphLinks.filter((link) => link.type === "verification_check");
 
   return {
     type: "packet_readiness",
-    ready,
-    status: ready ? "packet_ready" : "blocked",
-    allowedNextActions: command?.state === "enabled" ? [command.identity] : [],
+    ready: false,
+    status: "blocked",
+    allowedNextActions: [],
     commandAffordances: command ? [command] : [],
-    blockerReasons: command?.blockerReasons ?? item.blockerReasons,
+    blockerReasons: derivedReadinessBlockers(command, input, item.blockerReasons),
     sourceLinks: sourceLinks.map((link) => ({
       title: link.title ?? link.id
     })),
@@ -90,6 +89,22 @@ function defaultValues(
   field: string
 ) {
   return [...(defaults.find((defaultEntry) => defaultEntry.field === field)?.values ?? [])];
+}
+
+function derivedReadinessBlockers(
+  command: OperatorCommandAffordance | null,
+  input: PacketReadinessInput,
+  itemBlockers: readonly string[]
+) {
+  if (command?.blockerReasons && command.blockerReasons.length > 0) {
+    return [...command.blockerReasons];
+  }
+
+  if (!packetReadinessInputComplete(input)) {
+    return itemBlockers.length > 0 ? [...itemBlockers] : ["missing_packet_readiness_input"];
+  }
+
+  return ["backend_packet_readiness_required"];
 }
 
 function packetReadinessInputComplete(input: PacketReadinessInput) {

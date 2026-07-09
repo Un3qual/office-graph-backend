@@ -84,6 +84,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
            "React Router app shell must be staged into priv/static/assets/react-router/index.html"
 
     package_json = File.read!("assets/package.json")
+    vite_react_router_config = File.read!("assets/vite.react-router.config.ts")
     aliases = Mix.Project.config()[:aliases]
 
     assert package_json =~ ~s("packageManager": "pnpm@)
@@ -95,6 +96,10 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     assert package_json =~ ~s("router:deploy": "pnpm run build)
     assert package_json =~ "pnpm run router:deploy && pnpm run verify:app-shell"
+    assert vite_react_router_config =~ "reactRouter()"
+    assert vite_react_router_config =~ "officeGraphBabelTransforms"
+    refute vite_react_router_config =~ "@vitejs/plugin-react"
+    refute vite_react_router_config =~ "react({"
     assert aliases[:setup] == ["deps.get", "assets.setup", "ecto.setup"]
     assert aliases[:"assets.setup"] == ["cmd --cd assets pnpm install --frozen-lockfile"]
 

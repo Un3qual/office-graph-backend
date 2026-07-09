@@ -195,7 +195,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             reason_codes: ["policy_restricted"],
             blocker_reasons: ["policy_restricted"],
             required_fields: CommandAffordance.packet_required_fields(),
-            input_defaults: packet_input_defaults(attrs)
+            input_defaults: packet_input_defaults(attrs, required_checks)
           )
         ]
 
@@ -205,7 +205,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             "create_work_packet",
             "Create a work packet from the selected sources and checks.",
             required_fields: CommandAffordance.packet_required_fields(),
-            input_defaults: packet_input_defaults(attrs),
+            input_defaults: packet_input_defaults(attrs, required_checks),
             target_ids: packet_target_ids(source_links, required_checks)
           )
         ]
@@ -218,7 +218,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             reason_codes: blockers,
             blocker_reasons: blockers,
             required_fields: CommandAffordance.packet_required_fields(),
-            input_defaults: packet_input_defaults(attrs),
+            input_defaults: packet_input_defaults(attrs, required_checks),
             target_ids: packet_target_ids(source_links, required_checks)
           )
         ]
@@ -235,9 +235,10 @@ defmodule OfficeGraph.Projections.PacketReadiness do
     CommandAffordance.compact_target_ids(source_targets ++ check_targets)
   end
 
-  defp packet_input_defaults(attrs) do
+  defp packet_input_defaults(attrs, required_checks) do
     source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
     verification_check_ids = Map.get(attrs, :verification_check_ids, [])
+    primary_verification_check_id = List.first(verification_check_ids)
 
     [
       CommandAffordance.input_default("title", Map.get(attrs, :title)),
@@ -256,13 +257,38 @@ defmodule OfficeGraph.Projections.PacketReadiness do
       ),
       CommandAffordance.input_default(
         "primary_source_graph_item_id",
-        List.first(source_graph_item_ids)
+        primary_source_graph_item_id(
+          primary_verification_check_id,
+          source_graph_item_ids,
+          required_checks
+        )
       ),
       CommandAffordance.input_default(
         "primary_verification_check_id",
-        List.first(verification_check_ids)
+        primary_verification_check_id
       )
     ]
+  end
+
+  defp primary_source_graph_item_id(nil, source_graph_item_ids, _required_checks),
+    do: List.first(source_graph_item_ids)
+
+  defp primary_source_graph_item_id(
+         primary_verification_check_id,
+         source_graph_item_ids,
+         required_checks
+       ) do
+    case Enum.find(required_checks, &(&1.id == primary_verification_check_id)) do
+      %{graph_item_id: graph_item_id} ->
+        if graph_item_id in source_graph_item_ids do
+          graph_item_id
+        else
+          List.first(source_graph_item_ids)
+        end
+
+      nil ->
+        List.first(source_graph_item_ids)
+    end
   end
 
   defp projection_watermark(data) do

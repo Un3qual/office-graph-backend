@@ -409,6 +409,26 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert packet_default_value(create_packet, "primary_verification_check_id") ==
              verification_check.id
 
+    {:ok, second_verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:ok, reordered} =
+             Projections.packet_readiness(bootstrap.session, %{
+               ready_attrs
+               | source_graph_item_ids: [
+                   verification_check.graph_item_id,
+                   second_verification_check.graph_item_id
+                 ],
+                 verification_check_ids: [second_verification_check.id, verification_check.id]
+             })
+
+    assert [reordered_create_packet] = reordered.command_affordances
+
+    assert packet_default_value(reordered_create_packet, "primary_verification_check_id") ==
+             second_verification_check.id
+
+    assert packet_default_value(reordered_create_packet, "primary_source_graph_item_id") ==
+             second_verification_check.graph_item_id
+
     assert ready.required_checks == [
              %{
                id: verification_check.id,

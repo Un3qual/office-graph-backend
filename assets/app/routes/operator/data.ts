@@ -284,6 +284,7 @@ export function operatorWorkflowRouteRootID(rootID = "client:root") {
 export const updateOperatorWorkflowAfterVerification: SelectorStoreUpdater<
   ExecutePacketRunVerificationMutation$data
 > = (store) => {
+  store.invalidateStore();
   invalidateOperatorWorkflowRoot(store);
 
   const payload = store.getRootField("executePacketRunVerification");

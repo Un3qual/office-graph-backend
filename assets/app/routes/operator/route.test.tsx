@@ -54,8 +54,8 @@ describe("operator route", () => {
     });
   });
 
-  it("executes an enabled packet-run command from derived readiness defaults", async () => {
-    let mutationVariables: Readonly<Record<string, unknown>> | null = null;
+  it("does not execute packet-run verification from locally derived readiness", async () => {
+    let mutationCalled = false;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return workflowConnectionResponse([operatorWorkflowItem()], variables);
@@ -66,7 +66,7 @@ describe("operator route", () => {
       }
 
       if (request.name === "ExecutePacketRunVerificationMutation") {
-        mutationVariables = variables;
+        mutationCalled = true;
         return { data: { executePacketRunVerification: packetRunSummary() } };
       }
 
@@ -76,27 +76,11 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByText("Prepare packet context")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Execute verification" }));
-
-    await waitFor(() => {
-      expect(mutationVariables).toMatchObject({
-        input: {
-          packetTitle: "Run console verification",
-          objective: "Run console verification",
-          contextSummary: "Run console verification",
-          requirements: "Run console verification",
-          successCriteria: "Run console verification",
-          autonomyPosture: "human_supervised",
-          sourceGraphItemId: "graph_1",
-          verificationCheckId: "check_1",
-          evidenceResult: "passed"
-        }
-      });
-    });
-
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Verification submitted"
+      "Blocked"
     );
+    expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
+    expect(mutationCalled).toBe(false);
     expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
       .toBe(false);
   });

@@ -8,31 +8,24 @@ import {
   statusTone
 } from "../presentation";
 import type {
-  CommandExecutionState,
   PacketReadiness,
   PacketReadinessInput,
   QueryState
 } from "../types";
 
 type Props = {
-  commandExecution: CommandExecutionState;
-  onExecutePacketRun: () => void;
   readiness: PacketReadiness | null;
   readinessInput: PacketReadinessInput | null;
   readinessQuery: QueryState<PacketReadiness>;
 };
 
 export function ReadinessPanel({
-  commandExecution,
-  onExecutePacketRun,
   readiness,
   readinessInput,
   readinessQuery
 }: Props) {
   const isLoading = isQueryLoading(readinessQuery);
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
-  const canExecute = Boolean(readiness?.isDerived && readiness.ready);
-  const isSubmitting = commandExecution.status === "submitting";
 
   return (
     <Panel ariaLabel="Packet Readiness">
@@ -45,22 +38,7 @@ export function ReadinessPanel({
       {readiness ? (
         <>
           {hasStaleData ? <p className="muted-text">Showing last loaded readiness.</p> : null}
-          {commandExecution.status === "succeeded" ? (
-            <p className="muted-text">Verification submitted.</p>
-          ) : null}
-          {commandExecution.status === "failed" ? (
-            <p className="error-text">{errorMessage(commandExecution.error)}</p>
-          ) : null}
           <Badge tone={statusTone(readiness.status)}>{formatLabel(readiness.status)}</Badge>
-          {readiness.isDerived ? (
-            <button
-              type="button"
-              onClick={onExecutePacketRun}
-              disabled={!canExecute || isSubmitting}
-            >
-              {isSubmitting ? "Executing verification" : "Execute verification"}
-            </button>
-          ) : null}
           <PanelRows
             rows={[
               ["Mode", readiness.isDerived ? "Prepare packet context" : "Backend readiness"],
