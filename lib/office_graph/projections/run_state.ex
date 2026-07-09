@@ -229,11 +229,7 @@ defmodule OfficeGraph.Projections.RunState do
   defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
     missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
 
-    Enum.any?(evidence_candidates, fn candidate ->
-      candidate.candidate_state == "candidate" and
-        MapSet.member?(missing_check_ids, candidate.verification_check_id) and
-        Verification.acceptable_evidence_source?(candidate)
-    end)
+    Enum.any?(evidence_candidates, &acceptable_pending_candidate?(&1, missing_check_ids))
   end
 
   defp run_target_ids(summary) do
@@ -256,13 +252,15 @@ defmodule OfficeGraph.Projections.RunState do
     missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
 
     evidence_candidates
-    |> Enum.filter(fn candidate ->
-      candidate.candidate_state == "candidate" and
-        MapSet.member?(missing_check_ids, candidate.verification_check_id) and
-        Verification.acceptable_evidence_source?(candidate)
-    end)
+    |> Enum.filter(&acceptable_pending_candidate?(&1, missing_check_ids))
     |> Enum.map(&CommandAffordance.target_id("evidence_candidate", &1.id))
     |> CommandAffordance.compact_target_ids()
+  end
+
+  defp acceptable_pending_candidate?(candidate, missing_check_ids) do
+    candidate.candidate_state == "candidate" and
+      MapSet.member?(missing_check_ids, candidate.verification_check_id) and
+      Verification.acceptable_evidence_source?(candidate)
   end
 
   defp evidence_candidate_projection(candidate) do

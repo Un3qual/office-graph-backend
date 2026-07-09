@@ -3,7 +3,7 @@ defmodule OfficeGraphWeb.OperatorConsoleController do
 
   @react_router_asset_prefix "/assets/react-router/"
   @react_router_index_asset_path "/assets/react-router/index.html"
-  @source_static_root Path.expand("../../../priv/static", __DIR__)
+  @immutable_cache_control "public, max-age=31536000, immutable"
 
   def index(conn, _params) do
     case app_shell() do
@@ -27,6 +27,7 @@ defmodule OfficeGraphWeb.OperatorConsoleController do
       {:ok, file_path} ->
         conn
         |> put_resp_content_type(MIME.from_path(file_path))
+        |> put_resp_header("cache-control", @immutable_cache_control)
         |> send_file(200, file_path)
 
       :error ->
@@ -83,13 +84,8 @@ defmodule OfficeGraphWeb.OperatorConsoleController do
   end
 
   defp react_router_static_root do
-    app_static_root = Application.app_dir(:office_graph, "priv/static")
-
-    if File.regular?(Path.join(app_static_root, "assets/react-router/index.html")) do
-      app_static_root
-    else
-      @source_static_root
-    end
+    Application.get_env(:office_graph, :operator_console_static_root) ||
+      Application.app_dir(:office_graph, "priv/static")
   end
 
   defp react_router_asset_file(@react_router_asset_prefix <> asset_name),

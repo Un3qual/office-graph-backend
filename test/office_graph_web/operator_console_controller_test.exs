@@ -2,8 +2,10 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   setup_all do
-    react_router_static_assets_dir()
-    |> File.rm_rf!()
+    original_static_root = Application.fetch_env(:office_graph, :operator_console_static_root)
+    static_root = temporary_static_root()
+
+    Application.put_env(:office_graph, :operator_console_static_root, static_root)
 
     react_router_static_assets_dir()
     |> Path.join("assets")
@@ -22,8 +24,8 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     )
 
     on_exit(fn ->
-      react_router_static_assets_dir()
-      |> File.rm_rf!()
+      File.rm_rf!(static_root)
+      restore_static_root(original_static_root)
     end)
 
     :ok
@@ -119,9 +121,13 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     assert asset_path
 
-    conn
-    |> get(asset_path)
-    |> response(200)
+    asset_conn = get(conn, asset_path)
+
+    assert get_resp_header(asset_conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+
+    response(asset_conn, 200)
   end
 
   test "operator app shell fails when required React Router build assets are missing", %{
@@ -182,7 +188,24 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   end
 
   defp react_router_static_assets_dir do
-    Application.app_dir(:office_graph, "priv/static/assets/react-router")
+    :office_graph
+    |> Application.fetch_env!(:operator_console_static_root)
+    |> Path.join("assets/react-router")
+  end
+
+  defp temporary_static_root do
+    Path.join(
+      System.tmp_dir!(),
+      "office-graph-operator-console-#{System.unique_integer([:positive])}"
+    )
+  end
+
+  defp restore_static_root({:ok, static_root}) do
+    Application.put_env(:office_graph, :operator_console_static_root, static_root)
+  end
+
+  defp restore_static_root(:error) do
+    Application.delete_env(:office_graph, :operator_console_static_root)
   end
 
   defp restore_moved_asset(%{path: path, backup_path: backup_path}) do
