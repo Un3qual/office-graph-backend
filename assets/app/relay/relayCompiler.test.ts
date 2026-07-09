@@ -30,6 +30,15 @@ describe("Relay compiler workflow", () => {
     });
   });
 
+  it("extracts the schema without starting the OTP application or mixing compile logs into SDL", () => {
+    const schemaScript = readFileSync(join(assetsRoot, "scripts/graphql-schema.mjs"), "utf8");
+
+    expect(schemaScript).toContain('["compile", "--quiet"]');
+    expect(schemaScript).toContain(
+      '["run", "--no-start", "--no-compile", "-e", schemaExpression]'
+    );
+  });
+
   it("keeps route-owned operator GraphQL documents near the route", () => {
     const dataSource = readFileSync(join(assetsRoot, "app/routes/operator/data.ts"), "utf8");
 

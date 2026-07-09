@@ -7,6 +7,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const assetsRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(assetsRoot, "..");
 const schemaPath = resolve(assetsRoot, "schema.graphql");
+const schemaExpression = "OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()";
 const mode = process.argv[2];
 
 if (!["--check", "--write"].includes(mode)) {
@@ -34,17 +35,21 @@ if (current !== schema) {
 }
 
 function generateSchema() {
-  const result = spawnSync(
-    "mix",
-    ["run", "-e", "OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()"],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-      maxBuffer: 20 * 1024 * 1024
-    }
-  );
+  runMix(["compile", "--quiet"]);
+  const result = runMix(["run", "--no-start", "--no-compile", "-e", schemaExpression]);
+
+  return `${result.stdout.trimEnd()}\n`;
+}
+
+function runMix(args) {
+  const result = spawnSync("mix", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024
+  });
 
   if (result.status !== 0) {
+    process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
     process.exit(result.status ?? 1);
   }
@@ -53,5 +58,5 @@ function generateSchema() {
     process.stderr.write(result.stderr);
   }
 
-  return `${result.stdout.trimEnd()}\n`;
+  return result;
 }

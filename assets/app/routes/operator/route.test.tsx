@@ -9,11 +9,16 @@ import {
   type FetchFunction,
   type GraphQLResponse
 } from "relay-runtime";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
+import { fetchGraphQL } from "../../relay/fetchGraphQL";
 import OperatorRoute from "./route";
 
 describe("operator route", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the operator workbench from Relay projection data", async () => {
     const network = createOperatorNetwork({
       workflowItems: [operatorWorkflowItem()],
@@ -82,6 +87,23 @@ describe("operator route", () => {
     expect(await screen.findByText("No operator workflow items.")).toBeInTheDocument();
     expect(screen.getByText("No packet readiness selected.")).toBeInTheDocument();
     expect(screen.queryByText(/GraphQL operator workflow connection/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces GraphQL errors instead of treating a null workflow connection as empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { operatorWorkflowItems: null },
+          errors: [{ message: "Operator workflow access is forbidden" }]
+        })
+      )
+    );
+
+    renderWithRelay(<OperatorRoute />, fetchGraphQL);
+
+    expect(await screen.findByText("Operator workflow access is forbidden")).toBeInTheDocument();
+    expect(screen.queryByText("No operator workflow items.")).not.toBeInTheDocument();
   });
 
   it("renders only the requested manual inbox page after paging forward", async () => {
