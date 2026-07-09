@@ -710,14 +710,27 @@ defmodule OfficeGraph.Runs do
       |> Enum.filter(&(&1.result == "passed"))
       |> MapSet.new(& &1.verification_check_id)
 
+    failed_check_ids =
+      verification_results
+      |> Enum.filter(&(&1.result == "failed"))
+      |> MapSet.new(& &1.verification_check_id)
+
     required_checks
     |> Enum.reject(&MapSet.member?(passed_check_ids, &1.verification_check_id))
     |> Enum.map(fn required_check ->
       %{
         verification_check_id: required_check.verification_check_id,
-        reason: "missing_accepted_evidence"
+        reason: missing_evidence_reason(required_check, failed_check_ids)
       }
     end)
+  end
+
+  defp missing_evidence_reason(required_check, failed_check_ids) do
+    if MapSet.member?(failed_check_ids, required_check.verification_check_id) do
+      "failed_check"
+    else
+      "missing_accepted_evidence"
+    end
   end
 
   defp fetch_scoped(resource, session_context, id) do

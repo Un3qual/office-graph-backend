@@ -107,6 +107,27 @@ defmodule OfficeGraph.Authorization do
 
   def authorize(_session_context, _action, _opts), do: {:error, :forbidden}
 
+  def authorize_projection(session_context, action, opts \\ [])
+
+  def authorize_projection(
+        %Identity.SessionContext{trusted?: true} = session_context,
+        action,
+        opts
+      ) do
+    {result, _decision_attrs} =
+      evaluate_trusted_session_authorization(
+        session_context,
+        session_context.organization_id,
+        action,
+        opts
+      )
+
+    result
+  end
+
+  def authorize_projection(session_context, action, opts),
+    do: authorize(session_context, action, opts)
+
   def authorize_operation(session_context, operation, action, opts \\ [])
 
   def authorize_operation(
@@ -168,6 +189,28 @@ defmodule OfficeGraph.Authorization do
     end
   end
 
+  defp evaluate_trusted_session_authorization(session_context, organization_id, action, opts) do
+    case Map.fetch(@owner_capabilities, action) do
+      {:ok, required} ->
+        cond do
+          Identity.validate_session_context(session_context) != :ok ->
+            deny(required, "invalid_session")
+
+          organization_id != opts[:organization_id] ->
+            deny(required, "scope_mismatch")
+
+          not trusted_capability?(session_context, required) ->
+            deny(required, "missing_capability")
+
+          true ->
+            {:ok, {required, "allow", nil}}
+        end
+
+      :error ->
+        deny(recorded_action_name(action), "unknown_action")
+    end
+  end
+
   defp deny(action, reason), do: {{:error, :forbidden}, {action, "deny", reason}}
 
   defp record_decision(session_context, operation, action, decision, reason) do
@@ -212,6 +255,16 @@ defmodule OfficeGraph.Authorization do
       _ -> false
     end
   end
+
+  defp trusted_capability?(%{capabilities: %MapSet{} = capabilities}, required) do
+    MapSet.member?(capabilities, required)
+  end
+
+  defp trusted_capability?(%{capabilities: capabilities}, required) when is_list(capabilities) do
+    required in capabilities
+  end
+
+  defp trusted_capability?(_session_context, _required), do: false
 
   defp role_ids_for_capability(capability_id, organization_id) do
     role_ids =

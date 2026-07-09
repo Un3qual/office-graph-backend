@@ -33,6 +33,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           blockerReasons
           safeExplanation
           requiredFields
+          inputDefaults { field value values }
           targetIds { type id }
           traceLinks { type id }
           decisionLinks { type id }
@@ -68,6 +69,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             blockerReasons
             safeExplanation
             requiredFields
+            inputDefaults { field value values }
             targetIds { type id }
             traceLinks { type id }
             decisionLinks { type id }
@@ -112,6 +114,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
                "blockerReasons" => [],
                "safeExplanation" => "Apply pending proposed changes for this intake.",
                "requiredFields" => [],
+               "inputDefaults" => [],
                "targetIds" => [
                  %{
                    "type" => "normalized_intake_event",
@@ -144,6 +147,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               blockerReasons
               safeExplanation
               requiredFields
+              inputDefaults { field value values }
               targetIds { type id }
               traceLinks { type id }
               decisionLinks { type id }
@@ -180,6 +184,24 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "source_graph_item_ids",
              "verification_check_ids"
            ]
+
+    assert %{"field" => "title", "value" => applied.verification_check.title, "values" => []} in prepare_command[
+             "inputDefaults"
+           ]
+
+    assert %{"field" => "source_graph_item_ids", "value" => nil, "values" => source_ids} =
+             Enum.find(
+               prepare_command["inputDefaults"],
+               &(&1["field"] == "source_graph_item_ids")
+             )
+
+    assert applied.verification_check.graph_item_id in source_ids
+
+    assert %{
+             "field" => "verification_check_ids",
+             "value" => nil,
+             "values" => [applied.verification_check.id]
+           } in prepare_command["inputDefaults"]
 
     assert %{"type" => "operation"} = hd(prepare_command["traceLinks"])
     assert prepare_command["decisionLinks"] == []
@@ -323,6 +345,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           operatorPacketReadiness(input: $input) {
             status
             ready
+            sourceWatermark
             allowedNextActions
             commandAffordances {
               identity
@@ -331,6 +354,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               blockerReasons
               safeExplanation
               requiredFields
+              inputDefaults { field value values }
               targetIds { type id }
               traceLinks { type id }
               decisionLinks { type id }
@@ -346,6 +370,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert readiness["status"] == "packet_ready"
     assert readiness["ready"] == true
+    assert is_binary(readiness["sourceWatermark"])
     assert readiness["allowedNextActions"] == ["create_work_packet"]
     assert [create_packet] = readiness["commandAffordances"]
     assert create_packet["identity"] == "create_work_packet"
@@ -355,6 +380,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert create_packet["safeExplanation"] ==
              "Create a work packet from the selected sources and checks."
+
+    assert %{"field" => "title", "value" => "Ready GraphQL packet", "values" => []} in create_packet[
+             "inputDefaults"
+           ]
 
     assert [%{"id" => check_id, "graphItemId" => graph_item_id, "state" => "required"}] =
              readiness["requiredChecks"]
@@ -385,6 +414,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         query RunState($id: ID!) {
           operatorRunState(id: $id) {
             status
+            sourceWatermark
             allowedNextActions
             commandAffordances {
               identity
@@ -393,6 +423,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               blockerReasons
               safeExplanation
               requiredFields
+              inputDefaults { field value values }
               targetIds { type id }
               traceLinks { type id }
               decisionLinks { type id }
@@ -408,6 +439,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       )
 
     assert run_state["status"] == "awaiting_evidence_acceptance"
+    assert is_binary(run_state["sourceWatermark"])
     assert run_state["allowedNextActions"] == ["accept_evidence"]
     assert [accept_evidence] = run_state["commandAffordances"]
     assert accept_evidence["identity"] == "accept_evidence"
@@ -417,6 +449,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert accept_evidence["safeExplanation"] ==
              "Accept a candidate as evidence for a missing check."
+
+    assert accept_evidence["inputDefaults"] == []
 
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"

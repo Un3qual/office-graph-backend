@@ -48,9 +48,16 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :blocker_reasons, non_null(list_of(non_null(:string)))
     field :safe_explanation, non_null(:string)
     field :required_fields, non_null(list_of(non_null(:string)))
+    field :input_defaults, non_null(list_of(non_null(:operator_command_input_default)))
     field :target_ids, non_null(list_of(non_null(:operator_typed_id)))
     field :trace_links, non_null(list_of(non_null(:operator_typed_id)))
     field :decision_links, non_null(list_of(non_null(:operator_typed_id)))
+  end
+
+  object :operator_command_input_default do
+    field :field, non_null(:string)
+    field :value, :string
+    field :values, non_null(list_of(non_null(:string)))
   end
 
   node object(:operator_workflow_item,

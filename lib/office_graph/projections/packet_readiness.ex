@@ -24,7 +24,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
       ready? = blockers == []
 
       command_affordances =
-        packet_command_affordances(ready?, blockers, source_links, required_checks)
+        packet_command_affordances(ready?, blockers, source_links, required_checks, attrs)
 
       {:ok,
        %{
@@ -36,13 +36,19 @@ defmodule OfficeGraph.Projections.PacketReadiness do
          blocker_reasons: blockers,
          source_links: source_links,
          required_checks: required_checks,
-         source_watermark: nil
+         source_watermark:
+           projection_watermark(%{
+             attrs: attrs,
+             blockers: blockers,
+             source_links: source_links,
+             required_checks: required_checks
+           })
        }}
     end
   end
 
   defp authorize_read(session_context) do
-    Authorization.authorize(session_context, :skeleton_read,
+    Authorization.authorize_projection(session_context, :skeleton_read,
       organization_id: session_context.organization_id
     )
   end
@@ -172,15 +178,14 @@ defmodule OfficeGraph.Projections.PacketReadiness do
   end
 
   defp packet_create_command_blockers(session_context) do
-    case Authorization.authorize(session_context, :work_packet_create,
-           organization_id: session_context.organization_id
-         ) do
-      :ok -> []
-      {:error, :forbidden} -> ["policy_restricted"]
+    if CommandAffordance.authorized?(session_context, :work_packet_create) do
+      []
+    else
+      ["policy_restricted"]
     end
   end
 
-  defp packet_command_affordances(ready?, blockers, source_links, required_checks) do
+  defp packet_command_affordances(ready?, blockers, source_links, required_checks, attrs) do
     cond do
       "policy_restricted" in blockers ->
         [
@@ -189,7 +194,8 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             "This command is not available for the current operator.",
             reason_codes: ["policy_restricted"],
             blocker_reasons: ["policy_restricted"],
-            required_fields: CommandAffordance.packet_required_fields()
+            required_fields: CommandAffordance.packet_required_fields(),
+            input_defaults: packet_input_defaults(attrs)
           )
         ]
 
@@ -199,6 +205,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             "create_work_packet",
             "Create a work packet from the selected sources and checks.",
             required_fields: CommandAffordance.packet_required_fields(),
+            input_defaults: packet_input_defaults(attrs),
             target_ids: packet_target_ids(source_links, required_checks)
           )
         ]
@@ -211,6 +218,7 @@ defmodule OfficeGraph.Projections.PacketReadiness do
             reason_codes: blockers,
             blocker_reasons: blockers,
             required_fields: CommandAffordance.packet_required_fields(),
+            input_defaults: packet_input_defaults(attrs),
             target_ids: packet_target_ids(source_links, required_checks)
           )
         ]
@@ -225,5 +233,31 @@ defmodule OfficeGraph.Projections.PacketReadiness do
       Enum.map(required_checks, &CommandAffordance.target_id("verification_check", &1.id))
 
     CommandAffordance.compact_target_ids(source_targets ++ check_targets)
+  end
+
+  defp packet_input_defaults(attrs) do
+    [
+      CommandAffordance.input_default("title", Map.get(attrs, :title)),
+      CommandAffordance.input_default("objective", Map.get(attrs, :objective)),
+      CommandAffordance.input_default("context_summary", Map.get(attrs, :context_summary)),
+      CommandAffordance.input_default("requirements", Map.get(attrs, :requirements)),
+      CommandAffordance.input_default("success_criteria", Map.get(attrs, :success_criteria)),
+      CommandAffordance.input_default("autonomy_posture", Map.get(attrs, :autonomy_posture)),
+      CommandAffordance.input_default(
+        "source_graph_item_ids",
+        Map.get(attrs, :source_graph_item_ids, [])
+      ),
+      CommandAffordance.input_default(
+        "verification_check_ids",
+        Map.get(attrs, :verification_check_ids, [])
+      )
+    ]
+  end
+
+  defp projection_watermark(data) do
+    data
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
   end
 end
