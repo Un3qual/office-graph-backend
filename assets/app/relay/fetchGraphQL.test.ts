@@ -1,6 +1,6 @@
 import type { RequestParameters } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGraphQL } from "./fetchGraphQL";
+import { fetchGraphQL, GraphQLResponseError } from "./fetchGraphQL";
 
 describe("fetchGraphQL", () => {
   afterEach(() => {
@@ -72,22 +72,37 @@ describe("fetchGraphQL", () => {
     );
   });
 
-  it("throws GraphQL errors even when the HTTP status is not ok", async () => {
+  it("throws GraphQL response errors with extensions even when the HTTP status is not ok", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         Response.json(
           {
-            errors: [{ message: "Validation failed" }]
+            errors: [
+              {
+                message: "Validation failed",
+                extensions: { code: "source_graph_item_check_mismatch" }
+              }
+            ]
           },
           { status: 400 }
         )
       )
     );
 
-    await expect(fetchGraphQL(request("ValidationQuery"), {})).rejects.toThrow(
-      "Validation failed"
-    );
+    await expect(fetchGraphQL(request("ValidationQuery"), {})).rejects.toMatchObject({
+      message: "Validation failed",
+      requestName: "ValidationQuery",
+      status: 400,
+      source: {
+        errors: [
+          {
+            message: "Validation failed",
+            extensions: { code: "source_graph_item_check_mismatch" }
+          }
+        ]
+      }
+    });
   });
 
   it("throws GraphQL errors returned with partial data", async () => {
@@ -101,9 +116,19 @@ describe("fetchGraphQL", () => {
       )
     );
 
-    await expect(fetchGraphQL(request("OperatorWorkflowRouteQuery"), {})).rejects.toThrow(
-      "Operator workflow access is forbidden"
-    );
+    try {
+      await fetchGraphQL(request("OperatorWorkflowRouteQuery"), {});
+      throw new Error("Expected GraphQLResponseError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GraphQLResponseError);
+      expect(error).toMatchObject({
+        message: "Operator workflow access is forbidden",
+        source: {
+          data: { operatorWorkflowItems: null },
+          errors: [{ message: "Operator workflow access is forbidden" }]
+        }
+      });
+    }
   });
 
   it("throws when a successful response body is empty", async () => {

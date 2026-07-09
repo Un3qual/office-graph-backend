@@ -236,6 +236,9 @@ defmodule OfficeGraph.Projections.PacketReadiness do
   end
 
   defp packet_input_defaults(attrs) do
+    source_graph_item_ids = Map.get(attrs, :source_graph_item_ids, [])
+    verification_check_ids = Map.get(attrs, :verification_check_ids, [])
+
     [
       CommandAffordance.input_default("title", Map.get(attrs, :title)),
       CommandAffordance.input_default("objective", Map.get(attrs, :objective)),
@@ -245,11 +248,19 @@ defmodule OfficeGraph.Projections.PacketReadiness do
       CommandAffordance.input_default("autonomy_posture", Map.get(attrs, :autonomy_posture)),
       CommandAffordance.input_default(
         "source_graph_item_ids",
-        Map.get(attrs, :source_graph_item_ids, [])
+        source_graph_item_ids
       ),
       CommandAffordance.input_default(
         "verification_check_ids",
-        Map.get(attrs, :verification_check_ids, [])
+        verification_check_ids
+      ),
+      CommandAffordance.input_default(
+        "primary_source_graph_item_id",
+        List.first(source_graph_item_ids)
+      ),
+      CommandAffordance.input_default(
+        "primary_verification_check_id",
+        List.first(verification_check_ids)
       )
     ]
   end

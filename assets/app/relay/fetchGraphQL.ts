@@ -2,6 +2,20 @@ import type { GraphQLResponse, RequestParameters, Variables } from "relay-runtim
 
 const GRAPHQL_FETCH_TIMEOUT_MS = 30_000;
 
+export class GraphQLResponseError extends Error {
+  readonly source: GraphQLResponse;
+  readonly status: number;
+  readonly requestName: string;
+
+  constructor(message: string, source: GraphQLResponse, status: number, requestName: string) {
+    super(message);
+    this.name = "GraphQLResponseError";
+    this.source = source;
+    this.status = status;
+    this.requestName = requestName;
+  }
+}
+
 export async function fetchGraphQL(
   request: RequestParameters,
   variables: Variables
@@ -30,10 +44,12 @@ export async function fetchGraphQL(
 
     const payload = await readGraphQLResponse(response);
 
-    const firstError = payload && "errors" in payload ? payload.errors?.[0] : null;
+    if (payload) {
+      const firstError = "errors" in payload ? payload.errors?.[0] : null;
 
-    if (firstError) {
-      throw new Error(firstError.message);
+      if (firstError) {
+        throw new GraphQLResponseError(firstError.message, payload, response.status, request.name);
+      }
     }
 
     if (!response.ok) {

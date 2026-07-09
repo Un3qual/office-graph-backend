@@ -22,7 +22,6 @@ describe("operator route", () => {
   it("renders the operator workbench from Relay projection data", async () => {
     const network = createOperatorNetwork({
       workflowItems: [operatorWorkflowItem()],
-      readiness: operatorPacketReadiness(),
       runState: operatorRunState()
     });
 
@@ -38,23 +37,12 @@ describe("operator route", () => {
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
       "normalized_intake_event: evt_1"
     );
-    expect(await screen.findByText("Backend readiness")).toBeInTheDocument();
+    expect(await screen.findByText("Prepare packet context")).toBeInTheDocument();
     const readinessCall = network.mock.calls.find(
       ([request]) => request.name === "OperatorPacketReadinessQuery"
     );
 
-    expect(readinessCall?.[1]).toMatchObject({
-      input: {
-        title: "Run console verification",
-        objective: "Run console verification",
-        contextSummary: "Run console verification",
-        requirements: "Run console verification",
-        successCriteria: "Run console verification",
-        autonomyPosture: "human_supervised",
-        sourceGraphItemIds: ["graph_1"],
-        verificationCheckIds: ["check_1"]
-      }
-    });
+    expect(readinessCall).toBeUndefined();
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
@@ -64,6 +52,53 @@ describe("operator route", () => {
         "Owner acceptance"
       );
     });
+  });
+
+  it("executes an enabled packet-run command from derived readiness defaults", async () => {
+    let mutationVariables: Readonly<Record<string, unknown>> | null = null;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "ExecutePacketRunVerificationMutation") {
+        mutationVariables = variables;
+        return { data: { executePacketRunVerification: packetRunSummary() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByText("Prepare packet context")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Execute verification" }));
+
+    await waitFor(() => {
+      expect(mutationVariables).toMatchObject({
+        input: {
+          packetTitle: "Run console verification",
+          objective: "Run console verification",
+          contextSummary: "Run console verification",
+          requirements: "Run console verification",
+          successCriteria: "Run console verification",
+          autonomyPosture: "human_supervised",
+          sourceGraphItemId: "graph_1",
+          verificationCheckId: "check_1",
+          evidenceResult: "passed"
+        }
+      });
+    });
+
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "Verification submitted"
+    );
+    expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
+      .toBe(false);
   });
 
   it("shows the empty state without enabling workflow commands", async () => {
@@ -195,18 +230,7 @@ describe("operator route", () => {
       ]
     });
     const network = createOperatorNetwork({
-      workflowItems: [operatorWorkflowItem(), secondItem],
-      readiness: operatorPacketReadiness({
-        sourceLinks: [
-          {
-            type: "verification_check",
-            id: "check_2",
-            graphItemId: "graph_2",
-            title: "Review second packet"
-          }
-        ],
-        requiredChecks: [{ id: "check_2", graphItemId: "graph_2", state: "required" }]
-      })
+      workflowItems: [operatorWorkflowItem(), secondItem]
     });
 
     renderWithRelay(<OperatorRoute />, network);
@@ -226,7 +250,6 @@ describe("operator route", () => {
   });
 
   it("clears selection-scoped panels while loading a newly selected item", async () => {
-    const secondReadiness = deferredGraphQLResponse();
     const secondRunState = deferredGraphQLResponse();
     const secondItem = operatorWorkflowItem({
       id: "operator_workflow_item_global_2",
@@ -252,16 +275,6 @@ describe("operator route", () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return workflowConnectionResponse([operatorWorkflowItem(), secondItem], variables);
-      }
-
-      if (request.name === "OperatorPacketReadinessQuery") {
-        const input = variables.input as { verificationCheckIds: string[] };
-
-        if (input.verificationCheckIds.includes("check_2")) {
-          return secondReadiness.promise;
-        }
-
-        return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
       }
 
       if (request.name === "OperatorRunStateQuery") {
@@ -293,10 +306,7 @@ describe("operator route", () => {
     await waitFor(() => {
       expect(secondRow).toHaveAttribute("aria-current", "true");
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Loading readiness..."
-      );
-      expect(screen.getByRole("region", { name: "Packet Readiness" })).not.toHaveTextContent(
-        "Run console verification"
+        "Review second packet"
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
         "Loading run state..."
@@ -306,21 +316,6 @@ describe("operator route", () => {
       );
     });
 
-    secondReadiness.resolve({
-      data: {
-        operatorPacketReadiness: operatorPacketReadiness({
-          sourceLinks: [
-            {
-              type: "verification_check",
-              id: "check_2",
-              graphItemId: "graph_2",
-              title: "Review second packet"
-            }
-          ],
-          requiredChecks: [{ id: "check_2", graphItemId: "graph_2", state: "required" }]
-        })
-      }
-    });
     secondRunState.resolve({
       data: {
         operatorRunState: operatorRunState({ status: "verified" })
@@ -344,6 +339,7 @@ describe("operator route", () => {
         blockerReasons: [],
         safeExplanation: "Prepare a work packet from the applied intake.",
         requiredFields: [],
+        inputDefaults: [],
         targetIds: [],
         traceLinks: [],
         decisionLinks: []
@@ -355,6 +351,7 @@ describe("operator route", () => {
         blockerReasons: ["missing accepted evidence"],
         safeExplanation: "Accept evidence after a candidate is selected.",
         requiredFields: ["evidence_item_id"],
+        inputDefaults: [],
         targetIds: [],
         traceLinks: [],
         decisionLinks: []
@@ -366,6 +363,7 @@ describe("operator route", () => {
         blockerReasons: ["requires secret_policy_bundle_alpha"],
         safeExplanation: "Secret graph item graph_secret_99 exists in a restricted compartment.",
         requiredFields: ["restricted_resource_id"],
+        inputDefaults: [],
         targetIds: [],
         traceLinks: [],
         decisionLinks: []
@@ -377,6 +375,7 @@ describe("operator route", () => {
         blockerReasons: ["tenant policy map alpha"],
         safeExplanation: "VIP target graph_secret_42 is restricted by policy bundle alpha.",
         requiredFields: ["target_graph_item_id"],
+        inputDefaults: [],
         targetIds: [],
         traceLinks: [],
         decisionLinks: []
@@ -509,6 +508,26 @@ function deferredGraphQLResponse() {
 }
 
 function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = {}) {
+  const graphLinks = overrides.graphLinks ?? [
+    {
+      type: "verification_check",
+      id: "check_1",
+      graphItemId: "graph_1",
+      title: "Run console verification",
+      state: "required"
+    },
+    {
+      type: "work_run",
+      id: "run_1",
+      graphItemId: null,
+      title: "Console verification run",
+      state: "running"
+    }
+  ];
+  const commandAffordances = overrides.commandAffordances ?? [
+    preparePacketCommandForGraphLinks(graphLinks)
+  ];
+
   return {
     __typename: "OperatorWorkflowItem",
     id: "operator_workflow_item_global_1",
@@ -526,50 +545,60 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     proposedChangeStatus: { pending: 4, applied: 0, rejected: 0, total: 4 },
     blockerReasons: [],
     allowedNextActions: ["prepare_packet"],
-    commandAffordances: [
-      {
-        identity: "prepare_packet",
-        state: "enabled",
-        reasonCodes: [],
-        blockerReasons: [],
-        safeExplanation: "Prepare a work packet from the applied intake.",
-        requiredFields: [
-          "title",
-          "objective",
-          "context_summary",
-          "requirements",
-          "success_criteria",
-          "autonomy_posture",
-          "source_graph_item_ids",
-          "verification_check_ids"
-        ],
-        targetIds: [{ type: "verification_check", id: "check_1" }],
-        traceLinks: [],
-        decisionLinks: []
-      }
-    ],
+    commandAffordances,
     operationWatermark: "op_123",
     sourceWatermark: "op_123",
-    graphLinks: [
-      {
-        type: "verification_check",
-        id: "check_1",
-        graphItemId: "graph_1",
-        title: "Run console verification",
-        state: "required"
-      },
-      {
-        type: "work_run",
-        id: "run_1",
-        graphItemId: null,
-        title: "Console verification run",
-        state: "running"
-      }
-    ],
+    graphLinks,
     graphRelationships: [],
     auditTrace: { operationId: null, resourceCount: 0, resources: [] },
     revisionTrace: { operationId: "operation_1", resourceCount: 2, resources: [] },
     ...overrides
+  };
+}
+
+function preparePacketCommandForGraphLinks(
+  graphLinks: OperatorWorkflowItemPayload["graphLinks"]
+): CommandAffordancePayload {
+  const verificationCheck = graphLinks.find((link) => link.type === "verification_check");
+  const title = verificationCheck?.title ?? "Run console verification";
+  const sourceGraphItemIds = graphLinks.flatMap((link) =>
+    link.graphItemId && link.type !== "work_run" ? [link.graphItemId] : []
+  );
+  const verificationCheckIds = graphLinks
+    .filter((link) => link.type === "verification_check")
+    .map((link) => link.id);
+
+  return {
+    identity: "prepare_packet",
+    state: "enabled",
+    reasonCodes: [],
+    blockerReasons: [],
+    safeExplanation: "Prepare a work packet from the applied intake.",
+    requiredFields: [
+      "title",
+      "objective",
+      "context_summary",
+      "requirements",
+      "success_criteria",
+      "autonomy_posture",
+      "source_graph_item_ids",
+      "verification_check_ids"
+    ],
+    inputDefaults: [
+      { field: "title", value: title, values: [] },
+      { field: "objective", value: title, values: [] },
+      { field: "context_summary", value: title, values: [] },
+      { field: "requirements", value: title, values: [] },
+      { field: "success_criteria", value: title, values: [] },
+      { field: "autonomy_posture", value: "human_supervised", values: [] },
+      { field: "source_graph_item_ids", value: null, values: sourceGraphItemIds },
+      { field: "verification_check_ids", value: null, values: verificationCheckIds },
+      { field: "primary_source_graph_item_id", value: verificationCheck?.graphItemId ?? null, values: [] },
+      { field: "primary_verification_check_id", value: verificationCheck?.id ?? null, values: [] }
+    ],
+    targetIds: verificationCheck ? [{ type: "verification_check", id: verificationCheck.id }] : [],
+    traceLinks: [],
+    decisionLinks: []
   };
 }
 
@@ -587,6 +616,7 @@ function operatorPacketReadiness(overrides: Partial<OperatorPacketReadinessPaylo
         blockerReasons: [],
         safeExplanation: "Create a work packet from the selected sources and checks.",
         requiredFields: [],
+        inputDefaults: [],
         targetIds: [],
         traceLinks: [],
         decisionLinks: []
@@ -620,6 +650,7 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         blockerReasons: [],
         safeExplanation: "Accept a candidate as evidence for a missing check.",
         requiredFields: [],
+        inputDefaults: [],
         targetIds: [{ type: "evidence_candidate", id: "candidate_1" }],
         traceLinks: [],
         decisionLinks: []
@@ -685,6 +716,55 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
   };
 }
 
+function packetRunSummary() {
+  return {
+    packet: { id: "packet_2", title: "Run console verification", state: "ready" },
+    packetVersion: {
+      id: "version_2",
+      versionNumber: 1,
+      lifecycleState: "ready",
+      objective: "Run console verification"
+    },
+    run: {
+      id: "run_2",
+      aggregateState: "verified",
+      executionState: "completed",
+      verificationState: "verified"
+    },
+    requiredChecks: [{ id: "required_2", verificationCheckId: "check_1", state: "satisfied" }],
+    observations: [
+      {
+        id: "observation_2",
+        normalizedStatus: "succeeded",
+        sourceKind: "human",
+        sourceIdentity: "operator_console"
+      }
+    ],
+    evidenceItems: [
+      {
+        id: "evidence_2",
+        state: "accepted",
+        candidateId: "candidate_2",
+        workRunId: "run_2"
+      }
+    ],
+    verificationResults: [
+      {
+        id: "result_2",
+        result: "passed",
+        evidenceItemId: "evidence_2",
+        operationId: "operation_2",
+        workRunId: "run_2",
+        workPacketVersionId: "version_2",
+        actorPrincipalId: "principal_1",
+        policyBasis: "owner_acceptance",
+        targetGraphItemId: "graph_1"
+      }
+    ],
+    missingEvidence: []
+  };
+}
+
 type OperatorWorkflowItemPayload = {
   id: string;
   normalizedEventId: string;
@@ -728,6 +808,7 @@ type CommandAffordancePayload = {
   blockerReasons: string[];
   safeExplanation: string;
   requiredFields: string[];
+  inputDefaults: Array<{ field: string; value: string | null; values: string[] }>;
   targetIds: Array<{ type: string; id: string }>;
   traceLinks: Array<unknown>;
   decisionLinks: Array<unknown>;

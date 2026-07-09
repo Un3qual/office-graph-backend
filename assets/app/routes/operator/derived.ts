@@ -1,30 +1,53 @@
 import type {
+  OperatorCommandAffordance,
   OperatorRunState,
   OperatorWorkflowItem,
+  PacketReadiness,
   PacketReadinessInput,
   VerificationOutcome
 } from "./types";
 
 export function packetReadinessInputForItem(item: OperatorWorkflowItem): PacketReadinessInput {
-  const sourceLinks = item.graphLinks.filter(
-    (link) => link.graphItemId && link.type !== "work_run"
-  );
-  const verificationChecks = item.graphLinks.filter((link) => link.type === "verification_check");
-  const sourceTitles = uniqueNonBlank(sourceLinks.map((link) => link.title ?? ""));
-  const verificationTitles = uniqueNonBlank(verificationChecks.map((link) => link.title ?? ""));
-  const title = firstNonBlank([...verificationTitles, ...sourceTitles, itemTitle(item)]);
-  const sourceSummary = sourceTitles.join("\n");
-  const verificationSummary = verificationTitles.join("\n");
+  const defaults = commandInputDefaults(preparePacketAffordance(item));
 
   return {
-    title,
-    objective: title,
-    contextSummary: sourceSummary,
-    requirements: sourceSummary,
-    successCriteria: verificationSummary,
-    autonomyPosture: "human_supervised",
-    sourceGraphItemIds: sourceLinks.flatMap((link) => (link.graphItemId ? [link.graphItemId] : [])),
-    verificationCheckIds: verificationChecks.map((link) => link.id)
+    title: defaultValue(defaults, "title"),
+    objective: defaultValue(defaults, "objective"),
+    contextSummary: defaultValue(defaults, "context_summary"),
+    requirements: defaultValue(defaults, "requirements"),
+    successCriteria: defaultValue(defaults, "success_criteria"),
+    autonomyPosture: defaultValue(defaults, "autonomy_posture"),
+    sourceGraphItemIds: defaultValues(defaults, "source_graph_item_ids"),
+    verificationCheckIds: defaultValues(defaults, "verification_check_ids"),
+    primarySourceGraphItemId: defaultValue(defaults, "primary_source_graph_item_id"),
+    primaryVerificationCheckId: defaultValue(defaults, "primary_verification_check_id")
+  };
+}
+
+export function packetReadinessForItem(
+  item: OperatorWorkflowItem,
+  input: PacketReadinessInput
+): PacketReadiness {
+  const command = preparePacketAffordance(item);
+  const ready = command?.state === "enabled" && packetReadinessInputComplete(input);
+  const sourceLinks = item.graphLinks.filter((link) => link.graphItemId && link.type !== "work_run");
+  const requiredChecks = item.graphLinks.filter((link) => link.type === "verification_check");
+
+  return {
+    type: "packet_readiness",
+    ready,
+    status: ready ? "packet_ready" : "blocked",
+    allowedNextActions: command?.state === "enabled" ? [command.identity] : [],
+    commandAffordances: command ? [command] : [],
+    blockerReasons: command?.blockerReasons ?? item.blockerReasons,
+    sourceLinks: sourceLinks.map((link) => ({
+      title: link.title ?? link.id
+    })),
+    requiredChecks: requiredChecks.map((link) => ({
+      state: link.state ?? "unknown"
+    })),
+    sourceWatermark: item.sourceWatermark ?? item.operationWatermark ?? null,
+    isDerived: true
   };
 }
 
@@ -47,10 +70,37 @@ export function verificationOutcomeFromRunState(runState: OperatorRunState): Ver
   };
 }
 
-function uniqueNonBlank(values: readonly string[]) {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+export function preparePacketAffordance(item: OperatorWorkflowItem) {
+  return item.commandAffordances.find((affordance) => affordance.identity === "prepare_packet") ?? null;
 }
 
-function firstNonBlank(values: readonly string[]) {
-  return values.map((value) => value.trim()).find(Boolean) ?? "";
+function commandInputDefaults(affordance: OperatorCommandAffordance | null) {
+  return affordance?.inputDefaults ?? [];
+}
+
+function defaultValue(
+  defaults: ReturnType<typeof commandInputDefaults>,
+  field: string
+) {
+  return defaults.find((defaultEntry) => defaultEntry.field === field)?.value ?? "";
+}
+
+function defaultValues(
+  defaults: ReturnType<typeof commandInputDefaults>,
+  field: string
+) {
+  return [...(defaults.find((defaultEntry) => defaultEntry.field === field)?.values ?? [])];
+}
+
+function packetReadinessInputComplete(input: PacketReadinessInput) {
+  return (
+    input.title.trim() !== "" &&
+    input.objective.trim() !== "" &&
+    input.contextSummary.trim() !== "" &&
+    input.requirements.trim() !== "" &&
+    input.successCriteria.trim() !== "" &&
+    input.autonomyPosture.trim() !== "" &&
+    input.sourceGraphItemIds.length > 0 &&
+    input.verificationCheckIds.length > 0
+  );
 }

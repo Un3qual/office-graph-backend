@@ -444,6 +444,10 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .console-frame {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .icon-rail,
   .ui-nav-rail {
     display: none;

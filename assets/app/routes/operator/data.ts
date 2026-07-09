@@ -57,6 +57,11 @@ export const OperatorWorkflowItemFragment = graphql`
       blockerReasons
       safeExplanation
       requiredFields
+      inputDefaults {
+        field
+        value
+        values
+      }
     }
     operationWatermark
     sourceWatermark
@@ -97,6 +102,11 @@ export const OperatorPacketReadinessFragment = graphql`
       blockerReasons
       safeExplanation
       requiredFields
+      inputDefaults {
+        field
+        value
+        values
+      }
     }
     blockerReasons
     sourceLinks {
@@ -129,6 +139,11 @@ export const OperatorRunStateFragment = graphql`
       blockerReasons
       safeExplanation
       requiredFields
+      inputDefaults {
+        field
+        value
+        values
+      }
     }
     sourceWatermark
     packet {

@@ -403,6 +403,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              verification_check.id
            ]
 
+    assert packet_default_value(create_packet, "primary_source_graph_item_id") ==
+             verification_check.graph_item_id
+
+    assert packet_default_value(create_packet, "primary_verification_check_id") ==
+             verification_check.id
+
     assert ready.required_checks == [
              %{
                id: verification_check.id,

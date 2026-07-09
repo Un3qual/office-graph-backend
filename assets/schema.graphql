@@ -1011,9 +1011,16 @@ type OperatorCommandAffordance {
   blockerReasons: [String!]!
   safeExplanation: String!
   requiredFields: [String!]!
+  inputDefaults: [OperatorCommandInputDefault!]!
   targetIds: [OperatorTypedId!]!
   traceLinks: [OperatorTypedId!]!
   decisionLinks: [OperatorTypedId!]!
+}
+
+type OperatorCommandInputDefault {
+  field: String!
+  value: String
+  values: [String!]!
 }
 
 type OperatorWorkflowItem implements Node {

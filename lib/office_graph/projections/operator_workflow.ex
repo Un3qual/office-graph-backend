@@ -856,6 +856,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       Enum.filter(graph_links, fn link -> link.graph_item_id && link.type != "work_run" end)
 
     verification_links = Enum.filter(graph_links, &(&1.type == "verification_check"))
+    primary_verification_link = List.first(verification_links)
     source_titles = unique_non_blank(Enum.map(source_links, &(&1.title || "")))
     verification_titles = unique_non_blank(Enum.map(verification_links, &(&1.title || "")))
     title = first_non_blank(verification_titles ++ source_titles ++ [event.id])
@@ -878,6 +879,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       CommandAffordance.input_default(
         "verification_check_ids",
         Enum.map(verification_links, & &1.id)
+      ),
+      CommandAffordance.input_default(
+        "primary_source_graph_item_id",
+        primary_verification_link && primary_verification_link.graph_item_id
+      ),
+      CommandAffordance.input_default(
+        "primary_verification_check_id",
+        primary_verification_link && primary_verification_link.id
       )
     ]
   end

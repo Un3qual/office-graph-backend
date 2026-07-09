@@ -28,6 +28,8 @@ export function OperatorWorkspace({ workflow }: Props) {
       inspector={
         <>
           <ReadinessPanel
+            commandExecution={workflow.commandExecution}
+            onExecutePacketRun={workflow.executePacketRunVerification}
             readiness={workflow.readiness}
             readinessInput={workflow.readinessInput}
             readinessQuery={workflow.readinessQuery}

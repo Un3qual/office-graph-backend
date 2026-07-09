@@ -13,6 +13,11 @@ export type QueryState<T> = {
   isSuccess: boolean;
 };
 
+export type CommandExecutionState = {
+  error: Error | null;
+  status: "idle" | "submitting" | "succeeded" | "failed";
+};
+
 export type OperatorWorkflowItem = Omit<OperatorWorkflowItemFragment$data, " $fragmentType">;
 export type OperatorCommandAffordance = OperatorWorkflowItem["commandAffordances"][number];
 
@@ -41,6 +46,8 @@ export type PacketReadinessInput = {
   autonomyPosture: string;
   sourceGraphItemIds: string[];
   verificationCheckIds: string[];
+  primarySourceGraphItemId: string;
+  primaryVerificationCheckId: string;
 };
 
 export type PacketReadiness = Omit<
