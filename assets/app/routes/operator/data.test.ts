@@ -1,4 +1,4 @@
-import { ConnectionHandler, type ConcreteRequest, type ReaderFragment, type RecordProxy } from "relay-runtime";
+import type { ConcreteRequest, ReaderFragment } from "relay-runtime";
 import { describe, expect, it, vi } from "vitest";
 
 describe("operator Relay route data", () => {
@@ -13,15 +13,14 @@ describe("operator Relay route data", () => {
     expect(mutation.params.operationKind).toBe("mutation");
   });
 
-  it("invalidates the operator workflow connection, run state projection, and returned run after verification", async () => {
+  it("invalidates operator workflow root data, run state projection, and returned run after verification", async () => {
     const data = await import("./data");
-    const connection = record();
     const run = record();
     const runStateProjection = record();
     const runPayload = linkedRecord({ id: "run_1" });
     const mutationPayload = linkedRecord({ run: runPayload });
     const root = {
-      getDataID: vi.fn(() => "client:root"),
+      invalidateRecord: vi.fn(),
       getLinkedRecord: vi.fn((fieldName: string, args?: Record<string, unknown>) =>
         fieldName === "operatorRunState" && args?.id === "run_1" ? runStateProjection : null
       )
@@ -34,19 +33,13 @@ describe("operator Relay route data", () => {
       get: vi.fn((dataID: string) => (dataID === "run_1" ? run : null))
     };
 
-    const getConnectionSpy = vi
-      .spyOn(ConnectionHandler, "getConnection")
-      .mockReturnValue(connection as unknown as RecordProxy);
-
     data.updateOperatorWorkflowAfterVerification(store as never, null);
 
-    expect(getConnectionSpy).toHaveBeenCalledWith(root, data.operatorWorkflowConnectionKey);
-    expect(connection.invalidateRecord).toHaveBeenCalledTimes(1);
+    expect(data.operatorWorkflowRouteRootID()).toBe("client:root");
+    expect(root.invalidateRecord).toHaveBeenCalledTimes(1);
     expect(root.getLinkedRecord).toHaveBeenCalledWith("operatorRunState", { id: "run_1" });
     expect(runStateProjection.invalidateRecord).toHaveBeenCalledTimes(1);
     expect(run.invalidateRecord).toHaveBeenCalledTimes(1);
-
-    getConnectionSpy.mockRestore();
   });
 });
 

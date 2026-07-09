@@ -36,8 +36,9 @@ describe("Relay compiler workflow", () => {
     expect(dataSource).toContain("OperatorWorkflowRouteQuery");
     expect(dataSource).toContain("OperatorWorkflowItemFragment");
     expect(dataSource).toContain("ExecutePacketRunVerificationMutation");
-    expect(dataSource).toContain("ConnectionHandler.getConnection");
     expect(dataSource).toContain("operatorWorkflowItems");
+    expect(dataSource).not.toContain("@connection");
+    expect(dataSource).not.toContain("ConnectionHandler.getConnection");
     expect(dataSource).not.toContain("@tanstack/react-query");
   });
 
@@ -61,7 +62,7 @@ describe("Relay compiler workflow", () => {
 
     expect(helperSource).toContain("ExecutePacketRunVerificationMutation$data");
     expect(helperSource).toContain("operatorVerificationMutationPayload");
-    expect(dataSource).toContain("operatorWorkflowRouteConnectionID");
+    expect(dataSource).toContain("operatorWorkflowRouteRootID");
     expect(dataSource).toContain("updateOperatorWorkflowAfterVerification");
   });
 });

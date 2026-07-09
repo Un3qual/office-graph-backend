@@ -1,17 +1,13 @@
 import { graphql } from "react-relay";
 import {
-  ConnectionHandler,
   type RecordSourceSelectorProxy,
   type SelectorStoreUpdater
 } from "relay-runtime";
 import type { ExecutePacketRunVerificationMutation$data } from "../../relay/__generated__/ExecutePacketRunVerificationMutation.graphql";
 
-export const operatorWorkflowConnectionKey = "OperatorWorkflowRoute_operatorWorkflowItems";
-
 export const OperatorWorkflowRouteQuery = graphql`
   query OperatorWorkflowRouteQuery($first: Int!, $after: String) {
-    operatorWorkflowItems(first: $first, after: $after)
-      @connection(key: "OperatorWorkflowRoute_operatorWorkflowItems") {
+    operatorWorkflowItems(first: $first, after: $after) {
       edges {
         cursor
         node {
@@ -266,14 +262,14 @@ export const ExecutePacketRunVerificationMutation = graphql`
   }
 `;
 
-export function operatorWorkflowRouteConnectionID(rootID = "client:root") {
-  return ConnectionHandler.getConnectionID(rootID, operatorWorkflowConnectionKey);
+export function operatorWorkflowRouteRootID(rootID = "client:root") {
+  return rootID;
 }
 
 export const updateOperatorWorkflowAfterVerification: SelectorStoreUpdater<
   ExecutePacketRunVerificationMutation$data
 > = (store) => {
-  invalidateOperatorWorkflowConnection(store);
+  invalidateOperatorWorkflowRoot(store);
 
   const payload = store.getRootField("executePacketRunVerification");
   const runID = payload?.getLinkedRecord("run")?.getValue("id");
@@ -284,9 +280,8 @@ export const updateOperatorWorkflowAfterVerification: SelectorStoreUpdater<
   }
 };
 
-function invalidateOperatorWorkflowConnection(
+function invalidateOperatorWorkflowRoot(
   store: RecordSourceSelectorProxy<ExecutePacketRunVerificationMutation$data>
 ) {
-  const connection = ConnectionHandler.getConnection(store.getRoot(), operatorWorkflowConnectionKey);
-  connection?.invalidateRecord();
+  store.getRoot().invalidateRecord();
 }

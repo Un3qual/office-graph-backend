@@ -84,6 +84,62 @@ describe("operator route", () => {
     expect(screen.queryByText(/GraphQL operator workflow connection/i)).not.toBeInTheDocument();
   });
 
+  it("renders only the requested manual inbox page after paging forward", async () => {
+    const firstItem = operatorWorkflowItem();
+    const secondItem = operatorWorkflowItem({
+      id: "operator_workflow_item_global_2",
+      normalizedEventId: "evt_2",
+      typedId: { type: "normalized_intake_event", id: "evt_2" },
+      source: {
+        identity: "manual:operator-console-2",
+        replayIdentity: "paste:operator-console-2",
+        outcome: "accepted"
+      }
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return variables.after === "cursor_1"
+          ? workflowConnectionResponse([secondItem], variables, {
+              hasNextPage: false,
+              hasPreviousPage: true,
+              startCursor: "cursor_2",
+              endCursor: "cursor_2"
+            })
+          : workflowConnectionResponse([firstItem], variables, {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor_1",
+              endCursor: "cursor_1"
+            });
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /evt_1/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /evt_2/i })).toHaveAttribute(
+        "aria-current",
+        "true"
+      );
+      expect(screen.getByLabelText("Inbox pagination")).toHaveTextContent("1 row");
+    });
+  });
+
   it("shows Relay loading errors", async () => {
     const network = vi.fn(async () => {
       throw new Error("GraphQL unavailable");
@@ -395,7 +451,8 @@ function createOperatorNetwork({
 
 function workflowConnectionResponse(
   workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null,
-  variables: Readonly<Record<string, unknown>>
+  variables: Readonly<Record<string, unknown>>,
+  pageInfoOverrides: Partial<OperatorWorkflowPageInfoPayload> = {}
 ): GraphQLResponse {
   if (workflowItems === null) {
     return { data: { operatorWorkflowItems: null } };
@@ -412,7 +469,8 @@ function workflowConnectionResponse(
           hasNextPage: false,
           hasPreviousPage: Boolean(variables.after),
           startCursor: workflowItems.length > 0 ? "cursor_1" : null,
-          endCursor: workflowItems.length > 0 ? `cursor_${workflowItems.length}` : null
+          endCursor: workflowItems.length > 0 ? `cursor_${workflowItems.length}` : null,
+          ...pageInfoOverrides
         }
       }
     }
@@ -619,6 +677,13 @@ type OperatorWorkflowItemPayload = {
     title: string;
     state: string | null;
   }>;
+};
+
+type OperatorWorkflowPageInfoPayload = {
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startCursor: string | null;
+  endCursor: string | null;
 };
 
 type OperatorPacketReadinessPayload = {

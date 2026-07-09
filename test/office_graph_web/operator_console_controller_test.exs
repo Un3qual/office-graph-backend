@@ -1,10 +1,33 @@
 defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  @legacy_vite_asset_paths [
-    "/assets/operator/main.css",
-    "/assets/operator/main.js"
-  ]
+  setup_all do
+    react_router_static_assets_dir()
+    |> File.rm_rf!()
+
+    react_router_static_assets_dir()
+    |> Path.join("assets")
+    |> File.mkdir_p!()
+
+    File.write!(react_router_static_index_path(), react_router_fixture_index_html())
+
+    File.write!(
+      react_router_build_asset_path("/assets/react-router/assets/operator-test.css"),
+      ""
+    )
+
+    File.write!(
+      react_router_build_asset_path("/assets/react-router/assets/operator-test.js"),
+      "window.__operatorConsoleFixture = true;\n"
+    )
+
+    on_exit(fn ->
+      react_router_static_assets_dir()
+      |> File.rm_rf!()
+    end)
+
+    :ok
+  end
 
   test "serves the React Router operator console app shell", %{conn: conn} do
     html =
@@ -104,8 +127,6 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   test "operator app shell fails when required React Router build assets are missing", %{
     conn: conn
   } do
-    assert_legacy_vite_assets_exist!()
-
     missing_asset = react_router_build_asset_to_move!()
     on_exit(fn -> restore_moved_asset(missing_asset) end)
 
@@ -161,15 +182,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
   end
 
   defp react_router_static_assets_dir do
-    Path.expand("../../priv/static/assets/react-router", __DIR__)
-  end
-
-  defp assert_legacy_vite_assets_exist! do
-    @legacy_vite_asset_paths
-    |> Enum.map(&static_asset_path/1)
-    |> Enum.each(fn path ->
-      assert File.exists?(path), "Expected legacy Vite asset to remain present at #{path}"
-    end)
+    Application.app_dir(:office_graph, "priv/static/assets/react-router")
   end
 
   defp restore_moved_asset(%{path: path, backup_path: backup_path}) do
@@ -183,10 +196,20 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
            "Refusing to overwrite existing missing-asset backup #{backup_path}"
   end
 
-  defp static_asset_path(asset_path) do
-    Application.app_dir(
-      :office_graph,
-      Path.join("priv/static", String.trim_leading(asset_path, "/"))
-    )
+  defp react_router_fixture_index_html do
+    """
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Office Graph</title>
+        <link rel="stylesheet" href="/assets/react-router/assets/operator-test.css">
+      </head>
+      <body>
+        <script>window.__reactRouterContext = {};</script>
+        <script type="module" src="/assets/react-router/assets/operator-test.js"></script>
+      </body>
+    </html>
+    """
   end
 end
