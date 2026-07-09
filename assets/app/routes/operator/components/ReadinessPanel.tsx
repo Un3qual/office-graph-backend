@@ -1,13 +1,18 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Badge } from "../../ui/Badge";
-import { Panel, PanelRows } from "../../ui/Panel";
-import type { PacketReadiness, PacketReadinessInput } from "../workflowTypes";
-import { formatLabel, isQueryLoading, listText, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { Panel, PanelRows } from "../../../../src/ui/Panel";
+import {
+  commandAffordanceListText,
+  formatLabel,
+  isQueryLoading,
+  listText,
+  statusTone
+} from "../presentation";
+import type { PacketReadiness, PacketReadinessInput, QueryState } from "../types";
 
 type Props = {
   readiness: PacketReadiness | null;
   readinessInput: PacketReadinessInput | null;
-  readinessQuery: UseQueryResult<PacketReadiness>;
+  readinessQuery: QueryState<PacketReadiness>;
 };
 
 export function ReadinessPanel({ readiness, readinessInput, readinessQuery }: Props) {
@@ -30,7 +35,13 @@ export function ReadinessPanel({ readiness, readinessInput, readinessQuery }: Pr
             rows={[
               ["Mode", readiness.isDerived ? "Prepare packet context" : "Backend readiness"],
               ["Ready", readiness.ready ? "Yes" : "No"],
-              ["Actions", listText(readiness.allowedNextActions)],
+              [
+                "Commands",
+                commandAffordanceListText(
+                  readiness.commandAffordances,
+                  readiness.allowedNextActions
+                )
+              ],
               ["Blockers", listText(readiness.blockerReasons)],
               ["Objective", readinessInput?.objective || "None"],
               ["Context", readinessInput?.contextSummary || "None"],

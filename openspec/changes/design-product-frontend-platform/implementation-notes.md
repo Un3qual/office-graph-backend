@@ -46,3 +46,28 @@ Current implementation status:
   forward Relay connection with stable `inserted_at`/`id` keyset cursors.
 - The existing `operatorInbox` field remains for the current pre-Relay
   frontend and should be retired during the operator route migration.
+
+## Frontend Relay Compiler Path
+
+The frontend now has a Relay compiler workflow under `assets/`:
+
+- `pnpm run relay` refreshes `assets/schema.graphql` from the Absinthe schema
+  and generates TypeScript artifacts from route-owned `graphql` documents.
+- `pnpm run relay:check` checks the schema snapshot and runs
+  `relay-compiler --noWatchman --validate`. It is part of `pnpm run verify`,
+  so stale schema snapshots and missing or stale Relay artifacts fail frontend
+  verification before typecheck and tests run.
+- Generated artifacts live in `assets/app/relay/__generated__/` so route-owned
+  source can import stable generated operation, fragment, and mutation types
+  without colocating generated files in route folders.
+- `assets/app/routes/operator/data.ts` proves the first operator-oriented
+  route query, `OperatorWorkflowItem` fragment, and
+  `executePacketRunVerification` mutation shape without migrating the
+  `/operator` UI yet.
+- `assets/app/relay/operatorTestPayloads.ts` provides a typed mutation payload
+  helper for tests, and the operator mutation updater invalidates the route
+  connection/run record explicitly because the current mutation payload does not
+  yet return an updated `OperatorWorkflowItem` edge.
+
+The checked-in schema snapshot is generated from the current Absinthe schema by
+`assets/scripts/graphql-schema.mjs`.

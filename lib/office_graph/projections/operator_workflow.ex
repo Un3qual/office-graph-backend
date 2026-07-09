@@ -5,6 +5,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   alias OfficeGraph.Audit.AuditRecord
   alias OfficeGraph.Integrations.NormalizedIntakeEvent
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
+  alias OfficeGraph.Projections.CommandAffordance
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph.{GraphRelationship, ReviewFinding, Signal, Task, VerificationCheck}
@@ -187,6 +188,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
            read_proposed_changes_by_event_id(session_context, event_ids),
          {:ok, applied_projections_by_event_id} <-
            applied_projections_by_event_id(session_context, events, proposed_changes_by_event_id) do
+      command_authorizations = command_authorizations(session_context)
+
       rows =
         Enum.map(events, fn event ->
           proposed_changes = Map.get(proposed_changes_by_event_id, event.id, [])
@@ -194,19 +197,50 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
           applied_projection =
             Map.get(applied_projections_by_event_id, event.id, empty_applied_projection())
 
-          build_intake_row(event, proposed_changes, applied_projection)
+          build_intake_row(
+            session_context,
+            command_authorizations,
+            event,
+            proposed_changes,
+            applied_projection
+          )
         end)
 
       {:ok, rows}
     end
   end
 
-  defp build_intake_row(event, proposed_changes, applied_projection) do
+  defp command_authorizations(session_context) do
+    %{
+      proposed_change_apply:
+        CommandAffordance.authorized?(session_context, :proposed_change_apply),
+      work_packet_create: CommandAffordance.authorized?(session_context, :work_packet_create)
+    }
+  end
+
+  defp build_intake_row(
+         session_context,
+         command_authorizations,
+         event,
+         proposed_changes,
+         applied_projection
+       ) do
     run_links = Map.get(applied_projection, :run_links, [])
 
     status = intake_status(event, proposed_changes, applied_projection.graph_links, run_links)
     reason_codes = intake_reason_codes(event, proposed_changes)
     graph_links = applied_projection.graph_links ++ run_links
+
+    command_affordances =
+      intake_command_affordances(
+        session_context,
+        command_authorizations,
+        event,
+        status,
+        reason_codes,
+        graph_links,
+        applied_projection.audit_trace
+      )
 
     %{
       type: "operator_workflow_item",
@@ -222,7 +256,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       },
       proposed_change_status: proposed_change_status(proposed_changes),
       blocker_reasons: blocker_reasons(status, reason_codes),
-      allowed_next_actions: allowed_next_actions(status),
+      allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
+      command_affordances: command_affordances,
       operation_watermark: event.operation_id,
       source_watermark: event.operation_id,
       graph_links: graph_links,
@@ -710,10 +745,115 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp blocker_reasons("not_actionable", reason_codes), do: reason_codes
   defp blocker_reasons(_status, _reason_codes), do: []
 
-  defp allowed_next_actions("pending_triage"), do: ["apply_proposed_changes"]
-  defp allowed_next_actions("ready_for_packet"), do: ["prepare_packet"]
-  defp allowed_next_actions("not_actionable"), do: ["view_existing_intake"]
-  defp allowed_next_actions(_status), do: []
+  defp intake_command_affordances(
+         _session_context,
+         %{proposed_change_apply: false},
+         _event,
+         "pending_triage",
+         _reason_codes,
+         _graph_links,
+         _trace
+       ) do
+    [CommandAffordance.policy_restricted("apply_proposed_changes")]
+  end
+
+  defp intake_command_affordances(
+         _session_context,
+         _command_authorizations,
+         event,
+         "pending_triage",
+         _reason_codes,
+         _graph_links,
+         _trace
+       ) do
+    [
+      CommandAffordance.enabled(
+        "apply_proposed_changes",
+        "Apply pending proposed changes for this intake.",
+        target_ids: [CommandAffordance.target_id("normalized_intake_event", event.id)]
+      )
+    ]
+  end
+
+  defp intake_command_affordances(
+         _session_context,
+         %{work_packet_create: false},
+         _event,
+         "ready_for_packet",
+         _reason_codes,
+         _graph_links,
+         _trace
+       ) do
+    [
+      CommandAffordance.policy_restricted("prepare_packet",
+        required_fields: CommandAffordance.packet_required_fields()
+      )
+    ]
+  end
+
+  defp intake_command_affordances(
+         _session_context,
+         _command_authorizations,
+         _event,
+         "ready_for_packet",
+         _reason_codes,
+         graph_links,
+         trace
+       ) do
+    [
+      CommandAffordance.enabled(
+        "prepare_packet",
+        "Prepare a work packet from the applied intake.",
+        required_fields: CommandAffordance.packet_required_fields(),
+        target_ids: graph_link_target_ids(graph_links),
+        trace_links: trace_links(trace)
+      )
+    ]
+  end
+
+  defp intake_command_affordances(
+         _session_context,
+         _command_authorizations,
+         %{duplicate_of_id: duplicate_of_id},
+         "not_actionable",
+         reason_codes,
+         _graph_links,
+         _trace
+       )
+       when not is_nil(duplicate_of_id) do
+    [
+      CommandAffordance.enabled(
+        "view_existing_intake",
+        "Open the existing intake that already covers this source.",
+        reason_codes: reason_codes,
+        blocker_reasons: reason_codes,
+        target_ids: [CommandAffordance.target_id("normalized_intake_event", duplicate_of_id)]
+      )
+    ]
+  end
+
+  defp intake_command_affordances(
+         _session_context,
+         _command_authorizations,
+         _event,
+         _status,
+         _reason_codes,
+         _graph_links,
+         _trace
+       ),
+       do: []
+
+  defp graph_link_target_ids(graph_links) do
+    graph_links
+    |> Enum.map(&CommandAffordance.target_id(&1.type, &1.id))
+    |> CommandAffordance.compact_target_ids()
+  end
+
+  defp trace_links(%{operation_id: nil}), do: []
+
+  defp trace_links(%{operation_id: operation_id}) do
+    [CommandAffordance.target_id("operation", operation_id)]
+  end
 
   defp source_watermark([]), do: nil
   defp source_watermark([row | _rows]), do: row.operation_watermark

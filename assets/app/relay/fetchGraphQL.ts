@@ -30,8 +30,10 @@ export async function fetchGraphQL(
 
     const payload = await readGraphQLResponse(response);
 
-    if (!response.ok && payload) {
-      return payload;
+    const firstError = payload && "errors" in payload ? payload.errors?.[0] : null;
+
+    if (firstError) {
+      throw new Error(firstError.message);
     }
 
     if (!response.ok) {

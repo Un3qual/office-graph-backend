@@ -41,6 +41,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :resources, non_null(list_of(non_null(:operator_typed_id)))
   end
 
+  object :operator_command_affordance do
+    field :identity, non_null(:string)
+    field :state, non_null(:string)
+    field :reason_codes, non_null(list_of(non_null(:string)))
+    field :blocker_reasons, non_null(list_of(non_null(:string)))
+    field :safe_explanation, non_null(:string)
+    field :required_fields, non_null(list_of(non_null(:string)))
+    field :target_ids, non_null(list_of(non_null(:operator_typed_id)))
+    field :trace_links, non_null(list_of(non_null(:operator_typed_id)))
+    field :decision_links, non_null(list_of(non_null(:operator_typed_id)))
+  end
+
   node object(:operator_workflow_item,
          id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_workflow_item_id/2
        ) do
@@ -54,6 +66,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :proposed_change_status, non_null(:operator_proposed_change_status)
     field :blocker_reasons, non_null(list_of(non_null(:string)))
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :operation_watermark, :id
     field :source_watermark, :id
     field :graph_links, non_null(list_of(non_null(:operator_graph_link)))
@@ -105,6 +118,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :blocker_reasons, non_null(list_of(non_null(:string)))
     field :source_links, non_null(list_of(non_null(:operator_source_link)))
     field :required_checks, non_null(list_of(non_null(:operator_required_check)))
@@ -183,6 +197,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :type, non_null(:string)
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :source_watermark, :id
     field :packet, non_null(:operator_packet_ref)
     field :packet_version, non_null(:operator_packet_version_ref)

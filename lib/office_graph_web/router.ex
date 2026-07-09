@@ -28,6 +28,7 @@ defmodule OfficeGraphWeb.Router do
 
   scope "/", OfficeGraphWeb do
     get "/operator", OperatorConsoleController, :index
+    get "/assets/*path", OperatorConsoleController, :asset
   end
 
   scope "/api", OfficeGraphWeb do

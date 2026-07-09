@@ -1,13 +1,13 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Badge } from "../../ui/Badge";
-import { EmptyState } from "../../ui/EmptyState";
-import { PaneHeader } from "../../ui/Panel";
-import type { OperatorInbox, OperatorWorkflowItem } from "../workflowTypes";
-import { formatLabel, listText, statusTone } from "../workflowPresentation";
+import { Badge } from "../../../../src/ui/Badge";
+import { EmptyState } from "../../../../src/ui/EmptyState";
+import { PaneHeader } from "../../../../src/ui/Panel";
+import { itemTitle } from "../derived";
+import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
+import type { OperatorInbox, OperatorWorkflowItem, QueryState } from "../types";
 
 type Props = {
   canPageBackward: boolean;
-  inbox: UseQueryResult<OperatorInbox>;
+  inbox: QueryState<OperatorInbox>;
   onNextPage: () => void;
   onPreviousPage: () => void;
   rows: OperatorWorkflowItem[];
@@ -39,16 +39,20 @@ export function InboxList({
       {hasStaleData ? <p className="muted-text">Showing last loaded inbox.</p> : null}
       {inbox.isSuccess && rows.length === 0 ? (
         <EmptyState title="No operator workflow items.">
-          There are no actionable manual intake or verification items right now.
+          There are no manual intake or verification commands ready right now.
         </EmptyState>
       ) : null}
       {rows.length > 0 ? (
         <div className="inbox-list">
           {rows.map((row) => {
+            const commands = commandAffordanceListText(
+              row.commandAffordances,
+              row.allowedNextActions
+            );
             const context =
-              row.blockerReasons.length > 0
+              commands === "None" && row.blockerReasons.length > 0
                 ? `Blockers ${listText(row.blockerReasons)}`
-                : `Actions ${listText(row.allowedNextActions)}`;
+                : `Commands ${commands}`;
 
             return (
               <button
@@ -57,7 +61,7 @@ export function InboxList({
                 key={row.normalizedEventId}
                 onClick={() => onSelect(row.normalizedEventId)}
               >
-                <span className="row-title">{row.title}</span>
+                <span className="row-title">{itemTitle(row)}</span>
                 <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
                 <span className="row-source">{row.source.identity}</span>
                 <span className="row-meta">

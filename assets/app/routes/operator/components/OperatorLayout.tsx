@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavRail } from "../../ui/NavRail";
+import { NavRail } from "../../../../src/ui/NavRail";
 
 type Props = {
   detail: ReactNode;

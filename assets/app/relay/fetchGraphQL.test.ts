@@ -72,7 +72,7 @@ describe("fetchGraphQL", () => {
     );
   });
 
-  it("returns GraphQL error payloads even when the HTTP status is not ok", async () => {
+  it("throws GraphQL errors even when the HTTP status is not ok", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -85,9 +85,25 @@ describe("fetchGraphQL", () => {
       )
     );
 
-    await expect(fetchGraphQL(request("ValidationQuery"), {})).resolves.toEqual({
-      errors: [{ message: "Validation failed" }]
-    });
+    await expect(fetchGraphQL(request("ValidationQuery"), {})).rejects.toThrow(
+      "Validation failed"
+    );
+  });
+
+  it("throws GraphQL errors returned with partial data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { operatorWorkflowItems: null },
+          errors: [{ message: "Operator workflow access is forbidden" }]
+        })
+      )
+    );
+
+    await expect(fetchGraphQL(request("OperatorWorkflowRouteQuery"), {})).rejects.toThrow(
+      "Operator workflow access is forbidden"
+    );
   });
 
   it("throws when a successful response body is empty", async () => {

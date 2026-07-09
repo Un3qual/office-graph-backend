@@ -1,0 +1,1222 @@
+schema {
+  mutation: RootMutationType
+  query: RootQueryType
+}
+
+enum SignalSortField {
+  ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+  GRAPH_ITEM_ID
+  BODY_DOCUMENT_ID
+  TITLE
+  STATE
+  INSERTED_AT
+  UPDATED_AT
+}
+
+":signal connection"
+type SignalConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":signal edges"
+  edges: [SignalEdge!]
+}
+
+":signal edge"
+type SignalEdge {
+  "Cursor"
+  cursor: String!
+
+  ":signal node"
+  node: Signal!
+}
+
+input SignalFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SignalFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SignalFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SignalFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SignalFilterBodyDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterInput {
+  and: [SignalFilterInput!]
+  or: [SignalFilterInput!]
+  not: [SignalFilterInput!]
+  id: SignalFilterId
+  organizationId: SignalFilterOrganizationId
+  workspaceId: SignalFilterWorkspaceId
+  graphItemId: SignalFilterGraphItemId
+  bodyDocumentId: SignalFilterBodyDocumentId
+  title: SignalFilterTitle
+  state: SignalFilterState
+  insertedAt: SignalFilterInsertedAt
+  updatedAt: SignalFilterUpdatedAt
+}
+
+input SignalSortInput {
+  order: SortOrder
+  field: SignalSortField!
+}
+
+type Signal implements Node {
+  id: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItemId: ID!
+  bodyDocumentId: ID!
+  title: String!
+  state: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum SortOrder {
+  DESC
+  DESC_NULLS_FIRST
+  DESC_NULLS_LAST
+  ASC
+  ASC_NULLS_FIRST
+  ASC_NULLS_LAST
+}
+
+enum WorkPacketSortField {
+  ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+  OPERATION_ID
+  CURRENT_VERSION_ID
+  TITLE
+  STATE
+  INSERTED_AT
+  UPDATED_AT
+}
+
+":work_packet connection"
+type WorkPacketConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":work_packet edges"
+  edges: [WorkPacketEdge!]
+}
+
+":work_packet edge"
+type WorkPacketEdge {
+  "Cursor"
+  cursor: String!
+
+  ":work_packet node"
+  node: WorkPacket!
+}
+
+input WorkPacketFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkPacketFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkPacketFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkPacketFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkPacketFilterCurrentVersionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterInput {
+  and: [WorkPacketFilterInput!]
+  or: [WorkPacketFilterInput!]
+  not: [WorkPacketFilterInput!]
+  id: WorkPacketFilterId
+  organizationId: WorkPacketFilterOrganizationId
+  workspaceId: WorkPacketFilterWorkspaceId
+  operationId: WorkPacketFilterOperationId
+  currentVersionId: WorkPacketFilterCurrentVersionId
+  title: WorkPacketFilterTitle
+  state: WorkPacketFilterState
+  insertedAt: WorkPacketFilterInsertedAt
+  updatedAt: WorkPacketFilterUpdatedAt
+}
+
+input WorkPacketSortInput {
+  order: SortOrder
+  field: WorkPacketSortField!
+}
+
+type WorkPacket implements Node {
+  id: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  operationId: ID
+  currentVersionId: ID
+  title: String!
+  state: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum WorkRunSortField {
+  ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+  WORK_PACKET_ID
+  WORK_PACKET_VERSION_ID
+  OPERATION_ID
+  INITIATOR_PRINCIPAL_ID
+  OBJECTIVE
+  AUTHORITY_POSTURE
+  SOURCE_SURFACE
+  REASON
+  AGGREGATE_STATE
+  EXECUTION_STATE
+  VERIFICATION_STATE
+  STARTED_AT
+  COMPLETED_AT
+  STATE
+  INSERTED_AT
+  UPDATED_AT
+}
+
+":work_run connection"
+type WorkRunConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":work_run edges"
+  edges: [WorkRunEdge!]
+}
+
+":work_run edge"
+type WorkRunEdge {
+  "Cursor"
+  cursor: String!
+
+  ":work_run node"
+  node: WorkRun!
+}
+
+input WorkRunFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkRunFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkRunFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterCompletedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkRunFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkRunFilterVerificationState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterExecutionState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterAggregateState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterSourceSurface {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterAuthorityPosture {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterObjective {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkRunFilterInitiatorPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterWorkPacketVersionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterWorkPacketId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterInput {
+  and: [WorkRunFilterInput!]
+  or: [WorkRunFilterInput!]
+  not: [WorkRunFilterInput!]
+  id: WorkRunFilterId
+  organizationId: WorkRunFilterOrganizationId
+  workspaceId: WorkRunFilterWorkspaceId
+  workPacketId: WorkRunFilterWorkPacketId
+  workPacketVersionId: WorkRunFilterWorkPacketVersionId
+  operationId: WorkRunFilterOperationId
+  initiatorPrincipalId: WorkRunFilterInitiatorPrincipalId
+  objective: WorkRunFilterObjective
+  authorityPosture: WorkRunFilterAuthorityPosture
+  sourceSurface: WorkRunFilterSourceSurface
+  reason: WorkRunFilterReason
+  aggregateState: WorkRunFilterAggregateState
+  executionState: WorkRunFilterExecutionState
+  verificationState: WorkRunFilterVerificationState
+  startedAt: WorkRunFilterStartedAt
+  completedAt: WorkRunFilterCompletedAt
+  state: WorkRunFilterState
+  insertedAt: WorkRunFilterInsertedAt
+  updatedAt: WorkRunFilterUpdatedAt
+}
+
+input WorkRunSortInput {
+  order: SortOrder
+  field: WorkRunSortField!
+}
+
+type WorkRun implements Node {
+  id: ID!
+  organizationId: ID
+  workspaceId: ID
+  workPacketId: ID!
+  workPacketVersionId: ID
+  operationId: ID
+  initiatorPrincipalId: ID
+  objective: String
+  authorityPosture: String
+  sourceSurface: String
+  reason: String
+  aggregateState: String
+  executionState: String
+  verificationState: String
+  startedAt: DateTime
+  completedAt: DateTime
+  state: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+interface Node {
+  "The ID of the object."
+  id: ID!
+}
+
+type RootQueryType {
+  health: String!
+  operatorInbox(limit: Int, afterCursor: String): OperatorInbox!
+  operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
+  operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
+  operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
+  operatorRunState(id: ID!): OperatorRunState!
+  operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
+  node(
+    "The ID of an object."
+    id: ID!
+  ): Node
+  getWorkRun(
+    "The id of the record"
+    id: ID!
+  ): WorkRun
+  listWorkRuns(
+    "How to sort the records in the response"
+    sort: [WorkRunSortInput]
+
+    "A filter to limit the results"
+    filter: WorkRunFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): WorkRunConnection
+  getWorkPacket(
+    "The id of the record"
+    id: ID!
+  ): WorkPacket
+  listWorkPackets(
+    "How to sort the records in the response"
+    sort: [WorkPacketSortInput]
+
+    "A filter to limit the results"
+    filter: WorkPacketFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): WorkPacketConnection
+  getSignal(
+    "The id of the record"
+    id: ID!
+  ): Signal
+  listSignals(
+    "How to sort the records in the response"
+    sort: [SignalSortInput]
+
+    "A filter to limit the results"
+    filter: SignalFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): SignalConnection
+}
+
+type RootMutationType {
+  executePacketRunVerification(input: ExecutePacketRunVerificationInput!): PacketRunSummary!
+}
+
+"""
+The `DateTime` scalar type represents a date and time in the UTC
+timezone. The DateTime appears in a JSON response as an ISO8601 formatted
+string, including UTC timezone ("Z"). The parsed date and time string will
+be converted to UTC if there is an offset.
+"""
+scalar DateTime
+
+type PacketRunPacket {
+  id: ID!
+  title: String!
+  state: String!
+}
+
+type PacketRunPacketVersion {
+  id: ID!
+  versionNumber: Int!
+  lifecycleState: String!
+  objective: String!
+}
+
+type PacketRunRun {
+  id: ID!
+  aggregateState: String!
+  executionState: String!
+  verificationState: String!
+}
+
+type PacketRunRequiredCheck {
+  id: ID!
+  verificationCheckId: ID!
+  state: String!
+}
+
+type PacketRunObservation {
+  id: ID!
+  normalizedStatus: String!
+  sourceKind: String!
+  sourceIdentity: String!
+}
+
+type PacketRunEvidenceItem {
+  id: ID!
+  state: String!
+  candidateId: ID
+  workRunId: ID
+}
+
+type PacketRunVerificationResult {
+  id: ID!
+  result: String!
+  evidenceItemId: ID
+  operationId: ID
+  workRunId: ID
+  workPacketVersionId: ID
+  actorPrincipalId: ID
+  policyBasis: String
+  targetGraphItemId: ID
+}
+
+type PacketRunMissingEvidence {
+  verificationCheckId: ID!
+  reason: String!
+}
+
+type PacketRunSummary {
+  packet: PacketRunPacket!
+  packetVersion: PacketRunPacketVersion!
+  run: PacketRunRun!
+  requiredChecks: [PacketRunRequiredCheck!]!
+  observations: [PacketRunObservation!]!
+  evidenceItems: [PacketRunEvidenceItem!]!
+  verificationResults: [PacketRunVerificationResult!]!
+  missingEvidence: [PacketRunMissingEvidence!]!
+}
+
+input ExecutePacketRunVerificationInput {
+  flowIdentity: String!
+  verificationCheckId: ID!
+  sourceGraphItemId: ID!
+  packetTitle: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String!
+  autonomyPosture: String!
+  sourceSurface: String!
+  reason: String!
+  authorityPosture: String!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  observationIdempotencyKey: String!
+  observedStatus: String!
+  normalizedStatus: String!
+  freshnessState: String!
+  trustBasis: String!
+  observationRationale: String!
+  evidenceClaim: String!
+  evidenceTitle: String!
+  evidenceBody: String!
+  evidenceResult: String!
+  acceptancePolicyBasis: String!
+}
+
+type OperatorTypedId {
+  type: String!
+  id: ID!
+}
+
+type OperatorSource {
+  identity: String!
+  replayIdentity: String!
+  outcome: String!
+}
+
+type OperatorProposedChangeStatus {
+  pending: Int!
+  applied: Int!
+  rejected: Int!
+  total: Int!
+}
+
+type OperatorGraphLink {
+  type: String!
+  id: ID!
+  graphItemId: ID
+  title: String
+  state: String
+}
+
+type OperatorGraphRelationship {
+  id: ID!
+  sourceGraphItemId: ID!
+  targetGraphItemId: ID!
+  relationshipType: String!
+}
+
+type OperatorTrace {
+  operationId: ID
+  resourceCount: Int!
+  resources: [OperatorTypedId!]!
+}
+
+type OperatorCommandAffordance {
+  identity: String!
+  state: String!
+  reasonCodes: [String!]!
+  blockerReasons: [String!]!
+  safeExplanation: String!
+  requiredFields: [String!]!
+  targetIds: [OperatorTypedId!]!
+  traceLinks: [OperatorTypedId!]!
+  decisionLinks: [OperatorTypedId!]!
+}
+
+type OperatorWorkflowItem implements Node {
+  "The ID of an object"
+  id: ID!
+
+  type: String!
+
+  typedId: OperatorTypedId!
+
+  normalizedEventId: ID!
+
+  duplicateOfId: ID
+
+  status: String!
+
+  reasonCodes: [String!]!
+
+  source: OperatorSource!
+
+  proposedChangeStatus: OperatorProposedChangeStatus!
+
+  blockerReasons: [String!]!
+
+  allowedNextActions: [String!]!
+
+  commandAffordances: [OperatorCommandAffordance!]!
+
+  operationWatermark: ID
+
+  sourceWatermark: ID
+
+  graphLinks: [OperatorGraphLink!]!
+
+  graphRelationships: [OperatorGraphRelationship!]!
+
+  auditTrace: OperatorTrace!
+
+  revisionTrace: OperatorTrace!
+}
+
+type OperatorWorkflowItemConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorWorkflowItemEdge]
+}
+
+type OperatorInbox {
+  type: String!
+  empty: Boolean!
+  hasMore: Boolean!
+  limit: Int!
+  nextCursor: String
+  afterCursor: String
+  sourceWatermark: ID
+  rows: [OperatorWorkflowItem!]!
+}
+
+type OperatorRequiredCheck {
+  id: ID!
+  graphItemId: ID
+  verificationCheckId: ID
+  state: String!
+}
+
+type OperatorSourceLink {
+  type: String!
+  id: ID!
+  graphItemId: ID!
+  title: String!
+}
+
+type OperatorPacketReadiness {
+  type: String!
+  ready: Boolean!
+  status: String!
+  allowedNextActions: [String!]!
+  commandAffordances: [OperatorCommandAffordance!]!
+  blockerReasons: [String!]!
+  sourceLinks: [OperatorSourceLink!]!
+  requiredChecks: [OperatorRequiredCheck!]!
+  sourceWatermark: ID
+}
+
+type OperatorRunRef {
+  id: ID!
+  aggregateState: String!
+  executionState: String!
+  verificationState: String!
+}
+
+type OperatorPacketRef {
+  id: ID!
+  title: String!
+  state: String!
+}
+
+type OperatorPacketVersionRef {
+  id: ID!
+  versionNumber: Int!
+  lifecycleState: String!
+  objective: String
+}
+
+type OperatorObservation {
+  id: ID!
+  verificationCheckId: ID
+  graphItemId: ID
+  normalizedStatus: String!
+  freshnessState: String!
+  trustBasis: String!
+  sourceKind: String!
+  sourceIdentity: String!
+}
+
+type OperatorEvidenceCandidate {
+  id: ID!
+  verificationCheckId: ID!
+  executionObservationId: ID
+  claim: String!
+  state: String!
+  freshnessState: String!
+  trustBasis: String!
+  sourceKind: String!
+  sourceIdentity: String!
+}
+
+type OperatorEvidenceItem {
+  id: ID!
+  state: String!
+  candidateId: ID
+  workRunId: ID
+}
+
+type OperatorVerificationResult {
+  id: ID!
+  result: String!
+  verificationCheckId: ID!
+  evidenceItemId: ID
+  operationId: ID
+  actorPrincipalId: ID
+  policyBasis: String
+  targetGraphItemId: ID
+  workRunId: ID
+  workPacketVersionId: ID
+}
+
+type OperatorMissingEvidence {
+  verificationCheckId: ID!
+  reason: String!
+}
+
+type OperatorRunState {
+  type: String!
+  status: String!
+  allowedNextActions: [String!]!
+  commandAffordances: [OperatorCommandAffordance!]!
+  sourceWatermark: ID
+  packet: OperatorPacketRef!
+  packetVersion: OperatorPacketVersionRef!
+  run: OperatorRunRef!
+  requiredChecks: [OperatorRequiredCheck!]!
+  observations: [OperatorObservation!]!
+  evidenceCandidates: [OperatorEvidenceCandidate!]!
+  evidenceItems: [OperatorEvidenceItem!]!
+  verificationResults: [OperatorVerificationResult!]!
+  missingEvidence: [OperatorMissingEvidence!]!
+}
+
+type OperatorVerificationOutcome {
+  type: String!
+  status: String!
+  sourceWatermark: ID
+  run: OperatorRunRef!
+  verificationResults: [OperatorVerificationResult!]!
+  missingEvidence: [OperatorMissingEvidence!]!
+}
+
+input OperatorPacketReadinessInput {
+  title: String
+  objective: String
+  contextSummary: String
+  requirements: String
+  successCriteria: String
+  autonomyPosture: String
+  sourceGraphItemIds: [ID!]
+  verificationCheckIds: [ID!]
+}
+
+type PageInfo {
+  "When paginating backwards, are there more items?"
+  hasPreviousPage: Boolean!
+
+  "When paginating forwards, are there more items?"
+  hasNextPage: Boolean!
+
+  "When paginating backwards, the cursor to continue."
+  startCursor: String
+
+  "When paginating forwards, the cursor to continue."
+  endCursor: String
+}
+
+type OperatorWorkflowItemEdge {
+  node: OperatorWorkflowItem
+  cursor: String
+}

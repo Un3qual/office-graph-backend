@@ -38,6 +38,7 @@ office_graph-*.tar
 /assets/build/
 /assets/coverage/
 /priv/static/assets/operator/
+/priv/static/assets/react-router/
 /priv/static/cache_manifest.json
 /priv/static/*.gz
 /priv/static/*-*.ico

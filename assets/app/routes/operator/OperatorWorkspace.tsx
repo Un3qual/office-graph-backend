@@ -4,7 +4,7 @@ import { OperatorLayout } from "./components/OperatorLayout";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
-import type { OperatorWorkflowState } from "./useOperatorWorkflow";
+import type { OperatorWorkflowState } from "./workflow";
 
 type Props = {
   workflow: OperatorWorkflowState;
