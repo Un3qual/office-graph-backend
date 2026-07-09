@@ -96,7 +96,6 @@ defmodule OfficeGraph.MixProject do
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
         "assets.setup",
-        "cmd --cd assets pnpm run build",
         "cmd --cd assets pnpm run router:deploy",
         "cmd --cd assets pnpm run verify:app-shell"
       ],

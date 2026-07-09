@@ -88,18 +88,18 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     assert package_json =~ ~s("packageManager": "pnpm@)
     assert package_json =~ ~s("verify:app-shell")
+    assert package_json =~ ~s("build": "react-router build --config vite.react-router.config.ts")
+    assert package_json =~ ~s("dev": "react-router dev --config vite.react-router.config.ts)
 
-    assert package_json =~
-             ~s("router:build": "react-router build --config vite.react-router.config.ts")
+    assert package_json =~ ~s("router:build": "pnpm run build")
 
-    assert package_json =~ ~s("router:deploy": "pnpm run router:build)
+    assert package_json =~ ~s("router:deploy": "pnpm run build)
     assert package_json =~ "pnpm run router:deploy && pnpm run verify:app-shell"
     assert aliases[:setup] == ["deps.get", "assets.setup", "ecto.setup"]
     assert aliases[:"assets.setup"] == ["cmd --cd assets pnpm install --frozen-lockfile"]
 
     assert aliases[:"assets.build"] == [
              "assets.setup",
-             "cmd --cd assets pnpm run build",
              "cmd --cd assets pnpm run router:deploy",
              "cmd --cd assets pnpm run verify:app-shell"
            ]
