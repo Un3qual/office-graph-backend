@@ -406,3 +406,149 @@ Initial analysis questions:
   breakpoint and a narrow mobile width.
 - Check long localized labels and disabled search placeholder text against the
   same mobile layout.
+
+## Resolution Analysis - 2026-07-09
+
+This section records the inline follow-up analysis and fixes performed on branch
+`codex/fix-office-graph-review-issues`.
+
+### P1: Locked backend dependencies have current high-severity DoS advisories
+
+Status: Fixed in `9e96e4a`.
+
+Resolution:
+
+- Updated the locked backend packages that carried active `mix hex.audit`
+  advisories: `ash`, `hpax`, `phoenix`, and `plug`.
+- Re-ran `mix hex.audit`; it completed with no advisories.
+- Re-ran frontend build/deploy/app-shell verification and focused backend
+  operator tests after the lockfile update.
+
+### P1: Operator console command affordances are display-only
+
+Status: Fixed in `ddc5ba9`, building on the backend command contract from
+`caf84d2`.
+
+Resolution:
+
+- Added a readiness-panel execution control for the derived `prepare_packet`
+  command context.
+- Wired the operator route to commit `ExecutePacketRunVerificationMutation`.
+- Preserved disabled state by deriving executability from backend command
+  affordance state and complete backend-provided defaults.
+- Added route tests for executing the enabled command and for avoiding the
+  previous display-only path.
+
+### P2: Initial readiness violates the operator-console contract and adds a duplicate read
+
+Status: Fixed in `ddc5ba9`.
+
+Resolution:
+
+- Removed the eager `OperatorPacketReadinessQuery` from initial row selection.
+- Derived the initial readiness panel from the selected workflow row and
+  backend-provided command defaults.
+- Updated route tests to assert `Prepare packet context` mode and fail if the
+  duplicate readiness query is issued on initial selection.
+
+### P2: Release build still emits stale legacy Vite assets
+
+Status: Fixed in `9e96e4a`.
+
+Resolution:
+
+- Made `pnpm run build` target the React Router build.
+- Kept `vite.config.ts` as a Vitest/test config instead of a production asset
+  emitter.
+- Removed the unused legacy Vite app entry files.
+- Verified `pnpm --dir assets run router:deploy`, `mix assets.build`, and the
+  app-shell verifier after the cleanup.
+
+### P2: Packet-run GraphQL errors drop actionable domain failure details
+
+Status: Fixed in `caf84d2`.
+
+Resolution:
+
+- Mapped packet-run verification domain tuples to stable GraphQL
+  `extensions.code` values.
+- Covered source/check mismatch, readiness failure, unsupported evidence
+  results, and invalid evidence input cases.
+- Updated GraphQL API tests so invalid source/check input no longer locks in the
+  generic `validation_failed` response.
+
+### P2: Operator projections re-query authorization tables instead of using trusted session facts
+
+Status: Fixed in `caf84d2`.
+
+Resolution:
+
+- Added a trusted projection authorization path for projection command
+  affordance checks.
+- Updated command affordance authorization to use trusted session capabilities
+  instead of re-querying role/capability tables during projection reads.
+- Updated projection tests to reflect the accepted operator workflow contract.
+
+### P2: Projection source watermarks are placeholders, so clients cannot detect stale readiness or run state
+
+Status: Fixed in `caf84d2` for backend projection semantics, with frontend
+readiness behavior aligned in `ddc5ba9`.
+
+Resolution:
+
+- Packet readiness now produces a deterministic digest watermark from visible
+  readiness inputs, blockers, source links, and required checks.
+- Run-state projection watermarks now reflect visible child state instead of the
+  immutable run id.
+- Frontend derived readiness carries the selected row watermark forward instead
+  of forcing a duplicate backend readiness read.
+
+### P2: Failed accepted evidence is reported as missing accepted evidence instead of a failed-check reason
+
+Status: Fixed in `caf84d2`.
+
+Resolution:
+
+- Updated run missing-evidence analysis so failed accepted evidence reports the
+  distinct `failed_check` reason.
+- Updated backend projection tests for the failed-run case.
+- Kept the existing `missingEvidence` projection shape, but corrected the reason
+  category so the current UI can render the specific failure reason.
+
+### P2: The GraphQL fetch layer discards structured error extensions before the UI can act on them
+
+Status: Fixed in `ddc5ba9`.
+
+Resolution:
+
+- Added `GraphQLResponseError`, preserving the full GraphQL response payload,
+  HTTP status, and request name.
+- Kept plain HTTP failure handling for non-GraphQL error bodies.
+- Added tests for structured error extensions and partial-data responses with
+  GraphQL errors.
+
+### P2: Command input defaults are reconstructed in the frontend from raw graph links
+
+Status: Fixed in `caf84d2` and `ddc5ba9`.
+
+Resolution:
+
+- Added `inputDefaults` to backend command affordances and the GraphQL
+  `OperatorCommandAffordance` type.
+- Projected prepare-packet defaults for title, objective, context, requirements,
+  success criteria, autonomy posture, source ids, verification check ids, and
+  primary source/check ids.
+- Updated frontend derivation to consume command defaults instead of
+  reconstructing packet command input from raw graph links.
+- Regenerated Relay artifacts and schema.
+
+### P3: Mobile topbar layout can overlap the workbench
+
+Status: Fixed in `ddc5ba9`.
+
+Resolution:
+
+- Added a mobile `.console-frame` rule that uses `auto minmax(0, 1fr)` so the
+  topbar row can expand after it switches to stacked mobile layout.
+- Covered the change through the existing frontend full test run and app-shell
+  verification path.
