@@ -3,47 +3,42 @@ import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import {
   commandAffordanceListText,
   formatLabel,
-  isQueryLoading,
-  listText,
   statusTone
 } from "../presentation";
-import type { OperatorWorkflowState } from "../workflow";
+import type { OperatorRunState } from "../workflow";
 
 type Props = {
-  runId: OperatorWorkflowState["runId"];
-  runState: OperatorWorkflowState["runStateQuery"];
+  runId: string | null;
+  runState: OperatorRunState | null;
+  state: "empty" | "error" | "loaded" | "loading";
 };
 
-export function RunPanel({ runId, runState }: Props) {
-  const isLoading = isQueryLoading(runState);
-  const hasStaleData = runState.isError && Boolean(runState.data);
-
+export function RunPanel({ runId, runState, state }: Props) {
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
-      {!runId ? <p>No run linked yet.</p> : null}
-      {runId && isLoading && !runState.data ? <p>Loading run state...</p> : null}
-      {runState.isError ? <p className="error-text">{errorMessage(runState.error)}</p> : null}
-      {runState.data ? (
+      {state === "empty" || !runId ? <p>No run linked yet.</p> : null}
+      {state === "loading" ? <p>Loading run state...</p> : null}
+      {state === "error" ? <p className="error-text">Run state unavailable.</p> : null}
+      {state === "loaded" && runState ? (
         <>
-          {hasStaleData ? <p className="muted-text">Showing last loaded run state.</p> : null}
-          <Badge tone={statusTone(runState.data.status)}>{formatLabel(runState.data.status)}</Badge>
+          <Badge tone={statusTone(runState.status)}>{formatLabel(runState.status)}</Badge>
           <PanelRows
             rows={[
-              ["Packet", runState.data.packet.title],
-              ["Objective", runState.data.packetVersion.objective ?? "None"],
+              ["Packet", runState.packet.title],
+              ["Objective", runState.packetVersion.objective ?? "None"],
               [
                 "Commands",
                 commandAffordanceListText(
-                  runState.data.commandAffordances,
-                  runState.data.allowedNextActions
+                  runState.commandAffordances,
+                  runState.allowedNextActions
                 )
               ],
-              ["Execution", formatLabel(runState.data.run.executionState)],
-              ["Verification", formatLabel(runState.data.run.verificationState)],
+              ["Execution", formatLabel(runState.run.executionState)],
+              ["Verification", formatLabel(runState.run.verificationState)],
               [
                 "Required checks",
-                runState.data.requiredChecks
+                runState.requiredChecks
                   .map(
                     (check) =>
                       `${check.verificationCheckId ?? "unknown"}: ${formatLabel(check.state)}`
@@ -52,12 +47,12 @@ export function RunPanel({ runId, runState }: Props) {
               ],
               [
                 "Suggested evidence",
-                runState.data.evidenceCandidates.map((candidate) => candidate.claim).join(", ") ||
+                runState.evidenceCandidates.map((candidate) => candidate.claim).join(", ") ||
                   "None"
               ],
               [
                 "Observations",
-                runState.data.observations
+                runState.observations
                   .map(
                     (observation) =>
                       `${formatLabel(observation.normalizedStatus)} · ${formatLabel(
@@ -72,8 +67,4 @@ export function RunPanel({ runId, runState }: Props) {
       ) : null}
     </Panel>
   );
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to load run state.";
 }

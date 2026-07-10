@@ -4,51 +4,44 @@ import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import {
   commandAffordanceListText,
   formatLabel,
-  isQueryLoading,
   listText,
   statusTone
 } from "../presentation";
-import type { OperatorWorkflowState } from "../workflow";
+import type { PacketReadinessInput } from "../types";
+import type { PacketReadinessState } from "../workflow";
 
 type Props = {
-  onValidateReadiness: OperatorWorkflowState["validatePacketReadiness"];
-  readiness: OperatorWorkflowState["readiness"];
-  readinessInput: OperatorWorkflowState["readinessInput"];
-  readinessQuery: OperatorWorkflowState["readinessQuery"];
+  isValidating?: boolean;
+  onValidateReadiness?: () => void;
+  readiness: PacketReadinessState | null;
+  readinessInput: PacketReadinessInput | null;
 };
 
 export function ReadinessPanel({
+  isValidating = false,
   onValidateReadiness,
   readiness,
-  readinessInput,
-  readinessQuery
+  readinessInput
 }: Props) {
-  const isLoading = isQueryLoading(readinessQuery);
-  const hasStaleData = readinessQuery.isError && Boolean(readiness);
   const isDerived = isDerivedReadiness(readiness);
-  const canValidateReadiness = Boolean(isDerived && readinessInput);
+  const canShowValidation = Boolean(
+    isDerived && readinessInput && (onValidateReadiness || isValidating)
+  );
 
   return (
     <Panel ariaLabel="Packet Readiness">
       <h2>Packet Readiness</h2>
-      {isLoading && !readiness ? <p>Loading readiness...</p> : null}
-      {readinessQuery.isError ? <p className="error-text">{errorMessage(readinessQuery.error)}</p> : null}
-      {!readiness && !isLoading && !readinessQuery.isError ? (
-        <p>No packet readiness selected.</p>
-      ) : null}
+      {!readiness ? <p>No packet readiness selected.</p> : null}
       {readiness ? (
         <>
-          {hasStaleData ? <p className="muted-text">Showing last loaded readiness.</p> : null}
           <Badge tone={statusTone(readiness.status)}>{formatLabel(readiness.status)}</Badge>
-          {canValidateReadiness ? (
+          {canShowValidation ? (
             <div className="ui-panel-actions">
               <Button
-                isDisabled={isLoading}
-                onPress={() => {
-                  onValidateReadiness();
-                }}
+                isDisabled={isValidating}
+                onPress={() => onValidateReadiness?.()}
               >
-                {isLoading ? "Validating readiness" : "Validate readiness"}
+                {isValidating ? "Validating readiness" : "Validate readiness"}
               </Button>
             </div>
           ) : null}
@@ -71,7 +64,8 @@ export function ReadinessPanel({
               ["Sources", readiness.sourceLinks.map((link) => link.title).join(", ") || "None"],
               [
                 "Required checks",
-                readiness.requiredChecks.map((check) => formatLabel(check.state)).join(", ") || "None"
+                readiness.requiredChecks.map((check) => formatLabel(check.state)).join(", ") ||
+                  "None"
               ]
             ]}
           />
@@ -81,15 +75,19 @@ export function ReadinessPanel({
   );
 }
 
-function isDerivedReadiness(
-  readiness: OperatorWorkflowState["readiness"]
-): readiness is Extract<
-  NonNullable<OperatorWorkflowState["readiness"]>,
-  { isDerived: true }
-> {
-  return readiness !== null && "isDerived" in readiness && readiness.isDerived;
+export function ReadinessPanelError() {
+  return (
+    <Panel ariaLabel="Packet Readiness">
+      <h2>Packet Readiness</h2>
+      <p className="error-text" role="alert">
+        Unable to validate packet readiness.
+      </p>
+    </Panel>
+  );
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to load packet readiness.";
+function isDerivedReadiness(
+  readiness: PacketReadinessState | null
+): readiness is Extract<PacketReadinessState, { isDerived: true }> {
+  return readiness !== null && "isDerived" in readiness && readiness.isDerived;
 }

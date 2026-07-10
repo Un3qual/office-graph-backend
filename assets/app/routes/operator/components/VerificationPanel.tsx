@@ -1,18 +1,23 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import { formatLabel, statusTone } from "../presentation";
-import type { OperatorWorkflowState } from "../workflow";
+import type { verificationOutcomeFromRunState } from "../derived";
+
+type Verification = ReturnType<typeof verificationOutcomeFromRunState>;
 
 type Props = {
-  verification: OperatorWorkflowState["verification"];
+  state: "empty" | "error" | "loaded" | "loading";
+  verification: Verification | null;
 };
 
-export function VerificationPanel({ verification }: Props) {
+export function VerificationPanel({ state, verification }: Props) {
   return (
     <Panel ariaLabel="Verification">
       <h2>Verification</h2>
-      {!verification ? <p>No verification outcome selected.</p> : null}
-      {verification ? (
+      {state === "empty" ? <p>No verification outcome selected.</p> : null}
+      {state === "loading" ? <p>Loading verification...</p> : null}
+      {state === "error" ? <p className="error-text">Verification unavailable.</p> : null}
+      {state === "loaded" && verification ? (
         <>
           <Badge tone={statusTone(verification.status)}>{formatLabel(verification.status)}</Badge>
           <PanelRows
@@ -38,9 +43,7 @@ export function VerificationPanel({ verification }: Props) {
 }
 
 function verificationResultText(
-  result: NonNullable<
-    OperatorWorkflowState["verification"]
-  >["verificationResults"][number]
+  result: Verification["verificationResults"][number]
 ) {
   return [
     formatLabel(result.result),

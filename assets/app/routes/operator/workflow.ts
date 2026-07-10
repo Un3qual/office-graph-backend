@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchQuery, readInlineData, useRelayEnvironment } from "react-relay";
-import type { GraphQLResponse } from "relay-runtime";
+import { readInlineData, useLazyLoadQuery } from "react-relay";
 import type {
   OperatorPacketReadinessFragment$data,
   OperatorPacketReadinessFragment$key
@@ -27,258 +25,77 @@ import {
 import {
   packetReadinessInputForItem,
   packetReadinessForItem,
-  runIdForItem,
-  verificationOutcomeFromRunState
+  runIdForItem
 } from "./derived";
-import type {
-  OperatorInbox,
-  OperatorInboxPage,
-  PacketReadinessInput,
-  QueryState
-} from "./types";
+import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
-type PacketReadinessState =
+type OperatorWorkflowInput = {
+  inboxPage: OperatorInboxPage;
+  requestedSelectedId: string | null;
+};
+
+export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
+export type OperatorRunState = OperatorRunStateFragment$data;
+export type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
 
 export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: null };
 
-export function useOperatorWorkflow() {
-  const relayEnvironment = useRelayEnvironment();
-  const [inboxNavigation, setInboxNavigation] = useState({
-    page: defaultOperatorInboxPage,
-    previousCursors: [] as Array<string | null>
-  });
-  const inboxPage = inboxNavigation.page;
-  const [inboxQuery, setInboxQuery] =
-    useState<QueryState<OperatorInbox<OperatorWorkflowItemFragment$data>>>(idleQueryState);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
-  const [validatedReadinessQuery, setValidatedReadinessQuery] =
-    useState<QueryState<PacketReadinessState>>(idleQueryState);
-  const readinessValidationToken = useRef(0);
-  const readinessValidationSubscription = useRef<{ unsubscribe(): void } | null>(null);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    setInboxQuery(startLoading);
-
-    const subscription = fetchQuery<OperatorWorkflowRouteOperation>(
-      relayEnvironment,
-      OperatorWorkflowRouteQuery,
-      inboxPage,
-      { fetchPolicy: "network-only" }
-    ).subscribe({
-      next: (data) => {
-        if (isCurrent) {
-          setInboxQuery(successQueryState(workflowConnectionFromRelay(data, inboxPage)));
-        }
-      },
-      error: (error: unknown) => {
-        if (isCurrent) {
-          setInboxQuery((state) => errorQueryState(state, error));
-        }
-      }
-    });
-
-    return () => {
-      isCurrent = false;
-      subscription.unsubscribe();
-    };
-  }, [inboxPage, relayEnvironment]);
-
-  useEffect(() => {
-    if (!inboxQuery.data) {
-      return;
-    }
-
-    const rowIds = new Set(inboxQuery.data.rows.map((row) => row.normalizedEventId));
-    const firstId = inboxQuery.data.rows[0]?.normalizedEventId ?? null;
-
-    if (selectedId === null) {
-      setSelectedId(firstId);
-      setSelectedSource("inbox");
-    } else if (selectedSource === "inbox" && firstId === null) {
-      setSelectedId(null);
-      setSelectedSource("inbox");
-    } else if (selectedSource === "inbox" && !rowIds.has(selectedId)) {
-      setSelectedId(firstId);
-      setSelectedSource("inbox");
-    }
-  }, [inboxQuery.data, selectedId, selectedSource]);
-
-  const selectInboxItem = useCallback((id: string) => {
-    setSelectedId(id);
-    setSelectedSource("inbox");
-  }, []);
-
-  const loadNextInboxPage = useCallback(() => {
-    const nextCursor = inboxQuery.data?.nextCursor ?? null;
-
-    if (nextCursor !== null) {
-      setInboxNavigation(({ page, previousCursors }) => ({
-        page: page.after === nextCursor ? page : { ...page, after: nextCursor },
-        previousCursors:
-          page.after === nextCursor ? previousCursors : [...previousCursors, page.after]
-      }));
-    }
-  }, [inboxQuery.data?.nextCursor]);
-
-  const loadPreviousInboxPage = useCallback(() => {
-    setInboxNavigation(({ page, previousCursors }) => {
-      if (previousCursors.length === 0) {
-        return { page, previousCursors };
-      }
-
-      const nextPreviousCursors = previousCursors.slice(0, -1);
-      const previousCursor = previousCursors[previousCursors.length - 1] ?? null;
-
-      return {
-        page: { ...page, after: previousCursor },
-        previousCursors: nextPreviousCursors
-      };
-    });
-  }, []);
-
-  const selectedInboxItem = useMemo(
-    () => inboxQuery.data?.rows.find((row) => row.normalizedEventId === selectedId) ?? null,
-    [inboxQuery.data, selectedId]
+export function useOperatorWorkflow({
+  inboxPage,
+  requestedSelectedId
+}: OperatorWorkflowInput) {
+  const rootData = useLazyLoadQuery<OperatorWorkflowRouteOperation>(
+    OperatorWorkflowRouteQuery,
+    inboxPage,
+    { fetchPolicy: "network-only" }
   );
-  const selectedItem = selectedInboxItem;
-  const readinessInput = useMemo(
-    () => (selectedItem ? packetReadinessInputForItem(selectedItem) : null),
-    [selectedItem]
-  );
-  const readiness = useMemo(
-    () => (selectedItem && readinessInput ? packetReadinessForItem(selectedItem, readinessInput) : null),
-    [readinessInput, selectedItem]
-  );
-  useEffect(() => {
-    readinessValidationToken.current += 1;
-    readinessValidationSubscription.current?.unsubscribe();
-    readinessValidationSubscription.current = null;
-    setValidatedReadinessQuery(idleQueryState());
-  }, [readinessInput, selectedId]);
-  useEffect(
-    () => () => {
-      readinessValidationToken.current += 1;
-      readinessValidationSubscription.current?.unsubscribe();
-    },
-    []
-  );
-  const readinessQuery = useMemo(
-    () => {
-      if (
-        validatedReadinessQuery.data ||
-        validatedReadinessQuery.isError ||
-        validatedReadinessQuery.fetchStatus !== "idle"
-      ) {
-        return validatedReadinessQuery;
-      }
-
-      return readiness
-        ? successQueryState<PacketReadinessState>(readiness)
-        : idleQueryState<PacketReadinessState>();
-    },
-    [readiness, validatedReadinessQuery]
-  );
-  const activeReadiness = validatedReadinessQuery.data ?? readiness;
-  const validatePacketReadiness = useCallback(() => {
-    if (!readinessInput || !readiness) {
-      return;
-    }
-
-    const validationToken = readinessValidationToken.current + 1;
-    readinessValidationToken.current = validationToken;
-    readinessValidationSubscription.current?.unsubscribe();
-    setValidatedReadinessQuery(startLoading(successQueryState(readiness)));
-
-    readinessValidationSubscription.current = fetchQuery<OperatorPacketReadinessOperation>(
-      relayEnvironment,
-      OperatorPacketReadinessQuery,
-      { input: packetReadinessQueryInput(readinessInput) },
-      { fetchPolicy: "network-only" }
-    ).subscribe({
-      next: (data) => {
-        if (readinessValidationToken.current === validationToken) {
-          setValidatedReadinessQuery(successQueryState(packetReadinessFromRelay(data)));
-        }
-      },
-      error: (error: unknown) => {
-        if (readinessValidationToken.current === validationToken) {
-          setValidatedReadinessQuery((state) => errorQueryState(state, error));
-        }
-      }
-    });
-  }, [readiness, readinessInput, relayEnvironment]);
-  const runId = runIdForItem(selectedItem);
-  const runStateQuery = useOperatorRunStateRelayQuery(runId);
-  const verification = runStateQuery.data ? verificationOutcomeFromRunState(runStateQuery.data) : null;
+  const inbox = workflowConnectionFromRelay(rootData, inboxPage);
+  const selectedId = inbox.rows.some(
+    (row) => row.normalizedEventId === requestedSelectedId
+  )
+    ? requestedSelectedId
+    : (inbox.rows[0]?.normalizedEventId ?? null);
+  const selectedItem =
+    inbox.rows.find((row) => row.normalizedEventId === selectedId) ?? null;
+  const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
+  const readiness =
+    selectedItem && readinessInput
+      ? packetReadinessForItem(selectedItem, readinessInput)
+      : null;
 
   return {
-    canPageBackward: inboxNavigation.previousCursors.length > 0,
-    inboxQuery,
-    inboxPage,
-    itemQuery: idleQueryState<OperatorWorkflowItemFragment$data>(),
-    loadNextInboxPage,
-    loadPreviousInboxPage,
-    readiness: activeReadiness,
+    inbox,
+    readiness,
     readinessInput,
-    readinessQuery,
-    rows: inboxQuery.data?.rows ?? [],
-    runId,
-    runStateQuery,
+    rows: inbox.rows,
+    runId: runIdForItem(selectedItem),
     selectedId,
-    selectedItem,
-    selectInboxItem,
-    validatePacketReadiness,
-    verification
+    selectedItem
   };
 }
 
 export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
 
-function useOperatorRunStateRelayQuery(runId: string | null) {
-  const relayEnvironment = useRelayEnvironment();
-  const [query, setQuery] =
-    useState<QueryState<OperatorRunStateFragment$data>>(idleQueryState);
+export function useValidatedPacketReadiness(input: PacketReadinessInput) {
+  const data = useLazyLoadQuery<OperatorPacketReadinessOperation>(
+    OperatorPacketReadinessQuery,
+    { input: packetReadinessQueryInput(input) },
+    { fetchPolicy: "network-only" }
+  );
 
-  useEffect(() => {
-    if (!runId) {
-      setQuery(idleQueryState());
-      return;
-    }
+  return packetReadinessFromRelay(data);
+}
 
-    let isCurrent = true;
+export function useOperatorRunState(runId: string) {
+  const data = useLazyLoadQuery<OperatorRunStateOperation>(
+    OperatorRunStateQuery,
+    { id: runId },
+    { fetchPolicy: "network-only" }
+  );
 
-    setQuery(loadingQueryState());
-
-    const subscription = fetchQuery<OperatorRunStateOperation>(
-      relayEnvironment,
-      OperatorRunStateQuery,
-      { id: runId },
-      { fetchPolicy: "network-only" }
-    ).subscribe({
-      next: (data) => {
-        if (isCurrent) {
-          setQuery(successQueryState(runStateFromRelay(data)));
-        }
-      },
-      error: (error: unknown) => {
-        if (isCurrent) {
-          setQuery((state) => errorQueryState(state, error));
-        }
-      }
-    });
-
-    return () => {
-      isCurrent = false;
-      subscription.unsubscribe();
-    };
-  }, [relayEnvironment, runId]);
-
-  return query;
+  return runStateFromRelay(data);
 }
 
 function workflowConnectionFromRelay(
@@ -357,39 +174,6 @@ function packetReadinessQueryInput(
   };
 }
 
-function idleQueryState<T>(): QueryState<T> {
-  return {
-    data: null,
-    error: null,
-    fetchStatus: "idle",
-    isError: false,
-    isPending: false,
-    isSuccess: false
-  };
-}
-
-function loadingQueryState<T>(): QueryState<T> {
-  return {
-    data: null,
-    error: null,
-    fetchStatus: "fetching",
-    isError: false,
-    isPending: true,
-    isSuccess: false
-  };
-}
-
-function startLoading<T>(state: QueryState<T>): QueryState<T> {
-  return {
-    ...state,
-    error: null,
-    fetchStatus: "fetching",
-    isError: false,
-    isPending: state.data === null,
-    isSuccess: state.data !== null
-  };
-}
-
 function emptyOperatorInbox(
   page: OperatorInboxPage
 ): OperatorInbox<OperatorWorkflowItemFragment$data> {
@@ -403,47 +187,4 @@ function emptyOperatorInbox(
     sourceWatermark: null,
     rows: []
   };
-}
-
-function successQueryState<T>(data: T): QueryState<T> {
-  return {
-    data,
-    error: null,
-    fetchStatus: "idle",
-    isError: false,
-    isPending: false,
-    isSuccess: true
-  };
-}
-
-function errorQueryState<T>(state: QueryState<T>, error: unknown): QueryState<T> {
-  return {
-    ...state,
-    error: normalizeRelayError(error),
-    fetchStatus: "idle",
-    isError: true,
-    isPending: false,
-    isSuccess: false
-  };
-}
-
-function normalizeRelayError(error: unknown) {
-  if (error instanceof Error) {
-    return error;
-  }
-
-  const graphQLError = firstGraphQLError(error);
-
-  return new Error(graphQLError ?? "The GraphQL operator request failed.");
-}
-
-function firstGraphQLError(error: unknown) {
-  if (typeof error !== "object" || error === null || !("source" in error)) {
-    return null;
-  }
-
-  const source = (error as { source?: GraphQLResponse }).source;
-  const firstError = source && "errors" in source ? source.errors?.[0] : null;
-
-  return typeof firstError?.message === "string" ? firstError.message : null;
 }

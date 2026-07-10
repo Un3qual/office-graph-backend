@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
@@ -24,10 +27,7 @@ describe("shared UI primitives", () => {
         <NavRail
           brand="OG"
           ariaLabel="Sections"
-          items={[
-            { label: "Inbox", state: "current" },
-            { label: "Reports", state: "unavailable" }
-          ]}
+          items={[{ label: "Reports" }]}
         />
       </>
     );
@@ -52,6 +52,50 @@ describe("shared UI primitives", () => {
       "ui-button",
       "ui-button-secondary",
       "state-disabled"
+    );
+  });
+
+  it("links available destinations and disables unavailable destinations", () => {
+    render(
+      <MemoryRouter initialEntries={["/inbox"]}>
+        <NavRail
+          brand="OG"
+          ariaLabel="Sections"
+          items={[
+            { label: "Inbox", to: "/inbox" },
+            { label: "Activity", to: "/activity" },
+            { label: "Reports" }
+          ]}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox");
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByRole("link", { name: "Activity" })).not.toHaveAttribute(
+      "aria-current"
+    );
+    expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
+  });
+
+  it("keeps product navigation available in compact layouts", () => {
+    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const compactBreakpoint = styles.indexOf("@media (max-width: 980px)");
+
+    expect(compactBreakpoint).toBeGreaterThan(-1);
+
+    const compactStyles = styles.slice(compactBreakpoint);
+
+    expect(compactStyles).not.toMatch(
+      /\.ui-nav-rail\s*\{[^}]*display:\s*none\s*;/
+    );
+    expect(compactStyles).toMatch(/\.ui-nav-rail\s*\{[^}]*display:\s*grid\s*;/);
+    expect(compactStyles).toMatch(
+      /\.ui-nav-rail nav\s*\{[^}]*overflow-x:\s*auto\s*;/
     );
   });
 });

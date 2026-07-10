@@ -5,35 +5,23 @@ import { itemTitle } from "../derived";
 import {
   commandAffordanceListText,
   formatLabel,
-  isQueryLoading,
   listText,
   statusTone
 } from "../presentation";
-import type { OperatorWorkflowState } from "../workflow";
+import type { OperatorWorkflowItem } from "../workflow";
 
 type Props = {
-  item: OperatorWorkflowState["selectedItem"];
-  itemQuery: OperatorWorkflowState["itemQuery"];
+  item: OperatorWorkflowItem | null;
 };
 
-export function ItemSummary({ item, itemQuery }: Props) {
-  const isLoading = isQueryLoading(itemQuery);
-
+export function ItemSummary({ item }: Props) {
   return (
     <section aria-label="Item detail" className="detail-pane">
       <div className="detail-header">
         <p className="eyebrow">Selected item</p>
         <h2>{item ? itemTitle(item) : "No item selected"}</h2>
       </div>
-      {!item && isLoading ? <EmptyState title="Loading item detail..." /> : null}
-      {itemQuery.isError ? (
-        <EmptyState title={errorMessage(itemQuery.error)} tone="error">
-          The selected item detail could not be loaded.
-        </EmptyState>
-      ) : null}
-      {!item && !isLoading && !itemQuery.isError ? (
-        <EmptyState title="No item selected" />
-      ) : null}
+      {!item ? <EmptyState title="No item selected" /> : null}
       {item ? (
         <>
           <div className="stepper" aria-label="Workflow progress">
@@ -87,7 +75,7 @@ export function ItemSummary({ item, itemQuery }: Props) {
   );
 }
 
-function proposedChangeText(item: NonNullable<OperatorWorkflowState["selectedItem"]>) {
+function proposedChangeText(item: OperatorWorkflowItem) {
   const proposed = item.proposedChangeStatus;
 
   return `${proposed.pending} pending, ${proposed.applied} applied, ${proposed.rejected} rejected`;
@@ -95,8 +83,4 @@ function proposedChangeText(item: NonNullable<OperatorWorkflowState["selectedIte
 
 function traceText(operationId: string | null | undefined, resourceCount: number) {
   return operationId ? `${operationId} (${resourceCount} resources)` : `${resourceCount} resources`;
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to load item detail.";
 }

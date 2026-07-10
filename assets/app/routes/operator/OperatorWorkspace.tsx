@@ -1,40 +1,96 @@
-import { InboxList } from "./components/InboxList";
+import type { ReactNode } from "react";
+import { InboxList, InboxListFallback } from "./components/InboxList";
 import { ItemSummary } from "./components/ItemSummary";
 import { OperatorLayout } from "./components/OperatorLayout";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
+import { OperatorInspector } from "./OperatorInspector";
 import type { OperatorWorkflowState } from "./workflow";
 
 type Props = {
+  canPageBackward: boolean;
+  onNextPage: (cursor: string) => void;
+  onPreviousPage: () => void;
+  onSelectItem: (id: string) => void;
   workflow: OperatorWorkflowState;
 };
 
-export function OperatorWorkspace({ workflow }: Props) {
+export function OperatorWorkspace({
+  canPageBackward,
+  onNextPage,
+  onPreviousPage,
+  onSelectItem,
+  workflow
+}: Props) {
+  const canPageForward = workflow.inbox.hasMore && workflow.inbox.nextCursor !== null;
+
   return (
     <OperatorLayout
       inbox={
         <InboxList
-          canPageBackward={workflow.canPageBackward}
-          inbox={workflow.inboxQuery}
-          onNextPage={workflow.loadNextInboxPage}
-          onPreviousPage={workflow.loadPreviousInboxPage}
+          canPageBackward={canPageBackward}
+          canPageForward={canPageForward}
+          onNextPage={() => {
+            if (workflow.inbox.nextCursor !== null) {
+              onNextPage(workflow.inbox.nextCursor);
+            }
+          }}
+          onPreviousPage={onPreviousPage}
+          onSelect={onSelectItem}
           rows={workflow.rows}
           selectedId={workflow.selectedId}
-          onSelect={workflow.selectInboxItem}
+          sourceWatermark={workflow.inbox.sourceWatermark}
         />
       }
-      detail={<ItemSummary item={workflow.selectedItem} itemQuery={workflow.itemQuery} />}
+      detail={<ItemSummary item={workflow.selectedItem} />}
+      inspector={
+        <OperatorInspector
+          key={workflow.selectedId ?? "none"}
+          readiness={workflow.readiness}
+          readinessInput={workflow.readinessInput}
+          runId={workflow.runId}
+          selectedId={workflow.selectedId}
+        />
+      }
+    />
+  );
+}
+
+export function OperatorWorkspaceLoading() {
+  return <OperatorFallbackWorkspace inbox={<InboxListFallback state="loading" />} />;
+}
+
+export function OperatorWorkspaceError({
+  canPageBackward,
+  onPreviousPage
+}: {
+  canPageBackward: boolean;
+  onPreviousPage: () => void;
+}) {
+  return (
+    <OperatorFallbackWorkspace
+      inbox={
+        <InboxListFallback
+          canPageBackward={canPageBackward}
+          onPreviousPage={onPreviousPage}
+          state="error"
+        />
+      }
+    />
+  );
+}
+
+function OperatorFallbackWorkspace({ inbox }: { inbox: ReactNode }) {
+  return (
+    <OperatorLayout
+      detail={<ItemSummary item={null} />}
+      inbox={inbox}
       inspector={
         <>
-          <ReadinessPanel
-            onValidateReadiness={workflow.validatePacketReadiness}
-            readiness={workflow.readiness}
-            readinessInput={workflow.readinessInput}
-            readinessQuery={workflow.readinessQuery}
-          />
-          <RunPanel runId={workflow.runId} runState={workflow.runStateQuery} />
-          <VerificationPanel verification={workflow.verification} />
+          <ReadinessPanel readiness={null} readinessInput={null} />
+          <RunPanel runId={null} runState={null} state="empty" />
+          <VerificationPanel state="empty" verification={null} />
         </>
       }
     />

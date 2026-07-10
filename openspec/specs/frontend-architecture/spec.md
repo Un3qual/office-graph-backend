@@ -22,6 +22,89 @@ adding additional product routes beyond the first operator console.
 - **THEN** the area MUST either route to implemented behavior or be rendered as
   a non-interactive unavailable item backed by an accepted product decision
 
+### Requirement: React Router Framework Mode Route Ownership
+
+Office Graph SHALL use React Router Framework Mode conventions as the product
+frontend route ownership model before adding more product routes.
+
+#### Scenario: Frontend platform is implemented
+
+- **WHEN** the frontend platform implementation begins
+- **THEN** it MUST introduce React Router Framework Mode entry files under
+  `assets`, including a root route and route configuration, and MUST keep route
+  behavior in route modules rather than a manually composed single-route app
+  shell
+
+#### Scenario: Product route is added
+
+- **WHEN** a product screen family such as operator, packets, runs,
+  verification, settings, or integrations is added
+- **THEN** the route MUST own its route module, route-specific components,
+  route data contract, route tests, and route state rules in one route-owned
+  folder unless repeated real code proves a smaller shared boundary
+
+#### Scenario: Phoenix serves the React app
+
+- **WHEN** Phoenix serves the product frontend
+- **THEN** it MUST serve the React Router Framework Mode build as a
+  Phoenix-served SPA unless a later accepted change explicitly adds SSR or a
+  different rendering strategy
+
+### Requirement: Frontend Layout Stays Route-First And Shallow
+
+Office Graph SHALL keep the first frontend platform layout conventional and
+route-first instead of adding abstract platform or domain layers before the app
+has enough real screens to justify them.
+
+#### Scenario: Frontend folders are introduced
+
+- **WHEN** the frontend platform creates or reorganizes top-level frontend
+  folders
+- **THEN** the default layout MUST be limited to React Router app files,
+  route-owned folders, shallow shared UI, styles, and the chosen GraphQL client
+  setup, and MUST NOT introduce `platform`, `domains`, `shared/design`, or
+  `shared/ui` layers without a concrete repeated-code need
+
+#### Scenario: Shared UI component is introduced
+
+- **WHEN** a reusable UI component is added outside a route
+- **THEN** it MUST stay generic, shallow, and product-vocabulary-free, while
+  route or product-specific mapping remains inside the owning route folder
+
+#### Scenario: App providers are introduced
+
+- **WHEN** the frontend platform adds top-level React providers
+- **THEN** the file SHOULD use a clear name such as `AppProviders.tsx` and MUST
+  contain only React application wrappers such as the Relay provider, router
+  integration, session context, feature flags, or app config; it MUST NOT be
+  confused with external integration provider adapters
+
+### Requirement: Product GraphQL Client Model Uses Relay
+
+Office Graph SHALL use Relay as the product GraphQL server-state model for the
+frontend platform.
+
+#### Scenario: Frontend platform implementation starts
+
+- **WHEN** the frontend platform implementation starts
+- **THEN** product GraphQL server state MUST use Relay and MUST document any
+  schema compatibility work needed for Office Graph's projection,
+  authorization, pagination, realtime, and testing requirements
+
+#### Scenario: Product route consumes GraphQL data
+
+- **WHEN** a product route consumes GraphQL data
+- **THEN** route data and components MUST follow Relay conventions for
+  environment setup, route/root queries, fragments, pagination, generated
+  types, Node IDs, and store updates instead of adding a parallel homemade
+  view-model or TanStack Query cache layer for the same GraphQL data
+
+#### Scenario: Product GraphQL data is cached
+
+- **WHEN** a product route reads GraphQL server state
+- **THEN** it MUST use Relay and MUST NOT run TanStack Query as a competing
+  cache for the same product GraphQL records
+
 ### Requirement: Shared UI Primitives And Tokens
 
 Office Graph SHALL keep shared visual primitives separate from workflow-specific

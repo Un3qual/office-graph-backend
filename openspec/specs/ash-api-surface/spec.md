@@ -137,6 +137,53 @@ definitions in one large manually maintained file.
   contracts and viewer action fields rather than generic
   mutation paths or table-type switches
 
+### Requirement: Product GraphQL Supports Route-Owned Frontend Operations
+
+Office Graph SHALL treat the product GraphQL path as the frontend's primary
+data and command surface and keep it compatible with route-owned operations
+from Relay.
+
+#### Scenario: Route-owned GraphQL operation is introduced
+
+- **WHEN** a frontend route adds a product GraphQL read, mutation, or
+  projection-backed command
+- **THEN** the operation MUST have an owning route or capability, stable name,
+  authorization-aware result shape, typed variables, safe error semantics, and
+  tests that exercise the same backend projection or command contract used by
+  other entrypoints
+
+#### Scenario: Relay-backed product operation is introduced
+
+- **WHEN** a frontend route adds a Relay-backed product GraphQL operation
+- **THEN** product GraphQL reads MUST preserve stable object identity,
+  connection-compatible pagination where lists can grow, fragment-friendly
+  field ownership, and mutation payloads that support safe store updates or
+  explicit invalidation without requiring a JSON adapter fallback
+
+#### Scenario: Product GraphQL object has stable identity
+
+- **WHEN** a product GraphQL object represents a stable resource or projection
+  object
+- **THEN** it MUST implement Relay Node identity with an opaque `id`, while raw
+  resource identifiers MUST be exposed only through explicitly named fields
+  needed for command inputs, audit traces, or compatibility during migration
+
+#### Scenario: Product GraphQL operation returns a growing list
+
+- **WHEN** a product GraphQL read returns a list that can grow beyond one
+  screenful or one command response
+- **THEN** it MUST use Relay connection shape with `edges`, per-edge cursors,
+  and `pageInfo`, using the Absinthe Relay server package rather than a
+  route-specific pagination object
+
+#### Scenario: Product UI asks for JSON API compatibility
+
+- **WHEN** a product UI route can read or command workflow state through the
+  product GraphQL path
+- **THEN** the frontend MUST NOT add or keep a JSON API adapter for that route
+  unless an accepted OpenSpec change names a current external contract,
+  migration need, or data-safety reason and a retirement condition
+
 ### Requirement: JSON API Uses AshJsonApi For Resource Endpoints
 
 Office Graph SHALL use AshJsonApi for JSON API resource paths unless a
@@ -345,21 +392,28 @@ namespaces under the Phoenix web boundary.
 ### Requirement: Generated Ash Resource Reads Come First
 
 Office Graph SHALL introduce generated AshGraphql and AshJsonApi resource
-APIs for safe reads before exposing generated lifecycle writes.
+surfaces for safe reads before exposing generated lifecycle writes.
 
 #### Scenario: Product frontend reads Office Graph data
 
 - **WHEN** the React product frontend reads resource-shaped or projection data
 - **THEN** it MUST use GraphQL as the normal product API, while REST/JSON API
-  remains a customer integration API and not the preferred internal UI
+  remains a customer integration surface and not the preferred internal UI
   transport
+
+#### Scenario: Generated GraphQL read is exposed
+
+- **WHEN** a generated AshGraphql read is exposed for product frontend use
+- **THEN** stable resource objects MUST expose opaque Relay Node `id` values
+  and growing generated list reads MUST use Relay connection shape rather than
+  raw arrays
 
 #### Scenario: JSON API resource reads are mounted
 
 - **WHEN** generated AshJsonApi resource reads are exposed during stabilization
 - **THEN** they MUST mount under `/api/v1`
 
-#### Scenario: Resource read is migrated
+#### Scenario: Resource surface is migrated
 
 - **WHEN** a WorkGraph, WorkPackets, Runs, or Verification resource read is
   migrated away from manual transport code

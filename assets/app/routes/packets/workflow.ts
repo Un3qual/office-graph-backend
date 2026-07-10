@@ -1,0 +1,105 @@
+import { readInlineData, useLazyLoadQuery } from "react-relay";
+import type {
+  PacketsRoutePacketFragment$data,
+  PacketsRoutePacketFragment$key
+} from "../../relay/__generated__/PacketsRoutePacketFragment.graphql";
+import type { PacketsRouteQuery as PacketsRouteOperation } from "../../relay/__generated__/PacketsRouteQuery.graphql";
+import { PacketsRoutePacketFragment, PacketsRouteQuery } from "./data";
+import type { PacketConnection, PacketRow, PacketsPage } from "./types";
+
+type PacketsWorkflowInput = {
+  canPageBackward: boolean;
+  onNextPage: (cursor: string) => void;
+  onPreviousPage: () => void;
+  onSelectPacket: (id: string) => void;
+  page: PacketsPage;
+  requestedSelectedId: string | null;
+};
+
+type RelayPageInfo = {
+  readonly endCursor: string | null | undefined;
+  readonly hasNextPage: boolean;
+};
+
+export const defaultPacketsPage: PacketsPage = { first: 50, after: null };
+
+export function usePacketsWorkflow({
+  canPageBackward,
+  onNextPage,
+  onPreviousPage,
+  onSelectPacket,
+  page,
+  requestedSelectedId
+}: PacketsWorkflowInput) {
+  const data = useLazyLoadQuery<PacketsRouteOperation>(PacketsRouteQuery, page, {
+    fetchPolicy: "network-only"
+  });
+  const connection = packetConnectionFromRelay(data);
+  const selectedId = selectedPacketId(connection.rows, requestedSelectedId);
+  const selectedPacket =
+    connection.rows.find((packet) => packet.id === selectedId) ?? null;
+
+  return {
+    canPageBackward,
+    hasNextPage: connection.hasNextPage,
+    loadNextPage: () => {
+      if (connection.hasNextPage && connection.nextCursor !== null) {
+        onNextPage(connection.nextCursor);
+      }
+    },
+    loadPreviousPage: onPreviousPage,
+    rows: connection.rows,
+    selectedId,
+    selectedPacket,
+    selectPacket: onSelectPacket
+  };
+}
+
+export type PacketsWorkflowState = ReturnType<typeof usePacketsWorkflow>;
+
+export function packetConnectionFromRows<TPacket>(
+  rows: TPacket[],
+  pageInfo: RelayPageInfo
+): PacketConnection<TPacket> {
+  const nextCursor = pageInfo.endCursor ?? null;
+
+  return {
+    hasNextPage: pageInfo.hasNextPage && nextCursor !== null,
+    nextCursor,
+    rows
+  };
+}
+
+export function selectedPacketId<TPacket extends Pick<PacketRow, "id">>(
+  rows: readonly TPacket[],
+  requestedSelectedId: string | null
+) {
+  return rows.some((packet) => packet.id === requestedSelectedId)
+    ? requestedSelectedId
+    : (rows[0]?.id ?? null);
+}
+
+function packetConnectionFromRelay(
+  data: PacketsRouteOperation["response"]
+): PacketConnection<PacketsRoutePacketFragment$data> {
+  const connection = data.listWorkPackets;
+
+  if (!connection) {
+    return packetConnectionFromRows([], { endCursor: null, hasNextPage: false });
+  }
+
+  const rows = (connection.edges ?? []).flatMap((edge) => {
+    if (!edge?.node) {
+      return [];
+    }
+
+    return [
+      readInlineData(
+        PacketsRoutePacketFragment,
+        edge.node as PacketsRoutePacketFragment$key
+      )
+    ];
+  });
+
+  return packetConnectionFromRows(rows, connection.pageInfo);
+}

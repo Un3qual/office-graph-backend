@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { RelayEnvironmentProvider } from "react-relay";
+import { MemoryRouter } from "react-router";
 import {
   Environment,
   Network,
@@ -17,6 +18,26 @@ import OperatorRoute from "./route";
 describe("operator route", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("renders a Suspense-driven inbox loading workspace", () => {
+    const workflowResponse = deferredGraphQLResponse();
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowResponse.promise;
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(screen.getByRole("heading", { name: "Operator Console" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading inbox...");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "No item selected"
+    );
   });
 
   it("renders the operator workbench from Relay projection data", async () => {
@@ -116,6 +137,87 @@ describe("operator route", () => {
       .toBe(false);
   });
 
+  it("keeps derived readiness and workspace context visible while validation suspends", async () => {
+    const readinessResponse = deferredGraphQLResponse();
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        return readinessResponse.promise;
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
+
+    const readiness = screen.getByRole("region", { name: "Packet Readiness" });
+
+    expect(readiness).toHaveTextContent("Prepare packet context");
+    expect(screen.getByRole("button", { name: "Validating readiness" })).toBeDisabled();
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+
+    await act(async () => {
+      readinessResponse.resolve({
+        data: { operatorPacketReadiness: operatorPacketReadiness() }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Backend readiness"
+      );
+    });
+  });
+
+  it("keeps the operator workspace visible when readiness validation fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        throw new Error("authorization secret_alpha denied readiness_9");
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Unable to validate packet readiness."
+      );
+    });
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("readiness_9");
+  });
+
   it("shows the empty state without enabling workflow commands", async () => {
     const network = createOperatorNetwork({ workflowItems: [] });
 
@@ -140,6 +242,7 @@ describe("operator route", () => {
   });
 
   it("surfaces GraphQL errors instead of treating a null workflow connection as empty", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -152,11 +255,15 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, fetchGraphQL);
 
-    expect(await screen.findByText("Operator workflow access is forbidden")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load operator inbox."
+    );
+    expect(document.body).not.toHaveTextContent("Operator workflow access is forbidden");
     expect(screen.queryByText("No operator workflow items.")).not.toBeInTheDocument();
   });
 
   it("renders only the requested manual inbox page after paging forward", async () => {
+    const nextPage = deferredGraphQLResponse();
     const firstItem = operatorWorkflowItem();
     const secondItem = operatorWorkflowItem({
       id: "operator_workflow_item_global_2",
@@ -171,12 +278,7 @@ describe("operator route", () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return variables.after === "cursor_1"
-          ? workflowConnectionResponse([secondItem], variables, {
-              hasNextPage: false,
-              hasPreviousPage: true,
-              startCursor: "cursor_2",
-              endCursor: "cursor_2"
-            })
+          ? nextPage.promise
           : workflowConnectionResponse([firstItem], variables, {
               hasNextPage: true,
               hasPreviousPage: false,
@@ -199,8 +301,25 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
-
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading inbox...");
+    expect(screen.queryByRole("button", { name: /evt_1/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "No item selected"
+    );
+
+    nextPage.resolve(
+      workflowConnectionResponse([secondItem], { after: "cursor_1" }, {
+        hasNextPage: false,
+        hasPreviousPage: true,
+        startCursor: "cursor_2",
+        endCursor: "cursor_2"
+      })
+    );
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /evt_1/i })).not.toBeInTheDocument();
@@ -212,16 +331,72 @@ describe("operator route", () => {
     });
   });
 
-  it("shows Relay loading errors", async () => {
-    const network = vi.fn(async () => {
-      throw new Error("GraphQL unavailable");
+  it("returns to the previous inbox page when the next page fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        if (variables.after === "cursor_1") {
+          throw new Error("GraphQL unavailable secret_alpha");
+        }
+
+        return workflowConnectionResponse([operatorWorkflowItem()], variables, {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: "cursor_1",
+          endCursor: "cursor_1"
+        });
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
     renderWithRelay(<OperatorRoute />, network);
 
+    expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load operator inbox."
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
     await waitFor(() => {
-      expect(screen.getByText("GraphQL unavailable")).toBeInTheDocument();
+      const workflowCalls = network.mock.calls.filter(
+        ([request]) => request.name === "OperatorWorkflowRouteQuery"
+      );
+
+      expect(workflowCalls.at(-1)?.[1]).toEqual({ first: 50, after: null });
+      expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute(
+        "aria-current",
+        "true"
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });
+  });
+
+  it("renders a safe route error for Relay transport failures", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async () => {
+      throw new Error("GraphQL unavailable secret_alpha");
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load operator inbox."
+    );
+    expect(document.body).not.toHaveTextContent("GraphQL unavailable");
+    expect(document.body).not.toHaveTextContent("secret_alpha");
   });
 
   it("updates the selected row and derived workflow panels from Relay data", async () => {
@@ -329,6 +504,15 @@ describe("operator route", () => {
       expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
         "Awaiting evidence acceptance"
       );
+      expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+        "Loading verification..."
+      );
+      expect(screen.getByRole("region", { name: "Verification" })).not.toHaveTextContent(
+        "Owner acceptance"
+      );
+      expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+        "normalized_intake_event: evt_2"
+      );
     });
 
     secondRunState.resolve({
@@ -343,6 +527,43 @@ describe("operator route", () => {
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
     });
+  });
+
+  it("keeps inbox, item, and readiness context when a linked run fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        throw new Error("authorization secret_alpha denied run_9");
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Run state unavailable."
+      );
+      expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+        "Verification unavailable."
+      );
+    });
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "Prepare packet context"
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("run_9");
   });
 
   it("renders command affordance states without leaking hidden or redacted policy details", async () => {
@@ -415,11 +636,16 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, network);
 
-    const itemDetail = await screen.findByRole("region", { name: "Item detail" });
-    await screen.findByRole("region", { name: "Packet Readiness" });
-    await screen.findByRole("region", { name: "Run State" });
+    await screen.findByRole("button", { name: /evt_1/i });
+    const itemDetail = screen.getByRole("region", { name: "Item detail" });
 
-    expect(itemDetail).toHaveTextContent("Commands");
+    await waitFor(() => {
+      expect(itemDetail).toHaveTextContent("Commands");
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Awaiting evidence acceptance"
+      );
+    });
+
     expect(itemDetail).toHaveTextContent("Prepare packet");
     expect(itemDetail).toHaveTextContent("Accept evidence disabled");
     expect(itemDetail).toHaveTextContent("Accept evidence after a candidate is selected.");
@@ -447,7 +673,9 @@ function renderWithRelay(ui: ReactElement, network: FetchFunction) {
   });
 
   return render(
-    <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
+    <MemoryRouter initialEntries={["/operator"]}>
+      <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
+    </MemoryRouter>
   );
 }
 
