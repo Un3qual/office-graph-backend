@@ -29,6 +29,6 @@
 
 ## 4. Change Verification
 
-- [ ] 4.1 Run frontend verification, strict validation for both active OpenSpec
+- [x] 4.1 Run frontend verification, strict validation for both active OpenSpec
   changes, the project `mix verify` gate, and `git diff --check`; document the
   required archive order for the two changes.
