@@ -247,13 +247,15 @@ defmodule OfficeGraph.WorkPackets do
     source_reference_inputs =
       attrs
       |> Map.get(:source_graph_item_ids, [])
-      |> Enum.map(fn graph_item_id ->
+      |> Enum.with_index()
+      |> Enum.map(fn {graph_item_id, position} ->
         %{
           id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           graph_item_id: graph_item_id,
           organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id
+          workspace_id: session_context.workspace_id,
+          position: position
         }
       end)
 
@@ -263,13 +265,15 @@ defmodule OfficeGraph.WorkPackets do
     required_check_inputs =
       attrs
       |> Map.get(:verification_check_ids, [])
-      |> Enum.map(fn verification_check_id ->
+      |> Enum.with_index()
+      |> Enum.map(fn {verification_check_id, position} ->
         %{
           id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           verification_check_id: verification_check_id,
           organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id
+          workspace_id: session_context.workspace_id,
+          position: position
         }
       end)
 
@@ -400,14 +404,14 @@ defmodule OfficeGraph.WorkPackets do
   defp read_source_references(version_id) do
     WorkPacketSourceReference
     |> Ash.Query.filter(work_packet_version_id == ^version_id)
-    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
 
   defp read_required_checks(version_id) do
     WorkPacketRequiredCheck
     |> Ash.Query.filter(work_packet_version_id == ^version_id)
-    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
 

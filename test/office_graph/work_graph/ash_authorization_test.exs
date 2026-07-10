@@ -368,7 +368,23 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
                sorted?: true
              )
 
-    assert Enum.all?(errors, &(Exception.message(&1) =~ "graph_item_id"))
+    messages = Enum.map(errors, &Exception.message/1)
+
+    assert Enum.count(
+             messages,
+             &String.contains?(
+               &1,
+               "graph_item_id must reference an existing record in the target scope"
+             )
+           ) == 2
+
+    assert Enum.count(
+             messages,
+             &String.contains?(
+               &1,
+               "graph_item_id must reference a graph item for the target resource"
+             )
+           ) == 1
   end
 
   test "repo Ash bulk create returns ordered records and skips empty inserts" do

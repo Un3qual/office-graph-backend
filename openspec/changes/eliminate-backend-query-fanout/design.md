@@ -18,7 +18,7 @@ The project requires durable writes to remain Ash-managed unless an explicit arc
 
 - Rewriting all backend commands as bulk actions.
 - Removing required reference validation or relying only on database foreign keys.
-- Introducing direct `Repo.insert_all`, raw SQL, a new architecture exception, caching, or a database migration.
+- Introducing direct `Repo.insert_all`, raw SQL, a new architecture exception, or caching.
 - Changing GraphQL, JSON API, projection, packet, or run payload semantics.
 - Enforcing one exact total query count across unrelated framework or authorization changes.
 
@@ -29,6 +29,8 @@ The project requires durable writes to remain Ash-managed unless an explicit arc
 Add a small `OfficeGraph.Repo` helper around `Ash.bulk_create/4` and use it for `WorkPacketSourceReference`, `WorkPacketRequiredCheck`, and `RunRequiredCheck` collections. The helper will request records and errors, stop on the first error, participate in the caller's existing transaction, and normalize failures through the same rollback boundary used by current repo helpers. Inputs will carry pre-generated UUIDs; returned records will be restored to input order by UUID so callers do not depend on database return order.
 
 The bulk call will retain each resource's `:create` action, including set-attribute defaults and custom changes. Empty collections will return an empty list without invoking Ash.
+
+Bulk timestamp defaults are shared by every row in a batch, so `inserted_at` no longer provides a durable input-order key. Add a zero-based `position` to packet sources, packet required checks, and run required checks; populate it from the caller's input order and use it as the primary persisted sort key. Existing rows receive position zero and retain deterministic timestamp/ID tie-breakers.
 
 Alternative considered: direct `Repo.insert_all`. It would minimize SQL but bypass Ash actions, require duplicating defaults and validation, and conflict with the model-ownership rule. No exception is justified.
 
@@ -59,7 +61,7 @@ Existing packet and run commands already execute within `OfficeGraph.Repo.transa
 ## Risks / Trade-offs
 
 - **Risk: custom Ash changes silently fall back to per-record execution** -> Implement and directly test `batch_change/3` query counts for both validators.
-- **Risk: bulk-return order differs from input order** -> Pre-generate IDs and explicitly reorder returned records by the input ID list.
+- **Risk: bulk-return or replay order differs from input order** -> Pre-generate IDs, explicitly reorder immediate results by the input ID list, and persist a collection position for later reads and idempotent replay.
 - **Risk: bulk errors expose a different shape or allow partial success** -> Stop on error, return errors, normalize through the repo rollback helper, and add invalid-middle-item rollback tests.
 - **Risk: query-count tests become coupled to framework internals** -> Assert resource-specific scaling ceilings and deltas, not one absolute request total.
 - **Risk: large collections span multiple Ash batches** -> Treat bounded batch growth as acceptable while prohibiting per-item growth; test multiple records within one configured batch and document the batch boundary.
@@ -70,9 +72,10 @@ Existing packet and run commands already execute within `OfficeGraph.Repo.transa
 2. Add batch-aware validation callbacks while preserving single-record behavior.
 3. Add the Ash bulk-create repo helper and migrate packet collection writes.
 4. Migrate run required-check writes.
-5. Run focused tests after each red-green cycle, then run the full backend verification and strict OpenSpec validation.
+5. Persist collection positions so bulk timestamps cannot make later reads or idempotent replay reorder children.
+6. Run focused tests after each red-green cycle, then run the full backend verification and strict OpenSpec validation.
 
-No data migration or deployment sequencing is required. Rollback is a code revert to the existing per-record Ash create loops; persisted data is schema-compatible in both directions.
+The additive migration backfills existing child rows with position zero. New rows receive their input ordinal; old rows use timestamp and ID tie-breakers within position zero. Rollback requires reverting the resource attributes and sorting before dropping the three additive columns.
 
 ## Open Questions
 

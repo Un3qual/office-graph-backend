@@ -16,11 +16,11 @@ Office Graph SHALL create packet source references, packet required checks, and 
 
 #### Scenario: Packet links are created in bulk
 - **WHEN** packet creation receives multiple source graph item IDs and verification check IDs
-- **THEN** source references and packet required checks MUST be inserted in resource-level bulk batches while preserving the packet command's return shape
+- **THEN** source references and packet required checks MUST be inserted in resource-level bulk batches while preserving input order in the packet command result and idempotent replay
 
 #### Scenario: Run checks are created in bulk
 - **WHEN** a packet-backed run starts with multiple required verification checks
-- **THEN** run required checks MUST be inserted in a resource-level bulk batch while preserving their input order in the command result
+- **THEN** run required checks MUST be inserted in a resource-level bulk batch while preserving their input order in the command result and idempotent replay
 
 #### Scenario: Empty collections remain valid
 - **WHEN** an allowed collection write has no input records

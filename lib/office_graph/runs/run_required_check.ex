@@ -19,6 +19,7 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
     attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -50,7 +51,8 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
         :run_id,
         :verification_check_id,
         :organization_id,
-        :workspace_id
+        :workspace_id,
+        :position
       ]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,

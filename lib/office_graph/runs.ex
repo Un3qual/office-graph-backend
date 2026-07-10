@@ -290,13 +290,16 @@ defmodule OfficeGraph.Runs do
       )
 
     run_required_check_inputs =
-      Enum.map(required_checks, fn required_check ->
+      required_checks
+      |> Enum.with_index()
+      |> Enum.map(fn {required_check, position} ->
         %{
           id: Ecto.UUID.generate(),
           run_id: run.id,
           verification_check_id: required_check.verification_check_id,
           organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id
+          workspace_id: session_context.workspace_id,
+          position: position
         }
       end)
 
@@ -596,7 +599,7 @@ defmodule OfficeGraph.Runs do
         organization_id == ^packet_version.organization_id and
         workspace_id == ^packet_version.workspace_id
     )
-    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read!(authorize?: false)
   end
 
@@ -663,14 +666,14 @@ defmodule OfficeGraph.Runs do
       run_id == ^run.id and organization_id == ^run.organization_id and
         workspace_id == ^run.workspace_id
     )
-    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
 
   defp read_run_required_checks(run_id) do
     RunRequiredCheck
     |> Ash.Query.filter(run_id == ^run_id)
-    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
 
