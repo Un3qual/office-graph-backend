@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchQuery, readInlineData, useRelayEnvironment } from "react-relay";
+import {
+  fetchQuery,
+  readInlineData,
+  useLazyLoadQuery,
+  useRelayEnvironment
+} from "react-relay";
 import type { GraphQLResponse } from "relay-runtime";
 import type {
   OperatorPacketReadinessFragment$data,
@@ -41,119 +46,48 @@ type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
 
+type OperatorWorkflowInput = {
+  inboxPage: OperatorInboxPage;
+  requestedSelectedId: string | null;
+};
+
 export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: null };
 
-export function useOperatorWorkflow() {
+export function useOperatorWorkflow({
+  inboxPage,
+  requestedSelectedId
+}: OperatorWorkflowInput) {
   const relayEnvironment = useRelayEnvironment();
-  const [inboxNavigation, setInboxNavigation] = useState({
-    page: defaultOperatorInboxPage,
-    previousCursors: [] as Array<string | null>
-  });
-  const inboxPage = inboxNavigation.page;
-  const [inboxQuery, setInboxQuery] =
-    useState<QueryState<OperatorInbox<OperatorWorkflowItemFragment$data>>>(idleQueryState);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
-  const [validatedReadinessQuery, setValidatedReadinessQuery] =
-    useState<QueryState<PacketReadinessState>>(idleQueryState);
+  const rootData = useLazyLoadQuery<OperatorWorkflowRouteOperation>(
+    OperatorWorkflowRouteQuery,
+    inboxPage,
+    { fetchPolicy: "network-only" }
+  );
+  const inbox = workflowConnectionFromRelay(rootData, inboxPage);
+  const selectedId = inbox.rows.some(
+    (row) => row.normalizedEventId === requestedSelectedId
+  )
+    ? requestedSelectedId
+    : (inbox.rows[0]?.normalizedEventId ?? null);
+  const selectedItem =
+    inbox.rows.find((row) => row.normalizedEventId === selectedId) ?? null;
+  const [validatedReadinessQuery, setValidatedReadinessQuery] = useState<
+    QueryState<PacketReadinessState>
+  >(idleQueryState);
   const readinessValidationToken = useRef(0);
   const readinessValidationSubscription = useRef<{ unsubscribe(): void } | null>(null);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    setInboxQuery(startLoading);
-
-    const subscription = fetchQuery<OperatorWorkflowRouteOperation>(
-      relayEnvironment,
-      OperatorWorkflowRouteQuery,
-      inboxPage,
-      { fetchPolicy: "network-only" }
-    ).subscribe({
-      next: (data) => {
-        if (isCurrent) {
-          setInboxQuery(successQueryState(workflowConnectionFromRelay(data, inboxPage)));
-        }
-      },
-      error: (error: unknown) => {
-        if (isCurrent) {
-          setInboxQuery((state) => errorQueryState(state, error));
-        }
-      }
-    });
-
-    return () => {
-      isCurrent = false;
-      subscription.unsubscribe();
-    };
-  }, [inboxPage, relayEnvironment]);
-
-  useEffect(() => {
-    if (!inboxQuery.data) {
-      return;
-    }
-
-    const rowIds = new Set(inboxQuery.data.rows.map((row) => row.normalizedEventId));
-    const firstId = inboxQuery.data.rows[0]?.normalizedEventId ?? null;
-
-    if (selectedId === null) {
-      setSelectedId(firstId);
-      setSelectedSource("inbox");
-    } else if (selectedSource === "inbox" && firstId === null) {
-      setSelectedId(null);
-      setSelectedSource("inbox");
-    } else if (selectedSource === "inbox" && !rowIds.has(selectedId)) {
-      setSelectedId(firstId);
-      setSelectedSource("inbox");
-    }
-  }, [inboxQuery.data, selectedId, selectedSource]);
-
-  const selectInboxItem = useCallback((id: string) => {
-    setSelectedId(id);
-    setSelectedSource("inbox");
-  }, []);
-
-  const loadNextInboxPage = useCallback(() => {
-    const nextCursor = inboxQuery.data?.nextCursor ?? null;
-
-    if (nextCursor !== null) {
-      setInboxNavigation(({ page, previousCursors }) => ({
-        page: page.after === nextCursor ? page : { ...page, after: nextCursor },
-        previousCursors:
-          page.after === nextCursor ? previousCursors : [...previousCursors, page.after]
-      }));
-    }
-  }, [inboxQuery.data?.nextCursor]);
-
-  const loadPreviousInboxPage = useCallback(() => {
-    setInboxNavigation(({ page, previousCursors }) => {
-      if (previousCursors.length === 0) {
-        return { page, previousCursors };
-      }
-
-      const nextPreviousCursors = previousCursors.slice(0, -1);
-      const previousCursor = previousCursors[previousCursors.length - 1] ?? null;
-
-      return {
-        page: { ...page, after: previousCursor },
-        previousCursors: nextPreviousCursors
-      };
-    });
-  }, []);
-
-  const selectedInboxItem = useMemo(
-    () => inboxQuery.data?.rows.find((row) => row.normalizedEventId === selectedId) ?? null,
-    [inboxQuery.data, selectedId]
-  );
-  const selectedItem = selectedInboxItem;
   const readinessInput = useMemo(
     () => (selectedItem ? packetReadinessInputForItem(selectedItem) : null),
     [selectedItem]
   );
   const readiness = useMemo(
-    () => (selectedItem && readinessInput ? packetReadinessForItem(selectedItem, readinessInput) : null),
+    () =>
+      selectedItem && readinessInput
+        ? packetReadinessForItem(selectedItem, readinessInput)
+        : null,
     [readinessInput, selectedItem]
   );
+
   useEffect(() => {
     readinessValidationToken.current += 1;
     readinessValidationSubscription.current?.unsubscribe();
@@ -167,22 +101,19 @@ export function useOperatorWorkflow() {
     },
     []
   );
-  const readinessQuery = useMemo(
-    () => {
-      if (
-        validatedReadinessQuery.data ||
-        validatedReadinessQuery.isError ||
-        validatedReadinessQuery.fetchStatus !== "idle"
-      ) {
-        return validatedReadinessQuery;
-      }
+  const readinessQuery = useMemo(() => {
+    if (
+      validatedReadinessQuery.data ||
+      validatedReadinessQuery.isError ||
+      validatedReadinessQuery.fetchStatus !== "idle"
+    ) {
+      return validatedReadinessQuery;
+    }
 
-      return readiness
-        ? successQueryState<PacketReadinessState>(readiness)
-        : idleQueryState<PacketReadinessState>();
-    },
-    [readiness, validatedReadinessQuery]
-  );
+    return readiness
+      ? successQueryState<PacketReadinessState>(readiness)
+      : idleQueryState<PacketReadinessState>();
+  }, [readiness, validatedReadinessQuery]);
   const activeReadiness = validatedReadinessQuery.data ?? readiness;
   const validatePacketReadiness = useCallback(() => {
     if (!readinessInput || !readiness) {
@@ -214,35 +145,33 @@ export function useOperatorWorkflow() {
   }, [readiness, readinessInput, relayEnvironment]);
   const runId = runIdForItem(selectedItem);
   const runStateQuery = useOperatorRunStateRelayQuery(runId);
-  const verification = runStateQuery.data ? verificationOutcomeFromRunState(runStateQuery.data) : null;
+  const verification = runStateQuery.data
+    ? verificationOutcomeFromRunState(runStateQuery.data)
+    : null;
 
   return {
-    canPageBackward: inboxNavigation.previousCursors.length > 0,
-    inboxQuery,
-    inboxPage,
-    itemQuery: idleQueryState<OperatorWorkflowItemFragment$data>(),
-    loadNextInboxPage,
-    loadPreviousInboxPage,
+    inbox,
     readiness: activeReadiness,
     readinessInput,
     readinessQuery,
-    rows: inboxQuery.data?.rows ?? [],
+    rows: inbox.rows,
     runId,
     runStateQuery,
     selectedId,
     selectedItem,
-    selectInboxItem,
     validatePacketReadiness,
     verification
   };
 }
 
+export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
 export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
 
 function useOperatorRunStateRelayQuery(runId: string | null) {
   const relayEnvironment = useRelayEnvironment();
-  const [query, setQuery] =
-    useState<QueryState<OperatorRunStateFragment$data>>(idleQueryState);
+  const [query, setQuery] = useState<QueryState<OperatorRunStateFragment$data>>(
+    idleQueryState
+  );
 
   useEffect(() => {
     if (!runId) {

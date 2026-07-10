@@ -8,6 +8,7 @@ const routeRoot = join(assetsRoot, "app/routes/operator");
 describe("operator route architecture", () => {
   it("keeps operator workflow reads owned by the Relay route module", () => {
     const source = routeSource();
+    const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
 
     expect(existsSync(join(assetsRoot, "src/operator"))).toBe(false);
     expect(source).not.toContain("@tanstack/react-query");
@@ -17,6 +18,8 @@ describe("operator route architecture", () => {
     expect(source).toContain("OperatorWorkflowRouteQuery");
     expect(source).toContain("OperatorPacketReadinessQuery");
     expect(source).toContain("OperatorRunStateQuery");
+    expect(workflowSource).toContain("useLazyLoadQuery<OperatorWorkflowRouteOperation>");
+    expect(workflowSource).not.toContain("fetchQuery<OperatorWorkflowRouteOperation>");
   });
 
   it("keeps generated Relay data types explicit at the route data boundary", () => {

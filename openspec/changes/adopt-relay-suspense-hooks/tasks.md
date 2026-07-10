@@ -16,7 +16,7 @@
 
 ## 3. Operator Relay Hook Migration
 
-- [ ] 3.1 Add failing operator tests for Suspense-driven inbox loading and safe
+- [x] 3.1 Add failing operator tests for Suspense-driven inbox loading and safe
   route errors; migrate the inbox root read to `useLazyLoadQuery` while
   preserving cursor history, selection, empty state, and existing detail.
 - [ ] 3.2 Add failing operator tests proving readiness-validation and run-state

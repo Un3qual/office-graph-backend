@@ -3,46 +3,41 @@ import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PaneHeader } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
 import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
-import type { OperatorWorkflowState } from "../workflow";
+import type { OperatorWorkflowItem } from "../workflow";
 
 type Props = {
-  canPageBackward: OperatorWorkflowState["canPageBackward"];
-  inbox: OperatorWorkflowState["inboxQuery"];
-  onNextPage: OperatorWorkflowState["loadNextInboxPage"];
-  onPreviousPage: OperatorWorkflowState["loadPreviousInboxPage"];
-  rows: OperatorWorkflowState["rows"];
-  selectedId: OperatorWorkflowState["selectedId"];
-  onSelect: OperatorWorkflowState["selectInboxItem"];
+  canPageBackward: boolean;
+  canPageForward: boolean;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
+  onSelect: (id: string) => void;
+  rows: OperatorWorkflowItem[];
+  selectedId: string | null;
+  sourceWatermark: string | null;
+};
+
+type FallbackProps = {
+  state: "error" | "loading";
 };
 
 export function InboxList({
   canPageBackward,
-  inbox,
+  canPageForward,
   onNextPage,
   onPreviousPage,
   onSelect,
   rows,
-  selectedId
+  selectedId,
+  sourceWatermark
 }: Props) {
-  const hasStaleData = inbox.isError && rows.length > 0;
-  const canPageForward = Boolean(inbox.data?.hasMore && inbox.data.nextCursor !== null);
-
   return (
     <section aria-label="Inbox" className="inbox-pane">
-      <PaneHeader title="Inbox" meta={inbox.data?.sourceWatermark ?? "Live projection"} />
-      {inbox.isPending ? <EmptyState title="Loading inbox..." /> : null}
-      {inbox.isError ? (
-        <EmptyState title={errorMessage(inbox.error)} tone="error">
-          The operator workflow projection could not be loaded.
-        </EmptyState>
-      ) : null}
-      {hasStaleData ? <p className="muted-text">Showing last loaded inbox.</p> : null}
-      {inbox.isSuccess && rows.length === 0 ? (
+      <PaneHeader title="Inbox" meta={sourceWatermark ?? "Live projection"} />
+      {rows.length === 0 ? (
         <EmptyState title="No operator workflow items.">
           There are no manual intake or verification commands ready right now.
         </EmptyState>
-      ) : null}
-      {rows.length > 0 ? (
+      ) : (
         <div className="inbox-list">
           {rows.map((row) => {
             const commands = commandAffordanceListText(
@@ -71,22 +66,35 @@ export function InboxList({
             );
           })}
         </div>
-      ) : null}
-      {inbox.data ? (
-        <div aria-label="Inbox pagination" className="inbox-pagination">
-          <span>{rows.length === 1 ? "1 row" : `${rows.length} rows`}</span>
-          <button type="button" disabled={!canPageBackward} onClick={onPreviousPage}>
-            Previous
-          </button>
-          <button type="button" disabled={!canPageForward} onClick={onNextPage}>
-            Next
-          </button>
-        </div>
-      ) : null}
+      )}
+      <div aria-label="Inbox pagination" className="inbox-pagination">
+        <span>{rows.length === 1 ? "1 row" : `${rows.length} rows`}</span>
+        <button type="button" disabled={!canPageBackward} onClick={onPreviousPage}>
+          Previous
+        </button>
+        <button type="button" disabled={!canPageForward} onClick={onNextPage}>
+          Next
+        </button>
+      </div>
     </section>
   );
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to load operator inbox.";
+export function InboxListFallback({ state }: FallbackProps) {
+  return (
+    <section aria-label="Inbox" className="inbox-pane">
+      <PaneHeader title="Inbox" meta="Live projection" />
+      {state === "loading" ? (
+        <div role="status">
+          <EmptyState title="Loading inbox..." />
+        </div>
+      ) : (
+        <div role="alert">
+          <EmptyState title="Unable to load operator inbox." tone="error">
+            The operator workflow projection could not be loaded.
+          </EmptyState>
+        </div>
+      )}
+    </section>
+  );
 }
