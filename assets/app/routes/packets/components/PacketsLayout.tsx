@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { WorkspaceShell } from "../../../../src/ui/WorkspaceShell";
+import { PRODUCT_DESTINATIONS } from "../../productNavigation";
 
 type Props = {
   detail: ReactNode;
@@ -11,13 +12,7 @@ export function PacketsLayout({ detail, list }: Props) {
     <WorkspaceShell
       brand="OG"
       contentClassName="packet-workspace"
-      destinations={[
-        { label: "Operator", to: "/operator" },
-        { label: "Packets", to: "/packets" },
-        { label: "All Runs" },
-        { label: "Entities" },
-        { label: "Reports" }
-      ]}
+      destinations={PRODUCT_DESTINATIONS}
       eyebrow="Office Graph"
       navigationLabel="Product areas"
       title="Packet Workspace"

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { WorkspaceShell } from "../../../../src/ui/WorkspaceShell";
+import { PRODUCT_DESTINATIONS } from "../../productNavigation";
 
 type Props = {
   detail: ReactNode;
@@ -12,13 +13,7 @@ export function OperatorLayout({ detail, inbox, inspector }: Props) {
     <WorkspaceShell
       brand="OG"
       contentClassName="workbench"
-      destinations={[
-        { label: "Operator", to: "/operator" },
-        { label: "Packets", to: "/packets" },
-        { label: "All Runs" },
-        { label: "Entities" },
-        { label: "Reports" }
-      ]}
+      destinations={PRODUCT_DESTINATIONS}
       eyebrow="Office Graph"
       headerActions={
         <div className="search-box">
