@@ -93,6 +93,85 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert QueryCounter.source_count(run_queries, "run_required_checks") <= 1
   end
 
+  test "run required-check contract batches validation reads" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    verification_checks =
+      Enum.map(1..4, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_checks)
+
+    Enum.each(verification_checks, fn verification_check ->
+      delete_run_required_check!(run_result.run.id, verification_check.id)
+    end)
+
+    inputs =
+      Enum.map(verification_checks, fn verification_check ->
+        %{
+          id: Ecto.UUID.generate(),
+          run_id: run_result.run.id,
+          verification_check_id: verification_check.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        }
+      end)
+
+    {%Ash.BulkResult{status: :success, records: records}, queries} =
+      QueryCounter.count(fn ->
+        Ash.bulk_create(inputs, RunRequiredCheck, :create,
+          actor: bootstrap.session,
+          authorize?: true,
+          return_errors?: true,
+          return_records?: true,
+          sorted?: true,
+          stop_on_error?: true
+        )
+      end)
+
+    assert length(records) == 4
+    assert QueryCounter.source_count(queries, "runs") <= 2
+
+    assert QueryCounter.source_count(
+             queries,
+             "work_packet_version_required_checks"
+           ) <= 1
+  end
+
+  test "run required-check contract preserves bulk packet mismatch errors" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, required_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, required_check)
+
+    delete_run_required_check!(run_result.run.id, required_check.id)
+
+    inputs =
+      Enum.map([required_check, unrelated_check], fn verification_check ->
+        %{
+          id: Ecto.UUID.generate(),
+          run_id: run_result.run.id,
+          verification_check_id: verification_check.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        }
+      end)
+
+    assert %Ash.BulkResult{status: :partial_success, error_count: 1, errors: [error]} =
+             Ash.bulk_create(inputs, RunRequiredCheck, :create,
+               actor: bootstrap.session,
+               authorize?: true,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true
+             )
+
+    assert Exception.message(error) =~
+             "verification_check_id must belong to the run packet version"
+  end
+
   test "packet-backed work run stays unverified until evidence is accepted" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
