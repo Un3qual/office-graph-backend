@@ -1,7 +1,7 @@
 # Relay Suspense Hooks Design
 
 date: 2026-07-10
-status: approved direction, written review pending
+status: approved
 openspec change: `adopt-relay-suspense-hooks`
 
 ## Outcome
