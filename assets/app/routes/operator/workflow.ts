@@ -186,7 +186,7 @@ export function useOperatorWorkflow() {
     readinessValidationSubscription.current = fetchQuery<OperatorPacketReadinessOperation>(
       relayEnvironment,
       OperatorPacketReadinessQuery,
-      { input: readinessInput },
+      { input: packetReadinessQueryInput(readinessInput) },
       { fetchPolicy: "network-only" }
     ).subscribe({
       next: (data) => {
@@ -326,6 +326,21 @@ function packetReadinessFromRelay(
     OperatorPacketReadinessFragment,
     data.operatorPacketReadiness as OperatorPacketReadinessFragment$key
   ) as PacketReadiness;
+}
+
+function packetReadinessQueryInput(
+  input: PacketReadinessInput
+): OperatorPacketReadinessOperation["variables"]["input"] {
+  return {
+    title: input.title,
+    objective: input.objective,
+    contextSummary: input.contextSummary,
+    requirements: input.requirements,
+    successCriteria: input.successCriteria,
+    autonomyPosture: input.autonomyPosture,
+    sourceGraphItemIds: input.sourceGraphItemIds,
+    verificationCheckIds: input.verificationCheckIds
+  };
 }
 
 function idleQueryState<T>(): QueryState<T> {

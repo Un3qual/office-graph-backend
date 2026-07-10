@@ -55,7 +55,6 @@ describe("operator route", () => {
   });
 
   it("validates locally derived packet readiness before exposing backend commands", async () => {
-    let mutationCalled = false;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return workflowConnectionResponse([operatorWorkflowItem()], variables);
@@ -69,11 +68,6 @@ describe("operator route", () => {
         return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
       }
 
-      if (request.name === "ExecutePacketRunVerificationMutation") {
-        mutationCalled = true;
-        return { data: { executePacketRunVerification: packetRunSummary() } };
-      }
-
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
@@ -84,8 +78,9 @@ describe("operator route", () => {
       "Blocked"
     );
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
-    expect(mutationCalled).toBe(false);
     expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
+      .toBe(false);
+    expect(network.mock.calls.some(([request]) => request.name === "ExecutePacketRunVerificationMutation"))
       .toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
@@ -104,9 +99,7 @@ describe("operator route", () => {
           successCriteria: "Run console verification",
           autonomyPosture: "human_supervised",
           sourceGraphItemIds: ["graph_1"],
-          verificationCheckIds: ["check_1"],
-          primarySourceGraphItemId: "graph_1",
-          primaryVerificationCheckId: "check_1"
+          verificationCheckIds: ["check_1"]
         }
       });
     });
@@ -119,7 +112,8 @@ describe("operator route", () => {
       );
     });
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
-    expect(mutationCalled).toBe(false);
+    expect(network.mock.calls.some(([request]) => request.name === "ExecutePacketRunVerificationMutation"))
+      .toBe(false);
   });
 
   it("shows the empty state without enabling workflow commands", async () => {
@@ -734,55 +728,6 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
     ],
     missingEvidence: [{ verificationCheckId: "check_1", reason: "missing_accepted_evidence" }],
     ...overrides
-  };
-}
-
-function packetRunSummary() {
-  return {
-    packet: { id: "packet_2", title: "Run console verification", state: "ready" },
-    packetVersion: {
-      id: "version_2",
-      versionNumber: 1,
-      lifecycleState: "ready",
-      objective: "Run console verification"
-    },
-    run: {
-      id: "run_2",
-      aggregateState: "verified",
-      executionState: "completed",
-      verificationState: "verified"
-    },
-    requiredChecks: [{ id: "required_2", verificationCheckId: "check_1", state: "satisfied" }],
-    observations: [
-      {
-        id: "observation_2",
-        normalizedStatus: "succeeded",
-        sourceKind: "human",
-        sourceIdentity: "operator_console"
-      }
-    ],
-    evidenceItems: [
-      {
-        id: "evidence_2",
-        state: "accepted",
-        candidateId: "candidate_2",
-        workRunId: "run_2"
-      }
-    ],
-    verificationResults: [
-      {
-        id: "result_2",
-        result: "passed",
-        evidenceItemId: "evidence_2",
-        operationId: "operation_2",
-        workRunId: "run_2",
-        workPacketVersionId: "version_2",
-        actorPrincipalId: "principal_1",
-        policyBasis: "owner_acceptance",
-        targetGraphItemId: "graph_1"
-      }
-    ],
-    missingEvidence: []
   };
 }
 
