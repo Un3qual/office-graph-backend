@@ -76,15 +76,14 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   defp read_packet_required_checks(changesets, {:ok, runs_by_id}) do
     work_packet_version_ids =
       runs_by_id
-      |> Map.values()
-      |> Enum.map(& &1.work_packet_version_id)
+      |> Enum.map(fn {_run_id, run} -> run.work_packet_version_id end)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
     verification_check_ids = changesets |> attributes(:verification_check_id) |> Enum.uniq()
 
     if work_packet_version_ids == [] or verification_check_ids == [] do
-      {:ok, MapSet.new()}
+      {:ok, %{}}
     else
       WorkPacketRequiredCheck
       |> Ash.Query.filter(
@@ -95,13 +94,16 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
       |> case do
         {:ok, required_checks} ->
           {:ok,
-           MapSet.new(required_checks, fn required_check ->
-             {
-               required_check.work_packet_version_id,
-               required_check.verification_check_id,
-               required_check.organization_id,
-               required_check.workspace_id
-             }
+           Map.new(required_checks, fn required_check ->
+             contract_key =
+               {
+                 required_check.work_packet_version_id,
+                 required_check.verification_check_id,
+                 required_check.organization_id,
+                 required_check.workspace_id
+               }
+
+             {contract_key, true}
            end)}
 
         {:error, error} ->
@@ -180,7 +182,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
     contract_key =
       {run.work_packet_version_id, verification_check_id, organization_id, workspace_id}
 
-    if MapSet.member?(packet_required_checks, contract_key) do
+    if Map.has_key?(packet_required_checks, contract_key) do
       :ok
     else
       {:error, :verification_check_id,

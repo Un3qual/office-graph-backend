@@ -21,7 +21,7 @@
 
 ## 4. Verification And Documentation
 
-- [ ] 4.1 Run focused query-count, validator, work-packet, run, projection, and generated API tests from the project Nix shell.
+- [x] 4.1 Run focused query-count, validator, work-packet, run, projection, and generated API tests from the project Nix shell.
 - [ ] 4.2 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, and the full project verification command from the project Nix shell.
 - [ ] 4.3 Run strict OpenSpec validation and `git diff --check`.
 - [x] 4.4 Record measured per-source query ceilings and any accepted Ash batch boundary in implementation notes or test comments.
