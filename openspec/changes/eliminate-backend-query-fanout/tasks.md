@@ -1,0 +1,27 @@
+## 1. Query-Count Regression Baselines
+
+- [ ] 1.1 Add a failing packet-creation scaling test that proves source-reference and packet-required-check validation reads and inserts grow per input today.
+- [ ] 1.2 Add a failing run-start scaling test that proves run-required-check validation reads and inserts grow per input today.
+- [ ] 1.3 Add bounded read-scaling coverage for operator run-state children and generated GraphQL packet/run relationships, preserving the existing operator-inbox query budget.
+
+## 2. Batch-Aware Ash Validation
+
+- [ ] 2.1 Add focused failing tests for batched same-scope reference validation, including missing, cross-scope, and graph-item identity failures.
+- [ ] 2.2 Implement `ValidateSameScopeReferences.batch_change/3` with one batched read per referenced resource and shared single/bulk validation helpers.
+- [ ] 2.3 Add focused failing tests for batched run required-check validation, including non-packet-backed and packet-mismatch failures.
+- [ ] 2.4 Implement `ValidateRunRequiredCheckContract.batch_change/3` with batched run and packet-required-check reads.
+
+## 3. Ash-Native Bulk Collection Writes
+
+- [ ] 3.1 Add an `OfficeGraph.Repo` Ash bulk-create helper that handles empty inputs, returns records in input order, stops on error, and rolls back through the existing transaction boundary.
+- [ ] 3.2 Replace packet source-reference and packet-required-check create loops with the bulk helper and make the packet scaling test pass.
+- [ ] 3.3 Add invalid-middle-item coverage proving packet creation cannot persist a partial link collection.
+- [ ] 3.4 Replace run required-check create loops with the bulk helper and make the run scaling test pass.
+- [ ] 3.5 Add invalid-middle-item coverage proving run creation cannot persist a partial required-check collection.
+
+## 4. Verification And Documentation
+
+- [ ] 4.1 Run focused query-count, validator, work-packet, run, projection, and generated API tests from the project Nix shell.
+- [ ] 4.2 Run `mix format --check-formatted`, `mix compile --warnings-as-errors`, and the full project verification command from the project Nix shell.
+- [ ] 4.3 Run strict OpenSpec validation and `git diff --check`.
+- [ ] 4.4 Record measured per-source query ceilings and any accepted Ash batch boundary in implementation notes or test comments.
