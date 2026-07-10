@@ -1,7 +1,3 @@
-import type { OperatorPacketReadinessFragment$data } from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
-import type { OperatorRunStateFragment$data } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
-import type { OperatorWorkflowItemFragment$data } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
-
 export type FetchStatus = "idle" | "fetching" | "paused";
 
 export type QueryState<T> = {
@@ -13,10 +9,7 @@ export type QueryState<T> = {
   isSuccess: boolean;
 };
 
-export type OperatorWorkflowItem = Omit<OperatorWorkflowItemFragment$data, " $fragmentType">;
-export type OperatorCommandAffordance = OperatorWorkflowItem["commandAffordances"][number];
-
-export type OperatorInbox = {
+export type OperatorInbox<TItem> = {
   type: "operator_inbox";
   empty: boolean;
   hasMore: boolean;
@@ -24,7 +17,7 @@ export type OperatorInbox = {
   nextCursor: string | null;
   afterCursor: string | null;
   sourceWatermark: string | null;
-  rows: OperatorWorkflowItem[];
+  rows: TItem[];
 };
 
 export type OperatorInboxPage = {
@@ -43,20 +36,15 @@ export type PacketReadinessInput = {
   verificationCheckIds: string[];
 };
 
-export type PacketReadiness = Omit<
-  OperatorPacketReadinessFragment$data,
-  " $fragmentType"
-> & {
-  isDerived?: boolean;
-};
-
-export type OperatorRunState = Omit<OperatorRunStateFragment$data, " $fragmentType">;
-
-export type VerificationOutcome = {
-  type: "verification_outcome";
-  status: string;
+export type DerivedPacketReadiness<TCommand> = {
+  type: "packet_readiness";
+  ready: false;
+  status: "blocked";
+  allowedNextActions: string[];
+  commandAffordances: TCommand[];
+  blockerReasons: string[];
+  sourceLinks: Array<{ title: string }>;
+  requiredChecks: Array<{ state: string }>;
   sourceWatermark: string | null;
-  run: OperatorRunState["run"];
-  verificationResults: OperatorRunState["verificationResults"];
-  missingEvidence: OperatorRunState["missingEvidence"];
+  isDerived: true;
 };

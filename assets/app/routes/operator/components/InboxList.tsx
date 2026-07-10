@@ -3,16 +3,16 @@ import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PaneHeader } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
 import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
-import type { OperatorInbox, OperatorWorkflowItem, QueryState } from "../types";
+import type { OperatorWorkflowState } from "../workflow";
 
 type Props = {
-  canPageBackward: boolean;
-  inbox: QueryState<OperatorInbox>;
-  onNextPage: () => void;
-  onPreviousPage: () => void;
-  rows: OperatorWorkflowItem[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  canPageBackward: OperatorWorkflowState["canPageBackward"];
+  inbox: OperatorWorkflowState["inboxQuery"];
+  onNextPage: OperatorWorkflowState["loadNextInboxPage"];
+  onPreviousPage: OperatorWorkflowState["loadPreviousInboxPage"];
+  rows: OperatorWorkflowState["rows"];
+  selectedId: OperatorWorkflowState["selectedId"];
+  onSelect: OperatorWorkflowState["selectInboxItem"];
 };
 
 export function InboxList({

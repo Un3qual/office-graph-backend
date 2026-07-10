@@ -18,6 +18,18 @@ describe("operator route architecture", () => {
     expect(source).toContain("OperatorPacketReadinessQuery");
     expect(source).toContain("OperatorRunStateQuery");
   });
+
+  it("keeps generated Relay data types explicit at the route data boundary", () => {
+    const typesSource = readFileSync(join(routeRoot, "types.ts"), "utf8");
+    const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
+
+    expect(typesSource).not.toContain("__generated__");
+    expect(typesSource).not.toContain("Fragment$data");
+    expect(typesSource).not.toContain('" $fragmentType"');
+    expect(workflowSource).toContain("OperatorWorkflowItemFragment$data");
+    expect(workflowSource).toContain("OperatorPacketReadinessFragment$data");
+    expect(workflowSource).toContain("OperatorRunStateFragment$data");
+  });
 });
 
 function routeSource() {

@@ -1,5 +1,6 @@
 import type { BadgeTone } from "../../../src/ui/Badge";
-import type { OperatorCommandAffordance, QueryState } from "./types";
+import type { OperatorWorkflowItemFragment$data } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
+import type { QueryState } from "./types";
 
 export function formatLabel(value: string | null | undefined) {
   if (!value) {
@@ -20,7 +21,7 @@ export function isQueryLoading(query: Pick<QueryState<unknown>, "fetchStatus" | 
 }
 
 export function commandAffordanceListText(
-  affordances: readonly OperatorCommandAffordance[],
+  affordances: OperatorWorkflowItemFragment$data["commandAffordances"],
   fallback: readonly string[]
 ) {
   if (affordances.length === 0) {
@@ -30,7 +31,9 @@ export function commandAffordanceListText(
   return affordances.map(commandAffordanceText).join(", ");
 }
 
-function commandAffordanceText(affordance: OperatorCommandAffordance) {
+function commandAffordanceText(
+  affordance: OperatorWorkflowItemFragment$data["commandAffordances"][number]
+) {
   const state = affordance.state.toLowerCase();
 
   if (state === "enabled") {

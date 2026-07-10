@@ -9,11 +9,11 @@ import {
   listText,
   statusTone
 } from "../presentation";
-import type { OperatorWorkflowItem, QueryState } from "../types";
+import type { OperatorWorkflowState } from "../workflow";
 
 type Props = {
-  item: OperatorWorkflowItem | null;
-  itemQuery: QueryState<OperatorWorkflowItem>;
+  item: OperatorWorkflowState["selectedItem"];
+  itemQuery: OperatorWorkflowState["itemQuery"];
 };
 
 export function ItemSummary({ item, itemQuery }: Props) {
@@ -87,7 +87,7 @@ export function ItemSummary({ item, itemQuery }: Props) {
   );
 }
 
-function proposedChangeText(item: OperatorWorkflowItem) {
+function proposedChangeText(item: NonNullable<OperatorWorkflowState["selectedItem"]>) {
   const proposed = item.proposedChangeStatus;
 
   return `${proposed.pending} pending, ${proposed.applied} applied, ${proposed.rejected} rejected`;
