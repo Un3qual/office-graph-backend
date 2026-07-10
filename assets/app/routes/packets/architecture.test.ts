@@ -33,4 +33,15 @@ describe("packet route data architecture", () => {
     expect(workflowSource).toContain("PacketsRoutePacketFragment$data");
     expect(workflowSource).toContain("PacketsRouteQuery as PacketsRouteOperation");
   });
+
+  it("keeps the registered packet workspace and product UI owned by the route", () => {
+    const routesSource = readFileSync(join(process.cwd(), "app/routes.ts"), "utf8");
+
+    expect(existsSync(join(routeRoot, "route.tsx"))).toBe(true);
+    expect(existsSync(join(routeRoot, "PacketWorkspace.tsx"))).toBe(true);
+    expect(existsSync(join(routeRoot, "components/PacketList.tsx"))).toBe(true);
+    expect(existsSync(join(routeRoot, "components/PacketDetail.tsx"))).toBe(true);
+    expect(existsSync(join(routeRoot, "components/PacketsLayout.tsx"))).toBe(true);
+    expect(routesSource).toContain('route("packets", "./routes/packets/route.tsx")');
+  });
 });

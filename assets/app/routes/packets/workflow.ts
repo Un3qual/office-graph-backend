@@ -18,7 +18,7 @@ export function usePacketsWorkflow() {
   });
   const [packetQuery, setPacketQuery] =
     useState<QueryState<PacketConnection<PacketsRoutePacketFragment$data>>>(idleQueryState);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [requestedSelectedId, setSelectedId] = useState<string | null>(null);
   const page = navigation.page;
 
   useEffect(() => {
@@ -49,19 +49,6 @@ export function usePacketsWorkflow() {
       subscription.unsubscribe();
     };
   }, [page, relayEnvironment]);
-
-  useEffect(() => {
-    if (!packetQuery.data) {
-      return;
-    }
-
-    const rowIds = new Set(packetQuery.data.rows.map((packet) => packet.id));
-    const firstId = packetQuery.data.rows[0]?.id ?? null;
-
-    if (selectedId === null || !rowIds.has(selectedId)) {
-      setSelectedId(firstId);
-    }
-  }, [packetQuery.data, selectedId]);
 
   const selectPacket = useCallback((id: string) => {
     setSelectedId(id);
@@ -103,6 +90,16 @@ export function usePacketsWorkflow() {
   }, []);
 
   const rows = packetQuery.data?.rows ?? [];
+  const selectedId = rows.some((packet) => packet.id === requestedSelectedId)
+    ? requestedSelectedId
+    : (rows[0]?.id ?? null);
+
+  useEffect(() => {
+    if (requestedSelectedId !== selectedId) {
+      setSelectedId(selectedId);
+    }
+  }, [requestedSelectedId, selectedId]);
+
   const selectedPacket = useMemo(
     () => rows.find((packet) => packet.id === selectedId) ?? null,
     [rows, selectedId]

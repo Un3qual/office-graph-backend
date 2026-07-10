@@ -43,7 +43,7 @@
 
 ## 3. Packet Workspace Route And Verification
 
-- [ ] 3.1 Build, register, and verify the `/packets` workspace end to end.
+- [x] 3.1 Build, register, and verify the `/packets` workspace end to end.
   - Add a failing `assets/app/routes/packets/route.test.tsx` covering loading,
     empty, safe error, default selection, row selection, selected packet
     summary, next-page, and previous-page behavior; add a failing Phoenix

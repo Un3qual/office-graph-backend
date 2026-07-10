@@ -53,6 +53,25 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     refute html =~ "live_socket"
   end
 
+  test "serves the React Router packet workspace app shell", %{conn: conn} do
+    html =
+      conn
+      |> get(~p"/packets")
+      |> html_response(200)
+
+    assert html =~ "window.__reactRouterContext"
+    assert html =~ "Office Graph"
+    assert react_router_asset_paths(html) != []
+
+    assert Enum.all?(
+             react_router_asset_paths(html),
+             &String.starts_with?(&1, "/assets/react-router/")
+           )
+
+    refute html =~ "data-phx-main"
+    refute html =~ "live_socket"
+  end
+
   test "app shell assets match the React Router build contract", %{conn: conn} do
     html =
       conn
@@ -135,7 +154,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     response(asset_conn, 200)
   end
 
-  test "operator app shell fails when required React Router build assets are missing", %{
+  test "product app shells fail when required React Router build assets are missing", %{
     conn: conn
   } do
     missing_asset = react_router_build_asset_to_move!()
@@ -143,13 +162,16 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     File.rename!(missing_asset.path, missing_asset.backup_path)
 
-    body =
-      conn
-      |> get(~p"/operator")
-      |> response(503)
+    for product_path <- ["/operator", "/packets"] do
+      body =
+        conn
+        |> recycle()
+        |> get(product_path)
+        |> response(503)
 
-    assert body =~ "Operator console assets are missing"
-    assert body =~ missing_asset.asset_path
+      assert body =~ "Operator console assets are missing"
+      assert body =~ missing_asset.asset_path
+    end
   end
 
   defp react_router_asset_paths(html) do

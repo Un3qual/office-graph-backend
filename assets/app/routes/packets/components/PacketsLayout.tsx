@@ -3,15 +3,14 @@ import { WorkspaceShell } from "../../../../src/ui/WorkspaceShell";
 
 type Props = {
   detail: ReactNode;
-  inbox: ReactNode;
-  inspector: ReactNode;
+  list: ReactNode;
 };
 
-export function OperatorLayout({ detail, inbox, inspector }: Props) {
+export function PacketsLayout({ detail, list }: Props) {
   return (
     <WorkspaceShell
       brand="OG"
-      contentClassName="workbench"
+      contentClassName="packet-workspace"
       destinations={[
         { label: "Operator", to: "/operator" },
         { label: "Packets", to: "/packets" },
@@ -20,17 +19,11 @@ export function OperatorLayout({ detail, inbox, inspector }: Props) {
         { label: "Reports" }
       ]}
       eyebrow="Office Graph"
-      headerActions={
-        <div className="search-box">
-          <input aria-label="Search operator work" disabled placeholder="Search unavailable" />
-        </div>
-      }
       navigationLabel="Product areas"
-      title="Operator Console"
+      title="Packet Workspace"
     >
-      {inbox}
+      {list}
       {detail}
-      <div className="inspector-stack">{inspector}</div>
     </WorkspaceShell>
   );
 }
