@@ -1,12 +1,14 @@
-type NavItem = {
+import { NavLink } from "react-router";
+
+export type NavDestination = {
   label: string;
-  state?: "current" | "available" | "unavailable";
+  to?: string;
 };
 
 type Props = {
   ariaLabel: string;
   brand: string;
-  items: NavItem[];
+  items: readonly NavDestination[];
 };
 
 export function NavRail({ ariaLabel, brand, items }: Props) {
@@ -17,18 +19,26 @@ export function NavRail({ ariaLabel, brand, items }: Props) {
       </div>
       <nav aria-label={ariaLabel}>
         {items.map((item) => {
-          const isCurrent = item.state === "current";
-          const isUnavailable = item.state === "unavailable";
-
-          return (
-            <button
-              aria-current={isCurrent ? "page" : undefined}
-              className={isCurrent ? "ui-rail-item ui-rail-item-active" : "ui-rail-item"}
-              disabled={isUnavailable}
-              key={item.label}
-            >
+          const label = (
+            <>
               <span aria-hidden="true">{item.label.slice(0, 1)}</span>
               <span>{item.label}</span>
+            </>
+          );
+
+          return item.to !== undefined ? (
+            <NavLink
+              className={({ isActive }) =>
+                isActive ? "ui-rail-item ui-rail-item-active" : "ui-rail-item"
+              }
+              key={item.label}
+              to={item.to}
+            >
+              {label}
+            </NavLink>
+          ) : (
+            <button className="ui-rail-item" disabled key={item.label}>
+              {label}
             </button>
           );
         })}

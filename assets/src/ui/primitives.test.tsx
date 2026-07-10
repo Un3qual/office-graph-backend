@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
@@ -24,10 +25,7 @@ describe("shared UI primitives", () => {
         <NavRail
           brand="OG"
           ariaLabel="Sections"
-          items={[
-            { label: "Inbox", state: "current" },
-            { label: "Reports", state: "unavailable" }
-          ]}
+          items={[{ label: "Reports" }]}
         />
       </>
     );
@@ -53,5 +51,32 @@ describe("shared UI primitives", () => {
       "ui-button-secondary",
       "state-disabled"
     );
+  });
+
+  it("links available destinations and disables unavailable destinations", () => {
+    render(
+      <MemoryRouter initialEntries={["/inbox"]}>
+        <NavRail
+          brand="OG"
+          ariaLabel="Sections"
+          items={[
+            { label: "Inbox", to: "/inbox" },
+            { label: "Activity", to: "/activity" },
+            { label: "Reports" }
+          ]}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox");
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByRole("link", { name: "Activity" })).not.toHaveAttribute(
+      "aria-current"
+    );
+    expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
   });
 });

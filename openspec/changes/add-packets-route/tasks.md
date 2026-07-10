@@ -1,6 +1,6 @@
 ## 1. Route-Aware Product Shell And Navigation
 
-- [ ] 1.1 Make the shared shell navigation route-aware while preserving the operator route.
+- [x] 1.1 Make the shared shell navigation route-aware while preserving the operator route.
   - First extend `assets/src/ui/primitives.test.tsx` with a `MemoryRouter`
     case proving implemented destinations are links, the current destination
     receives current-page semantics, and unavailable destinations stay disabled;

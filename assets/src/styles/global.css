@@ -67,6 +67,7 @@ input {
   color: var(--og-color-text-muted);
   cursor: pointer;
   font-size: 11px;
+  text-decoration: none;
 }
 
 .rail-item:disabled,

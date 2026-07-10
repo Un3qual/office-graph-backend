@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { RelayEnvironmentProvider } from "react-relay";
+import { MemoryRouter } from "react-router";
 import {
   Environment,
   Network,
@@ -447,7 +448,9 @@ function renderWithRelay(ui: ReactElement, network: FetchFunction) {
   });
 
   return render(
-    <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
+    <MemoryRouter initialEntries={["/operator"]}>
+      <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
+    </MemoryRouter>
   );
 }
 
