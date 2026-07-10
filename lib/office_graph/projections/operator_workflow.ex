@@ -859,7 +859,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     primary_verification_link = List.first(verification_links)
     source_titles = unique_non_blank(Enum.map(source_links, &(&1.title || "")))
     verification_titles = unique_non_blank(Enum.map(verification_links, &(&1.title || "")))
-    title = first_non_blank(verification_titles ++ source_titles ++ [event.id])
+    title = first_non_blank(Enum.concat([verification_titles, source_titles, [event.id]]))
     source_summary = Enum.join(source_titles, "\n")
     verification_summary = Enum.join(verification_titles, "\n")
 
@@ -872,9 +872,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       CommandAffordance.input_default("autonomy_posture", "human_supervised"),
       CommandAffordance.input_default(
         "source_graph_item_ids",
-        Enum.flat_map(source_links, fn link ->
-          if link.graph_item_id, do: [link.graph_item_id], else: []
-        end)
+        Enum.map(source_links, & &1.graph_item_id)
       ),
       CommandAffordance.input_default(
         "verification_check_ids",
