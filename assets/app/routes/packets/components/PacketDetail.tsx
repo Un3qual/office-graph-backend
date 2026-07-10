@@ -1,6 +1,6 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { EmptyState } from "../../../../src/ui/EmptyState";
-import { formatPacketUpdatedAt } from "../formatters";
+import { formatPacketState, formatPacketUpdatedAt } from "../formatters";
 import type { PacketRow } from "../types";
 
 type Props = {
@@ -17,12 +17,12 @@ export function PacketDetail({ packet }: Props) {
               <p className="eyebrow">Selected packet</p>
               <h2>{packet.title}</h2>
             </div>
-            <Badge tone="blue">{formatState(packet.state)}</Badge>
+            <Badge tone="blue">{formatPacketState(packet.state)}</Badge>
           </header>
           <dl className="packet-detail-list">
             <div>
               <dt>Lifecycle state</dt>
-              <dd>{formatState(packet.state)}</dd>
+              <dd>{formatPacketState(packet.state)}</dd>
             </div>
             <div>
               <dt>Updated</dt>
@@ -49,10 +49,4 @@ export function PacketDetail({ packet }: Props) {
       )}
     </section>
   );
-}
-
-function formatState(value: string) {
-  const words = value.replaceAll("_", " ").toLowerCase();
-
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }

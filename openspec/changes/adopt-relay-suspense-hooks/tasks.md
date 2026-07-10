@@ -10,7 +10,7 @@
   loading, safe initial and pagination errors, page-replacement selection, and
   the lean packet connection shape; migrate the route to `useLazyLoadQuery`
   under the generic boundary and remove packet `QueryState` lifecycle code.
-- [ ] 2.2 Add failing formatter coverage, move packet state formatting into the
+- [x] 2.2 Add failing formatter coverage, move packet state formatting into the
   route formatter module, and replace product-navigation source-spelling tests
   with direct configuration and rendered-behavior assertions.
 

@@ -84,4 +84,22 @@ describe("packet route data architecture", () => {
     expect(packetListSource).not.toContain("new Intl.DateTimeFormat");
     expect(packetDetailSource).not.toContain("new Intl.DateTimeFormat");
   });
+
+  it("shares one route-local lifecycle-state formatter across packet list and detail", () => {
+    const formatterSource = readFileSync(join(routeRoot, "formatters.ts"), "utf8");
+    const packetListSource = readFileSync(
+      join(routeRoot, "components/PacketList.tsx"),
+      "utf8"
+    );
+    const packetDetailSource = readFileSync(
+      join(routeRoot, "components/PacketDetail.tsx"),
+      "utf8"
+    );
+
+    expect(formatterSource).toContain("export function formatPacketState");
+    expect(packetListSource).toContain("formatPacketState");
+    expect(packetDetailSource).toContain("formatPacketState");
+    expect(packetListSource).not.toContain("function formatState");
+    expect(packetDetailSource).not.toContain("function formatState");
+  });
 });
