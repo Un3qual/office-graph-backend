@@ -189,6 +189,16 @@ describe("packet workspace route", () => {
     expect(styles).toMatch(/\.packet-list-content\s*\{[^}]*overflow:\s*auto\s*;/);
   });
 
+  it("uses the border design token for packet detail rows", () => {
+    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const detailRows = styles.match(/\.packet-detail-list div\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(detailRows).toContain(
+      "border-bottom: 1px solid var(--og-color-border);"
+    );
+    expect(detailRows).not.toContain("#edf1f3");
+  });
+
   it("returns to the previous cursor page", async () => {
     const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> =>
       variables.after === "cursor_1"

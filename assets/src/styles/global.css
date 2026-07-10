@@ -554,7 +554,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(140px, 0.35fr) minmax(0, 1fr);
   gap: 20px;
-  border-bottom: 1px solid #edf1f3;
+  border-bottom: 1px solid var(--og-color-border);
   padding: 13px 0;
 }
 
