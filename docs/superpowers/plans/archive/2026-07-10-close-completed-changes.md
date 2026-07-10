@@ -30,7 +30,7 @@
 - Consumes: completed `add-packets-route` delta specs and tasks.
 - Produces: durable packet-workspace requirements and the baseline required by the Relay Suspense change.
 
-- [ ] **Step 1: Confirm the change is complete and repo-local**
+- [x] **Step 1: Confirm the change is complete and repo-local**
 
 Run:
 
@@ -40,11 +40,11 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: `isComplete` is `true`, all four artifacts are `done`, and `actionContext.mode` is `repo-local`.
 
-- [ ] **Step 2: Add the route-navigation requirement to the main frontend specification**
+- [x] **Step 2: Add the route-navigation requirement to the main frontend specification**
 
 Append the complete `Available Product Navigation Uses Route Links` requirement from `openspec/changes/add-packets-route/specs/frontend-architecture/spec.md` under the main `## Requirements` section. Preserve every existing frontend requirement and add the requirement only once.
 
-- [ ] **Step 3: Create the durable packet-workspace specification**
+- [x] **Step 3: Create the durable packet-workspace specification**
 
 Create `openspec/specs/packet-workspace/spec.md` with this header followed by every requirement and scenario from the delta spec:
 
@@ -65,7 +65,7 @@ Copy the three delta requirements without the `## ADDED Requirements` wrapper:
 - `Packet Selection Is Route-Local`
 - `Packet Workspace Presents Product Summary Fields`
 
-- [ ] **Step 4: Validate the synchronized specs**
+- [x] **Step 4: Validate the synchronized specs**
 
 Run:
 
@@ -76,7 +76,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: both commands pass with no specification failures.
 
-- [ ] **Step 5: Archive the complete change**
+- [x] **Step 5: Archive the complete change**
 
 Run:
 
@@ -87,7 +87,7 @@ mv openspec/changes/add-packets-route openspec/changes/archive/2026-07-10-add-pa
 
 Expected: `openspec/changes/add-packets-route` no longer exists and the dated archive contains proposal, design, specs, and tasks.
 
-- [ ] **Step 6: Commit the packet closure**
+- [x] **Step 6: Commit the packet closure**
 
 ```bash
 git add -A openspec
@@ -105,7 +105,7 @@ git commit -m "docs: archive packet workspace change"
 - Consumes: packet-workspace durable spec from Task 1.
 - Produces: durable Relay render-time and operator dependent-read requirements.
 
-- [ ] **Step 1: Confirm the change is complete and repo-local**
+- [x] **Step 1: Confirm the change is complete and repo-local**
 
 Run:
 
@@ -115,7 +115,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: `isComplete` is `true`, all four artifacts are `done`, and `actionContext.mode` is `repo-local`.
 
-- [ ] **Step 2: Add the Relay boundary requirements to the main frontend specification**
+- [x] **Step 2: Add the Relay boundary requirements to the main frontend specification**
 
 Append these complete delta requirements once under `openspec/specs/frontend-architecture/spec.md` `## Requirements`:
 
@@ -124,11 +124,11 @@ Append these complete delta requirements once under `openspec/specs/frontend-arc
 
 Preserve all existing requirements, including the packet navigation requirement synchronized in Task 1.
 
-- [ ] **Step 3: Add the operator dependent-read requirement**
+- [x] **Step 3: Add the operator dependent-read requirement**
 
 Append the complete `Operator Dependent Relay Reads Preserve Workspace Context` requirement from the delta to `openspec/specs/operator-console/spec.md`, including all five scenarios.
 
-- [ ] **Step 4: Validate the synchronized specs**
+- [x] **Step 4: Validate the synchronized specs**
 
 Run:
 
@@ -139,7 +139,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: both commands pass with no specification failures.
 
-- [ ] **Step 5: Archive the complete change**
+- [x] **Step 5: Archive the complete change**
 
 Run:
 
@@ -149,7 +149,7 @@ mv openspec/changes/adopt-relay-suspense-hooks openspec/changes/archive/2026-07-
 
 Expected: only the dated archive contains this change.
 
-- [ ] **Step 6: Commit the Relay closure**
+- [x] **Step 6: Commit the Relay closure**
 
 ```bash
 git add -A openspec
@@ -166,7 +166,7 @@ git commit -m "docs: archive Relay Suspense change"
 - Consumes: completed backend query-fanout change.
 - Produces: durable bounded-query and bulk-write requirements for every later program PR.
 
-- [ ] **Step 1: Confirm the change is complete and repo-local**
+- [x] **Step 1: Confirm the change is complete and repo-local**
 
 Run:
 
@@ -176,7 +176,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: `isComplete` is `true`, all four artifacts are `done`, and `actionContext.mode` is `repo-local`.
 
-- [ ] **Step 2: Create the durable backend-query-efficiency specification**
+- [x] **Step 2: Create the durable backend-query-efficiency specification**
 
 Create `openspec/specs/backend-query-efficiency/spec.md` with this header followed by every requirement and scenario from the delta spec:
 
@@ -197,10 +197,9 @@ Copy the delta requirements without the `## ADDED Requirements` wrapper:
 - `Cardinality-Sensitive Reads Have Bounded Query Shape`
 - `Collection Writes Use Ash-Native Bulk Actions`
 - `Bulk Validation Is Batched And Equivalent`
-- `Bulk Collection Ordering Is Durable`
 - `Query Efficiency Has Focused Regression Coverage`
 
-- [ ] **Step 3: Validate the synchronized specs**
+- [x] **Step 3: Validate the synchronized specs**
 
 Run:
 
@@ -211,7 +210,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: both commands pass with no specification failures.
 
-- [ ] **Step 4: Archive the complete change**
+- [x] **Step 4: Archive the complete change**
 
 Run:
 
@@ -221,7 +220,7 @@ mv openspec/changes/eliminate-backend-query-fanout openspec/changes/archive/2026
 
 Expected: only the dated archive contains this change.
 
-- [ ] **Step 5: Commit the query-efficiency closure**
+- [x] **Step 5: Commit the query-efficiency closure**
 
 ```bash
 git add -A openspec
@@ -238,7 +237,7 @@ git commit -m "docs: archive backend query efficiency change"
 - Consumes: all three archived changes and synchronized main specs.
 - Produces: a clean baseline from which PRs 2 through 7 branch.
 
-- [ ] **Step 1: Confirm no active OpenSpec changes remain**
+- [x] **Step 1: Confirm no active OpenSpec changes remain**
 
 Run:
 
@@ -248,7 +247,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: the returned `changes` array is empty.
 
-- [ ] **Step 2: Run strict repo-wide OpenSpec validation**
+- [x] **Step 2: Run strict repo-wide OpenSpec validation**
 
 Run:
 
@@ -259,7 +258,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 
 Expected: durable specs pass; change validation reports no active changes rather than a failure.
 
-- [ ] **Step 3: Check repository integrity**
+- [x] **Step 3: Check repository integrity**
 
 Run:
 
@@ -270,18 +269,18 @@ git status --short
 
 Expected: no whitespace errors and only the plan completion/README files remain uncommitted.
 
-- [ ] **Step 4: Record plan completion**
+- [x] **Step 4: Record plan completion**
 
 Change every task checkbox in this plan from `[ ]` to `[x]`. Update `docs/superpowers/plans/README.md` so it names no active plan and move this plan to `docs/superpowers/plans/archive/2026-07-10-close-completed-changes.md`.
 
-- [ ] **Step 5: Commit the completed plan**
+- [x] **Step 5: Commit the completed plan**
 
 ```bash
 git add -A docs/superpowers/plans
 git commit -m "docs: complete OpenSpec closure plan"
 ```
 
-- [ ] **Step 6: Review the branch**
+- [x] **Step 6: Review the branch**
 
 Run:
 
