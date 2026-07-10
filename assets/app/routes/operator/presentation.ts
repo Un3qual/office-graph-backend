@@ -1,6 +1,5 @@
 import type { BadgeTone } from "../../../src/ui/Badge";
 import type { OperatorWorkflowItemFragment$data } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
-import type { QueryState } from "./types";
 
 export function formatLabel(value: string | null | undefined) {
   if (!value) {
@@ -14,10 +13,6 @@ export function formatLabel(value: string | null | undefined) {
 
 export function listText(values: readonly string[]) {
   return values.length > 0 ? values.map(formatLabel).join(", ") : "None";
-}
-
-export function isQueryLoading(query: Pick<QueryState<unknown>, "fetchStatus" | "isPending">) {
-  return query.fetchStatus === "fetching" || (query.isPending && query.fetchStatus === "paused");
 }
 
 export function commandAffordanceListText(

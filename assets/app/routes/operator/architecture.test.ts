@@ -19,7 +19,18 @@ describe("operator route architecture", () => {
     expect(source).toContain("OperatorPacketReadinessQuery");
     expect(source).toContain("OperatorRunStateQuery");
     expect(workflowSource).toContain("useLazyLoadQuery<OperatorWorkflowRouteOperation>");
-    expect(workflowSource).not.toContain("fetchQuery<OperatorWorkflowRouteOperation>");
+    expect(workflowSource).toContain("useLazyLoadQuery<OperatorPacketReadinessOperation>");
+    expect(workflowSource).toContain("useLazyLoadQuery<OperatorRunStateOperation>");
+    expect(source).not.toContain("fetchQuery");
+    expect(source).not.toContain("useRelayEnvironment");
+    expect(source).not.toContain("QueryState");
+    expect(source).not.toContain("idleQueryState");
+    expect(source).not.toContain("loadingQueryState");
+    expect(source).not.toContain("startLoading");
+    expect(source).not.toContain("successQueryState");
+    expect(source).not.toContain("errorQueryState");
+    expect(source).not.toContain("subscription.unsubscribe()");
+    expect(source).not.toContain("useEffect");
   });
 
   it("keeps generated Relay data types explicit at the route data boundary", () => {

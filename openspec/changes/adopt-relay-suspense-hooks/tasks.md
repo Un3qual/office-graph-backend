@@ -19,11 +19,11 @@
 - [x] 3.1 Add failing operator tests for Suspense-driven inbox loading and safe
   route errors; migrate the inbox root read to `useLazyLoadQuery` while
   preserving cursor history, selection, empty state, and existing detail.
-- [ ] 3.2 Add failing operator tests proving readiness-validation and run-state
+- [x] 3.2 Add failing operator tests proving readiness-validation and run-state
   loading or failure stay panel-scoped; migrate those dependent reads to
   conditional Relay query children or preloaded-query hooks and key their
   boundaries to the selected identity or validation request.
-- [ ] 3.3 Remove unused operator query-state types, transition helpers, and
+- [x] 3.3 Remove unused operator query-state types, transition helpers, and
   direct product-read `fetchQuery` imports; update import-boundary coverage and
   run Relay validation, focused route tests, and TypeScript typecheck.
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { RelayEnvironmentProvider } from "react-relay";
 import { MemoryRouter } from "react-router";
@@ -135,6 +135,87 @@ describe("operator route", () => {
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
     expect(network.mock.calls.some(([request]) => request.name === "ExecutePacketRunVerificationMutation"))
       .toBe(false);
+  });
+
+  it("keeps derived readiness and workspace context visible while validation suspends", async () => {
+    const readinessResponse = deferredGraphQLResponse();
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        return readinessResponse.promise;
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
+
+    const readiness = screen.getByRole("region", { name: "Packet Readiness" });
+
+    expect(readiness).toHaveTextContent("Prepare packet context");
+    expect(screen.getByRole("button", { name: "Validating readiness" })).toBeDisabled();
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+
+    await act(async () => {
+      readinessResponse.resolve({
+        data: { operatorPacketReadiness: operatorPacketReadiness() }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Backend readiness"
+      );
+    });
+  });
+
+  it("keeps the operator workspace visible when readiness validation fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        throw new Error("authorization secret_alpha denied readiness_9");
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Unable to validate packet readiness."
+      );
+    });
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("readiness_9");
   });
 
   it("shows the empty state without enabling workflow commands", async () => {
@@ -370,6 +451,15 @@ describe("operator route", () => {
       expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
         "Awaiting evidence acceptance"
       );
+      expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+        "Loading verification..."
+      );
+      expect(screen.getByRole("region", { name: "Verification" })).not.toHaveTextContent(
+        "Owner acceptance"
+      );
+      expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+        "normalized_intake_event: evt_2"
+      );
     });
 
     secondRunState.resolve({
@@ -384,6 +474,43 @@ describe("operator route", () => {
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
     });
+  });
+
+  it("keeps inbox, item, and readiness context when a linked run fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        throw new Error("authorization secret_alpha denied run_9");
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const selectedRow = await screen.findByRole("button", { name: /evt_1/i });
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Run state unavailable."
+      );
+      expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
+        "Verification unavailable."
+      );
+    });
+    expect(selectedRow).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "normalized_intake_event: evt_1"
+    );
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "Prepare packet context"
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("run_9");
   });
 
   it("renders command affordance states without leaking hidden or redacted policy details", async () => {

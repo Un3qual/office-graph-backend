@@ -1,14 +1,3 @@
-export type FetchStatus = "idle" | "fetching" | "paused";
-
-export type QueryState<T> = {
-  data: T | null;
-  error: Error | null;
-  fetchStatus: FetchStatus;
-  isError: boolean;
-  isPending: boolean;
-  isSuccess: boolean;
-};
-
 export type OperatorInbox<TItem> = {
   type: "operator_inbox";
   empty: boolean;

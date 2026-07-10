@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
-import { Panel } from "../../../src/ui/Panel";
 import { InboxList, InboxListFallback } from "./components/InboxList";
 import { ItemSummary } from "./components/ItemSummary";
 import { OperatorLayout } from "./components/OperatorLayout";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
+import { OperatorInspector } from "./OperatorInspector";
 import type { OperatorWorkflowState } from "./workflow";
 
 type Props = {
@@ -45,16 +45,13 @@ export function OperatorWorkspace({
       }
       detail={<ItemSummary item={workflow.selectedItem} />}
       inspector={
-        <>
-          <ReadinessPanel
-            onValidateReadiness={workflow.validatePacketReadiness}
-            readiness={workflow.readiness}
-            readinessInput={workflow.readinessInput}
-            readinessQuery={workflow.readinessQuery}
-          />
-          <RunPanel runId={workflow.runId} runState={workflow.runStateQuery} />
-          <VerificationPanel verification={workflow.verification} />
-        </>
+        <OperatorInspector
+          key={workflow.selectedId ?? "none"}
+          readiness={workflow.readiness}
+          readinessInput={workflow.readinessInput}
+          runId={workflow.runId}
+          selectedId={workflow.selectedId}
+        />
       }
     />
   );
@@ -75,18 +72,9 @@ function OperatorFallbackWorkspace({ inbox }: { inbox: ReactNode }) {
       inbox={inbox}
       inspector={
         <>
-          <Panel ariaLabel="Packet Readiness">
-            <h2>Packet Readiness</h2>
-            <p>No packet readiness selected.</p>
-          </Panel>
-          <Panel ariaLabel="Run State">
-            <h2>Run State</h2>
-            <p>No run linked yet.</p>
-          </Panel>
-          <Panel ariaLabel="Verification">
-            <h2>Verification</h2>
-            <p>No verification outcome selected.</p>
-          </Panel>
+          <ReadinessPanel readiness={null} readinessInput={null} />
+          <RunPanel runId={null} runState={null} state="empty" />
+          <VerificationPanel state="empty" verification={null} />
         </>
       }
     />
