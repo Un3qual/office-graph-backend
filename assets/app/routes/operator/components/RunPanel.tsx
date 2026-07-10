@@ -7,11 +7,11 @@ import {
   listText,
   statusTone
 } from "../presentation";
-import type { OperatorRunState, QueryState } from "../types";
+import type { OperatorWorkflowState } from "../workflow";
 
 type Props = {
-  runId: string | null;
-  runState: QueryState<OperatorRunState>;
+  runId: OperatorWorkflowState["runId"];
+  runState: OperatorWorkflowState["runStateQuery"];
 };
 
 export function RunPanel({ runId, runState }: Props) {

@@ -18,6 +18,7 @@
 - [x] 3.2 Replace old operator data hooks or mappers with Relay root queries, fragments, and generated Relay types.
 - [x] 3.3 Remove frontend JSON adapter assumptions for operator workflow reads once GraphQL route data covers the current behavior.
 - [x] 3.4 Preserve current operator loading, empty, error, selected-row, readiness, run, and verification states.
+- [x] 3.5 Remove cosmetic aliases around generated Relay fragment data, use generated types directly at the route data boundary, and keep hand-written route types limited to client-owned state.
 
 ## 4. Command Affordance Contract
 

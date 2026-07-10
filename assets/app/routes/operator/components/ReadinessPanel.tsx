@@ -8,17 +8,13 @@ import {
   listText,
   statusTone
 } from "../presentation";
-import type {
-  PacketReadiness,
-  PacketReadinessInput,
-  QueryState
-} from "../types";
+import type { OperatorWorkflowState } from "../workflow";
 
 type Props = {
-  onValidateReadiness: () => void;
-  readiness: PacketReadiness | null;
-  readinessInput: PacketReadinessInput | null;
-  readinessQuery: QueryState<PacketReadiness>;
+  onValidateReadiness: OperatorWorkflowState["validatePacketReadiness"];
+  readiness: OperatorWorkflowState["readiness"];
+  readinessInput: OperatorWorkflowState["readinessInput"];
+  readinessQuery: OperatorWorkflowState["readinessQuery"];
 };
 
 export function ReadinessPanel({
@@ -29,7 +25,8 @@ export function ReadinessPanel({
 }: Props) {
   const isLoading = isQueryLoading(readinessQuery);
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
-  const canValidateReadiness = Boolean(readiness?.isDerived && readinessInput);
+  const isDerived = isDerivedReadiness(readiness);
+  const canValidateReadiness = Boolean(isDerived && readinessInput);
 
   return (
     <Panel ariaLabel="Packet Readiness">
@@ -57,7 +54,7 @@ export function ReadinessPanel({
           ) : null}
           <PanelRows
             rows={[
-              ["Mode", readiness.isDerived ? "Prepare packet context" : "Backend readiness"],
+              ["Mode", isDerived ? "Prepare packet context" : "Backend readiness"],
               ["Ready", readiness.ready ? "Yes" : "No"],
               [
                 "Commands",
@@ -82,6 +79,15 @@ export function ReadinessPanel({
       ) : null}
     </Panel>
   );
+}
+
+function isDerivedReadiness(
+  readiness: OperatorWorkflowState["readiness"]
+): readiness is Extract<
+  NonNullable<OperatorWorkflowState["readiness"]>,
+  { isDerived: true }
+> {
+  return readiness !== null && "isDerived" in readiness && readiness.isDerived;
 }
 
 function errorMessage(error: unknown) {

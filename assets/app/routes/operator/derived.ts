@@ -1,13 +1,13 @@
+import type { OperatorRunStateFragment$data } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
+import type { OperatorWorkflowItemFragment$data } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
 import type {
-  OperatorCommandAffordance,
-  OperatorRunState,
-  OperatorWorkflowItem,
-  PacketReadiness,
-  PacketReadinessInput,
-  VerificationOutcome
+  DerivedPacketReadiness,
+  PacketReadinessInput
 } from "./types";
 
-export function packetReadinessInputForItem(item: OperatorWorkflowItem): PacketReadinessInput {
+export function packetReadinessInputForItem(
+  item: OperatorWorkflowItemFragment$data
+): PacketReadinessInput {
   const defaults = commandInputDefaults(preparePacketAffordance(item));
 
   return {
@@ -23,9 +23,11 @@ export function packetReadinessInputForItem(item: OperatorWorkflowItem): PacketR
 }
 
 export function packetReadinessForItem(
-  item: OperatorWorkflowItem,
+  item: OperatorWorkflowItemFragment$data,
   input: PacketReadinessInput
-): PacketReadiness {
+): DerivedPacketReadiness<
+  OperatorWorkflowItemFragment$data["commandAffordances"][number]
+> {
   const command = preparePacketAffordance(item);
   const sourceLinks = item.graphLinks.filter((link) => link.graphItemId && link.type !== "work_run");
   const requiredChecks = item.graphLinks.filter((link) => link.type === "verification_check");
@@ -48,15 +50,15 @@ export function packetReadinessForItem(
   };
 }
 
-export function runIdForItem(item: OperatorWorkflowItem | null) {
+export function runIdForItem(item: OperatorWorkflowItemFragment$data | null) {
   return item?.graphLinks.find((link) => link.type === "work_run")?.id ?? null;
 }
 
-export function itemTitle(item: OperatorWorkflowItem) {
+export function itemTitle(item: OperatorWorkflowItemFragment$data) {
   return item.normalizedEventId;
 }
 
-export function verificationOutcomeFromRunState(runState: OperatorRunState): VerificationOutcome {
+export function verificationOutcomeFromRunState(runState: OperatorRunStateFragment$data) {
   return {
     type: "verification_outcome",
     status: runState.status,
@@ -67,11 +69,13 @@ export function verificationOutcomeFromRunState(runState: OperatorRunState): Ver
   };
 }
 
-export function preparePacketAffordance(item: OperatorWorkflowItem) {
+export function preparePacketAffordance(item: OperatorWorkflowItemFragment$data) {
   return item.commandAffordances.find((affordance) => affordance.identity === "prepare_packet") ?? null;
 }
 
-function commandInputDefaults(affordance: OperatorCommandAffordance | null) {
+function commandInputDefaults(
+  affordance: OperatorWorkflowItemFragment$data["commandAffordances"][number] | null
+) {
   return affordance?.inputDefaults ?? [];
 }
 
@@ -90,7 +94,7 @@ function defaultValues(
 }
 
 function derivedReadinessBlockers(
-  command: OperatorCommandAffordance | null,
+  command: OperatorWorkflowItemFragment$data["commandAffordances"][number] | null,
   input: PacketReadinessInput,
   itemBlockers: readonly string[]
 ) {

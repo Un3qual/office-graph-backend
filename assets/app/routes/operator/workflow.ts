@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchQuery, readInlineData, useRelayEnvironment } from "react-relay";
 import type { GraphQLResponse } from "relay-runtime";
-import type { OperatorPacketReadinessFragment$key } from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
+import type {
+  OperatorPacketReadinessFragment$data,
+  OperatorPacketReadinessFragment$key
+} from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
 import type { OperatorPacketReadinessQuery as OperatorPacketReadinessOperation } from "../../relay/__generated__/OperatorPacketReadinessQuery.graphql";
-import type { OperatorRunStateFragment$key } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
+import type {
+  OperatorRunStateFragment$data,
+  OperatorRunStateFragment$key
+} from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorRunStateQuery as OperatorRunStateOperation } from "../../relay/__generated__/OperatorRunStateQuery.graphql";
-import type { OperatorWorkflowItemFragment$key } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
+import type {
+  OperatorWorkflowItemFragment$data,
+  OperatorWorkflowItemFragment$key
+} from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
 import type { OperatorWorkflowRouteQuery as OperatorWorkflowRouteOperation } from "../../relay/__generated__/OperatorWorkflowRouteQuery.graphql";
 import {
   OperatorPacketReadinessFragment,
@@ -24,12 +33,13 @@ import {
 import type {
   OperatorInbox,
   OperatorInboxPage,
-  OperatorRunState,
-  OperatorWorkflowItem,
-  PacketReadiness,
   PacketReadinessInput,
   QueryState
 } from "./types";
+
+type PacketReadinessState =
+  | OperatorPacketReadinessFragment$data
+  | ReturnType<typeof packetReadinessForItem>;
 
 export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: null };
 
@@ -40,11 +50,12 @@ export function useOperatorWorkflow() {
     previousCursors: [] as Array<string | null>
   });
   const inboxPage = inboxNavigation.page;
-  const [inboxQuery, setInboxQuery] = useState<QueryState<OperatorInbox>>(idleQueryState);
+  const [inboxQuery, setInboxQuery] =
+    useState<QueryState<OperatorInbox<OperatorWorkflowItemFragment$data>>>(idleQueryState);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
   const [validatedReadinessQuery, setValidatedReadinessQuery] =
-    useState<QueryState<PacketReadiness>>(idleQueryState);
+    useState<QueryState<PacketReadinessState>>(idleQueryState);
   const readinessValidationToken = useRef(0);
   const readinessValidationSubscription = useRef<{ unsubscribe(): void } | null>(null);
 
@@ -167,8 +178,8 @@ export function useOperatorWorkflow() {
       }
 
       return readiness
-        ? successQueryState<PacketReadiness>(readiness)
-        : idleQueryState<PacketReadiness>();
+        ? successQueryState<PacketReadinessState>(readiness)
+        : idleQueryState<PacketReadinessState>();
     },
     [readiness, validatedReadinessQuery]
   );
@@ -209,7 +220,7 @@ export function useOperatorWorkflow() {
     canPageBackward: inboxNavigation.previousCursors.length > 0,
     inboxQuery,
     inboxPage,
-    itemQuery: idleQueryState<OperatorWorkflowItem>(),
+    itemQuery: idleQueryState<OperatorWorkflowItemFragment$data>(),
     loadNextInboxPage,
     loadPreviousInboxPage,
     readiness: activeReadiness,
@@ -230,7 +241,8 @@ export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
 
 function useOperatorRunStateRelayQuery(runId: string | null) {
   const relayEnvironment = useRelayEnvironment();
-  const [query, setQuery] = useState<QueryState<OperatorRunState>>(idleQueryState);
+  const [query, setQuery] =
+    useState<QueryState<OperatorRunStateFragment$data>>(idleQueryState);
 
   useEffect(() => {
     if (!runId) {
@@ -272,7 +284,7 @@ function useOperatorRunStateRelayQuery(runId: string | null) {
 function workflowConnectionFromRelay(
   data: OperatorWorkflowRouteOperation["response"],
   page: OperatorInboxPage
-): OperatorInbox {
+): OperatorInbox<OperatorWorkflowItemFragment$data> {
   const connection = data.operatorWorkflowItems;
 
   if (!connection) {
@@ -288,7 +300,7 @@ function workflowConnectionFromRelay(
       readInlineData(
         OperatorWorkflowItemFragment,
         edge.node as OperatorWorkflowItemFragment$key
-      ) as OperatorWorkflowItem
+      )
     ];
   });
 
@@ -304,7 +316,9 @@ function workflowConnectionFromRelay(
   };
 }
 
-function runStateFromRelay(data: OperatorRunStateOperation["response"]): OperatorRunState {
+function runStateFromRelay(
+  data: OperatorRunStateOperation["response"]
+): OperatorRunStateFragment$data {
   if (!data.operatorRunState) {
     throw new Error("The GraphQL operator run state projection was empty.");
   }
@@ -312,12 +326,12 @@ function runStateFromRelay(data: OperatorRunStateOperation["response"]): Operato
   return readInlineData(
     OperatorRunStateFragment,
     data.operatorRunState as OperatorRunStateFragment$key
-  ) as OperatorRunState;
+  );
 }
 
 function packetReadinessFromRelay(
   data: OperatorPacketReadinessOperation["response"]
-): PacketReadiness {
+): OperatorPacketReadinessFragment$data {
   if (!data.operatorPacketReadiness) {
     throw new Error("The GraphQL packet readiness projection was empty.");
   }
@@ -325,7 +339,7 @@ function packetReadinessFromRelay(
   return readInlineData(
     OperatorPacketReadinessFragment,
     data.operatorPacketReadiness as OperatorPacketReadinessFragment$key
-  ) as PacketReadiness;
+  );
 }
 
 function packetReadinessQueryInput(
@@ -376,7 +390,9 @@ function startLoading<T>(state: QueryState<T>): QueryState<T> {
   };
 }
 
-function emptyOperatorInbox(page: OperatorInboxPage): OperatorInbox {
+function emptyOperatorInbox(
+  page: OperatorInboxPage
+): OperatorInbox<OperatorWorkflowItemFragment$data> {
   return {
     type: "operator_inbox",
     empty: true,

@@ -1,10 +1,10 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import { formatLabel, statusTone } from "../presentation";
-import type { VerificationOutcome } from "../types";
+import type { OperatorWorkflowState } from "../workflow";
 
 type Props = {
-  verification: VerificationOutcome | null;
+  verification: OperatorWorkflowState["verification"];
 };
 
 export function VerificationPanel({ verification }: Props) {
@@ -37,7 +37,11 @@ export function VerificationPanel({ verification }: Props) {
   );
 }
 
-function verificationResultText(result: VerificationOutcome["verificationResults"][number]) {
+function verificationResultText(
+  result: NonNullable<
+    OperatorWorkflowState["verification"]
+  >["verificationResults"][number]
+) {
   return [
     formatLabel(result.result),
     result.policyBasis ? formatLabel(result.policyBasis) : null,
