@@ -18,9 +18,7 @@ export function packetReadinessInputForItem(item: OperatorWorkflowItem): PacketR
     successCriteria: defaultValue(defaults, "success_criteria"),
     autonomyPosture: defaultValue(defaults, "autonomy_posture"),
     sourceGraphItemIds: defaultValues(defaults, "source_graph_item_ids"),
-    verificationCheckIds: defaultValues(defaults, "verification_check_ids"),
-    primarySourceGraphItemId: defaultValue(defaults, "primary_source_graph_item_id"),
-    primaryVerificationCheckId: defaultValue(defaults, "primary_verification_check_id")
+    verificationCheckIds: defaultValues(defaults, "verification_check_ids")
   };
 }
 

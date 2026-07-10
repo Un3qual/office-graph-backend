@@ -41,8 +41,6 @@ export type PacketReadinessInput = {
   autonomyPosture: string;
   sourceGraphItemIds: string[];
   verificationCheckIds: string[];
-  primarySourceGraphItemId: string;
-  primaryVerificationCheckId: string;
 };
 
 export type PacketReadiness = Omit<
