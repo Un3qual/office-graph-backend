@@ -46,7 +46,7 @@ Alternative considered: perform batching only in `WorkPackets` and `Runs`. That 
 
 Use `OfficeGraph.QueryCounter` to compare one-item and multi-item executions. Assertions will count queries by database source and verify that:
 
-- operator inbox, operator run state, and generated GraphQL relationship reads do not add one query per returned child;
+- operator inbox and run-state reads do not add one query per returned child, and generated GraphQL lists do not add one query per returned parent;
 - packet source and required-check validation reads remain bounded per referenced resource within a batch;
 - packet source, packet required-check, and run required-check inserts execute in bulk batches rather than one statement per item.
 

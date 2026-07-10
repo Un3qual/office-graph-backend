@@ -1,8 +1,8 @@
 ## 1. Query-Count Regression Baselines
 
-- [ ] 1.1 Add a failing packet-creation scaling test that proves source-reference and packet-required-check validation reads and inserts grow per input today.
-- [ ] 1.2 Add a failing run-start scaling test that proves run-required-check validation reads and inserts grow per input today.
-- [ ] 1.3 Add bounded read-scaling coverage for operator run-state children and generated GraphQL packet/run relationships, preserving the existing operator-inbox query budget.
+- [x] 1.1 Add a failing packet-creation scaling test that proves source-reference and packet-required-check validation reads and inserts grow per input today.
+- [x] 1.2 Add a failing run-start scaling test that proves run-required-check validation reads and inserts grow per input today.
+- [x] 1.3 Add bounded read-scaling coverage for operator run-state children and generated GraphQL packet/run lists, preserving the existing operator-inbox query budget.
 
 ## 2. Batch-Aware Ash Validation
 

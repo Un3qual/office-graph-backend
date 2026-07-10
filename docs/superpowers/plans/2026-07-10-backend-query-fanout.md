@@ -100,36 +100,25 @@ assert QueryCounter.source_count(queries, "evidence_items") <= 1
 assert QueryCounter.source_count(queries, "verification_results") <= 1
 ```
 
-- [ ] **Step 4: Add generated GraphQL relationship scaling coverage**
+- [ ] **Step 4: Add generated GraphQL list scaling coverage**
 
-In `generated_api_read_test.exs`, alias `OfficeGraph.QueryCounter`, seed three local scopes with `seed_scope([])`, execute this query inside `QueryCounter.count/1`, and assert packet/run relationship tables are each read at most once:
+In `generated_api_read_test.exs`, alias `OfficeGraph.QueryCounter`, seed three local scopes with `seed_scope([])`, execute the existing generated list query inside `QueryCounter.count/1`, and assert each generated resource list is read at most once:
 
 ```graphql
-query GeneratedRelationshipReads {
+query GeneratedResourceReads {
+  listSignals(first: 10) {
+    edges { node { id title state } }
+  }
   listWorkPackets(first: 10) {
-    edges {
-      node {
-        id
-        versions {
-          id
-          sourceReferences { id }
-          requiredChecks { id }
-        }
-      }
-    }
+    edges { node { id title state } }
   }
   listWorkRuns(first: 10) {
-    edges {
-      node {
-        id
-        requiredChecks { id }
-      }
-    }
+    edges { node { id state workPacketId } }
   }
 }
 ```
 
-Assert the response has no errors and these sources have counts no greater than one: `work_packet_versions`, `work_packet_version_sources`, `work_packet_version_required_checks`, and `run_required_checks`.
+Assert the response has no errors and these sources have counts no greater than one: `signals`, `work_packets`, and `runs`.
 
 - [ ] **Step 5: Run focused read tests**
 

@@ -7,9 +7,9 @@ Office Graph SHALL execute backend reads whose result relationships can grow wit
 - **WHEN** an operator projection returns additional inbox rows, run-state children, or linked graph resources
 - **THEN** the projection MUST batch related database reads and MUST NOT issue one query per returned row or linked resource
 
-#### Scenario: Generated API relationships scale without per-parent queries
-- **WHEN** a generated GraphQL list requests relationships for multiple packets or runs
-- **THEN** relationship loading MUST remain batched and MUST NOT issue one relationship query per parent record
+#### Scenario: Generated API lists scale without per-parent queries
+- **WHEN** a generated GraphQL list returns multiple packets or runs
+- **THEN** each resource list MUST use a bounded read and MUST NOT issue one query per returned parent record
 
 ### Requirement: Collection Writes Use Ash-Native Bulk Actions
 Office Graph SHALL create packet source references, packet required checks, and run required checks with Ash-native bulk actions rather than one create action per input item.

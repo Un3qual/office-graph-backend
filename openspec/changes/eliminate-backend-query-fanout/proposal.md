@@ -5,7 +5,7 @@ Office Graph already bounds the known operator-inbox read path, but backend quer
 ## What Changes
 
 - Add cross-cutting query-efficiency requirements for backend read and write paths whose input or result cardinality can grow.
-- Keep operator workflow and generated API relationship reads bounded with query-count scaling coverage.
+- Keep operator workflow relationship reads and generated API list reads bounded with query-count scaling coverage.
 - Replace per-item packet-source, packet-required-check, and run-required-check creates with Ash-native bulk creates.
 - Make shared Ash reference and run-check validation changes batch-aware so bulk actions preserve the existing validation contract without issuing one lookup per record.
 - Preserve transactions, authorization posture, action defaults, validation errors, caller-visible record ordering, and public return shapes.

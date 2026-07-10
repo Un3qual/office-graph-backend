@@ -3,6 +3,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
+  alias OfficeGraph.QueryCounter
   alias OfficeGraph.Runs
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
@@ -30,6 +31,67 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
   }
 
   require Ash.Query
+
+  test "packet collection writes keep query count bounded" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    verification_checks =
+      Enum.map(1..4, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    {:ok, packet_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create)
+
+    {{:ok, packet_result}, packet_queries} =
+      QueryCounter.count(fn ->
+        WorkPackets.create_packet(bootstrap.session, packet_operation, %{
+          title: "Bulk query packet",
+          objective: "Bound packet collection writes.",
+          context_summary: "Multiple packet references.",
+          requirements: "Create all references atomically.",
+          success_criteria: "One Ash batch per link resource.",
+          autonomy_posture: "human_supervised",
+          source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+          verification_check_ids: Enum.map(verification_checks, & &1.id)
+        })
+      end)
+
+    assert length(packet_result.source_references) == 4
+    assert length(packet_result.required_checks) == 4
+    assert QueryCounter.source_count(packet_queries, "work_packet_version_sources") <= 1
+
+    assert QueryCounter.source_count(
+             packet_queries,
+             "work_packet_version_required_checks"
+           ) <= 1
+  end
+
+  test "run required-check writes keep query count bounded" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    verification_checks =
+      Enum.map(1..4, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, verification_checks)
+    {:ok, run_operation} = Operations.start_operation(bootstrap.session, :work_run_start)
+
+    {{:ok, run_result}, run_queries} =
+      QueryCounter.count(fn ->
+        Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+          source_surface: "test",
+          reason: "Exercise bulk required checks.",
+          authority_posture: "human_supervised"
+        })
+      end)
+
+    assert length(run_result.required_checks) == 4
+    assert QueryCounter.source_count(run_queries, "run_required_checks") <= 1
+  end
 
   test "packet-backed work run stays unverified until evidence is accepted" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
