@@ -1,6 +1,6 @@
 ## 1. Generic Async Boundary
 
-- [ ] 1.1 Add failing component tests for caller-supplied Suspense fallback,
+- [x] 1.1 Add failing component tests for caller-supplied Suspense fallback,
   safe error fallback, and reset-key recovery; implement the shallow generic
   async boundary under `assets/src/ui/` and run the focused primitive tests.
 
