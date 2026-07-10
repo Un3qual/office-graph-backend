@@ -6,6 +6,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Content.Document
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
+  alias OfficeGraph.QueryCounter
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
@@ -269,6 +270,102 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     assert Enum.any?(errors, &(&1.field == :organization_id))
     assert Enum.any?(errors, &(&1.field == :workspace_id))
+  end
+
+  test "same-scope validation batches reference reads for bulk creates" do
+    {:ok, bootstrap} = bootstrap_scope("bulk-reference-validation")
+
+    inputs =
+      Enum.map(1..4, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Bulk signal graph item #{index}"
+          )
+
+        document = insert_document!(bootstrap, "Bulk signal body #{index}")
+
+        %{
+          id: signal_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          graph_item_id: graph_item.id,
+          body_document_id: document.id,
+          title: "Bulk signal #{index}"
+        }
+      end)
+
+    {%Ash.BulkResult{status: :success, records: records}, queries} =
+      QueryCounter.count(fn ->
+        Ash.bulk_create(inputs, SignalResource, :create,
+          actor: bootstrap.session,
+          authorize?: true,
+          return_errors?: true,
+          return_records?: true,
+          sorted?: true,
+          stop_on_error?: true
+        )
+      end)
+
+    assert length(records) == 4
+    assert QueryCounter.source_count(queries, "graph_items") <= 1
+    assert QueryCounter.source_count(queries, "document") <= 1
+  end
+
+  test "same-scope validation preserves bulk reference errors" do
+    {:ok, actor_scope} = bootstrap_scope("bulk-reference-errors-actor")
+    {:ok, other_scope} = bootstrap_scope("bulk-reference-errors-other")
+
+    missing_id = Ecto.UUID.generate()
+    cross_scope_id = Ecto.UUID.generate()
+    wrong_identity_id = Ecto.UUID.generate()
+
+    foreign_graph_item =
+      insert_graph_item!(
+        other_scope,
+        "signal",
+        cross_scope_id,
+        "Foreign bulk signal graph item"
+      )
+
+    wrong_identity_graph_item =
+      insert_graph_item!(
+        actor_scope,
+        "task",
+        wrong_identity_id,
+        "Wrong bulk signal graph identity"
+      )
+
+    inputs = [
+      bulk_signal_input(actor_scope, missing_id, Ecto.UUID.generate(), "Missing bulk reference"),
+      bulk_signal_input(
+        actor_scope,
+        cross_scope_id,
+        foreign_graph_item.id,
+        "Cross-scope bulk reference"
+      ),
+      bulk_signal_input(
+        actor_scope,
+        wrong_identity_id,
+        wrong_identity_graph_item.id,
+        "Wrong bulk graph identity"
+      )
+    ]
+
+    assert %Ash.BulkResult{status: :error, error_count: 3, errors: errors} =
+             Ash.bulk_create(inputs, SignalResource, :create,
+               actor: actor_scope.session,
+               authorize?: true,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true
+             )
+
+    assert Enum.all?(errors, &(Exception.message(&1) =~ "graph_item_id"))
   end
 
   test "graph relationships expose no public Ash actions" do
@@ -1368,6 +1465,19 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
         relationship_type == ^relationship_type
     )
     |> Ash.exists?(authorize?: false)
+  end
+
+  defp bulk_signal_input(bootstrap, signal_id, graph_item_id, title) do
+    document = insert_document!(bootstrap, "#{title} body")
+
+    %{
+      id: signal_id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      graph_item_id: graph_item_id,
+      body_document_id: document.id,
+      title: title
+    }
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do

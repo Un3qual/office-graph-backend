@@ -6,8 +6,8 @@
 
 ## 2. Batch-Aware Ash Validation
 
-- [ ] 2.1 Add focused failing tests for batched same-scope reference validation, including missing, cross-scope, and graph-item identity failures.
-- [ ] 2.2 Implement `ValidateSameScopeReferences.batch_change/3` with one batched read per referenced resource and shared single/bulk validation helpers.
+- [x] 2.1 Add focused failing tests for batched same-scope reference validation, including missing, cross-scope, and graph-item identity failures.
+- [x] 2.2 Implement `ValidateSameScopeReferences.batch_change/3` with one batched read per referenced resource and shared single/bulk validation helpers.
 - [ ] 2.3 Add focused failing tests for batched run required-check validation, including non-packet-backed and packet-mismatch failures.
 - [ ] 2.4 Implement `ValidateRunRequiredCheckContract.batch_change/3` with batched run and packet-required-check reads.
 
