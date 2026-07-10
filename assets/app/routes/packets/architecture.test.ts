@@ -44,4 +44,27 @@ describe("packet route data architecture", () => {
     expect(existsSync(join(routeRoot, "components/PacketsLayout.tsx"))).toBe(true);
     expect(routesSource).toContain('route("packets", "./routes/packets/route.tsx")');
   });
+
+  it("shares one route-local updated-at formatter across packet list and detail", () => {
+    const formatterPath = join(routeRoot, "formatters.ts");
+    const packetListSource = readFileSync(
+      join(routeRoot, "components/PacketList.tsx"),
+      "utf8"
+    );
+    const packetDetailSource = readFileSync(
+      join(routeRoot, "components/PacketDetail.tsx"),
+      "utf8"
+    );
+
+    expect(existsSync(formatterPath)).toBe(true);
+
+    const formatterSource = readFileSync(formatterPath, "utf8");
+
+    expect(formatterSource.match(/new Intl\.DateTimeFormat/g)).toHaveLength(1);
+    expect(formatterSource).toContain('timeZone: "UTC"');
+    expect(packetListSource).toContain('../formatters');
+    expect(packetDetailSource).toContain('../formatters');
+    expect(packetListSource).not.toContain("new Intl.DateTimeFormat");
+    expect(packetDetailSource).not.toContain("new Intl.DateTimeFormat");
+  });
 });

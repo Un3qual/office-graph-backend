@@ -660,6 +660,6 @@ h2 {
   }
 
   .packet-list-pane {
-    min-height: 420px;
+    max-height: 60vh;
   }
 }

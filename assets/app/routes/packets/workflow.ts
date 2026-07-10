@@ -39,7 +39,7 @@ export function usePacketsWorkflow() {
       },
       error: () => {
         if (isCurrent) {
-          setPacketQuery((state) => errorQueryState(state));
+          setPacketQuery(errorQueryState);
         }
       }
     });
@@ -106,7 +106,7 @@ export function usePacketsWorkflow() {
   );
 
   return {
-    canPageBackward: navigation.previousCursors.length > 0,
+    canPageBackward: packetQuery.isSuccess && navigation.previousCursors.length > 0,
     loadNextPage,
     loadPreviousPage,
     packetPage: page,
@@ -203,9 +203,9 @@ function successQueryState<T>(data: T): QueryState<T> {
   };
 }
 
-function errorQueryState<T>(state: QueryState<T>): QueryState<T> {
+function errorQueryState<T>(): QueryState<T> {
   return {
-    ...state,
+    data: null,
     error: new Error("Unable to load packets."),
     fetchStatus: "idle",
     isError: true,

@@ -1,5 +1,6 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { EmptyState } from "../../../../src/ui/EmptyState";
+import { formatPacketUpdatedAt } from "../formatters";
 import type { PacketsWorkflowState } from "../workflow";
 
 type Props = {
@@ -26,7 +27,9 @@ export function PacketDetail({ packet }: Props) {
             <div>
               <dt>Updated</dt>
               <dd>
-                <time dateTime={packet.updatedAt}>{formatDate(packet.updatedAt)}</time>
+                <time dateTime={packet.updatedAt}>
+                  {formatPacketUpdatedAt(packet.updatedAt)}
+                </time>
               </dd>
             </div>
             <div>
@@ -46,15 +49,6 @@ export function PacketDetail({ packet }: Props) {
       )}
     </section>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric"
-  }).format(new Date(value));
 }
 
 function formatState(value: string) {

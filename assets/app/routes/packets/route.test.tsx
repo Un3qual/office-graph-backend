@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
 import { MemoryRouter } from "react-router";
@@ -92,10 +94,12 @@ describe("packet workspace route", () => {
     );
 
     const detail = await screen.findByRole("region", { name: "Packet detail" });
+    const selectedRow = screen.getByRole("button", { name: /First packet/i });
 
     expect(detail).toHaveTextContent("First packet");
     expect(detail).toHaveTextContent("Ready for run");
-    expect(detail).toHaveTextContent("Jul 9, 2026");
+    expect(detail).toHaveTextContent("Jul 9, 2026, 7:45 PM UTC");
+    expect(selectedRow).toHaveTextContent("Updated Jul 9, 2026, 7:45 PM UTC");
     expect(detail).toHaveTextContent("version_current_7");
     expect(detail).toHaveTextContent("operation_sync_3");
     expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute("href", "/operator");
@@ -140,6 +144,49 @@ describe("packet workspace route", () => {
         "true"
       );
     });
+  });
+
+  it("clears packet content and disables pagination when the next page fails", async () => {
+    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
+      if (variables.after === "cursor_1") {
+        throw new Error("authorization policy secret_alpha denied packet_9");
+      }
+
+      return packetConnectionResponse([packet()], {
+        hasNextPage: true,
+        endCursor: "cursor_1"
+      });
+    });
+
+    renderWithRelay(network);
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("packet_9");
+    expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
+      "No packet selected."
+    );
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+
+  it("bounds the compact packet list while preserving list scrolling", () => {
+    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const compactBreakpoint = styles.indexOf("@media (max-width: 980px)");
+
+    expect(compactBreakpoint).toBeGreaterThan(-1);
+
+    const compactStyles = styles.slice(compactBreakpoint);
+    const compactListPane = Array.from(
+      compactStyles.matchAll(/\.packet-list-pane\s*\{([^}]*)\}/g),
+      (match) => match[1]
+    ).join("\n");
+
+    expect(compactListPane).toMatch(/max-height:\s*\d+(?:\.\d+)?vh\s*;/);
+    expect(compactListPane).not.toMatch(/min-height:/);
+    expect(styles).toMatch(/\.packet-list-content\s*\{[^}]*overflow:\s*auto\s*;/);
   });
 
   it("returns to the previous cursor page", async () => {

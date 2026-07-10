@@ -101,6 +101,35 @@ describe("packet route workflow", () => {
     });
   });
 
+  it("invalidates the prior connection and selection when pagination fails", async () => {
+    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
+      if (variables.after === "cursor_1") {
+        throw new Error("authorization policy secret_alpha denied packet_9");
+      }
+
+      return packetConnectionResponse([packet()], {
+        hasNextPage: true,
+        endCursor: "cursor_1"
+      });
+    });
+    const workflow = renderWorkflow(network);
+
+    await waitFor(() => {
+      expect(workflow.result.current.selectedPacket?.id).toBe("packet_1");
+      expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(true);
+    });
+
+    act(() => workflow.result.current.loadNextPage());
+
+    await waitFor(() => expect(workflow.result.current.packetQuery.isError).toBe(true));
+    expect(workflow.result.current.packetQuery.error?.message).toBe("Unable to load packets.");
+    expect(workflow.result.current.packetQuery.data).toBeNull();
+    expect(workflow.result.current.rows).toEqual([]);
+    expect(workflow.result.current.selectedId).toBeNull();
+    expect(workflow.result.current.selectedPacket).toBeNull();
+    expect(workflow.result.current.canPageBackward).toBe(false);
+  });
+
   it("normalizes Relay failures without exposing server details", async () => {
     const workflow = renderWorkflow(
       vi.fn(async () => {

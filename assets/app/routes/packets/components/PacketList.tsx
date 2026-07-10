@@ -1,6 +1,7 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Button } from "../../../../src/ui/Button";
 import { EmptyState } from "../../../../src/ui/EmptyState";
+import { formatPacketUpdatedAt } from "../formatters";
 import type { PacketsWorkflowState } from "../workflow";
 
 type Props = {
@@ -63,7 +64,9 @@ export function PacketList({
               >
                 <span className="packet-row-title">{packet.title}</span>
                 <Badge tone="blue">{formatState(packet.state)}</Badge>
-                <span className="packet-row-meta">Updated {formatDate(packet.updatedAt)}</span>
+                <span className="packet-row-meta">
+                  Updated {formatPacketUpdatedAt(packet.updatedAt)}
+                </span>
               </button>
             ))}
           </div>
@@ -86,15 +89,6 @@ export function PacketList({
       ) : null}
     </section>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric"
-  }).format(new Date(value));
 }
 
 function formatState(value: string) {
