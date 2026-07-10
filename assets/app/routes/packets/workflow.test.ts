@@ -101,6 +101,25 @@ describe("packet route workflow", () => {
     });
   });
 
+  it("disables forward pagination when Relay omits the end cursor", async () => {
+    const network = vi.fn(async (): Promise<GraphQLResponse> =>
+      packetConnectionResponse([packet()], {
+        hasNextPage: true,
+        endCursor: null
+      })
+    );
+    const workflow = renderWorkflow(network);
+
+    await waitFor(() => expect(workflow.result.current.packetQuery.isSuccess).toBe(true));
+    expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(false);
+    expect(workflow.result.current.packetQuery.data?.nextCursor).toBeNull();
+
+    act(() => workflow.result.current.loadNextPage());
+
+    expect(network).toHaveBeenCalledOnce();
+    expect(workflow.result.current.packetPage).toEqual({ first: 50, after: null });
+  });
+
   it("invalidates the prior connection and selection when pagination fails", async () => {
     const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
       if (variables.after === "cursor_1") {

@@ -142,14 +142,15 @@ function packetConnectionFromRelay(
       )
     ];
   });
+  const nextCursor = connection.pageInfo.endCursor ?? null;
 
   return {
     after: page.after,
     empty: rows.length === 0,
     first: page.first,
-    hasNextPage: connection.pageInfo.hasNextPage,
+    hasNextPage: connection.pageInfo.hasNextPage && nextCursor !== null,
     hasPreviousPage: connection.pageInfo.hasPreviousPage,
-    nextCursor: connection.pageInfo.endCursor ?? null,
+    nextCursor,
     startCursor: connection.pageInfo.startCursor ?? null,
     rows
   };
