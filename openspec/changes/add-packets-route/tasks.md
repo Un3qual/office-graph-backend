@@ -23,7 +23,7 @@
 
 ## 2. Route-Owned Relay Packet Data
 
-- [ ] 2.1 Add the packet route's Relay documents, generated types, and route-local query state.
+- [x] 2.1 Add the packet route's Relay documents, generated types, and route-local query state.
   - Create failing tests under `assets/app/routes/packets/` that import the
     packet query through the Vite Relay transform, enforce route ownership, and
     exercise connection mapping for empty, populated, next-page, and

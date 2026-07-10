@@ -1,0 +1,26 @@
+import type { ConcreteRequest, ReaderInlineDataFragment } from "relay-runtime";
+import { describe, expect, it } from "vitest";
+
+describe("packet route Relay data", () => {
+  it("imports the compiled route query and inline packet fragment through Vite", async () => {
+    const data = await import("./data");
+    const routeQuery = data.PacketsRouteQuery as ConcreteRequest;
+    const packetFragment = data.PacketsRoutePacketFragment as ReaderInlineDataFragment;
+
+    expect(routeQuery.params.name).toBe("PacketsRouteQuery");
+    expect(routeQuery.params.text).toContain("listWorkPackets(first: $first, after: $after)");
+    expect(packetFragment.name).toBe("PacketsRoutePacketFragment");
+    expect(packetFragment.kind).toBe("InlineDataFragment");
+
+    for (const field of [
+      "id",
+      "title",
+      "state",
+      "currentVersionId",
+      "operationId",
+      "updatedAt"
+    ]) {
+      expect(routeQuery.params.text).toContain(field);
+    }
+  });
+});
