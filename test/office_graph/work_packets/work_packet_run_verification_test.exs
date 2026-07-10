@@ -60,12 +60,58 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
     assert length(packet_result.source_references) == 4
     assert length(packet_result.required_checks) == 4
+
+    # Accepted budget: one insert per link resource within an Ash batch. Query
+    # count may grow by configured batch count, never by individual input row.
     assert QueryCounter.source_count(packet_queries, "work_packet_version_sources") <= 1
 
     assert QueryCounter.source_count(
              packet_queries,
              "work_packet_version_required_checks"
            ) <= 1
+  end
+
+  test "packet source bulk create rolls back an invalid middle reference" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    verification_checks =
+      Enum.map(1..3, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    [packet_check, first_extra_check, second_extra_check] = verification_checks
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [packet_check])
+
+    inputs =
+      Enum.map(
+        [
+          first_extra_check.graph_item_id,
+          Ecto.UUID.generate(),
+          second_extra_check.graph_item_id
+        ],
+        fn graph_item_id ->
+          %{
+            id: Ecto.UUID.generate(),
+            work_packet_version_id: packet_result.version.id,
+            graph_item_id: graph_item_id,
+            organization_id: bootstrap.session.organization_id,
+            workspace_id: bootstrap.session.workspace_id
+          }
+        end
+      )
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transaction(fn ->
+               Repo.ash_bulk_create!(WorkPacketSourceReference, inputs)
+             end)
+
+    input_ids = Enum.map(inputs, & &1.id)
+
+    assert [] ==
+             WorkPacketSourceReference
+             |> Ash.Query.filter(id in ^input_ids)
+             |> Ash.read!(authorize?: false)
   end
 
   test "run required-check writes keep query count bounded" do
@@ -90,7 +136,49 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       end)
 
     assert length(run_result.required_checks) == 4
+
+    # Accepted budget: one insert per Ash batch, not one insert per required check.
     assert QueryCounter.source_count(run_queries, "run_required_checks") <= 1
+  end
+
+  test "run required-check bulk create rolls back an invalid middle contract" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    packet_checks =
+      Enum.map(1..3, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, packet_checks)
+
+    Enum.each(packet_checks, fn verification_check ->
+      delete_run_required_check!(run_result.run.id, verification_check.id)
+    end)
+
+    [first_check, second_check | _rest] = packet_checks
+
+    inputs =
+      Enum.map([first_check, unrelated_check, second_check], fn verification_check ->
+        %{
+          id: Ecto.UUID.generate(),
+          run_id: run_result.run.id,
+          verification_check_id: verification_check.id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        }
+      end)
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transaction(fn -> Repo.ash_bulk_create!(RunRequiredCheck, inputs) end)
+
+    input_ids = Enum.map(inputs, & &1.id)
+
+    assert [] ==
+             RunRequiredCheck
+             |> Ash.Query.filter(id in ^input_ids)
+             |> Ash.read!(authorize?: false)
   end
 
   test "run required-check contract batches validation reads" do
@@ -132,6 +220,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       end)
 
     assert length(records) == 4
+
+    # SameScopeReferences reads runs once; the run contract reads them once.
     assert QueryCounter.source_count(queries, "runs") <= 2
 
     assert QueryCounter.source_count(

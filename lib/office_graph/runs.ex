@@ -289,19 +289,19 @@ defmodule OfficeGraph.Runs do
         }
       )
 
-    run_required_checks =
+    run_required_check_inputs =
       Enum.map(required_checks, fn required_check ->
-        Repo.ash_create!(
-          RunRequiredCheck,
-          %{
-            id: Ecto.UUID.generate(),
-            run_id: run.id,
-            verification_check_id: required_check.verification_check_id,
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id
-          }
-        )
+        %{
+          id: Ecto.UUID.generate(),
+          run_id: run.id,
+          verification_check_id: required_check.verification_check_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id
+        }
       end)
+
+    run_required_checks =
+      Repo.ash_bulk_create!(RunRequiredCheck, run_required_check_inputs)
 
     %{run: run, required_checks: run_required_checks}
   end

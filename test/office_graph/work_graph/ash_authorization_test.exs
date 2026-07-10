@@ -7,6 +7,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
   alias OfficeGraph.QueryCounter
+  alias OfficeGraph.Repo
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
@@ -312,6 +313,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
       end)
 
     assert length(records) == 4
+
+    # Accepted budget: one lookup per referenced resource in an Ash batch.
     assert QueryCounter.source_count(queries, "graph_items") <= 1
     assert QueryCounter.source_count(queries, "document") <= 1
   end
@@ -366,6 +369,85 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
              )
 
     assert Enum.all?(errors, &(Exception.message(&1) =~ "graph_item_id"))
+  end
+
+  test "repo Ash bulk create returns ordered records and skips empty inserts" do
+    {empty_records, empty_queries} =
+      QueryCounter.count(fn -> Repo.ash_bulk_create!(SignalResource, []) end)
+
+    assert empty_records == []
+    assert empty_queries == []
+
+    {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-order")
+
+    inputs =
+      Enum.map(1..3, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Ordered bulk graph item #{index}"
+          )
+
+        bulk_signal_input(
+          bootstrap,
+          signal_id,
+          graph_item.id,
+          "Ordered bulk signal #{index}"
+        )
+      end)
+
+    assert {:ok, records} =
+             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+
+    assert Enum.map(records, & &1.id) == Enum.map(inputs, & &1.id)
+  end
+
+  test "repo Ash bulk create rolls back an invalid middle record" do
+    {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-rollback")
+
+    valid_inputs =
+      Enum.map(1..2, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Rollback bulk graph item #{index}"
+          )
+
+        bulk_signal_input(
+          bootstrap,
+          signal_id,
+          graph_item.id,
+          "Rollback bulk signal #{index}"
+        )
+      end)
+
+    invalid_input =
+      bulk_signal_input(
+        bootstrap,
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        "Invalid middle bulk signal"
+      )
+
+    inputs = [List.first(valid_inputs), invalid_input, List.last(valid_inputs)]
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+
+    input_ids = Enum.map(inputs, & &1.id)
+
+    assert [] ==
+             SignalResource
+             |> Ash.Query.filter(id in ^input_ids)
+             |> Ash.read!(authorize?: false)
   end
 
   test "graph relationships expose no public Ash actions" do

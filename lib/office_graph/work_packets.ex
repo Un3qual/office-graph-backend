@@ -244,37 +244,37 @@ defmodule OfficeGraph.WorkPackets do
         }
       )
 
-    source_references =
+    source_reference_inputs =
       attrs
       |> Map.get(:source_graph_item_ids, [])
       |> Enum.map(fn graph_item_id ->
-        Repo.ash_create!(
-          WorkPacketSourceReference,
-          %{
-            id: Ecto.UUID.generate(),
-            work_packet_version_id: version.id,
-            graph_item_id: graph_item_id,
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id
-          }
-        )
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          graph_item_id: graph_item_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id
+        }
       end)
 
-    required_checks =
+    source_references =
+      Repo.ash_bulk_create!(WorkPacketSourceReference, source_reference_inputs)
+
+    required_check_inputs =
       attrs
       |> Map.get(:verification_check_ids, [])
       |> Enum.map(fn verification_check_id ->
-        Repo.ash_create!(
-          WorkPacketRequiredCheck,
-          %{
-            id: Ecto.UUID.generate(),
-            work_packet_version_id: version.id,
-            verification_check_id: verification_check_id,
-            organization_id: session_context.organization_id,
-            workspace_id: session_context.workspace_id
-          }
-        )
+        %{
+          id: Ecto.UUID.generate(),
+          work_packet_version_id: version.id,
+          verification_check_id: verification_check_id,
+          organization_id: session_context.organization_id,
+          workspace_id: session_context.workspace_id
+        }
       end)
+
+    required_checks =
+      Repo.ash_bulk_create!(WorkPacketRequiredCheck, required_check_inputs)
 
     packet =
       packet
