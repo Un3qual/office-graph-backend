@@ -587,14 +587,47 @@ h2 {
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .console-frame {
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .icon-rail,
+  .icon-rail {
+    display: none;
+  }
+
   .ui-nav-rail {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--og-color-border);
+    padding: 8px 12px;
+  }
+
+  .ui-brand-mark {
+    width: 36px;
+    height: 36px;
+    margin: 0;
+  }
+
+  .ui-nav-rail nav {
+    display: flex;
+    min-width: 0;
+    gap: 4px;
+    overflow-x: auto;
+  }
+
+  .ui-nav-rail .ui-rail-item {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 6px 10px;
+  }
+
+  .ui-nav-rail .ui-rail-item > [aria-hidden="true"] {
     display: none;
   }
 

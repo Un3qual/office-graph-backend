@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -78,5 +80,22 @@ describe("shared UI primitives", () => {
     );
     expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
+  });
+
+  it("keeps product navigation available in compact layouts", () => {
+    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const compactBreakpoint = styles.indexOf("@media (max-width: 980px)");
+
+    expect(compactBreakpoint).toBeGreaterThan(-1);
+
+    const compactStyles = styles.slice(compactBreakpoint);
+
+    expect(compactStyles).not.toMatch(
+      /\.ui-nav-rail\s*\{[^}]*display:\s*none\s*;/
+    );
+    expect(compactStyles).toMatch(/\.ui-nav-rail\s*\{[^}]*display:\s*grid\s*;/);
+    expect(compactStyles).toMatch(
+      /\.ui-nav-rail nav\s*\{[^}]*overflow-x:\s*auto\s*;/
+    );
   });
 });
