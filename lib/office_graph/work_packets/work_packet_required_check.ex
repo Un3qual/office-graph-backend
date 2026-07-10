@@ -19,6 +19,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
     attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :requirement_kind, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
@@ -51,7 +52,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
         :work_packet_version_id,
         :verification_check_id,
         :organization_id,
-        :workspace_id
+        :workspace_id,
+        :position
       ]
 
       change set_attribute(:requirement_kind, "required")

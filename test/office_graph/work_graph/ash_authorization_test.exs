@@ -6,6 +6,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.Content.Document
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
+  alias OfficeGraph.QueryCounter
+  alias OfficeGraph.Repo
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences
@@ -269,6 +271,248 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     assert Enum.any?(errors, &(&1.field == :organization_id))
     assert Enum.any?(errors, &(&1.field == :workspace_id))
+  end
+
+  test "same-scope validation batches reference reads for bulk creates" do
+    {:ok, bootstrap} = bootstrap_scope("bulk-reference-validation")
+
+    inputs =
+      Enum.map(1..4, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Bulk signal graph item #{index}"
+          )
+
+        document = insert_document!(bootstrap, "Bulk signal body #{index}")
+
+        %{
+          id: signal_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          graph_item_id: graph_item.id,
+          body_document_id: document.id,
+          title: "Bulk signal #{index}"
+        }
+      end)
+
+    {%Ash.BulkResult{status: :success, records: records}, queries} =
+      QueryCounter.count(fn ->
+        Ash.bulk_create(inputs, SignalResource, :create,
+          actor: bootstrap.session,
+          authorize?: true,
+          return_errors?: true,
+          return_records?: true,
+          sorted?: true,
+          stop_on_error?: true
+        )
+      end)
+
+    assert length(records) == 4
+
+    # Accepted budget: one lookup per referenced resource in an Ash batch.
+    assert QueryCounter.source_count(queries, "graph_items") <= 1
+    assert QueryCounter.source_count(queries, "document") <= 1
+  end
+
+  test "same-scope validation preserves bulk reference errors" do
+    {:ok, actor_scope} = bootstrap_scope("bulk-reference-errors-actor")
+    {:ok, other_scope} = bootstrap_scope("bulk-reference-errors-other")
+
+    missing_id = Ecto.UUID.generate()
+    cross_scope_id = Ecto.UUID.generate()
+    wrong_identity_id = Ecto.UUID.generate()
+
+    foreign_graph_item =
+      insert_graph_item!(
+        other_scope,
+        "signal",
+        cross_scope_id,
+        "Foreign bulk signal graph item"
+      )
+
+    wrong_identity_graph_item =
+      insert_graph_item!(
+        actor_scope,
+        "task",
+        wrong_identity_id,
+        "Wrong bulk signal graph identity"
+      )
+
+    inputs = [
+      bulk_signal_input(actor_scope, missing_id, Ecto.UUID.generate(), "Missing bulk reference"),
+      bulk_signal_input(
+        actor_scope,
+        cross_scope_id,
+        foreign_graph_item.id,
+        "Cross-scope bulk reference"
+      ),
+      bulk_signal_input(
+        actor_scope,
+        wrong_identity_id,
+        wrong_identity_graph_item.id,
+        "Wrong bulk graph identity"
+      )
+    ]
+
+    assert %Ash.BulkResult{status: :error, error_count: 3, errors: errors} =
+             Ash.bulk_create(inputs, SignalResource, :create,
+               actor: actor_scope.session,
+               authorize?: true,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true
+             )
+
+    messages = Enum.map(errors, &Exception.message/1)
+
+    assert Enum.count(
+             messages,
+             &String.contains?(
+               &1,
+               "graph_item_id must reference an existing record in the target scope"
+             )
+           ) == 2
+
+    assert Enum.count(
+             messages,
+             &String.contains?(
+               &1,
+               "graph_item_id must reference a graph item for the target resource"
+             )
+           ) == 1
+  end
+
+  test "same-scope validation isolates malformed IDs within bulk creates" do
+    {:ok, bootstrap} = bootstrap_scope("bulk-reference-malformed-id")
+
+    valid_signal_id = Ecto.UUID.generate()
+
+    valid_graph_item =
+      insert_graph_item!(
+        bootstrap,
+        "signal",
+        valid_signal_id,
+        "Valid bulk signal graph item"
+      )
+
+    valid_input =
+      bulk_signal_input(
+        bootstrap,
+        valid_signal_id,
+        valid_graph_item.id,
+        "Valid bulk signal"
+      )
+
+    malformed_input =
+      bulk_signal_input(
+        bootstrap,
+        Ecto.UUID.generate(),
+        "not-a-uuid",
+        "Malformed bulk signal"
+      )
+
+    assert %Ash.BulkResult{
+             status: :partial_success,
+             error_count: 1,
+             records: [%SignalResource{id: ^valid_signal_id}],
+             errors: [error]
+           } =
+             Ash.bulk_create([valid_input, malformed_input], SignalResource, :create,
+               actor: bootstrap.session,
+               authorize?: true,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: false
+             )
+
+    message = Exception.message(error)
+    assert message =~ "Invalid value provided for graph_item_id"
+    assert message =~ "not-a-uuid"
+  end
+
+  test "repo Ash bulk create returns ordered records and skips empty inserts" do
+    {empty_records, empty_queries} =
+      QueryCounter.count(fn -> Repo.ash_bulk_create!(SignalResource, []) end)
+
+    assert empty_records == []
+    assert empty_queries == []
+
+    {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-order")
+
+    inputs =
+      Enum.map(1..3, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Ordered bulk graph item #{index}"
+          )
+
+        bulk_signal_input(
+          bootstrap,
+          signal_id,
+          graph_item.id,
+          "Ordered bulk signal #{index}"
+        )
+      end)
+
+    assert {:ok, records} =
+             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+
+    assert Enum.map(records, & &1.id) == Enum.map(inputs, & &1.id)
+  end
+
+  test "repo Ash bulk create rolls back an invalid middle record" do
+    {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-rollback")
+
+    valid_inputs =
+      Enum.map(1..2, fn index ->
+        signal_id = Ecto.UUID.generate()
+
+        graph_item =
+          insert_graph_item!(
+            bootstrap,
+            "signal",
+            signal_id,
+            "Rollback bulk graph item #{index}"
+          )
+
+        bulk_signal_input(
+          bootstrap,
+          signal_id,
+          graph_item.id,
+          "Rollback bulk signal #{index}"
+        )
+      end)
+
+    invalid_input =
+      bulk_signal_input(
+        bootstrap,
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        "Invalid middle bulk signal"
+      )
+
+    inputs = [List.first(valid_inputs), invalid_input, List.last(valid_inputs)]
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+
+    input_ids = Enum.map(inputs, & &1.id)
+
+    assert [] ==
+             SignalResource
+             |> Ash.Query.filter(id in ^input_ids)
+             |> Ash.read!(authorize?: false)
   end
 
   test "graph relationships expose no public Ash actions" do
@@ -1368,6 +1612,19 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
         relationship_type == ^relationship_type
     )
     |> Ash.exists?(authorize?: false)
+  end
+
+  defp bulk_signal_input(bootstrap, signal_id, graph_item_id, title) do
+    document = insert_document!(bootstrap, "#{title} body")
+
+    %{
+      id: signal_id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      graph_item_id: graph_item_id,
+      body_document_id: document.id,
+      title: title
+    }
   end
 
   defp insert_graph_item!(bootstrap, resource_type, resource_id, title) do

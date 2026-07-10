@@ -19,6 +19,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
     attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :rationale, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
@@ -53,7 +54,8 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
         :work_packet_version_id,
         :graph_item_id,
         :organization_id,
-        :workspace_id
+        :workspace_id,
+        :position
       ]
 
       change set_attribute(:source_kind, "graph_item")

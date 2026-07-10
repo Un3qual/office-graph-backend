@@ -6,12 +6,33 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   require Ash.Query
 
   @impl true
-  def change(changeset, opts, _context) do
+  def change(changeset, opts, context) do
+    [changeset] = batch_change([changeset], opts, context)
+    changeset
+  end
+
+  @impl true
+  def batch_change(changesets, opts, _context) do
+    references = Keyword.fetch!(opts, :references)
+    loaded_references = load_references(changesets, references)
+
+    Enum.map(
+      changesets,
+      &validate_changeset(&1, references, loaded_references)
+    )
+  end
+
+  defp validate_changeset(changeset, references, loaded_references) do
     with {:ok, organization_id, workspace_id} <- target_scope(changeset) do
-      opts
-      |> Keyword.fetch!(:references)
-      |> Enum.reduce(changeset, fn {field, reference}, changeset ->
-        validate_reference(changeset, field, reference, organization_id, workspace_id)
+      Enum.reduce(references, changeset, fn {field, reference}, changeset ->
+        validate_reference(
+          changeset,
+          field,
+          reference,
+          organization_id,
+          workspace_id,
+          loaded_references
+        )
       end)
     else
       :error ->
@@ -25,6 +46,28 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
           message: "target organization_id and workspace_id are required"
         )
     end
+  end
+
+  defp load_references(changesets, references) do
+    references
+    |> Enum.group_by(
+      fn {_field, reference} -> reference |> reference_spec() |> elem(0) end,
+      fn {field, _reference} -> field end
+    )
+    |> Map.new(fn {resource, fields} ->
+      ids = reference_ids(changesets, fields)
+      {resource, fetch_references(resource, ids)}
+    end)
+  end
+
+  defp reference_ids(changesets, fields) do
+    changesets
+    |> Enum.filter(&match?({:ok, _, _}, target_scope(&1)))
+    |> Enum.flat_map(fn changeset ->
+      Enum.map(fields, &Ash.Changeset.get_attribute(changeset, &1))
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   defp target_scope(changeset) do
@@ -43,7 +86,14 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
     end
   end
 
-  defp validate_reference(changeset, field, reference, organization_id, workspace_id) do
+  defp validate_reference(
+         changeset,
+         field,
+         reference,
+         organization_id,
+         workspace_id,
+         loaded_references
+       ) do
     {resource, reference_opts} = reference_spec(reference)
 
     case Ash.Changeset.get_attribute(changeset, field) do
@@ -51,7 +101,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
         changeset
 
       id ->
-        case fetch_reference(resource, id) do
+        case loaded_reference(loaded_references, resource, id) do
           {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id} = record} ->
             validate_resource_identity(record, field, reference_opts, changeset)
 
@@ -67,10 +117,23 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   defp reference_spec({schema, opts}) when is_list(opts), do: {schema, opts}
   defp reference_spec(schema), do: {schema, []}
 
-  defp fetch_reference(resource, record_id) do
+  defp fetch_references(_resource, []), do: {:ok, %{}}
+
+  defp fetch_references(resource, record_ids) do
     resource
-    |> Ash.Query.filter(id == ^record_id)
-    |> Ash.read_one(authorize?: false)
+    |> Ash.Query.filter(id in ^record_ids)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, records} -> {:ok, Map.new(records, &{&1.id, &1})}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp loaded_reference(loaded_references, resource, id) do
+    case Map.fetch!(loaded_references, resource) do
+      {:ok, records_by_id} -> {:ok, Map.get(records_by_id, id)}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp add_missing_or_cross_scope_error(changeset, field) do

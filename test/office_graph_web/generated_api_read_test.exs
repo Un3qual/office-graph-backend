@@ -4,11 +4,30 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Operations
+  alias OfficeGraph.QueryCounter
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
   describe "generated AshGraphql reads" do
+    test "generated resource lists stay bounded across returned parents", %{conn: conn} do
+      Enum.each(1..3, fn _index -> seed_scope([]) end)
+
+      {response, queries} =
+        QueryCounter.count(fn ->
+          conn
+          |> post(~p"/graphql", %{query: generated_reads_query()})
+          |> json_response(200)
+        end)
+
+      assert response["errors"] in [nil, []]
+      assert length(response["data"]["listWorkPackets"]["edges"]) >= 3
+      assert length(response["data"]["listWorkRuns"]["edges"]) >= 3
+      assert QueryCounter.source_count(queries, "signals") <= 1
+      assert QueryCounter.source_count(queries, "work_packets") <= 1
+      assert QueryCounter.source_count(queries, "runs") <= 1
+    end
+
     test "return local actor scope records for selected generated reads", %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
 
