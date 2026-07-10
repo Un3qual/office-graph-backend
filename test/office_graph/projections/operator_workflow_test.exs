@@ -202,12 +202,36 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     {:ok, run_result} = create_ready_run(bootstrap.session, verification_checks)
 
+    verification_checks
+    |> Enum.with_index(1)
+    |> Enum.each(fn {verification_check, index} ->
+      key = "run-state-query-scaling-#{index}"
+
+      {:ok, observation_result} =
+        record_observation(bootstrap.session, run_result.run, verification_check, key: key)
+
+      {:ok, candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          observation_result.observation,
+          key: key
+        )
+
+      {:ok, _accepted} = accept_candidate(bootstrap.session, candidate, key: key)
+    end)
+
     {{:ok, run_state}, queries} =
       QueryCounter.count(fn ->
         Projections.operator_run_state(bootstrap.session, run_result.run.id)
       end)
 
     assert length(run_state.required_checks) == 4
+    assert length(run_state.observations) == 4
+    assert length(run_state.evidence_candidates) == 4
+    assert length(run_state.evidence_items) == 4
+    assert length(run_state.verification_results) == 4
     assert QueryCounter.source_count(queries, "run_required_checks") <= 1
     assert QueryCounter.source_count(queries, "execution_observations") <= 1
     assert QueryCounter.source_count(queries, "evidence_candidates") <= 1

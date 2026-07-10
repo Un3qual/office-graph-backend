@@ -28,4 +28,5 @@ None.
 - `OfficeGraph.Runs` run required-check creation.
 - `OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences` and `OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract`.
 - Projection and generated GraphQL query-count regression tests.
-- No database migration, external dependency, public API, or payload-shape change is expected.
+- An additive database migration adds collection-position columns so bulk-created packet and run children retain caller-visible input order.
+- No external dependency, public API, or payload-shape change is expected.

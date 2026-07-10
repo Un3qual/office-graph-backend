@@ -12,7 +12,7 @@
 
 - Run every project tool through `nix --extra-experimental-features 'nix-command flakes' develop --command`.
 - Use OpenSpec as the workflow source of truth; implement `eliminate-backend-query-fanout` and update its task checkboxes as work completes.
-- Keep durable writes Ash-managed; do not add `Repo.insert_all`, raw SQL, a new architecture exception, caching, or a migration.
+- Keep durable writes Ash-managed; do not add `Repo.insert_all`, raw SQL, a new architecture exception, or caching. Permit only the additive collection-position migration needed to preserve caller-visible ordering after bulk writes.
 - Preserve existing authorization, action defaults, validation messages, transaction rollback, caller-visible ordering, and return shapes.
 - Follow red-green-refactor: every production edit must be preceded by a focused failing test that fails for the expected query-shape or missing-helper reason.
 
