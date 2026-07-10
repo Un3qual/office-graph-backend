@@ -387,6 +387,55 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
            ) == 1
   end
 
+  test "same-scope validation isolates malformed IDs within bulk creates" do
+    {:ok, bootstrap} = bootstrap_scope("bulk-reference-malformed-id")
+
+    valid_signal_id = Ecto.UUID.generate()
+
+    valid_graph_item =
+      insert_graph_item!(
+        bootstrap,
+        "signal",
+        valid_signal_id,
+        "Valid bulk signal graph item"
+      )
+
+    valid_input =
+      bulk_signal_input(
+        bootstrap,
+        valid_signal_id,
+        valid_graph_item.id,
+        "Valid bulk signal"
+      )
+
+    malformed_input =
+      bulk_signal_input(
+        bootstrap,
+        Ecto.UUID.generate(),
+        "not-a-uuid",
+        "Malformed bulk signal"
+      )
+
+    assert %Ash.BulkResult{
+             status: :partial_success,
+             error_count: 1,
+             records: [%SignalResource{id: ^valid_signal_id}],
+             errors: [error]
+           } =
+             Ash.bulk_create([valid_input, malformed_input], SignalResource, :create,
+               actor: bootstrap.session,
+               authorize?: true,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: false
+             )
+
+    message = Exception.message(error)
+    assert message =~ "Invalid value provided for graph_item_id"
+    assert message =~ "not-a-uuid"
+  end
+
   test "repo Ash bulk create returns ordered records and skips empty inserts" do
     {empty_records, empty_queries} =
       QueryCounter.count(fn -> Repo.ash_bulk_create!(SignalResource, []) end)

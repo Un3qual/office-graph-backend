@@ -377,21 +377,17 @@ defmodule OfficeGraph.WorkPackets do
       version.success_criteria == attrs[:success_criteria] and
       version.autonomy_posture == attrs[:autonomy_posture] and
       source_graph_item_ids(source_references) ==
-        MapSet.new(Map.get(attrs, :source_graph_item_ids, [])) and
+        Map.get(attrs, :source_graph_item_ids, []) and
       required_check_ids(required_checks) ==
-        MapSet.new(Map.get(attrs, :verification_check_ids, []))
+        Map.get(attrs, :verification_check_ids, [])
   end
 
   defp source_graph_item_ids(source_references) do
-    source_references
-    |> Enum.map(& &1.graph_item_id)
-    |> MapSet.new()
+    Enum.map(source_references, & &1.graph_item_id)
   end
 
   defp required_check_ids(required_checks) do
-    required_checks
-    |> Enum.map(& &1.verification_check_id)
-    |> MapSet.new()
+    Enum.map(required_checks, & &1.verification_check_id)
   end
 
   defp lock_operation!(operation_id) do

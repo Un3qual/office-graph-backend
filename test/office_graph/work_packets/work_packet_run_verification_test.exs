@@ -750,6 +750,53 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work packet operation replay rejects reordered packet child input" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    verification_checks =
+      Enum.map(1..2, fn _index ->
+        {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+        verification_check
+      end)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-operation-order-conflict"
+      )
+
+    attrs = %{
+      title: "Replay order guarded packet",
+      objective: "Create an ordered packet once.",
+      context_summary: "Packet replay order conflict context.",
+      requirements: "Keep ordered operation replays stable.",
+      success_criteria: "The original packet order is preserved.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+      verification_check_ids: Enum.map(verification_checks, & &1.id)
+    }
+
+    assert {:ok, packet_result} = WorkPackets.create_packet(bootstrap.session, operation, attrs)
+
+    {:ok, replay_operation} =
+      Operations.start_operation(bootstrap.session, :work_packet_create,
+        idempotency_key: "packet-create-operation-order-conflict"
+      )
+
+    packet_id = packet_result.packet.id
+
+    assert {:error, {:work_packet_operation_conflict, ^packet_id}} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, %{
+               attrs
+               | source_graph_item_ids: Enum.reverse(attrs.source_graph_item_ids)
+             })
+
+    assert {:error, {:work_packet_operation_conflict, ^packet_id}} =
+             WorkPackets.create_packet(bootstrap.session, replay_operation, %{
+               attrs
+               | verification_check_ids: Enum.reverse(attrs.verification_check_ids)
+             })
+  end
+
   test "work packet operation replay returns existing packet after checks are satisfied" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
