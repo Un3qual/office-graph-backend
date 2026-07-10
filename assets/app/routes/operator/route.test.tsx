@@ -331,6 +331,59 @@ describe("operator route", () => {
     });
   });
 
+  it("returns to the previous inbox page when the next page fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        if (variables.after === "cursor_1") {
+          throw new Error("GraphQL unavailable secret_alpha");
+        }
+
+        return workflowConnectionResponse([operatorWorkflowItem()], variables, {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: "cursor_1",
+          endCursor: "cursor_1"
+        });
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load operator inbox."
+    );
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      const workflowCalls = network.mock.calls.filter(
+        ([request]) => request.name === "OperatorWorkflowRouteQuery"
+      );
+
+      expect(workflowCalls.at(-1)?.[1]).toEqual({ first: 50, after: null });
+      expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute(
+        "aria-current",
+        "true"
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    });
+  });
+
   it("renders a safe route error for Relay transport failures", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = vi.fn(async () => {

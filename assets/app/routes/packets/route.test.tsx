@@ -158,7 +158,7 @@ describe("packet workspace route", () => {
     });
   });
 
-  it("clears packet content and disables pagination when the next page fails", async () => {
+  it("returns to the previous packet page when the next page fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
       if (variables.after === "cursor_1") {
@@ -185,8 +185,19 @@ describe("packet workspace route", () => {
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
       "No packet selected."
     );
-    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: null });
+      expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
+        "aria-current",
+        "true"
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    });
   });
 
   it("bounds the compact packet list while preserving list scrolling", () => {

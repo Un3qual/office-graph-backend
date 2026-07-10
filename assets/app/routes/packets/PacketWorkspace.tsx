@@ -51,11 +51,23 @@ export function PacketWorkspaceLoading({ isPage }: { isPage: boolean }) {
   );
 }
 
-export function PacketWorkspaceError() {
+export function PacketWorkspaceError({
+  canPageBackward,
+  onPreviousPage
+}: {
+  canPageBackward: boolean;
+  onPreviousPage: () => void;
+}) {
   return (
     <PacketsLayout
       detail={<PacketDetail packet={null} />}
-      list={<PacketListFallback state="error" />}
+      list={
+        <PacketListFallback
+          canPageBackward={canPageBackward}
+          onPreviousPage={onPreviousPage}
+          state="error"
+        />
+      }
     />
   );
 }

@@ -64,7 +64,12 @@ export default function PacketsRoute() {
 
   return (
     <AsyncBoundary
-      errorFallback={<PacketWorkspaceError />}
+      errorFallback={
+        <PacketWorkspaceError
+          canPageBackward={navigation.previousCursors.length > 0}
+          onPreviousPage={loadPreviousPage}
+        />
+      }
       loadingFallback={<PacketWorkspaceLoading isPage={navigation.hasNavigated} />}
       resetKey={`packets:${navigation.page.after ?? "initial"}`}
     >

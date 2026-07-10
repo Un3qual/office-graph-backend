@@ -59,7 +59,12 @@ export default function OperatorRoute() {
 
   return (
     <AsyncBoundary
-      errorFallback={<OperatorWorkspaceError />}
+      errorFallback={
+        <OperatorWorkspaceError
+          canPageBackward={navigation.previousCursors.length > 0}
+          onPreviousPage={loadPreviousPage}
+        />
+      }
       loadingFallback={<OperatorWorkspaceLoading />}
       resetKey={`operator:${navigation.page.after ?? "initial"}`}
     >

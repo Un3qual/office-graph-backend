@@ -61,8 +61,24 @@ export function OperatorWorkspaceLoading() {
   return <OperatorFallbackWorkspace inbox={<InboxListFallback state="loading" />} />;
 }
 
-export function OperatorWorkspaceError() {
-  return <OperatorFallbackWorkspace inbox={<InboxListFallback state="error" />} />;
+export function OperatorWorkspaceError({
+  canPageBackward,
+  onPreviousPage
+}: {
+  canPageBackward: boolean;
+  onPreviousPage: () => void;
+}) {
+  return (
+    <OperatorFallbackWorkspace
+      inbox={
+        <InboxListFallback
+          canPageBackward={canPageBackward}
+          onPreviousPage={onPreviousPage}
+          state="error"
+        />
+      }
+    />
+  );
 }
 
 function OperatorFallbackWorkspace({ inbox }: { inbox: ReactNode }) {

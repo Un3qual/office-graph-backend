@@ -17,6 +17,8 @@ type Props = {
 };
 
 type FallbackProps = {
+  canPageBackward?: boolean;
+  onPreviousPage?: () => void;
   state: "error" | "loading";
 };
 
@@ -80,7 +82,11 @@ export function InboxList({
   );
 }
 
-export function InboxListFallback({ state }: FallbackProps) {
+export function InboxListFallback({
+  canPageBackward = false,
+  onPreviousPage,
+  state
+}: FallbackProps) {
   return (
     <section aria-label="Inbox" className="inbox-pane">
       <PaneHeader title="Inbox" meta="Live projection" />
@@ -95,6 +101,21 @@ export function InboxListFallback({ state }: FallbackProps) {
           </EmptyState>
         </div>
       )}
+      {state === "error" ? (
+        <div aria-label="Inbox pagination" className="inbox-pagination">
+          <span>0 rows</span>
+          <button
+            type="button"
+            disabled={!canPageBackward}
+            onClick={onPreviousPage}
+          >
+            Previous
+          </button>
+          <button type="button" disabled>
+            Next
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

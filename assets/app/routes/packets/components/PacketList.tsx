@@ -15,6 +15,8 @@ type Props = {
 };
 
 type FallbackProps = {
+  canPageBackward?: boolean;
+  onPreviousPage?: () => void;
   state: "error" | "initial-loading" | "page-loading";
 };
 
@@ -68,7 +70,11 @@ export function PacketList({
   );
 }
 
-export function PacketListFallback({ state }: FallbackProps) {
+export function PacketListFallback({
+  canPageBackward = false,
+  onPreviousPage,
+  state
+}: FallbackProps) {
   const loadingMessage =
     state === "page-loading" ? "Loading packet page..." : "Loading packets...";
 
@@ -76,7 +82,9 @@ export function PacketListFallback({ state }: FallbackProps) {
     <PacketListFrame
       footer={
         <>
-          <Button isDisabled>Previous</Button>
+          <Button isDisabled={!canPageBackward} onPress={onPreviousPage}>
+            Previous
+          </Button>
           <Button isDisabled>Next</Button>
         </>
       }
