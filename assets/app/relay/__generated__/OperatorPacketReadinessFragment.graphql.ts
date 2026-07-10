@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<d21ec4b649903bd3941fe3877db01a67>>
+ * @generated SignedSource<<ac1ed46ac937eb0971943f499f8510b5>>
  * @lightSyntaxTransform
  */
 
@@ -15,6 +15,11 @@ export type OperatorPacketReadinessFragment$data = {
   readonly commandAffordances: ReadonlyArray<{
     readonly blockerReasons: ReadonlyArray<string>;
     readonly identity: string;
+    readonly inputDefaults: ReadonlyArray<{
+      readonly field: string;
+      readonly value: string | null | undefined;
+      readonly values: ReadonlyArray<string>;
+    }>;
     readonly reasonCodes: ReadonlyArray<string>;
     readonly requiredFields: ReadonlyArray<string>;
     readonly safeExplanation: string;
@@ -42,6 +47,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorPacketReadinessFragment"
 };
 
-(node as any).hash = "afa36fee66b8041d85af33fc63e63481";
+(node as any).hash = "28f5c27158f26adcdbc6750f20093cbe";
 
 export default node;

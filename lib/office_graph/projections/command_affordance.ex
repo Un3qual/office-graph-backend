@@ -54,6 +54,7 @@ defmodule OfficeGraph.Projections.CommandAffordance do
       blocker_reasons: Keyword.get(opts, :blocker_reasons, []),
       safe_explanation: safe_explanation,
       required_fields: Keyword.get(opts, :required_fields, []),
+      input_defaults: Keyword.get(opts, :input_defaults, []),
       target_ids: Keyword.get(opts, :target_ids, []),
       trace_links: Keyword.get(opts, :trace_links, []),
       decision_links: Keyword.get(opts, :decision_links, [])
@@ -78,9 +79,21 @@ defmodule OfficeGraph.Projections.CommandAffordance do
   end
 
   def authorized?(session_context, capability) do
-    Authorization.authorize(session_context, capability,
+    Authorization.authorize_projection(session_context, capability,
       organization_id: session_context.organization_id
     ) == :ok
+  end
+
+  def input_default(field, values) when is_list(values) do
+    %{field: field, value: nil, values: values}
+  end
+
+  def input_default(field, nil) do
+    %{field: field, value: nil, values: []}
+  end
+
+  def input_default(field, value) do
+    %{field: field, value: to_string(value), values: []}
   end
 
   def enabled_identities(command_affordances) do

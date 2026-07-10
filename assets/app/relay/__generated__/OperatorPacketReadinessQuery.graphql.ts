@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<8febed4e0b19bd115ff5bbf206ee2cf0>>
+ * @generated SignedSource<<0bcd29b841ae099e264a2003270534c5>>
  * @lightSyntaxTransform
  */
 
@@ -125,6 +125,38 @@ v8 = {
       "args": null,
       "kind": "ScalarField",
       "name": "requiredFields",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorCommandInputDefault",
+      "kind": "LinkedField",
+      "name": "inputDefaults",
+      "plural": true,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "field",
+          "storageKey": null
+        },
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "value",
+          "storageKey": null
+        },
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "values",
+          "storageKey": null
+        }
+      ],
       "storageKey": null
     }
   ],
@@ -265,12 +297,12 @@ return {
     ]
   },
   "params": {
-    "cacheID": "7f5a2e3dfdda740b4f3b2871be10aec9",
+    "cacheID": "a5945b0acf46d70f7ac3201a9eea3af3",
     "id": null,
     "metadata": {},
     "name": "OperatorPacketReadinessQuery",
     "operationKind": "query",
-    "text": "query OperatorPacketReadinessQuery(\n  $input: OperatorPacketReadinessInput!\n) {\n  operatorPacketReadiness(input: $input) {\n    ...OperatorPacketReadinessFragment\n  }\n}\n\nfragment OperatorPacketReadinessFragment on OperatorPacketReadiness {\n  type\n  ready\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n  }\n  blockerReasons\n  sourceLinks {\n    title\n    id\n  }\n  requiredChecks {\n    state\n    id\n  }\n  sourceWatermark\n}\n"
+    "text": "query OperatorPacketReadinessQuery(\n  $input: OperatorPacketReadinessInput!\n) {\n  operatorPacketReadiness(input: $input) {\n    ...OperatorPacketReadinessFragment\n  }\n}\n\nfragment OperatorPacketReadinessFragment on OperatorPacketReadiness {\n  type\n  ready\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n  }\n  blockerReasons\n  sourceLinks {\n    title\n    id\n  }\n  requiredChecks {\n    state\n    id\n  }\n  sourceWatermark\n}\n"
   }
 };
 })();

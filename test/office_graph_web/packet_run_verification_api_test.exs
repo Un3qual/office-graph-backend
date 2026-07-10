@@ -131,6 +131,8 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
   test "GraphQL reports validation errors without creating durable flow writes", %{conn: conn} do
     {:ok, verification_check} = create_required_verification_check("graphql-invalid-ref")
 
+    invalid_source_graph_item_id = Ecto.UUID.generate()
+
     response =
       raw_graphql(
         conn,
@@ -144,11 +146,66 @@ defmodule OfficeGraphWeb.PacketRunVerificationApiTest do
         %{
           input:
             graphql_attrs("graphql-invalid-ref", verification_check)
-            |> Map.put(:sourceGraphItemId, Ecto.UUID.generate())
+            |> Map.put(:sourceGraphItemId, invalid_source_graph_item_id)
         }
       )
 
-    assert [%{"extensions" => %{"code" => "validation_failed"}}] = response["errors"]
+    assert [%{"extensions" => extensions}] = response["errors"]
+    assert extensions["code"] == "source_graph_item_check_mismatch"
+    assert extensions["source_graph_item_id"] == invalid_source_graph_item_id
+    assert extensions["verification_check_id"] == verification_check.id
+  end
+
+  test "GraphQL reports packet-run readiness failures with stable extensions", %{conn: conn} do
+    {:ok, verification_check} = create_required_verification_check("graphql-invalid-readiness")
+
+    response =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_attrs("graphql-invalid-readiness", verification_check)
+            |> Map.put(:autonomyPosture, "fully_autonomous")
+        }
+      )
+
+    assert [%{"extensions" => extensions}] = response["errors"]
+    assert extensions["code"] == "packet_run_input_not_ready"
+    assert extensions["reason"] == "packet_readiness"
+  end
+
+  test "GraphQL reports unsupported packet-run evidence results with stable extensions", %{
+    conn: conn
+  } do
+    {:ok, verification_check} = create_required_verification_check("graphql-invalid-result")
+
+    response =
+      raw_graphql(
+        conn,
+        """
+        mutation Execute($input: ExecutePacketRunVerificationInput!) {
+          executePacketRunVerification(input: $input) {
+            run { id }
+          }
+        }
+        """,
+        %{
+          input:
+            graphql_attrs("graphql-invalid-result", verification_check)
+            |> Map.put(:evidenceResult, "inconclusive")
+        }
+      )
+
+    assert [%{"extensions" => extensions}] = response["errors"]
+    assert extensions["code"] == "invalid_evidence_result"
+    assert extensions["evidence_result"] == "inconclusive"
   end
 
   defp assert_summary_verified(summary, verification_check_id) do

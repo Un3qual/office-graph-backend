@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchQuery, readInlineData, useRelayEnvironment } from "react-relay";
 import type { GraphQLResponse } from "relay-runtime";
 import type { OperatorPacketReadinessFragment$key } from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
@@ -17,6 +17,7 @@ import {
 } from "./data";
 import {
   packetReadinessInputForItem,
+  packetReadinessForItem,
   runIdForItem,
   verificationOutcomeFromRunState
 } from "./derived";
@@ -42,6 +43,10 @@ export function useOperatorWorkflow() {
   const [inboxQuery, setInboxQuery] = useState<QueryState<OperatorInbox>>(idleQueryState);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<"inbox" | "external">("inbox");
+  const [validatedReadinessQuery, setValidatedReadinessQuery] =
+    useState<QueryState<PacketReadiness>>(idleQueryState);
+  const readinessValidationToken = useRef(0);
+  const readinessValidationSubscription = useRef<{ unsubscribe(): void } | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
@@ -134,7 +139,68 @@ export function useOperatorWorkflow() {
     () => (selectedItem ? packetReadinessInputForItem(selectedItem) : null),
     [selectedItem]
   );
-  const readinessQuery = usePacketReadinessRelayQuery(readinessInput);
+  const readiness = useMemo(
+    () => (selectedItem && readinessInput ? packetReadinessForItem(selectedItem, readinessInput) : null),
+    [readinessInput, selectedItem]
+  );
+  useEffect(() => {
+    readinessValidationToken.current += 1;
+    readinessValidationSubscription.current?.unsubscribe();
+    readinessValidationSubscription.current = null;
+    setValidatedReadinessQuery(idleQueryState());
+  }, [readinessInput, selectedId]);
+  useEffect(
+    () => () => {
+      readinessValidationToken.current += 1;
+      readinessValidationSubscription.current?.unsubscribe();
+    },
+    []
+  );
+  const readinessQuery = useMemo(
+    () => {
+      if (
+        validatedReadinessQuery.data ||
+        validatedReadinessQuery.isError ||
+        validatedReadinessQuery.fetchStatus !== "idle"
+      ) {
+        return validatedReadinessQuery;
+      }
+
+      return readiness
+        ? successQueryState<PacketReadiness>(readiness)
+        : idleQueryState<PacketReadiness>();
+    },
+    [readiness, validatedReadinessQuery]
+  );
+  const activeReadiness = validatedReadinessQuery.data ?? readiness;
+  const validatePacketReadiness = useCallback(() => {
+    if (!readinessInput || !readiness) {
+      return;
+    }
+
+    const validationToken = readinessValidationToken.current + 1;
+    readinessValidationToken.current = validationToken;
+    readinessValidationSubscription.current?.unsubscribe();
+    setValidatedReadinessQuery(startLoading(successQueryState(readiness)));
+
+    readinessValidationSubscription.current = fetchQuery<OperatorPacketReadinessOperation>(
+      relayEnvironment,
+      OperatorPacketReadinessQuery,
+      { input: packetReadinessQueryInput(readinessInput) },
+      { fetchPolicy: "network-only" }
+    ).subscribe({
+      next: (data) => {
+        if (readinessValidationToken.current === validationToken) {
+          setValidatedReadinessQuery(successQueryState(packetReadinessFromRelay(data)));
+        }
+      },
+      error: (error: unknown) => {
+        if (readinessValidationToken.current === validationToken) {
+          setValidatedReadinessQuery((state) => errorQueryState(state, error));
+        }
+      }
+    });
+  }, [readiness, readinessInput, relayEnvironment]);
   const runId = runIdForItem(selectedItem);
   const runStateQuery = useOperatorRunStateRelayQuery(runId);
   const verification = runStateQuery.data ? verificationOutcomeFromRunState(runStateQuery.data) : null;
@@ -146,7 +212,7 @@ export function useOperatorWorkflow() {
     itemQuery: idleQueryState<OperatorWorkflowItem>(),
     loadNextInboxPage,
     loadPreviousInboxPage,
-    readiness: readinessQuery.data,
+    readiness: activeReadiness,
     readinessInput,
     readinessQuery,
     rows: inboxQuery.data?.rows ?? [],
@@ -155,53 +221,12 @@ export function useOperatorWorkflow() {
     selectedId,
     selectedItem,
     selectInboxItem,
+    validatePacketReadiness,
     verification
   };
 }
 
 export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
-
-function usePacketReadinessRelayQuery(input: PacketReadinessInput | null) {
-  const relayEnvironment = useRelayEnvironment();
-  const [query, setQuery] = useState<QueryState<PacketReadiness>>(idleQueryState);
-  const queryKey = input ? packetReadinessInputKey(input) : "none";
-
-  useEffect(() => {
-    if (!input) {
-      setQuery(idleQueryState());
-      return;
-    }
-
-    let isCurrent = true;
-
-    setQuery(loadingQueryState());
-
-    const subscription = fetchQuery<OperatorPacketReadinessOperation>(
-      relayEnvironment,
-      OperatorPacketReadinessQuery,
-      { input },
-      { fetchPolicy: "network-only" }
-    ).subscribe({
-      next: (data) => {
-        if (isCurrent) {
-          setQuery(successQueryState(packetReadinessFromRelay(data)));
-        }
-      },
-      error: (error: unknown) => {
-        if (isCurrent) {
-          setQuery((state) => errorQueryState(state, error));
-        }
-      }
-    });
-
-    return () => {
-      isCurrent = false;
-      subscription.unsubscribe();
-    };
-  }, [input, queryKey, relayEnvironment]);
-
-  return query;
-}
 
 function useOperatorRunStateRelayQuery(runId: string | null) {
   const relayEnvironment = useRelayEnvironment();
@@ -279,17 +304,6 @@ function workflowConnectionFromRelay(
   };
 }
 
-function packetReadinessFromRelay(data: OperatorPacketReadinessOperation["response"]): PacketReadiness {
-  if (!data.operatorPacketReadiness) {
-    throw new Error("The GraphQL packet readiness projection was empty.");
-  }
-
-  return readInlineData(
-    OperatorPacketReadinessFragment,
-    data.operatorPacketReadiness as OperatorPacketReadinessFragment$key
-  ) as PacketReadiness;
-}
-
 function runStateFromRelay(data: OperatorRunStateOperation["response"]): OperatorRunState {
   if (!data.operatorRunState) {
     throw new Error("The GraphQL operator run state projection was empty.");
@@ -301,17 +315,32 @@ function runStateFromRelay(data: OperatorRunStateOperation["response"]): Operato
   ) as OperatorRunState;
 }
 
-function packetReadinessInputKey(input: PacketReadinessInput) {
-  return [
-    input.title,
-    input.objective,
-    input.contextSummary,
-    input.requirements,
-    input.successCriteria,
-    input.autonomyPosture,
-    [...input.sourceGraphItemIds].sort().join(","),
-    [...input.verificationCheckIds].sort().join(",")
-  ].join("\u0000");
+function packetReadinessFromRelay(
+  data: OperatorPacketReadinessOperation["response"]
+): PacketReadiness {
+  if (!data.operatorPacketReadiness) {
+    throw new Error("The GraphQL packet readiness projection was empty.");
+  }
+
+  return readInlineData(
+    OperatorPacketReadinessFragment,
+    data.operatorPacketReadiness as OperatorPacketReadinessFragment$key
+  ) as PacketReadiness;
+}
+
+function packetReadinessQueryInput(
+  input: PacketReadinessInput
+): OperatorPacketReadinessOperation["variables"]["input"] {
+  return {
+    title: input.title,
+    objective: input.objective,
+    contextSummary: input.contextSummary,
+    requirements: input.requirements,
+    successCriteria: input.successCriteria,
+    autonomyPosture: input.autonomyPosture,
+    sourceGraphItemIds: input.sourceGraphItemIds,
+    verificationCheckIds: input.verificationCheckIds
+  };
 }
 
 function idleQueryState<T>(): QueryState<T> {

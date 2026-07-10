@@ -84,7 +84,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   end
 
   defp authorize_read(session_context) do
-    Authorization.authorize(session_context, :skeleton_read,
+    Authorization.authorize_projection(session_context, :skeleton_read,
       organization_id: session_context.organization_id
     )
   end
@@ -778,15 +778,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp intake_command_affordances(
          _session_context,
          %{work_packet_create: false},
-         _event,
+         event,
          "ready_for_packet",
          _reason_codes,
-         _graph_links,
+         graph_links,
          _trace
        ) do
     [
       CommandAffordance.policy_restricted("prepare_packet",
-        required_fields: CommandAffordance.packet_required_fields()
+        required_fields: CommandAffordance.packet_required_fields(),
+        input_defaults: packet_input_defaults(event, graph_links)
       )
     ]
   end
@@ -794,7 +795,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp intake_command_affordances(
          _session_context,
          _command_authorizations,
-         _event,
+         event,
          "ready_for_packet",
          _reason_codes,
          graph_links,
@@ -805,6 +806,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         "prepare_packet",
         "Prepare a work packet from the applied intake.",
         required_fields: CommandAffordance.packet_required_fields(),
+        input_defaults: packet_input_defaults(event, graph_links),
         target_ids: graph_link_target_ids(graph_links),
         trace_links: trace_links(trace)
       )
@@ -847,6 +849,60 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     graph_links
     |> Enum.map(&CommandAffordance.target_id(&1.type, &1.id))
     |> CommandAffordance.compact_target_ids()
+  end
+
+  defp packet_input_defaults(event, graph_links) do
+    source_links =
+      Enum.filter(graph_links, fn link -> link.graph_item_id && link.type != "work_run" end)
+
+    verification_links = Enum.filter(graph_links, &(&1.type == "verification_check"))
+    primary_verification_link = List.first(verification_links)
+    source_titles = unique_non_blank(Enum.map(source_links, &(&1.title || "")))
+    verification_titles = unique_non_blank(Enum.map(verification_links, &(&1.title || "")))
+    title = first_non_blank(verification_titles ++ source_titles ++ [event.id])
+    source_summary = Enum.join(source_titles, "\n")
+    verification_summary = Enum.join(verification_titles, "\n")
+
+    [
+      CommandAffordance.input_default("title", title),
+      CommandAffordance.input_default("objective", title),
+      CommandAffordance.input_default("context_summary", source_summary),
+      CommandAffordance.input_default("requirements", source_summary),
+      CommandAffordance.input_default("success_criteria", verification_summary),
+      CommandAffordance.input_default("autonomy_posture", "human_supervised"),
+      CommandAffordance.input_default(
+        "source_graph_item_ids",
+        Enum.flat_map(source_links, fn link ->
+          if link.graph_item_id, do: [link.graph_item_id], else: []
+        end)
+      ),
+      CommandAffordance.input_default(
+        "verification_check_ids",
+        Enum.map(verification_links, & &1.id)
+      ),
+      CommandAffordance.input_default(
+        "primary_source_graph_item_id",
+        primary_verification_link && primary_verification_link.graph_item_id
+      ),
+      CommandAffordance.input_default(
+        "primary_verification_check_id",
+        primary_verification_link && primary_verification_link.id
+      )
+    ]
+  end
+
+  defp unique_non_blank(values) do
+    values
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp first_non_blank(values) do
+    Enum.find_value(values, "", fn value ->
+      trimmed = String.trim(value)
+      if trimmed == "", do: nil, else: trimmed
+    end)
   end
 
   defp trace_links(%{operation_id: nil}), do: []

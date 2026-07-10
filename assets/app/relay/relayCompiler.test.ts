@@ -44,14 +44,17 @@ describe("Relay compiler workflow", () => {
 
     expect(dataSource).toContain("OperatorWorkflowRouteQuery");
     expect(dataSource).toContain("OperatorWorkflowItemFragment");
-    expect(dataSource).toContain("ExecutePacketRunVerificationMutation");
+    expect(dataSource).toContain("OperatorPacketReadinessQuery");
+    expect(dataSource).toContain("OperatorRunStateQuery");
+    expect(dataSource).not.toContain("ExecutePacketRunVerificationMutation");
+    expect(dataSource).not.toContain("updateOperatorWorkflowAfterVerification");
     expect(dataSource).toContain("operatorWorkflowItems");
     expect(dataSource).not.toContain("@connection");
     expect(dataSource).not.toContain("ConnectionHandler.getConnection");
     expect(dataSource).not.toContain("@tanstack/react-query");
   });
 
-  it("generates TypeScript artifacts for the operator query, fragment, and mutation", () => {
+  it("generates TypeScript artifacts for the operator queries and fragments", () => {
     const generatedDir = join(assetsRoot, "app/relay/__generated__");
 
     expect(readGenerated(generatedDir, "OperatorWorkflowRouteQuery.graphql.ts")).toContain(
@@ -60,19 +63,15 @@ describe("Relay compiler workflow", () => {
     expect(readGenerated(generatedDir, "OperatorWorkflowItemFragment.graphql.ts")).toContain(
       "export type OperatorWorkflowItemFragment$key"
     );
-    expect(
-      readGenerated(generatedDir, "ExecutePacketRunVerificationMutation.graphql.ts")
-    ).toContain("export type ExecutePacketRunVerificationMutation$data");
-  });
-
-  it("exposes mutation payload and store-update helpers for ergonomic tests", () => {
-    const helperSource = readFileSync(join(assetsRoot, "app/relay/operatorTestPayloads.ts"), "utf8");
-    const dataSource = readFileSync(join(assetsRoot, "app/routes/operator/data.ts"), "utf8");
-
-    expect(helperSource).toContain("ExecutePacketRunVerificationMutation$data");
-    expect(helperSource).toContain("operatorVerificationMutationPayload");
-    expect(dataSource).toContain("operatorWorkflowRouteRootID");
-    expect(dataSource).toContain("updateOperatorWorkflowAfterVerification");
+    expect(readGenerated(generatedDir, "OperatorPacketReadinessQuery.graphql.ts")).toContain(
+      "export type OperatorPacketReadinessQuery$data"
+    );
+    expect(readGenerated(generatedDir, "OperatorRunStateQuery.graphql.ts")).toContain(
+      "export type OperatorRunStateQuery$data"
+    );
+    expect(existsSync(join(generatedDir, "ExecutePacketRunVerificationMutation.graphql.ts"))).toBe(
+      false
+    );
   });
 });
 

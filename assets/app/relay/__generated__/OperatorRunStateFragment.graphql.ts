@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<3fe1aefe07f99ed8b454f77265a96362>>
+ * @generated SignedSource<<f72e81ce8cdea13aca7304692ebdaae8>>
  * @lightSyntaxTransform
  */
 
@@ -14,6 +14,11 @@ export type OperatorRunStateFragment$data = {
   readonly commandAffordances: ReadonlyArray<{
     readonly blockerReasons: ReadonlyArray<string>;
     readonly identity: string;
+    readonly inputDefaults: ReadonlyArray<{
+      readonly field: string;
+      readonly value: string | null | undefined;
+      readonly values: ReadonlyArray<string>;
+    }>;
     readonly reasonCodes: ReadonlyArray<string>;
     readonly requiredFields: ReadonlyArray<string>;
     readonly safeExplanation: string;
@@ -98,6 +103,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "f12d1aba0ea41cd910c5a0693f2052a3";
+(node as any).hash = "4c6fa1f3b6013e147ae2e35e6190cdd4";
 
 export default node;

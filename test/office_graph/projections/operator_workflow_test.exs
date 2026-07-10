@@ -216,7 +216,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert next_page.next_cursor == nil
   end
 
-  test "trusted session capabilities are revalidated for projection reads" do
+  test "trusted session capabilities avoid auth table revalidation for projection reads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, _intake} = submit_manual_intake(bootstrap.session, "trusted-auth-query")
 
@@ -225,7 +225,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert inbox.empty? == false
 
-    assert QueryCounter.source_count(queries, "role_assignments") >= 1
+    assert QueryCounter.source_count(queries, "capabilities") == 0
+    assert QueryCounter.source_count(queries, "role_capabilities") == 0
+    assert QueryCounter.source_count(queries, "roles") == 0
+    assert QueryCounter.source_count(queries, "role_assignments") == 0
   end
 
   test "terminal linked work runs replace packet handoff status" do
@@ -363,6 +366,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert {:ok, ready} = Projections.packet_readiness(bootstrap.session, ready_attrs)
     assert ready.ready? == true
     assert ready.status == "packet_ready"
+    assert is_binary(ready.source_watermark)
     assert ready.blocker_reasons == []
     assert ready.allowed_next_actions == ["create_work_packet"]
     assert [create_packet] = ready.command_affordances
@@ -389,6 +393,41 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert %{type: "verification_check", id: verification_check.id} in create_packet.target_ids
     assert create_packet.trace_links == []
     assert create_packet.decision_links == []
+    assert packet_default_value(create_packet, "title") == "Ready operator packet"
+
+    assert packet_default_values(create_packet, "source_graph_item_ids") == [
+             verification_check.graph_item_id
+           ]
+
+    assert packet_default_values(create_packet, "verification_check_ids") == [
+             verification_check.id
+           ]
+
+    assert packet_default_value(create_packet, "primary_source_graph_item_id") ==
+             verification_check.graph_item_id
+
+    assert packet_default_value(create_packet, "primary_verification_check_id") ==
+             verification_check.id
+
+    {:ok, second_verification_check} = create_required_verification_check(bootstrap.session)
+
+    assert {:ok, reordered} =
+             Projections.packet_readiness(bootstrap.session, %{
+               ready_attrs
+               | source_graph_item_ids: [
+                   verification_check.graph_item_id,
+                   second_verification_check.graph_item_id
+                 ],
+                 verification_check_ids: [second_verification_check.id, verification_check.id]
+             })
+
+    assert [reordered_create_packet] = reordered.command_affordances
+
+    assert packet_default_value(reordered_create_packet, "primary_verification_check_id") ==
+             second_verification_check.id
+
+    assert packet_default_value(reordered_create_packet, "primary_source_graph_item_id") ==
+             second_verification_check.graph_item_id
 
     assert ready.required_checks == [
              %{
@@ -548,6 +587,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.operator_run_state(bootstrap.session, run_result.run.id)
 
     assert initial_state.status == "awaiting_execution"
+    assert is_binary(initial_state.source_watermark)
     assert initial_state.allowed_next_actions == ["record_observation"]
     assert [record_observation] = initial_state.command_affordances
     assert record_observation.identity == "record_observation"
@@ -651,6 +691,45 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert operation_id == accepted.verification_result.operation_id
     assert actor_principal_id == bootstrap.session.principal_id
     assert target_graph_item_id == verification_check.graph_item_id
+  end
+
+  test "operator run state source watermark changes when visible child state changes" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    assert {:ok, initial_state} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "run-watermark-observation"
+      )
+
+    assert {:ok, observed_state} =
+             Projections.operator_run_state(bootstrap.session, observation_result.run.id)
+
+    refute observed_state.source_watermark == initial_state.source_watermark
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        observation_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "run-watermark-candidate"
+      )
+
+    {:ok, accepted} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "run-watermark-candidate",
+        result: "passed"
+      )
+
+    assert {:ok, accepted_state} =
+             Projections.operator_run_state(bootstrap.session, accepted.work_run.id)
+
+    refute accepted_state.source_watermark == observed_state.source_watermark
   end
 
   test "operator run state does not offer acceptance for unusable evidence candidates" do
@@ -780,7 +859,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert failed_state.allowed_next_actions == []
 
     assert failed_state.missing_evidence == [
-             %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
+             %{verification_check_id: verification_check.id, reason: "failed_check"}
            ]
 
     assert [%{id: result_id, result: "failed"}] = failed_state.verification_results
@@ -1006,8 +1085,27 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       session_id: session.id,
       organization_id: bootstrap.organization.id,
       workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(capability_keys)
+      capabilities: MapSet.new(capability_keys),
+      trusted?: true
     }
+  end
+
+  defp packet_default_value(command_affordance, field) do
+    command_affordance.input_defaults
+    |> Enum.find(&(&1.field == field))
+    |> case do
+      nil -> nil
+      default -> default.value
+    end
+  end
+
+  defp packet_default_values(command_affordance, field) do
+    command_affordance.input_defaults
+    |> Enum.find(&(&1.field == field))
+    |> case do
+      nil -> []
+      default -> default.values
+    end
   end
 
   defp start_run_for_packet_version(session, packet_version, key) do
