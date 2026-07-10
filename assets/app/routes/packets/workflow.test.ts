@@ -1,224 +1,46 @@
-import { act, createElement, type ReactNode } from "react";
-import { renderHook, waitFor } from "@testing-library/react";
-import { RelayEnvironmentProvider } from "react-relay";
-import {
-  Environment,
-  Network,
-  Observable,
-  RecordSource,
-  Store,
-  type FetchFunction,
-  type GraphQLResponse
-} from "relay-runtime";
-import { describe, expect, it, vi } from "vitest";
-import { getOfficeGraphDataID } from "../../relay/environment";
-import { usePacketsWorkflow } from "./workflow";
+import { describe, expect, it } from "vitest";
+import { packetConnectionFromRows, selectedPacketId } from "./workflow";
 
 describe("packet route workflow", () => {
-  it("maps empty and populated connections and keeps selection local", async () => {
-    const emptyWorkflow = renderWorkflow(packetNetwork([]));
+  it("maps only the connection fields consumed by the packet workspace", () => {
+    const rows = [packet()];
 
-    await waitFor(() => expect(emptyWorkflow.result.current.packetQuery.isSuccess).toBe(true));
-    expect(emptyWorkflow.result.current.rows).toEqual([]);
-    expect(emptyWorkflow.result.current.selectedPacket).toBeNull();
-
-    emptyWorkflow.unmount();
-
-    const populatedWorkflow = renderWorkflow(
-      packetNetwork([packet(), packet({ id: "packet_2", title: "Second packet" })])
-    );
-
-    await waitFor(() => {
-      expect(populatedWorkflow.result.current.rows).toEqual([
-        {
-          id: "packet_1",
-          title: "First packet",
-          state: "active",
-          currentVersionId: "version_1",
-          operationId: "operation_1",
-          updatedAt: "2026-07-09T12:00:00Z"
-        },
-        {
-          id: "packet_2",
-          title: "Second packet",
-          state: "active",
-          currentVersionId: "version_1",
-          operationId: "operation_1",
-          updatedAt: "2026-07-09T12:00:00Z"
-        }
-      ]);
-      expect(populatedWorkflow.result.current.selectedPacket?.id).toBe("packet_1");
-    });
-
-    act(() => populatedWorkflow.result.current.selectPacket("packet_2"));
-
-    expect(populatedWorkflow.result.current.selectedPacket?.id).toBe("packet_2");
-  });
-
-  it("uses Relay cursors for next and previous pages and rehomes selection", async () => {
-    const firstPacket = packet();
-    const secondPacket = packet({ id: "packet_2", title: "Second packet" });
-    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> =>
-      variables.after === "cursor_1"
-        ? packetConnectionResponse([secondPacket], {
-            hasNextPage: false,
-            hasPreviousPage: true,
-            startCursor: "cursor_2",
-            endCursor: "cursor_2"
-          })
-        : packetConnectionResponse([firstPacket], {
-            hasNextPage: true,
-            hasPreviousPage: false,
-            startCursor: "cursor_1",
-            endCursor: "cursor_1"
-          })
-    );
-    const workflow = renderWorkflow(network);
-
-    await waitFor(() => {
-      expect(workflow.result.current.selectedPacket?.id).toBe("packet_1");
-      expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(true);
-      expect(workflow.result.current.packetQuery.data?.hasPreviousPage).toBe(false);
-      expect(workflow.result.current.canPageBackward).toBe(false);
-    });
-
-    act(() => workflow.result.current.loadNextPage());
-
-    await waitFor(() => {
-      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: "cursor_1" });
-      expect(workflow.result.current.selectedPacket?.id).toBe("packet_2");
-      expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(false);
-      expect(workflow.result.current.packetQuery.data?.hasPreviousPage).toBe(true);
-      expect(workflow.result.current.canPageBackward).toBe(true);
-    });
-
-    act(() => workflow.result.current.loadPreviousPage());
-
-    await waitFor(() => {
-      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: null });
-      expect(workflow.result.current.selectedPacket?.id).toBe("packet_1");
-      expect(workflow.result.current.canPageBackward).toBe(false);
-    });
-  });
-
-  it("disables forward pagination when Relay omits the end cursor", async () => {
-    const network = vi.fn(async (): Promise<GraphQLResponse> =>
-      packetConnectionResponse([packet()], {
-        hasNextPage: true,
-        endCursor: null
+    expect(
+      packetConnectionFromRows(rows, {
+        endCursor: "cursor_1",
+        hasNextPage: true
       })
-    );
-    const workflow = renderWorkflow(network);
-
-    await waitFor(() => expect(workflow.result.current.packetQuery.isSuccess).toBe(true));
-    expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(false);
-    expect(workflow.result.current.packetQuery.data?.nextCursor).toBeNull();
-
-    act(() => workflow.result.current.loadNextPage());
-
-    expect(network).toHaveBeenCalledOnce();
-    expect(workflow.result.current.packetPage).toEqual({ first: 50, after: null });
+    ).toEqual({
+      hasNextPage: true,
+      nextCursor: "cursor_1",
+      rows
+    });
   });
 
-  it("invalidates the prior connection and selection when pagination fails", async () => {
-    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
-      if (variables.after === "cursor_1") {
-        throw new Error("authorization policy secret_alpha denied packet_9");
-      }
-
-      return packetConnectionResponse([packet()], {
-        hasNextPage: true,
-        endCursor: "cursor_1"
-      });
-    });
-    const workflow = renderWorkflow(network);
-
-    await waitFor(() => {
-      expect(workflow.result.current.selectedPacket?.id).toBe("packet_1");
-      expect(workflow.result.current.packetQuery.data?.hasNextPage).toBe(true);
-    });
-
-    act(() => workflow.result.current.loadNextPage());
-
-    await waitFor(() => expect(workflow.result.current.packetQuery.isError).toBe(true));
-    expect(workflow.result.current.packetQuery.error?.message).toBe("Unable to load packets.");
-    expect(workflow.result.current.packetQuery.data).toBeNull();
-    expect(workflow.result.current.rows).toEqual([]);
-    expect(workflow.result.current.selectedId).toBeNull();
-    expect(workflow.result.current.selectedPacket).toBeNull();
-    expect(workflow.result.current.canPageBackward).toBe(false);
-  });
-
-  it("normalizes Relay failures without exposing server details", async () => {
-    const workflow = renderWorkflow(
-      vi.fn(async () => {
-        throw new Error("authorization policy bundle secret_alpha denied packet_9");
+  it("disables forward pagination when Relay omits the end cursor", () => {
+    expect(
+      packetConnectionFromRows([packet()], {
+        endCursor: null,
+        hasNextPage: true
       })
-    );
-
-    await waitFor(() => expect(workflow.result.current.packetQuery.isError).toBe(true));
-    expect(workflow.result.current.packetQuery.error?.message).toBe("Unable to load packets.");
-    expect(workflow.result.current.packetQuery.error?.message).not.toMatch(/secret_alpha|packet_9/);
+    ).toMatchObject({
+      hasNextPage: false,
+      nextCursor: null
+    });
   });
 
-  it("unsubscribes from the Relay observable when the route workflow unmounts", async () => {
-    const didUnsubscribe = vi.fn();
-    const network: FetchFunction = () =>
-      Observable.create(() => {
-        return () => didUnsubscribe();
-      });
-    const workflow = renderWorkflow(network);
+  it("derives selection from the requested row or the first row without mirroring state", () => {
+    const rows = [packet(), packet({ id: "packet_2", title: "Second packet" })];
 
-    await act(async () => undefined);
-    workflow.unmount();
-
-    expect(didUnsubscribe).toHaveBeenCalledOnce();
+    expect(selectedPacketId(rows, null)).toBe("packet_1");
+    expect(selectedPacketId(rows, "packet_2")).toBe("packet_2");
+    expect(selectedPacketId(rows, "packet_missing")).toBe("packet_1");
+    expect(selectedPacketId([], "packet_2")).toBeNull();
   });
 });
 
-function renderWorkflow(network: FetchFunction) {
-  const environment = new Environment({
-    getDataID: getOfficeGraphDataID,
-    network: Network.create(network),
-    store: new Store(new RecordSource())
-  });
-
-  return renderHook(() => usePacketsWorkflow(), {
-    wrapper: ({ children }: { children: ReactNode }) =>
-      createElement(RelayEnvironmentProvider, { environment, children })
-  });
-}
-
-function packetNetwork(packets: ReturnType<typeof packet>[]) {
-  return vi.fn(async (): Promise<GraphQLResponse> => packetConnectionResponse(packets));
-}
-
-function packetConnectionResponse(
-  packets: ReturnType<typeof packet>[],
-  pageInfoOverrides: Partial<PageInfoPayload> = {}
-): GraphQLResponse {
+function packet(overrides: Partial<Packet> = {}): Packet {
   return {
-    data: {
-      listWorkPackets: {
-        edges: packets.map((node, index) => ({
-          cursor: `cursor_${index + 1}`,
-          node
-        })),
-        pageInfo: {
-          hasNextPage: false,
-          hasPreviousPage: false,
-          startCursor: packets.length > 0 ? "cursor_1" : null,
-          endCursor: packets.length > 0 ? `cursor_${packets.length}` : null,
-          ...pageInfoOverrides
-        }
-      }
-    }
-  };
-}
-
-function packet(overrides: Partial<PacketPayload> = {}) {
-  return {
-    __typename: "WorkPacket",
     id: "packet_1",
     title: "First packet",
     state: "active",
@@ -229,18 +51,11 @@ function packet(overrides: Partial<PacketPayload> = {}) {
   };
 }
 
-type PacketPayload = {
+type Packet = {
   id: string;
   title: string;
   state: string;
   currentVersionId: string | null;
   operationId: string | null;
   updatedAt: string;
-};
-
-type PageInfoPayload = {
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-  startCursor: string | null;
-  endCursor: string | null;
 };

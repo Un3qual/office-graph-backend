@@ -1,10 +1,10 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { EmptyState } from "../../../../src/ui/EmptyState";
 import { formatPacketUpdatedAt } from "../formatters";
-import type { PacketsWorkflowState } from "../workflow";
+import type { PacketRow } from "../types";
 
 type Props = {
-  packet: PacketsWorkflowState["selectedPacket"];
+  packet: PacketRow | null;
 };
 
 export function PacketDetail({ packet }: Props) {

@@ -14,9 +14,12 @@ describe("packet route data architecture", () => {
     expect(dataSource).toContain("PacketsRouteQuery");
     expect(dataSource).toContain("listWorkPackets");
     expect(workflowSource).toContain("usePacketsWorkflow");
-    expect(workflowSource).toContain("useRelayEnvironment");
-    expect(workflowSource).toContain("fetchQuery");
-    expect(workflowSource).toContain("subscription.unsubscribe()");
+    expect(workflowSource).toContain("useLazyLoadQuery");
+    expect(workflowSource).not.toContain("useRelayEnvironment");
+    expect(workflowSource).not.toContain("fetchQuery");
+    expect(workflowSource).not.toContain("QueryState");
+    expect(workflowSource).not.toContain("subscription.unsubscribe()");
+    expect(workflowSource).not.toContain("useEffect");
     expect(routeSource).not.toContain("@tanstack/react-query");
     expect(routeSource).not.toContain("GraphQLFetcher");
     expect(routeSource).not.toContain("fetchGraphQL");
@@ -32,6 +35,20 @@ describe("packet route data architecture", () => {
     expect(typesSource).not.toContain('" $fragmentType"');
     expect(workflowSource).toContain("PacketsRoutePacketFragment$data");
     expect(workflowSource).toContain("PacketsRouteQuery as PacketsRouteOperation");
+  });
+
+  it("keeps only consumed fields in the packet connection view model", () => {
+    const typesSource = readFileSync(join(routeRoot, "types.ts"), "utf8");
+    const connectionSource =
+      typesSource.match(/export type PacketConnection<TPacket> = \{([^}]*)\}/)?.[1] ?? "";
+
+    expect(connectionSource).toContain("hasNextPage: boolean");
+    expect(connectionSource).toContain("nextCursor: string | null");
+    expect(connectionSource).toContain("rows: TPacket[]");
+    expect(connectionSource).not.toContain("after: string | null");
+    expect(connectionSource).not.toContain("empty: boolean");
+    expect(connectionSource).not.toContain("hasPreviousPage: boolean");
+    expect(connectionSource).not.toContain("startCursor: string | null");
   });
 
   it("keeps the registered packet workspace and product UI owned by the route", () => {

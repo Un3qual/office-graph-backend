@@ -6,7 +6,7 @@
 
 ## 2. Packet Relay Hook Migration
 
-- [ ] 2.1 Add failing packet route and workflow tests for render-time Relay
+- [x] 2.1 Add failing packet route and workflow tests for render-time Relay
   loading, safe initial and pagination errors, page-replacement selection, and
   the lean packet connection shape; migrate the route to `useLazyLoadQuery`
   under the generic boundary and remove packet `QueryState` lifecycle code.

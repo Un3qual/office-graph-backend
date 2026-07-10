@@ -11,11 +11,15 @@ import {
   type FetchFunction,
   type GraphQLResponse
 } from "relay-runtime";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
 import PacketsRoute from "./route";
 
 describe("packet workspace route", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("renders an explicit loading state", () => {
     const request = deferredGraphQLResponse();
 
@@ -35,6 +39,7 @@ describe("packet workspace route", () => {
   });
 
   it("renders a safe error without exposing Relay details", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     renderWithRelay(
       vi.fn(async () => {
         throw new Error("authorization policy secret_alpha denied packet_9");
@@ -93,8 +98,8 @@ describe("packet workspace route", () => {
       ])
     );
 
-    const detail = await screen.findByRole("region", { name: "Packet detail" });
-    const selectedRow = screen.getByRole("button", { name: /First packet/i });
+    const selectedRow = await screen.findByRole("button", { name: /First packet/i });
+    const detail = screen.getByRole("region", { name: "Packet detail" });
 
     expect(detail).toHaveTextContent("First packet");
     expect(detail).toHaveTextContent("Ready for run");
@@ -123,11 +128,18 @@ describe("packet workspace route", () => {
     );
 
     renderWithRelay(network);
-    expect(await screen.findByRole("button", { name: "Next" })).toBeEnabled();
+    await screen.findByRole("button", { name: "Next" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading packet page...");
+    expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
+      "No packet selected."
+    );
     nextPage.resolve(
       packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })], {
         hasPreviousPage: true,
@@ -147,6 +159,7 @@ describe("packet workspace route", () => {
   });
 
   it("clears packet content and disables pagination when the next page fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
       if (variables.after === "cursor_1") {
         throw new Error("authorization policy secret_alpha denied packet_9");
@@ -159,7 +172,11 @@ describe("packet workspace route", () => {
     });
 
     renderWithRelay(network);
-    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: "Next" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
     expect(document.body).not.toHaveTextContent("secret_alpha");
@@ -215,11 +232,16 @@ describe("packet workspace route", () => {
     );
 
     renderWithRelay(network);
-    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
-    const previousButton = await screen.findByRole("button", { name: "Previous" });
+    await screen.findByRole("button", { name: "Next" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => expect(previousButton).toBeEnabled());
-    fireEvent.click(previousButton);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     await waitFor(() => {
       expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: null });
