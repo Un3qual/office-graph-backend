@@ -28,6 +28,7 @@ export function OperatorWorkspace({ workflow }: Props) {
       inspector={
         <>
           <ReadinessPanel
+            onValidateReadiness={workflow.validatePacketReadiness}
             readiness={workflow.readiness}
             readinessInput={workflow.readinessInput}
             readinessQuery={workflow.readinessQuery}

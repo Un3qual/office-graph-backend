@@ -1,4 +1,5 @@
 import { Badge } from "../../../../src/ui/Badge";
+import { Button } from "../../../../src/ui/Button";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
 import {
   commandAffordanceListText,
@@ -14,18 +15,21 @@ import type {
 } from "../types";
 
 type Props = {
+  onValidateReadiness: () => void;
   readiness: PacketReadiness | null;
   readinessInput: PacketReadinessInput | null;
   readinessQuery: QueryState<PacketReadiness>;
 };
 
 export function ReadinessPanel({
+  onValidateReadiness,
   readiness,
   readinessInput,
   readinessQuery
 }: Props) {
   const isLoading = isQueryLoading(readinessQuery);
   const hasStaleData = readinessQuery.isError && Boolean(readiness);
+  const canValidateReadiness = Boolean(readiness?.isDerived && readinessInput);
 
   return (
     <Panel ariaLabel="Packet Readiness">
@@ -39,6 +43,18 @@ export function ReadinessPanel({
         <>
           {hasStaleData ? <p className="muted-text">Showing last loaded readiness.</p> : null}
           <Badge tone={statusTone(readiness.status)}>{formatLabel(readiness.status)}</Badge>
+          {canValidateReadiness ? (
+            <div className="ui-panel-actions">
+              <Button
+                isDisabled={isLoading}
+                onPress={() => {
+                  onValidateReadiness();
+                }}
+              >
+                {isLoading ? "Validating readiness" : "Validate readiness"}
+              </Button>
+            </div>
+          ) : null}
           <PanelRows
             rows={[
               ["Mode", readiness.isDerived ? "Prepare packet context" : "Backend readiness"],

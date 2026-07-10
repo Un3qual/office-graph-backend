@@ -54,7 +54,7 @@ describe("operator route", () => {
     });
   });
 
-  it("does not execute packet-run verification from locally derived readiness", async () => {
+  it("validates locally derived packet readiness before exposing backend commands", async () => {
     let mutationCalled = false;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -63,6 +63,10 @@ describe("operator route", () => {
 
       if (request.name === "OperatorRunStateQuery") {
         return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorPacketReadinessQuery") {
+        return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
       }
 
       if (request.name === "ExecutePacketRunVerificationMutation") {
@@ -83,6 +87,39 @@ describe("operator route", () => {
     expect(mutationCalled).toBe(false);
     expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
       .toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
+
+    await waitFor(() => {
+      const readinessCall = network.mock.calls.find(
+        ([request]) => request.name === "OperatorPacketReadinessQuery"
+      );
+
+      expect(readinessCall?.[1]).toEqual({
+        input: {
+          title: "Run console verification",
+          objective: "Run console verification",
+          contextSummary: "Run console verification",
+          requirements: "Run console verification",
+          successCriteria: "Run console verification",
+          autonomyPosture: "human_supervised",
+          sourceGraphItemIds: ["graph_1"],
+          verificationCheckIds: ["check_1"],
+          primarySourceGraphItemId: "graph_1",
+          primaryVerificationCheckId: "check_1"
+        }
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Backend readiness"
+      );
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Create work packet"
+      );
+    });
+    expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
+    expect(mutationCalled).toBe(false);
   });
 
   it("shows the empty state without enabling workflow commands", async () => {

@@ -373,6 +373,13 @@ h2 {
   color: var(--og-color-text-muted);
 }
 
+.ui-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
 .panel-rows,
 .ui-panel-rows {
   margin: 0;
