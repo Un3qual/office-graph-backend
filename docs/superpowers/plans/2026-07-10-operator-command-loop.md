@@ -458,30 +458,30 @@ git commit -m "feat: add Relay command foundation"
 - Consumes: Task 6 command hooks and existing command affordances.
 - Produces: manual intake, proposal apply, packet create, run start, observation, candidate, acceptance, and waiver UI.
 
-- [ ] **Step 1: Add failing manual intake and proposal tests**
+- [x] **Step 1: Add failing manual intake and proposal tests**
 
 Assert forms appear only for allowed contexts, submit exact mutation variables,
 disable while pending, show safe errors, and refetch the inbox on success.
 
-- [ ] **Step 2: Implement intake and proposal actions**
+- [x] **Step 2: Implement intake and proposal actions**
 
 Use controlled route-local fields. Generate idempotency keys once per explicit
 submission attempt and retain them only for retry of the same normalized input.
 After success, refetch `OperatorWorkflowRouteQuery` with current page variables.
 
-- [ ] **Step 3: Add failing packet/run/evidence/waiver tests**
+- [x] **Step 3: Add failing packet/run/evidence/waiver tests**
 
 Cover enabled/disabled/hidden affordances, defaults, sequential results,
 selection preservation during pending state, field errors, stale conflicts,
 authorization failures, and run-state refetch.
 
-- [ ] **Step 4: Implement inspector command forms**
+- [x] **Step 4: Implement inspector command forms**
 
 Keep each form in the panel that owns its state. Do not render an action unless
 the matching affordance state is `enabled`. Pass Relay ids/current states as
 concurrency input, and refetch only the affected readiness or run query.
 
-- [ ] **Step 5: Verify and commit operator actions**
+- [x] **Step 5: Verify and commit operator actions**
 
 Run operator route tests, command workflow tests, import boundaries, and
 typecheck. Commit:

@@ -12,7 +12,7 @@ import {
 } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
-import { fetchGraphQL } from "../../relay/fetchGraphQL";
+import { fetchGraphQL, GraphQLResponseError } from "../../relay/fetchGraphQL";
 import OperatorRoute from "./route";
 
 describe("operator route", () => {
@@ -662,6 +662,261 @@ describe("operator route", () => {
     expect(renderedText).not.toMatch(/tenant policy map alpha/i);
     expect(renderedText).not.toMatch(/restricted resource id/i);
     expect(renderedText).not.toMatch(/target graph item id/i);
+    expect(screen.queryByRole("button", { name: "Accept evidence" })).not.toBeInTheDocument();
+  });
+
+  it("submits manual intake once and refreshes the current inbox", async () => {
+    const mutationResponse = deferredGraphQLResponse();
+    let workflowReads = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        workflowReads += 1;
+        return workflowConnectionResponse([], variables);
+      }
+
+      if (request.name === "OperatorSubmitManualIntakeMutation") {
+        return mutationResponse.promise;
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const body = await screen.findByLabelText("Manual intake");
+    fireEvent.change(body, { target: { value: "Investigate the failed deployment" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submitting intake" }));
+
+    expect(screen.getByRole("button", { name: "Submitting intake" })).toBeDisabled();
+    expect(
+      network.mock.calls.filter(([request]) => request.name === "OperatorSubmitManualIntakeMutation")
+    ).toHaveLength(1);
+    expect(
+      network.mock.calls.find(([request]) => request.name === "OperatorSubmitManualIntakeMutation")?.[1]
+    ).toMatchObject({
+      input: {
+        body: "Investigate the failed deployment",
+        replayIdentity: expect.stringMatching(/^operator:/),
+        sourceIdentity: "manual:operator-console"
+      }
+    });
+
+    await act(async () => {
+      mutationResponse.resolve({
+        data: {
+          submitManualIntake: {
+            command: "submit_manual_intake",
+            operationId: "operation_intake_1",
+            affectedIds: [{ type: "normalized_intake_event", id: "evt_new" }],
+            normalizedEventId: "evt_new",
+            proposedChangeIds: ["change_1"]
+          }
+        }
+      });
+    });
+
+    await waitFor(() => expect(workflowReads).toBe(2));
+  });
+
+  it("refreshes after a manual-intake replay conflict and keeps the explicit retry form", async () => {
+    let workflowReads = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        workflowReads += 1;
+        return workflowConnectionResponse([], variables);
+      }
+      if (request.name === "OperatorSubmitManualIntakeMutation") throw new GraphQLResponseError(
+        "This intake was already accepted. Refresh and retry if the source changed.",
+        { errors: [{
+          message: "This intake was already accepted. Refresh and retry if the source changed.",
+          extensions: { code: "manual_intake_replay_conflict" }
+        } as never] },
+        409,
+        request.name
+      );
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Manual intake"), { target: { value: "Duplicate deployment report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This intake was already accepted");
+    await waitFor(() => expect(workflowReads).toBe(2));
+    expect(screen.getByRole("button", { name: "Submit intake" })).toBeEnabled();
+  });
+
+  it("applies only the selected item's enabled proposal affordance defaults", async () => {
+    const proposalAffordance = {
+      identity: "apply_proposed_changes",
+      state: "enabled",
+      reasonCodes: [],
+      blockerReasons: [],
+      safeExplanation: "Apply pending proposed changes for this intake.",
+      requiredFields: ["normalized_event_id", "proposed_change_ids"],
+      inputDefaults: [
+        { field: "normalized_event_id", value: "evt_1", values: [] },
+        { field: "proposed_change_ids", value: null, values: ["change_1", "change_2"] }
+      ],
+      targetIds: [{ type: "normalized_intake_event", id: "evt_1" }],
+      traceLinks: [],
+      decisionLinks: []
+    };
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([
+          operatorWorkflowItem({
+            status: "pending_triage",
+            allowedNextActions: ["apply_proposed_changes"],
+            commandAffordances: [proposalAffordance]
+          })
+        ], variables);
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      if (request.name === "OperatorApplyProposedChangesMutation") {
+        return {
+          data: {
+            applyProposedChanges: {
+              command: "apply_proposed_changes",
+              operationId: "operation_apply_1",
+              affectedIds: [],
+              signal: { id: "signal_1" },
+              task: { id: "task_1" },
+              reviewFinding: { id: "finding_1" },
+              verificationCheck: { id: "check_1", graphItemId: "graph_1" }
+            }
+          }
+        };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Apply proposed changes" }));
+
+    await waitFor(() => {
+      expect(
+        network.mock.calls.find(([request]) => request.name === "OperatorApplyProposedChangesMutation")?.[1]
+      ).toMatchObject({
+        input: {
+          normalizedEventId: "evt_1",
+          proposedChangeIds: ["change_1", "change_2"]
+        }
+      });
+    });
+  });
+
+  it("creates a packet from the selected enabled affordance defaults", async () => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      if (request.name === "OperatorRunStateQuery") return { data: { operatorRunState: operatorRunState() } };
+      if (request.name === "OperatorCreateWorkPacketMutation") return {
+        data: { createWorkPacket: {
+          command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
+          packet: { id: "packet_1", currentVersionId: "version_1", title: "Run console verification", state: "draft" },
+          packetVersion: { id: "version_1", versionNumber: 1, lifecycleState: "draft" }
+        } }
+      };
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.click(await screen.findByRole("button", { name: "Create work packet" }));
+
+    await waitFor(() => expect(
+      network.mock.calls.find(([request]) => request.name === "OperatorCreateWorkPacketMutation")?.[1]
+    ).toMatchObject({ input: {
+      title: "Run console verification",
+      objective: "Run console verification",
+      sourceGraphItemIds: ["graph_1"],
+      verificationCheckIds: ["check_1"]
+    } }));
+  });
+
+  it("accepts evidence from the enabled run affordance and refreshes run state", async () => {
+    let runReads = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      if (request.name === "OperatorRunStateQuery") {
+        runReads += 1;
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+      if (request.name === "OperatorAcceptEvidenceMutation") return {
+        data: { acceptEvidence: {
+          command: "accept_evidence", operationId: "operation_accept_1", affectedIds: [],
+          evidenceCandidate: { id: "candidate_1", candidateState: "accepted" },
+          evidenceItem: { id: "evidence_1", state: "accepted" },
+          verificationResult: { id: "result_1", result: "passed" },
+          run: { id: "run_1", executionState: "completed", verificationState: "passed" }
+        } }
+      };
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Evidence title"), { target: { value: "Deployment verified" } });
+    fireEvent.change(screen.getByLabelText("Evidence body"), { target: { value: "The deployment completed successfully." } });
+    fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
+
+    await waitFor(() => expect(
+      network.mock.calls.find(([request]) => request.name === "OperatorAcceptEvidenceMutation")?.[1]
+    ).toMatchObject({ input: {
+      evidenceCandidateId: "candidate_1",
+      title: "Deployment verified",
+      body: "The deployment completed successfully.",
+      result: "passed",
+      acceptancePolicyBasis: "owner_acceptance"
+    } }));
+    await waitFor(() => expect(runReads).toBe(2));
+    expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("renders remaining run forms only from exact enabled affordances", async () => {
+    const enabled = (identity: string, inputDefaults: CommandAffordancePayload["inputDefaults"] = []) => ({
+      identity, state: "enabled", reasonCodes: [], blockerReasons: [],
+      safeExplanation: `${identity} is available.`, requiredFields: [], inputDefaults,
+      targetIds: [], traceLinks: [], decisionLinks: []
+    });
+    const workflowItem = operatorWorkflowItem({
+      commandAffordances: [
+        enabled("start_work_run", [
+          { field: "packet_version_id", value: "version_1", values: [] },
+          { field: "authority_posture", value: "human_supervised", values: [] }
+        ])
+      ],
+      graphLinks: [
+        { type: "work_packet_version", id: "version_1", graphItemId: null, title: "Version 1", state: "ready" },
+        { type: "work_run", id: "run_1", graphItemId: null, title: "Run 1", state: "running" }
+      ]
+    });
+    const runState = operatorRunState({ commandAffordances: [
+      enabled("record_execution_observation", [{ field: "run_id", value: "run_1", values: [] }]),
+      enabled("create_evidence_candidate", [
+        { field: "work_run_id", value: "run_1", values: [] },
+        { field: "verification_check_id", value: null, values: ["check_1"] },
+        { field: "execution_observation_id", value: null, values: ["observation_1"] }
+      ]),
+      enabled("waive_verification_check", [
+        { field: "run_id", value: "run_1", values: [] },
+        { field: "run_required_check_id", value: null, values: ["required_1"] }
+      ])
+    ] });
+    const network = createOperatorNetwork({ workflowItems: [workflowItem], runState });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("button", { name: "Start work run" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Record execution observation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create evidence candidate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Waive verification check" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept evidence" })).not.toBeInTheDocument();
   });
 });
 
@@ -961,6 +1216,7 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
 
 type OperatorWorkflowItemPayload = {
   id: string;
+  status: string;
   normalizedEventId: string;
   typedId: { type: string; id: string };
   allowedNextActions: string[];

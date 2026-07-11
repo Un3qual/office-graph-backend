@@ -1,4 +1,5 @@
 import { Badge } from "../../../../src/ui/Badge";
+import type { ReactNode } from "react";
 import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PaneHeader } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
@@ -8,6 +9,7 @@ import type { OperatorWorkflowItem } from "../workflow";
 type Props = {
   canPageBackward: boolean;
   canPageForward: boolean;
+  intake?: ReactNode;
   onNextPage: () => void;
   onPreviousPage: () => void;
   onSelect: (id: string) => void;
@@ -25,6 +27,7 @@ type FallbackProps = {
 export function InboxList({
   canPageBackward,
   canPageForward,
+  intake,
   onNextPage,
   onPreviousPage,
   onSelect,
@@ -35,6 +38,7 @@ export function InboxList({
   return (
     <section aria-label="Inbox" className="inbox-pane">
       <PaneHeader title="Inbox" meta={sourceWatermark ?? "Live projection"} />
+      {intake}
       {rows.length === 0 ? (
         <EmptyState title="No operator workflow items.">
           There are no manual intake or verification commands ready right now.

@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -195,6 +196,44 @@ h2 {
 .ui-form-feedback[data-kind="field"] {
   border-left-color: #b42318;
   color: #b42318;
+}
+
+.operator-intake-form {
+  border-bottom: 1px solid var(--og-color-border);
+}
+
+.operator-command-stack {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.inspector-stack > .operator-command-stack {
+  padding: 0;
+}
+
+.operator-command-form {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--og-color-border);
+  border-radius: var(--og-radius-panel);
+  background: var(--og-color-surface);
+  padding: 14px;
+}
+
+.operator-command-form label {
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.operator-command-form input,
+.operator-command-form textarea {
+  width: 100%;
+  border: 1px solid var(--og-color-border-strong);
+  border-radius: var(--og-radius-control);
+  padding: 8px 10px;
+  color: var(--og-color-text);
+  resize: vertical;
 }
 
 .inbox-list {

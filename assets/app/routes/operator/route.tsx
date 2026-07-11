@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { OperatorWorkflowRouteQuery } from "./data";
 import {
@@ -15,16 +15,20 @@ type InboxNavigation = {
 };
 
 type OperatorRouteContentProps = {
+  fetchKey: number;
   navigation: InboxNavigation;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
   onSelectItem: (id: string) => void;
+  onRefresh: () => void;
   requestedSelectedId: string | null;
 };
 
 export const routeOwnedOperatorWorkflowQuery = OperatorWorkflowRouteQuery;
 
 export default function OperatorRoute() {
+  const [fetchKey, setFetchKey] = useState(0);
+  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
   const [navigation, setNavigation] = useState<InboxNavigation>({
     page: defaultOperatorInboxPage,
     previousCursors: []
@@ -69,10 +73,12 @@ export default function OperatorRoute() {
       resetKey={`operator:${navigation.page.after ?? "initial"}`}
     >
       <OperatorRouteContent
+        fetchKey={fetchKey}
         navigation={navigation}
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
         onSelectItem={setRequestedSelectedId}
+        onRefresh={refresh}
         requestedSelectedId={requestedSelectedId}
       />
     </AsyncBoundary>
@@ -80,13 +86,16 @@ export default function OperatorRoute() {
 }
 
 function OperatorRouteContent({
+  fetchKey,
   navigation,
   onNextPage,
   onPreviousPage,
   onSelectItem,
+  onRefresh,
   requestedSelectedId
 }: OperatorRouteContentProps) {
   const workflow = useOperatorWorkflow({
+    fetchKey,
     inboxPage: navigation.page,
     requestedSelectedId
   });
@@ -97,6 +106,7 @@ function OperatorRouteContent({
       onNextPage={onNextPage}
       onPreviousPage={onPreviousPage}
       onSelectItem={onSelectItem}
+      onRefresh={onRefresh}
       workflow={workflow}
     />
   );

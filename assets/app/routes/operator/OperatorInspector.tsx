@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
+import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
+import { RunCommandForm } from "./components/RunCommandForm";
 import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
 import {
@@ -67,6 +69,8 @@ function RunStatePanels({
   runId: string | null;
   selectedId: string | null;
 }) {
+  const [fetchKey, setFetchKey] = useState(0);
+  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
   if (!runId) {
     return (
       <>
@@ -90,21 +94,23 @@ function RunStatePanels({
           <VerificationPanel state="loading" verification={null} />
         </>
       }
-      resetKey={`${selectedId ?? "none"}:run:${runId}`}
+      resetKey={`${selectedId ?? "none"}:run:${runId}:${fetchKey}`}
     >
-      <LoadedRunStatePanels runId={runId} />
+      <LoadedRunStatePanels fetchKey={fetchKey} onRefresh={refresh} runId={runId} />
     </AsyncBoundary>
   );
 }
 
-function LoadedRunStatePanels({ runId }: { runId: string }) {
-  const runState = useOperatorRunState(runId);
+function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number; onRefresh: () => void; runId: string }) {
+  const runState = useOperatorRunState(runId, fetchKey);
   const verification = verificationOutcomeFromRunState(runState);
 
   return (
     <>
       <RunPanel runId={runId} runState={runState} state="loaded" />
+      <RunCommandForm onRefresh={onRefresh} runState={runState} />
       <VerificationPanel state="loaded" verification={verification} />
+      <EvidenceCommandForm onRefresh={onRefresh} runState={runState} />
     </>
   );
 }

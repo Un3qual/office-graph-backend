@@ -29,9 +29,9 @@
 
 ## 6. Operator Console Actions
 
-- [ ] 6.1 Add failing operator tests and a manual-intake form that submits through Relay, prevents duplicate pending submission, and refreshes the inbox.
-- [ ] 6.2 Add failing operator tests and proposal-apply plus packet-create actions driven only by enabled command affordances and current selected-item defaults.
-- [ ] 6.3 Add failing operator tests and run-start, observation, evidence candidate, evidence acceptance, and waiver actions that preserve still-valid workspace context on pending, validation, conflict, or authorization failure.
+- [x] 6.1 Add failing operator tests and a manual-intake form that submits through Relay, prevents duplicate pending submission, and refreshes the inbox.
+- [x] 6.2 Add failing operator tests and proposal-apply plus packet-create actions driven only by enabled command affordances and current selected-item defaults.
+- [x] 6.3 Add failing operator tests and run-start, observation, evidence candidate, evidence acceptance, and waiver actions that preserve still-valid workspace context on pending, validation, conflict, or authorization failure.
 
 ## 7. Packet Workspace Actions
 

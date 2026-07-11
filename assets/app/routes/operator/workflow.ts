@@ -30,6 +30,7 @@ import {
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
 type OperatorWorkflowInput = {
+  fetchKey?: number;
   inboxPage: OperatorInboxPage;
   requestedSelectedId: string | null;
 };
@@ -43,13 +44,14 @@ export type PacketReadinessState =
 export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: null };
 
 export function useOperatorWorkflow({
+  fetchKey,
   inboxPage,
   requestedSelectedId
 }: OperatorWorkflowInput) {
   const rootData = useLazyLoadQuery<OperatorWorkflowRouteOperation>(
     OperatorWorkflowRouteQuery,
     inboxPage,
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
   const inbox = workflowConnectionFromRelay(rootData, inboxPage);
   const selectedId = inbox.rows.some(
@@ -88,11 +90,11 @@ export function useValidatedPacketReadiness(input: PacketReadinessInput) {
   return packetReadinessFromRelay(data);
 }
 
-export function useOperatorRunState(runId: string) {
+export function useOperatorRunState(runId: string, fetchKey?: number) {
   const data = useLazyLoadQuery<OperatorRunStateOperation>(
     OperatorRunStateQuery,
     { id: runId },
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
 
   return runStateFromRelay(data);
