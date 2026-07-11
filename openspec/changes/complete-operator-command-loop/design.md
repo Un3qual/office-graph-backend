@@ -79,12 +79,14 @@ share transport envelopes.
 attrs including `expected_current_version_id`. Inside one database transaction
 it locks the packet, reloads it in scope, compares the expected version, assigns
 the next version number, bulk-creates ordered source/check links, and updates
-`work_packets.current_version_id` and derived lifecycle state.
+`work_packets.current_version_id`, current display title, and derived lifecycle
+state.
 
-The existing `work_packet_versions.operation_id` is sufficient provenance, so
-no packet-version schema migration is needed. An operation may create only one
-version. Replay returns that version only when packet id, expected version,
-content fields, and ordered link ids match.
+The migration adds `work_packet_versions.title` so title changes are preserved
+with the immutable packet contract instead of mutating historical meaning. The
+existing `work_packet_versions.operation_id` supplies command provenance. An
+operation may create only one version. Replay returns that version only when
+packet id, expected version, content fields, and ordered link ids match.
 
 Replacing version rows or updating current version content in place is rejected
 because it would break packet reproducibility and historical run explanation.
