@@ -1,12 +1,14 @@
 # PR 12 Review Fixes Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Correct all three valid bot findings on PR #12, verify the branch, push the fixes, and reply to each addressed inline thread.
 
 **Architecture:** Normalize Relay pagination at the route workflow boundary so UI state cannot advertise an unusable cursor. Keep product destinations in one route-owned module while shared UI remains generic, and use the existing CSS border token for packet detail rows. Each repair gets its own failing regression test and focused commit before the full repository gate and GitHub follow-through.
 
 **Tech Stack:** TypeScript 5.8, React 19, React Router 8.1, Relay 21, Vitest 3.2, plain CSS design tokens, project Nix flake, OpenSpec, GitHub CLI.
+
+> **Archive status:** Completed. The three repairs, their intended RED/GREEN cycles, full verification, push, thread replies, and final review refresh all completed without exceptions.
 
 ## Global Constraints
 
@@ -33,7 +35,7 @@
 - Consumes: Relay `pageInfo.hasNextPage: boolean` and `pageInfo.endCursor: string | null | undefined`.
 - Produces: `PacketConnection.hasNextPage: boolean` that is true only when `PacketConnection.nextCursor: string | null` is non-null.
 
-- [ ] **Step 1: Add the failing nullable-cursor workflow regression**
+- [x] **Step 1: Add the failing nullable-cursor workflow regression**
 
 Insert this test before the pagination-failure test in `workflow.test.ts`:
 
@@ -58,7 +60,7 @@ Insert this test before the pagination-failure test in `workflow.test.ts`:
   });
 ```
 
-- [ ] **Step 2: Run the focused test and confirm the intended failure**
+- [x] **Step 2: Run the focused test and confirm the intended failure**
 
 Run:
 
@@ -68,7 +70,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: FAIL in `disables forward pagination when Relay omits the end cursor` because the current workflow exposes `hasNextPage` as `true`.
 
-- [ ] **Step 3: Normalize the cursor once at the workflow boundary**
+- [x] **Step 3: Normalize the cursor once at the workflow boundary**
 
 In `packetConnectionFromRelay`, compute the cursor before returning and use it for both fields:
 
@@ -87,7 +89,7 @@ In `packetConnectionFromRelay`, compute the cursor before returning and use it f
   };
 ```
 
-- [ ] **Step 4: Run the focused test and confirm it passes**
+- [x] **Step 4: Run the focused test and confirm it passes**
 
 Run:
 
@@ -97,7 +99,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: all six packet workflow tests pass with no warnings or unhandled errors.
 
-- [ ] **Step 5: Commit the pagination repair**
+- [x] **Step 5: Commit the pagination repair**
 
 Run:
 
@@ -120,7 +122,7 @@ Expected: one commit containing only the nullable-cursor regression and normaliz
 - Consumes: generic `NavDestination` type from `assets/src/ui/NavRail.tsx`.
 - Produces: `PRODUCT_DESTINATIONS`, a readonly route-owned descriptor list consumed by both product layouts.
 
-- [ ] **Step 1: Add the failing product-navigation module test**
+- [x] **Step 1: Add the failing product-navigation module test**
 
 Create `assets/app/routes/productNavigation.test.ts`:
 
@@ -155,7 +157,7 @@ describe("product navigation configuration", () => {
 });
 ```
 
-- [ ] **Step 2: Run the new test and confirm the intended failure**
+- [x] **Step 2: Run the new test and confirm the intended failure**
 
 Run:
 
@@ -167,7 +169,7 @@ Expected: FAIL because `./productNavigation` does not exist. After the module
 is created, the same test still guards that both layouts consume the shared
 constant instead of reintroducing inline arrays.
 
-- [ ] **Step 3: Create the typed route-owned destination constant**
+- [x] **Step 3: Create the typed route-owned destination constant**
 
 Create `assets/app/routes/productNavigation.ts`:
 
@@ -183,7 +185,7 @@ export const PRODUCT_DESTINATIONS = [
 ] as const satisfies readonly NavDestination[];
 ```
 
-- [ ] **Step 4: Replace both inline arrays with the shared route constant**
+- [x] **Step 4: Replace both inline arrays with the shared route constant**
 
 Add this import to both layout files:
 
@@ -197,7 +199,7 @@ Replace each inline `destinations={[...]}` value with:
       destinations={PRODUCT_DESTINATIONS}
 ```
 
-- [ ] **Step 5: Run navigation, route, and boundary verification**
+- [x] **Step 5: Run navigation, route, and boundary verification**
 
 Run:
 
@@ -208,7 +210,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: the product-navigation test, operator route tests, packet route tests, shared UI boundary tests, and TypeScript typecheck all pass. `assets/src/ui` remains free of product labels and route imports.
 
-- [ ] **Step 6: Commit the navigation repair**
+- [x] **Step 6: Commit the navigation repair**
 
 Run:
 
@@ -229,7 +231,7 @@ Expected: one commit containing only the shared route-owned configuration, its t
 - Consumes: the existing `--og-color-border` CSS custom property.
 - Produces: `.packet-detail-list div` borders that follow the shared border token.
 
-- [ ] **Step 1: Add the failing packet-detail token assertion**
+- [x] **Step 1: Add the failing packet-detail token assertion**
 
 Insert this test after the compact-list style test in `route.test.tsx`:
 
@@ -245,7 +247,7 @@ Insert this test after the compact-list style test in `route.test.tsx`:
   });
 ```
 
-- [ ] **Step 2: Run the packet route test and confirm the intended failure**
+- [x] **Step 2: Run the packet route test and confirm the intended failure**
 
 Run:
 
@@ -255,7 +257,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: FAIL in `uses the border design token for packet detail rows` because the rule still contains `#edf1f3`.
 
-- [ ] **Step 3: Replace the hardcoded border color**
+- [x] **Step 3: Replace the hardcoded border color**
 
 Change the packet detail row rule to:
 
@@ -269,7 +271,7 @@ Change the packet detail row rule to:
 }
 ```
 
-- [ ] **Step 4: Run the focused route test and confirm it passes**
+- [x] **Step 4: Run the focused route test and confirm it passes**
 
 Run:
 
@@ -279,7 +281,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: all packet route tests pass with the new token assertion.
 
-- [ ] **Step 5: Commit the CSS repair**
+- [x] **Step 5: Commit the CSS repair**
 
 Run:
 
@@ -300,7 +302,7 @@ Expected: one commit containing only the failing style regression and CSS token 
 - Consumes: the three focused commits and PR #12's current thread-aware GitHub state.
 - Produces: a verified pushed branch and evidence-backed replies on review comments `3560469564`, `3560497651`, and `3560497653`.
 
-- [ ] **Step 1: Run the repository verification gate**
+- [x] **Step 1: Run the repository verification gate**
 
 Run:
 
@@ -310,7 +312,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix ver
 
 Expected: Credo, duplication, architecture, ExUnit, Relay validation, TypeScript, all Vitest tests, React Router builds, and app-shell verification pass.
 
-- [ ] **Step 2: Validate the accepted OpenSpec change and diff hygiene**
+- [x] **Step 2: Validate the accepted OpenSpec change and diff hygiene**
 
 Run:
 
@@ -323,7 +325,7 @@ git log --oneline --decorate -6
 
 Expected: strict OpenSpec validation succeeds, diff checking emits no output, the worktree is clean, and the three repair commits follow the design and plan commits.
 
-- [ ] **Step 3: Push the current branch**
+- [x] **Step 3: Push the current branch**
 
 Run:
 
@@ -333,7 +335,7 @@ git push origin codex/do-next-task
 
 Expected: `origin/codex/do-next-task` advances to the final repair commit and PR #12 updates without creating another branch or PR.
 
-- [ ] **Step 4: Refresh complete thread-aware review state after the push**
+- [x] **Step 4: Refresh complete thread-aware review state after the push**
 
 Run:
 
@@ -344,7 +346,7 @@ gh pr view 12 --json number,url,headRefName,headRefOid,statusCheckRollup
 
 Expected: the PR head matches local `HEAD`. Reclassify every current bot thread, including outdated, outside-diff, duplicate, and newly posted items. If a new bot-last thread is actionable, return to the appropriate test-first task before replying.
 
-- [ ] **Step 5: Reply to the three addressed inline comments**
+- [x] **Step 5: Reply to the three addressed inline comments**
 
 Run:
 
@@ -356,7 +358,7 @@ gh api --method POST repos/Un3qual/office-graph-backend/pulls/12/comments/356049
 
 Expected: each API call returns the newly created reply in its original inline review thread. Do not resolve threads unless the user separately requests resolution.
 
-- [ ] **Step 6: Perform the final post-reply refresh**
+- [x] **Step 6: Perform the final post-reply refresh**
 
 Run:
 

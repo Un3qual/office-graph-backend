@@ -1,12 +1,14 @@
 # Office Graph Review Issues Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Analyze each issue in `code-review-issues-2026-07-09.md`, fix the issues that are still valid, and commit in reviewable slices.
 
 **Architecture:** Keep the changes aligned with the current OpenSpec contracts: backend projections own command/readiness/run-state semantics, GraphQL preserves structured domain errors, and the React operator console consumes backend command affordances without reconstructing domain internals. Avoid broad UI redesign and keep the release asset pipeline pointed at the React Router app shell only.
 
 **Tech Stack:** Elixir 1.20, Phoenix, Ash, Absinthe GraphQL, Postgres/Ecto, React 19, React Router, Relay, Vitest, StyleX/plain CSS, project Nix flake.
+
+> **Archive status:** Completed. Checked RED steps record that the intended failing regression was observed before its fix. The dependency advisory baseline was resolved, and no final verification or review-follow-up exceptions remain.
 
 ## Global Constraints
 
@@ -29,7 +31,7 @@
 - Consumes: current detached worktree and untracked review issue file.
 - Produces: branch `codex/fix-office-graph-review-issues` and committed review/plan baseline.
 
-- [ ] **Step 1: Verify isolated worktree and branch**
+- [x] **Step 1: Verify isolated worktree and branch**
 
 Run:
 
@@ -42,7 +44,7 @@ git status --short --branch
 
 Expected: linked worktree, branch `codex/fix-office-graph-review-issues`, no production edits.
 
-- [ ] **Step 2: Run baseline checks**
+- [x] **Step 2: Run baseline checks**
 
 Run:
 
@@ -55,7 +57,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix hex
 
 Expected: OpenSpec lists current changes; backend/frontend tests pass; `mix hex.audit` fails with the advisory set recorded in the review file.
 
-- [ ] **Step 3: Commit baseline artifacts**
+- [x] **Step 3: Commit baseline artifacts**
 
 Run:
 
@@ -79,7 +81,7 @@ Expected: first branch commit contains only the review issue handoff and executi
 - Consumes: `mix hex.audit`, `mix assets.build`, `pnpm --dir assets run verify`.
 - Produces: locked dependencies with no Hex advisories and a release pipeline that emits React Router app-shell assets without stale `operator-console-root` output.
 
-- [ ] **Step 1: Update backend dependency locks**
+- [x] **Step 1: Update backend dependency locks**
 
 Run:
 
@@ -89,7 +91,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix dep
 
 Expected: `mix.lock` updates the minimum needed dependency versions and transitive packages.
 
-- [ ] **Step 2: Verify the audit is clean**
+- [x] **Step 2: Verify the audit is clean**
 
 Run:
 
@@ -99,15 +101,15 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix hex
 
 Expected: no advisories. If advisories remain, inspect the affected dependency constraints in `mix.exs`, adjust the narrow constraints, rerun `mix deps.update`, and repeat this step.
 
-- [ ] **Step 3: Make `pnpm run build` mean the current React Router build**
+- [x] **Step 3: Make `pnpm run build` mean the current React Router build**
 
 Edit `assets/package.json` so `build` invokes `react-router build --config vite.react-router.config.ts`, `router:build` aliases to `pnpm run build`, and `router:deploy` runs `pnpm run build && node scripts/prepare-app-shell-assets.mjs`.
 
-- [ ] **Step 4: Remove the duplicate build from the Mix asset alias**
+- [x] **Step 4: Remove the duplicate build from the Mix asset alias**
 
 Edit `mix.exs` so `assets.build` runs `assets.setup`, `cmd --cd assets pnpm run router:deploy`, and `cmd --cd assets pnpm run verify:app-shell`.
 
-- [ ] **Step 5: Delete or quarantine unused legacy app entrypoints**
+- [x] **Step 5: Delete or quarantine unused legacy app entrypoints**
 
 Search:
 
@@ -117,7 +119,7 @@ rg -n "operator-console-root|src/main|<App|from \"./App\"|from './App'" assets l
 
 If only the legacy Vite entry and its unit test use them, delete `assets/src/main.tsx`, `assets/src/App.tsx`, and `assets/src/App.test.tsx`; otherwise update remaining current callers first.
 
-- [ ] **Step 6: Verify asset pipeline**
+- [x] **Step 6: Verify asset pipeline**
 
 Run:
 
@@ -129,7 +131,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix ass
 
 Expected: frontend tests pass, app-shell verification passes, and the release asset build does not create stale `assets/operator/*.js` output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Run:
 
@@ -159,43 +161,43 @@ Expected: second commit contains dependency and release-pipeline changes only.
 - Consumes: `SessionContext.capabilities`, packet readiness input, run summaries, `PacketRunVerification.execute/2` errors.
 - Produces: projection authorization from trusted session facts, meaningful source watermarks, failed-check reasons, backend command input defaults, and stable packet-run GraphQL error extensions.
 
-- [ ] **Step 1: Add failing authorization query-count test**
+- [x] **Step 1: Add failing authorization query-count test**
 
 Change the test named `trusted session capabilities are revalidated for projection reads` so it asserts projection reads do not hit `capabilities`, `role_capabilities`, `roles`, or `role_assignments` when trusted session capabilities are present.
 
-- [ ] **Step 2: Make command affordances use trusted capabilities**
+- [x] **Step 2: Make command affordances use trusted capabilities**
 
 Add a capability-check function that maps the action atom to the required capability and checks `session_context.capabilities` after `Identity.validate_session_context/1`. Keep `Authorization.authorize/3` for command execution and read authorization.
 
-- [ ] **Step 3: Add failing failed-check reason test**
+- [x] **Step 3: Add failing failed-check reason test**
 
 Update `operator run state exposes failed evidence without completing the workflow` to expect `%{reason: "failed_check"}` for the accepted failed result.
 
-- [ ] **Step 4: Implement failed-check reason calculation**
+- [x] **Step 4: Implement failed-check reason calculation**
 
 Change `Runs.missing_evidence/2` so required checks with failed verification results return `failed_check`, and checks with no accepted result continue to return `missing_accepted_evidence`.
 
-- [ ] **Step 5: Add failing source-watermark tests**
+- [x] **Step 5: Add failing source-watermark tests**
 
 Add assertions that packet readiness returns a non-nil watermark for source/check input and that run-state `source_watermark` changes after recording an observation or accepting evidence.
 
-- [ ] **Step 6: Implement projection source watermarks**
+- [x] **Step 6: Implement projection source watermarks**
 
 Build packet readiness watermarks from source graph item ids, required check ids, and blocker-relevant state. Build run-state watermarks as a stable digest of run, packet version, required checks, observations, evidence candidates, evidence items, verification results, and missing/failed reason projections.
 
-- [ ] **Step 7: Add backend command default input shape**
+- [x] **Step 7: Add backend command default input shape**
 
 Extend `operator_command_affordance` with a typed `input_defaults` list of key/value entries or a dedicated object shape. Populate `prepare_packet` defaults in `OperatorWorkflow` from graph links and update GraphQL API tests to request and assert those defaults.
 
-- [ ] **Step 8: Add packet-run error mapping tests**
+- [x] **Step 8: Add packet-run error mapping tests**
 
 Update `PacketRunVerificationApiTest` so invalid source/check mismatch asserts a stable code such as `source_graph_item_check_mismatch`. Add tests for invalid readiness input and invalid evidence result if the existing fixtures can cover them without broad setup.
 
-- [ ] **Step 9: Implement packet-run error mappings**
+- [x] **Step 9: Implement packet-run error mappings**
 
 Add `normalize/1` clauses in `OfficeGraphWeb.GraphQL.Common.Errors` for `:source_graph_item_check_mismatch`, `:invalid_packet_run_input`, `:invalid_evidence_result`, and `:invalid_packet_run_evidence_input`, with safe detail strings and stable extension codes.
 
-- [ ] **Step 10: Verify backend slice**
+- [x] **Step 10: Verify backend slice**
 
 Run:
 
@@ -206,7 +208,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix for
 
 Expected: focused backend tests pass and formatting is clean.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 Run:
 
@@ -236,39 +238,39 @@ Expected: third commit contains backend projection and GraphQL contract fixes on
 - Consumes: Relay `GraphQLResponse`, backend command affordances, `ExecutePacketRunVerificationMutation`, backend `inputDefaults`, and CSS layout tokens.
 - Produces: structured GraphQL errors preserved in UI state, derived initial readiness with no duplicate read, an executable first command surface, backend-provided command defaults, and mobile topbar layout that sizes to content.
 
-- [ ] **Step 1: Add failing GraphQL error preservation tests**
+- [x] **Step 1: Add failing GraphQL error preservation tests**
 
 Update `fetchGraphQL.test.ts` so GraphQL errors reject with an error that exposes the original `GraphQLResponse` at `error.source`, including `extensions.code`.
 
-- [ ] **Step 2: Preserve structured GraphQL response errors**
+- [x] **Step 2: Preserve structured GraphQL response errors**
 
 Implement an exported `GraphQLResponseError extends Error` in `fetchGraphQL.ts` that carries `source: GraphQLResponse`, `status`, and `requestName`. Throw it for GraphQL errors before returning to Relay.
 
-- [ ] **Step 3: Add failing initial-readiness test**
+- [x] **Step 3: Add failing initial-readiness test**
 
 Update `route.test.tsx` so initial selection renders `Prepare packet context` and asserts no `OperatorPacketReadinessQuery` was issued before an explicit validation/command action.
 
-- [ ] **Step 4: Derive initial readiness locally**
+- [x] **Step 4: Derive initial readiness locally**
 
 Change `useOperatorWorkflow` so selected rows produce a derived `PacketReadiness` object from backend-provided command defaults and affordances. Keep network packet-readiness validation behind an explicit action or stale refresh hook, not the initial selection effect.
 
-- [ ] **Step 5: Add failing command execution test**
+- [x] **Step 5: Add failing command execution test**
 
 Add a route test where an enabled command button submits `ExecutePacketRunVerificationMutation`, shows a submitting state, and then refreshes or invalidates run/workflow state.
 
-- [ ] **Step 6: Implement executable narrow command surface**
+- [x] **Step 6: Implement executable narrow command surface**
 
 Expose a first command action for derived ready packet context. Use Relay `commitMutation` with `ExecutePacketRunVerificationMutation`, `updateOperatorWorkflowAfterVerification`, and a deterministic local input built from backend defaults plus current operator input values. Keep disabled/hidden/redacted affordances non-clickable.
 
-- [ ] **Step 7: Consume backend command defaults**
+- [x] **Step 7: Consume backend command defaults**
 
 Update Relay fragments/types and `derived.ts` to prefer `commandAffordance.inputDefaults` for packet fields and target ids. Keep `graphLinks` as display context, not as the source of command input truth.
 
-- [ ] **Step 8: Fix mobile topbar row sizing**
+- [x] **Step 8: Fix mobile topbar row sizing**
 
 Add a mobile media rule setting `.console-frame { grid-template-rows: auto minmax(0, 1fr); }`.
 
-- [ ] **Step 9: Verify frontend slice**
+- [x] **Step 9: Verify frontend slice**
 
 Run:
 
@@ -280,7 +282,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --
 
 Expected: generated Relay artifacts are updated, TypeScript passes, and Vitest passes.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 Run:
 
@@ -300,7 +302,7 @@ Expected: fourth commit contains frontend behavior/layout fixes and generated Re
 - Consumes: all branch changes.
 - Produces: final verified branch state.
 
-- [ ] **Step 1: Run full verification gates**
+- [x] **Step 1: Run full verification gates**
 
 Run:
 
@@ -314,11 +316,11 @@ nix --extra-experimental-features 'nix-command flakes' develop --command git dif
 
 Expected: all commands exit 0.
 
-- [ ] **Step 2: Review issue coverage**
+- [x] **Step 2: Review issue coverage**
 
 For each issue heading in `code-review-issues-2026-07-09.md`, record whether it was fixed in code, fixed by dependency update, verified as obsolete, or intentionally deferred with a reason.
 
-- [ ] **Step 3: Commit final notes if needed**
+- [x] **Step 3: Commit final notes if needed**
 
 If the review markdown receives status updates, run:
 
