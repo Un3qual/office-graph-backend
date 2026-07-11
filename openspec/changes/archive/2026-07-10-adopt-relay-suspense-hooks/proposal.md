@@ -1,3 +1,5 @@
+# Adopt Relay Suspense Hooks
+
 ## Why
 
 The operator and packet routes currently wrap Relay `fetchQuery` subscriptions
