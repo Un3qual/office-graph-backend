@@ -212,7 +212,7 @@ git commit -m "feat: add immutable packet versions"
 - Consumes: `Operations.start_command/4`, run locking and verification recomputation.
 - Produces: `Verification.waive_required_check/5` and private `RunRequiredCheck.mark_waived` action.
 
-- [ ] **Step 1: Add failing waiver and authorization tests**
+- [x] **Step 1: Add failing waiver and authorization tests**
 
 Cover successful waiver, missing capability, stale run state, wrong check, an
 already satisfied check, idempotent replay, changed reason conflict, multi-check
@@ -234,7 +234,7 @@ assert waived.required_check.state == "waived"
 
 Expected RED: function/action and nullable evidence behavior do not exist.
 
-- [ ] **Step 2: Add waiver persistence rules**
+- [x] **Step 2: Add waiver persistence rules**
 
 Create a reversible migration that drops the evidence-item foreign-key null
 constraint and restores it only after asserting no null rows in `down/0`.
@@ -249,7 +249,7 @@ _ -> Ash.Changeset.add_error(changeset, field: :result, message: "is invalid")
 
 Add private `mark_waived` to `RunRequiredCheck`.
 
-- [ ] **Step 3: Implement the waiver transaction**
+- [x] **Step 3: Implement the waiver transaction**
 
 Add:
 
@@ -263,7 +263,7 @@ expected states, require pending membership, create a `VerificationResult` with
 required check waived, call shared run verification recomputation, and record
 audit/revision rows.
 
-- [ ] **Step 4: Run focused verification tests and commit**
+- [x] **Step 4: Run focused verification tests and commit**
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_packets/work_packet_run_verification_test.exs test/office_graph/work_graph/ash_authorization_test.exs

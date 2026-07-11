@@ -70,6 +70,12 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
       accept []
       change set_attribute(:state, "satisfied")
     end
+
+    update :mark_waived do
+      public? false
+      accept []
+      change set_attribute(:state, "waived")
+    end
   end
 
   identities do

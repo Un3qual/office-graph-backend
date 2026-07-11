@@ -279,6 +279,213 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert next.version.title == "Third packet version"
   end
 
+  test "governed verification waivers are replayable, audited, and recompute run state" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    assert {:ok, observation_result} =
+             record_observation(
+               bootstrap.session,
+               run_result.run,
+               verification_check,
+               key: "waiver-success-observation"
+             )
+
+    run = observation_result.run
+    [required_check] = run_result.required_checks
+
+    waiver_attrs = %{
+      expected_execution_state: run.execution_state,
+      expected_verification_state: run.verification_state,
+      reason: "Approved exception for unavailable external proof.",
+      policy_basis: "owner_exception"
+    }
+
+    command_input =
+      waiver_attrs
+      |> Map.put(:run_id, run.id)
+      |> Map.put(:run_required_check_id, required_check.id)
+
+    assert {:ok, operation} =
+             Operations.start_command(
+               bootstrap.session,
+               :verification_waive,
+               "waiver-success",
+               command_input
+             )
+
+    assert {:ok, waived} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               operation,
+               run,
+               required_check,
+               waiver_attrs
+             )
+
+    assert waived.verification_result.result == "waived"
+    assert waived.verification_result.evidence_item_id == nil
+    assert waived.verification_result.actor_principal_id == bootstrap.session.principal_id
+    assert waived.verification_result.reason == waiver_attrs.reason
+    assert waived.verification_result.policy_basis == waiver_attrs.policy_basis
+    assert waived.required_check.state == "waived"
+    assert waived.run.verification_state == "verified"
+    assert waived.run.aggregate_state == "verified"
+    assert Audit.count_for_operation(operation.id) >= 2
+    assert Revisions.count_for_operation(operation.id) >= 2
+
+    assert {:ok, replayed} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               operation,
+               waived.run,
+               required_check,
+               waiver_attrs
+             )
+
+    assert replayed.verification_result.id == waived.verification_result.id
+    assert replayed.required_check.id == waived.required_check.id
+
+    changed_attrs = %{waiver_attrs | reason: "A changed exception reason."}
+
+    assert {:error, {:command_idempotency_conflict, operation_id}} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               operation,
+               waived.run,
+               required_check,
+               changed_attrs
+             )
+
+    assert operation_id == operation.id
+
+    assert {:ok, already_waived_operation} =
+             Operations.start_command(
+               bootstrap.session,
+               :verification_waive,
+               "waiver-already-complete",
+               command_input
+             )
+
+    assert {:error, {:run_required_check_not_pending, required_check_id, "waived"}} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               already_waived_operation,
+               waived.run,
+               required_check,
+               waiver_attrs
+             )
+
+    assert required_check_id == required_check.id
+  end
+
+  test "verification waivers reject stale runs, wrong checks, and preserve other pending checks" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    assert {:ok, observation_result} =
+             record_observation(
+               bootstrap.session,
+               run_result.run,
+               first_check,
+               key: "waiver-multi-observation"
+             )
+
+    run = observation_result.run
+    [first_required_check, second_required_check] = run_result.required_checks
+
+    stale_attrs = %{
+      expected_execution_state: "pending",
+      expected_verification_state: run.verification_state,
+      reason: "Stale waiver request.",
+      policy_basis: "owner_exception"
+    }
+
+    assert {:ok, stale_operation} =
+             start_waiver_command(
+               bootstrap.session,
+               "waiver-stale",
+               run,
+               first_required_check,
+               stale_attrs
+             )
+
+    assert {:error, {:stale_work_run_state, run_id, execution_state, verification_state}} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               stale_operation,
+               run,
+               first_required_check,
+               stale_attrs
+             )
+
+    assert run_id == run.id
+    assert execution_state == run.execution_state
+    assert verification_state == run.verification_state
+
+    {:ok, other_check} = create_required_verification_check(bootstrap.session)
+    {:ok, other_run_result} = create_ready_run(bootstrap.session, other_check)
+    [other_required_check] = other_run_result.required_checks
+
+    valid_attrs = %{
+      expected_execution_state: run.execution_state,
+      expected_verification_state: run.verification_state,
+      reason: "Approved exception for the first check.",
+      policy_basis: "owner_exception"
+    }
+
+    assert {:ok, wrong_check_operation} =
+             start_waiver_command(
+               bootstrap.session,
+               "waiver-wrong-check",
+               run,
+               other_required_check,
+               valid_attrs
+             )
+
+    assert {:error, {:run_required_check_mismatch, run_id, required_check_id}} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               wrong_check_operation,
+               run,
+               other_required_check,
+               valid_attrs
+             )
+
+    assert run_id == run.id
+    assert required_check_id == other_required_check.id
+
+    assert {:ok, operation} =
+             start_waiver_command(
+               bootstrap.session,
+               "waiver-multi-first",
+               run,
+               first_required_check,
+               valid_attrs
+             )
+
+    assert {:ok, waived} =
+             Verification.waive_required_check(
+               bootstrap.session,
+               operation,
+               run,
+               first_required_check,
+               valid_attrs
+             )
+
+    assert waived.required_check.state == "waived"
+    assert waived.run.verification_state == "missing_evidence"
+    refute waived.run.aggregate_state == "verified"
+
+    assert "pending" ==
+             RunRequiredCheck
+             |> Ash.get!(second_required_check.id, authorize?: false)
+             |> Map.fetch!(:state)
+  end
+
   test "packet source bulk create rolls back an invalid middle reference" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -3785,6 +3992,15 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
       Operations.start_operation(session, :work_packet_create, idempotency_key: idempotency_key)
 
     WorkPackets.create_packet(session, operation, attrs)
+  end
+
+  defp start_waiver_command(session, key, run, required_check, attrs) do
+    command_input =
+      attrs
+      |> Map.put(:run_id, run.id)
+      |> Map.put(:run_required_check_id, required_check.id)
+
+    Operations.start_command(session, :verification_waive, key, command_input)
   end
 
   defp create_ready_run(session, verification_check) when not is_list(verification_check) do
