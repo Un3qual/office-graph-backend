@@ -86,9 +86,11 @@ parallel because they own different product boundaries. PR 5 starts only after
 PRs 3 and 4 merge. PR 6 starts only after PRs 2, 3, and 4 merge. PR 7 is the
 integration PR and starts from `main` after all dependencies merge.
 
-No implementation PR remains permanently stacked on an unmerged feature
-branch. A short-lived stacked branch is allowed only when its parent PR is
-already approved and the child dependency is explicit in both PR descriptions.
+Implementation PRs MAY stack on unmerged parent branches without waiting for
+parent approval. Every stacked PR MUST target its immediate parent branch,
+name that dependency in its description, and be retargeted to `main` after the
+parent merges. Do not duplicate parent commits into a sibling PR or hide the
+stack relationship from reviewers.
 
 ## PR 1: Close Completed Work And Establish The Program
 
