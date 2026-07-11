@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
+import { FormFeedback } from "./FormFeedback";
 import { NavRail } from "./NavRail";
 import { Panel, PanelRows, PaneHeader } from "./Panel";
 import { TextField } from "./TextField";
@@ -97,5 +98,36 @@ describe("shared UI primitives", () => {
     expect(compactStyles).toMatch(
       /\.ui-nav-rail nav\s*\{[^}]*overflow-x:\s*auto\s*;/
     );
+  });
+
+  it("renders pending and caller-owned form feedback accessibly", () => {
+    const { rerender } = render(
+      <FormFeedback pendingMessage="Saving changes." />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Saving changes.");
+
+    rerender(
+      <FormFeedback
+        feedback={{
+          kind: "field",
+          field: "title",
+          message: "A title is required."
+        }}
+      />
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("A title is required.");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-kind", "field");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-field", "title");
+
+    rerender(
+      <FormFeedback
+        feedback={{ kind: "conflict", message: "Refresh before retrying." }}
+      />
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Refresh before retrying.");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-kind", "conflict");
   });
 });
