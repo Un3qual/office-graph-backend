@@ -42,14 +42,12 @@ defmodule OfficeGraph.WorkPackets do
   def graphql_node(_session_context, _type, _id), do: {:ok, nil}
 
   def get_packet_for_version_command(session_context, id) do
-    WorkPacket
-    |> Ash.Query.filter(id == ^id)
-    |> Ash.Query.for_read(:read_for_version_command)
-    |> Ash.read_one(actor: session_context)
-    |> case do
-      {:ok, nil} -> {:error, {:not_found, WorkPacket, id}}
-      result -> result
-    end
+    Operations.read_command_target(
+      WorkPacket,
+      :read_for_version_command,
+      session_context,
+      id
+    )
   end
 
   def create_packet(session_context, operation, attrs) when is_map(attrs) do

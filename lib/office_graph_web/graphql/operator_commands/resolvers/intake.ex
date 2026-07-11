@@ -55,12 +55,14 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Intake do
              normalized_event_id: command_input.normalized_event_id,
              proposed_changes: proposed_changes
            }) do
-      affected_ids = [
-        typed_id("signal", applied.signal.id),
-        typed_id("task", applied.task.id),
-        typed_id("review_finding", applied.review_finding.id),
-        typed_id("verification_check", applied.verification_check.id)
-      ]
+      affected_ids =
+        [
+          typed_id("signal", applied.signal.id),
+          typed_id("task", applied.task.id),
+          typed_id("review_finding", applied.review_finding.id),
+          typed_id("verification_check", applied.verification_check.id)
+        ] ++
+          Enum.map(proposed_changes, &typed_id("proposed_graph_change", &1.id))
 
       {:ok,
        %{

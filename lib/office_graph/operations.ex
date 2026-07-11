@@ -73,6 +73,17 @@ defmodule OfficeGraph.Operations do
     end
   end
 
+  def read_command_target(resource, action, session_context, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.for_read(action)
+    |> Ash.read_one(actor: session_context)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      result -> result
+    end
+  end
+
   def lock_operation(operation_id) do
     OperationCorrelation
     |> Ash.Query.filter(id == ^operation_id)

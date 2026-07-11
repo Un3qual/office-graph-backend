@@ -8,7 +8,7 @@ import type {
 export function packetReadinessInputForItem(
   item: OperatorWorkflowItemFragment$data
 ): PacketReadinessInput {
-  const defaults = commandInputDefaults(preparePacketAffordance(item));
+  const defaults = commandInputDefaults(createWorkPacketAffordance(item));
 
   return {
     title: defaultValue(defaults, "title"),
@@ -28,7 +28,7 @@ export function packetReadinessForItem(
 ): DerivedPacketReadiness<
   OperatorWorkflowItemFragment$data["commandAffordances"][number]
 > {
-  const command = preparePacketAffordance(item);
+  const command = createWorkPacketAffordance(item);
   const sourceLinks = item.graphLinks.filter((link) => link.graphItemId && link.type !== "work_run");
   const requiredChecks = item.graphLinks.filter((link) => link.type === "verification_check");
 
@@ -69,7 +69,7 @@ export function verificationOutcomeFromRunState(runState: OperatorRunStateFragme
   };
 }
 
-export function preparePacketAffordance(item: OperatorWorkflowItemFragment$data) {
+export function createWorkPacketAffordance(item: OperatorWorkflowItemFragment$data) {
   return (
     item.commandAffordances.find((affordance) => affordance.identity === "create_work_packet") ??
     null

@@ -44,15 +44,25 @@ defmodule OfficeGraph.Verification do
   @evidence_results ["passed", "failed"]
 
   def get_candidate_for_accept_command(session_context, id) do
-    read_command_target(EvidenceCandidate, :read_for_accept_command, session_context, id)
+    Operations.read_command_target(
+      EvidenceCandidate,
+      :read_for_accept_command,
+      session_context,
+      id
+    )
   end
 
   def get_run_for_waive_command(session_context, id) do
-    read_command_target(Run, :read_for_waive_command, session_context, id)
+    Operations.read_command_target(Run, :read_for_waive_command, session_context, id)
   end
 
   def get_required_check_for_waive_command(session_context, id) do
-    read_command_target(RunRequiredCheck, :read_for_waive_command, session_context, id)
+    Operations.read_command_target(
+      RunRequiredCheck,
+      :read_for_waive_command,
+      session_context,
+      id
+    )
   end
 
   def complete_with_evidence(session_context, operation, verification_check, attrs) do
@@ -137,17 +147,6 @@ defmodule OfficeGraph.Verification do
     attrs[:normalized_status] == "succeeded" and acceptable_evidence_source?(attrs)
   end
 
-  defp read_command_target(resource, action, session_context, id) do
-    resource
-    |> Ash.Query.filter(id == ^id)
-    |> Ash.Query.for_read(action)
-    |> Ash.read_one(actor: session_context)
-    |> case do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
-      result -> result
-    end
-  end
-
   def acceptable_evidence_source?(source) do
     Map.get(source, :freshness_state) == "fresh" and
       Map.get(source, :trust_basis) in ["owner_attested", "signed_provider_payload"]
@@ -180,7 +179,12 @@ defmodule OfficeGraph.Verification do
     |> Ash.read_one(actor: session_context)
     |> case do
       {:ok, nil} ->
-        {:error, {:not_found, RunRequiredCheck, candidate.verification_check_id}}
+        {:error,
+         {:not_found, RunRequiredCheck,
+          %{
+            run_id: candidate.work_run_id,
+            verification_check_id: candidate.verification_check_id
+          }}}
 
       {:ok, required_check} ->
         {:ok,

@@ -5,11 +5,11 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
+  alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
-  alias OfficeGraph.Runs
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
@@ -236,8 +236,14 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "signal",
       "task",
       "review_finding",
-      "verification_check"
+      "verification_check",
+      "proposed_graph_change"
     ])
+
+    assert MapSet.new(
+             for %{"type" => "proposed_graph_change", "id" => id} <- applied["affectedIds"],
+                 do: id
+           ) == MapSet.new(intake["proposedChangeIds"])
 
     first_check = applied["verificationCheck"]
     source_ids = [first_check["graphItemId"], second_check.graph_item_id]
@@ -344,6 +350,11 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "work_run"
     ])
 
+    accepted_required_check =
+      Ash.get!(RunRequiredCheck, first_required_check["id"], authorize?: false)
+
+    assert accepted_required_check.state == "satisfied"
+
     before_stale_waiver = command_record_snapshot()
 
     stale_waiver =
@@ -407,8 +418,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     end)
 
     assert command_record_snapshot() == before_retry_snapshot
-
-    assert first_required_check["state"] == "pending"
   end
 
   test "runless evidence acceptance returns a successful payload without a run", %{conn: conn} do
@@ -1034,62 +1043,69 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   end
 
   defp create_ready_packet(session, verification_checks) do
-    {:ok, operation} = Operations.start_operation(session, :work_packet_create)
-
-    WorkPackets.create_packet(session, operation, %{
+    OperatorCommandFixtures.create_ready_packet(session, verification_checks, %{
       title: "Least-capability command packet",
       objective: "Prove command target authorization.",
       context_summary: "The command target already exists in the operator workspace.",
       requirements: "Use only the command-specific capability.",
       success_criteria: "The command succeeds without skeleton.read.",
-      autonomy_posture: "human_supervised",
-      source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
-      verification_check_ids: Enum.map(verification_checks, & &1.id)
+      autonomy_posture: "human_supervised"
     })
   end
 
   defp create_ready_run(session, verification_checks) do
-    {:ok, packet_result} = create_ready_packet(session, verification_checks)
-    {:ok, operation} = Operations.start_operation(session, :work_run_start)
-
-    Runs.start_run(session, operation, packet_result.version, %{
-      source_surface: "operator_commands_graphql_test",
-      reason: "Create a command target fixture.",
-      authority_posture: "human_supervised"
-    })
+    OperatorCommandFixtures.create_ready_run(
+      session,
+      verification_checks,
+      %{
+        title: "Least-capability command packet",
+        objective: "Prove command target authorization.",
+        context_summary: "The command target already exists in the operator workspace.",
+        requirements: "Use only the command-specific capability.",
+        success_criteria: "The command succeeds without skeleton.read.",
+        autonomy_posture: "human_supervised"
+      },
+      %{
+        source_surface: "operator_commands_graphql_test",
+        reason: "Create a command target fixture.",
+        authority_posture: "human_supervised"
+      }
+    )
   end
 
   defp record_observation(session, run, verification_check) do
-    {:ok, operation} = Operations.start_operation(session, :execution_observation_record)
-
-    Runs.record_observation(session, operation, run, %{
-      source_kind: "human",
-      source_identity: "manual:accept-only-observation",
-      idempotency_key: unique_key("accept-only-observation"),
-      observed_status: "passed",
-      normalized_status: "succeeded",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      verification_check_id: verification_check.id,
-      graph_item_id: verification_check.graph_item_id,
-      rationale: "Create an acceptance target fixture."
-    })
+    OperatorCommandFixtures.record_observation(
+      session,
+      run,
+      verification_check,
+      %{
+        source_kind: "human",
+        source_identity: "manual:accept-only-observation",
+        idempotency_key: unique_key("accept-only-observation"),
+        observed_status: "passed",
+        normalized_status: "succeeded",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        rationale: "Create an acceptance target fixture."
+      }
+    )
   end
 
   defp create_candidate(session, run, verification_check, observation) do
-    {:ok, operation} = Operations.start_operation(session, :evidence_candidate_create)
-
-    Verification.create_evidence_candidate(session, operation, %{
-      work_run_id: run.id,
-      verification_check_id: verification_check.id,
-      execution_observation_id: observation.id,
-      claim: "The command target fixture passed.",
-      source_kind: "human",
-      source_identity: "manual:accept-only-candidate",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      sensitivity: "internal"
-    })
+    OperatorCommandFixtures.create_evidence_candidate(
+      session,
+      run,
+      verification_check,
+      observation,
+      %{
+        claim: "The command target fixture passed.",
+        source_kind: "human",
+        source_identity: "manual:accept-only-candidate",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      }
+    )
   end
 
   defp unique_key(label), do: "#{label}:#{System.unique_integer([:positive, :monotonic])}"

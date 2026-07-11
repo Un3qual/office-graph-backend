@@ -3234,6 +3234,51 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert [%{reason: "missing_accepted_evidence"}] = summary.missing_evidence
   end
 
+  test "passed acceptance identifies a missing run-required check by run context" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "missing-acceptance-required-check"
+      )
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "missing-acceptance-required-check"
+      )
+
+    delete_run_required_check!(run_result.run.id, verification_check.id)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :evidence_accept,
+        idempotency_key: "missing-acceptance-required-check"
+      )
+
+    missing_context = %{
+      run_id: run_result.run.id,
+      verification_check_id: verification_check.id
+    }
+
+    assert {:error, {:not_found, RunRequiredCheck, ^missing_context}} =
+             Verification.accept_evidence_candidate(
+               bootstrap.session,
+               operation,
+               candidate,
+               %{
+                 title: "Missing required-check evidence",
+                 body: "The run-required check row is missing.",
+                 result: "passed",
+                 acceptance_policy_basis: "owner_acceptance"
+               }
+             )
+  end
+
   test "graph-only observations can back matching evidence candidates" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

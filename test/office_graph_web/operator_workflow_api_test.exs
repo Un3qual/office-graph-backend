@@ -5,12 +5,11 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
+  alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.Runs
   alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkPackets
 
   @inbox_query """
   query Inbox($limit: Int, $afterCursor: String) {
@@ -452,8 +451,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert run_state["status"] == "awaiting_evidence_acceptance"
     assert is_binary(run_state["sourceWatermark"])
-    assert run_state["allowedNextActions"] == ["accept_evidence"]
-    assert [accept_evidence] = run_state["commandAffordances"]
+    assert run_state["allowedNextActions"] == ["accept_evidence", "waive_verification_check"]
+    assert [accept_evidence, waive_check] = run_state["commandAffordances"]
     assert accept_evidence["identity"] == "accept_evidence"
     assert accept_evidence["state"] == "enabled"
     assert accept_evidence["reasonCodes"] == []
@@ -463,6 +462,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "Accept a candidate as evidence for a missing check."
 
     assert accept_evidence["inputDefaults"] == []
+    assert waive_check["identity"] == "waive_verification_check"
+    assert waive_check["state"] == "enabled"
 
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
@@ -760,73 +761,65 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp create_ready_run(session, verification_check) do
-    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
-
-    {:ok, packet_result} =
-      WorkPackets.create_packet(session, packet_operation, %{
+    OperatorCommandFixtures.create_ready_run(
+      session,
+      verification_check,
+      %{
         title: "Ready operator GraphQL packet",
         objective: "Run selected GraphQL work.",
         context_summary: "Ready GraphQL context.",
         requirements: "Complete selected GraphQL work.",
         success_criteria: "Required GraphQL checks pass.",
-        autonomy_posture: "human_supervised",
-        source_graph_item_ids: [verification_check.graph_item_id],
-        verification_check_ids: [verification_check.id]
-      })
-
-    {:ok, run_operation} = Operations.start_operation(session, :work_run_start)
-
-    with {:ok, run_result} <-
-           Runs.start_run(session, run_operation, packet_result.version, %{
-             source_surface: "operator_workflow_graphql_test",
-             reason: "Execute ready GraphQL packet.",
-             authority_posture: "human_supervised"
-           }) do
-      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
-    end
+        autonomy_posture: "human_supervised"
+      },
+      %{
+        source_surface: "operator_workflow_graphql_test",
+        reason: "Execute ready GraphQL packet.",
+        authority_posture: "human_supervised"
+      },
+      attach_packet_version?: true
+    )
   end
 
   defp record_observation(session, run, verification_check, opts) do
     key = Keyword.fetch!(opts, :key)
 
-    {:ok, operation} =
-      Operations.start_operation(session, :execution_observation_record,
-        idempotency_key: "observation-operation:#{key}"
-      )
-
-    Runs.record_observation(session, operation, run, %{
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      idempotency_key: "observation:#{key}",
-      observed_status: "passed",
-      normalized_status: "succeeded",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      verification_check_id: verification_check.id,
-      graph_item_id: verification_check.graph_item_id,
-      rationale: "Human confirmed #{key}."
-    })
+    OperatorCommandFixtures.record_observation(
+      session,
+      run,
+      verification_check,
+      %{
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        idempotency_key: "observation:#{key}",
+        observed_status: "passed",
+        normalized_status: "succeeded",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        rationale: "Human confirmed #{key}."
+      },
+      idempotency_key: "observation-operation:#{key}"
+    )
   end
 
   defp create_evidence_candidate(session, run, verification_check, observation, opts) do
     key = Keyword.fetch!(opts, :key)
 
-    {:ok, operation} =
-      Operations.start_operation(session, :evidence_candidate_create,
-        idempotency_key: "candidate-operation:#{key}"
-      )
-
-    Verification.create_evidence_candidate(session, operation, %{
-      work_run_id: run.id,
-      verification_check_id: verification_check.id,
-      execution_observation_id: observation.id,
-      claim: "Evidence candidate #{key}.",
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      sensitivity: "internal"
-    })
+    OperatorCommandFixtures.create_evidence_candidate(
+      session,
+      run,
+      verification_check,
+      observation,
+      %{
+        claim: "Evidence candidate #{key}.",
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      },
+      idempotency_key: "candidate-operation:#{key}"
+    )
   end
 
   defp accept_candidate(session, candidate, opts) do

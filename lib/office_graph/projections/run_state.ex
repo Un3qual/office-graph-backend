@@ -154,8 +154,9 @@ defmodule OfficeGraph.Projections.RunState do
     if CommandAffordance.authorized?(session_context, :execution_observation_record) do
       record_observation_affordance(summary)
     else
-      [CommandAffordance.policy_restricted("record_observation")]
+      [CommandAffordance.policy_restricted("record_execution_observation")]
     end
+    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
   defp run_command_affordances(
@@ -169,6 +170,7 @@ defmodule OfficeGraph.Projections.RunState do
     else
       [CommandAffordance.policy_restricted("create_evidence_candidate")]
     end
+    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
   defp run_command_affordances(
@@ -182,6 +184,7 @@ defmodule OfficeGraph.Projections.RunState do
     else
       [CommandAffordance.policy_restricted("accept_evidence")]
     end
+    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
   defp run_command_affordances(_session_context, _status, _summary, _evidence_candidates), do: []
@@ -189,7 +192,7 @@ defmodule OfficeGraph.Projections.RunState do
   defp record_observation_affordance(summary) do
     [
       CommandAffordance.enabled(
-        "record_observation",
+        "record_execution_observation",
         "Record execution observations for this run.",
         required_fields: CommandAffordance.observation_required_fields(),
         target_ids: run_target_ids(summary)
@@ -250,6 +253,59 @@ defmodule OfficeGraph.Projections.RunState do
       ),
       CommandAffordance.input_default("sensitivity", "internal")
     ]
+  end
+
+  defp waive_verification_check_affordance(session_context, summary) do
+    if CommandAffordance.authorized?(session_context, :verification_waive) do
+      [
+        CommandAffordance.enabled(
+          "waive_verification_check",
+          "Waive a pending required check under an approved exception.",
+          required_fields: [
+            "run_id",
+            "run_required_check_id",
+            "expected_execution_state",
+            "expected_verification_state",
+            "reason",
+            "policy_basis"
+          ],
+          input_defaults: waiver_input_defaults(summary),
+          target_ids: waiver_target_ids(summary)
+        )
+      ]
+    else
+      []
+    end
+  end
+
+  defp waiver_input_defaults(summary) do
+    [
+      CommandAffordance.input_default("run_id", summary.run.id),
+      CommandAffordance.input_default(
+        "run_required_check_id",
+        Enum.map(pending_required_checks(summary), & &1.id)
+      ),
+      CommandAffordance.input_default(
+        "expected_execution_state",
+        summary.run.execution_state
+      ),
+      CommandAffordance.input_default(
+        "expected_verification_state",
+        summary.run.verification_state
+      )
+    ]
+  end
+
+  defp waiver_target_ids(summary) do
+    [CommandAffordance.target_id("work_run", summary.run.id)] ++
+      Enum.map(
+        pending_required_checks(summary),
+        &CommandAffordance.target_id("run_required_check", &1.id)
+      )
+  end
+
+  defp pending_required_checks(summary) do
+    Enum.filter(summary.required_checks, &(&1.state == "pending"))
   end
 
   defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
