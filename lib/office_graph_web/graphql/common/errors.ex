@@ -68,6 +68,29 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
+  defp normalize({:stale_packet_version, packet_id, current_version_id}) do
+    %{
+      detail: "The work packet version is stale.",
+      extensions: %{
+        code: "stale_packet_version",
+        packet_id: packet_id,
+        current_version_id: current_version_id
+      }
+    }
+  end
+
+  defp normalize({:stale_work_run_state, run_id, execution_state, verification_state}) do
+    %{
+      detail: "The work run state is stale.",
+      extensions: %{
+        code: "stale_run_state",
+        run_id: run_id,
+        execution_state: execution_state,
+        verification_state: verification_state
+      }
+    }
+  end
+
   defp normalize({:missing_verification_check, id}) do
     %{
       detail: "A verification check could not be found.",

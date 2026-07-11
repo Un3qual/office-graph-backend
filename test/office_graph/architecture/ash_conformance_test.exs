@@ -707,6 +707,31 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "operator command resolvers remain transport-only" do
+    resolver_paths =
+      "lib/office_graph_web/graphql/operator_commands/resolvers/*.ex"
+      |> Path.wildcard()
+      |> Enum.sort()
+
+    assert length(resolver_paths) == 4
+
+    for path <- resolver_paths do
+      source = File.read!(path)
+      resolver_body = source |> String.split("\n") |> tl() |> Enum.join("\n")
+
+      refute source =~ "Repo.", "#{path} must not perform direct repository operations"
+      refute source =~ "Ash.Changeset", "#{path} must not build Ash changesets"
+      refute resolver_body =~ "Resolvers.", "#{path} must not call another resolver"
+
+      assert source =~ "Input.parse", "#{path} must parse transport input"
+
+      assert source =~ "RequestSession.resolve_resolution",
+             "#{path} must resolve request sessions"
+
+      assert source =~ "Operations.start_command", "#{path} must start server-owned commands"
+    end
+  end
+
   test "old compatibility GraphQL modules stay retired" do
     for retired_path <- [
           "lib/office_graph_web/graphql/compatibility/types.ex",

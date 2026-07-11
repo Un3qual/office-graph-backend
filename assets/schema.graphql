@@ -859,6 +859,14 @@ type RootQueryType {
 
 type RootMutationType {
   submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
+  applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
+  createWorkPacket(input: CreateWorkPacketInput!): CreateWorkPacketPayload!
+  createWorkPacketVersion(input: CreateWorkPacketVersionInput!): CreateWorkPacketVersionPayload!
+  startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
+  recordExecutionObservation(input: RecordExecutionObservationInput!): RecordExecutionObservationPayload!
+  createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
+  acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
+  waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
   executePacketRunVerification(input: ExecutePacketRunVerificationInput!): PacketRunSummary!
 }
 
@@ -973,12 +981,229 @@ input SubmitManualIntakeInput {
   body: String!
 }
 
+input ApplyProposedChangesInput {
+  idempotencyKey: String!
+  normalizedEventId: ID!
+  proposedChangeIds: [ID!]!
+}
+
+input CreateWorkPacketInput {
+  idempotencyKey: String!
+  title: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String!
+  autonomyPosture: String!
+  sourceGraphItemIds: [ID!]!
+  verificationCheckIds: [ID!]!
+}
+
+input CreateWorkPacketVersionInput {
+  idempotencyKey: String!
+  packetId: ID!
+  expectedCurrentVersionId: ID!
+  title: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String!
+  autonomyPosture: String!
+  sourceGraphItemIds: [ID!]!
+  verificationCheckIds: [ID!]!
+}
+
+input StartWorkRunInput {
+  idempotencyKey: String!
+  packetVersionId: ID!
+  sourceSurface: String!
+  reason: String!
+  authorityPosture: String!
+}
+
+input RecordExecutionObservationInput {
+  idempotencyKey: String!
+  runId: ID!
+  verificationCheckId: ID!
+  graphItemId: ID!
+  sourceKind: String!
+  sourceIdentity: String!
+  sourceIdempotencyKey: String!
+  observedStatus: String!
+  normalizedStatus: String!
+  freshnessState: String!
+  trustBasis: String!
+  rationale: String!
+}
+
+input CreateEvidenceCandidateInput {
+  idempotencyKey: String!
+  workRunId: ID!
+  verificationCheckId: ID!
+  executionObservationId: ID!
+  claim: String!
+  sourceKind: String!
+  sourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  sensitivity: String!
+}
+
+input AcceptEvidenceInput {
+  idempotencyKey: String!
+  candidateId: ID!
+  title: String!
+  body: String!
+  result: String!
+  acceptancePolicyBasis: String!
+}
+
+input WaiveVerificationCheckInput {
+  idempotencyKey: String!
+  runId: ID!
+  runRequiredCheckId: ID!
+  expectedExecutionState: String!
+  expectedVerificationState: String!
+  reason: String!
+  policyBasis: String!
+}
+
+type OperatorCommandSignal {
+  id: ID!
+}
+
+type OperatorCommandTask {
+  id: ID!
+}
+
+type OperatorCommandReviewFinding {
+  id: ID!
+}
+
+type OperatorCommandVerificationCheck {
+  id: ID!
+  graphItemId: ID!
+}
+
+type OperatorCommandWorkPacket {
+  id: ID!
+  currentVersionId: ID!
+  title: String!
+  state: String!
+}
+
+type OperatorCommandWorkPacketVersion {
+  id: ID!
+  versionNumber: Int!
+  lifecycleState: String!
+}
+
+type OperatorCommandWorkRun {
+  id: ID!
+  executionState: String!
+  verificationState: String!
+}
+
+type OperatorCommandRunRequiredCheck {
+  id: ID!
+  verificationCheckId: ID!
+  state: String!
+}
+
+type OperatorCommandExecutionObservation {
+  id: ID!
+  normalizedStatus: String!
+}
+
+type OperatorCommandEvidenceCandidate {
+  id: ID!
+  candidateState: String!
+}
+
+type OperatorCommandEvidenceItem {
+  id: ID!
+  state: String!
+}
+
+type OperatorCommandVerificationResult {
+  id: ID!
+  result: String!
+}
+
 type SubmitManualIntakePayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
   normalizedEventId: ID!
   proposedChangeIds: [ID!]!
+}
+
+type ApplyProposedChangesPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  signal: OperatorCommandSignal!
+  task: OperatorCommandTask!
+  reviewFinding: OperatorCommandReviewFinding!
+  verificationCheck: OperatorCommandVerificationCheck!
+}
+
+type CreateWorkPacketPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  packet: OperatorCommandWorkPacket!
+  packetVersion: OperatorCommandWorkPacketVersion!
+}
+
+type CreateWorkPacketVersionPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  packet: OperatorCommandWorkPacket!
+  packetVersion: OperatorCommandWorkPacketVersion!
+}
+
+type StartWorkRunPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  run: OperatorCommandWorkRun!
+  requiredChecks: [OperatorCommandRunRequiredCheck!]!
+}
+
+type RecordExecutionObservationPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  observation: OperatorCommandExecutionObservation!
+  run: OperatorCommandWorkRun!
+}
+
+type CreateEvidenceCandidatePayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  evidenceCandidate: OperatorCommandEvidenceCandidate!
+}
+
+type AcceptEvidencePayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  evidenceCandidate: OperatorCommandEvidenceCandidate!
+  evidenceItem: OperatorCommandEvidenceItem!
+  verificationResult: OperatorCommandVerificationResult!
+  run: OperatorCommandWorkRun!
+}
+
+type WaiveVerificationCheckPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  verificationResult: OperatorCommandVerificationResult!
+  requiredCheck: OperatorCommandRunRequiredCheck!
+  run: OperatorCommandWorkRun!
 }
 
 type OperatorTypedId {

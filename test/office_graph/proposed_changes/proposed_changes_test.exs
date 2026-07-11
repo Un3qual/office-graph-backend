@@ -716,6 +716,30 @@ defmodule OfficeGraph.ProposedChangesTest do
            end)
   end
 
+  test "successful apply replays the original result for the same operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, first} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert {:ok, replay} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert Map.new(first, fn {key, record} -> {key, record.id} end) ==
+             Map.new(replay, fn {key, record} -> {key, record.id} end)
+  end
+
   test "apply ignores unmodeled payload keys instead of atomizing them", %{
     bootstrap: bootstrap,
     intake: intake

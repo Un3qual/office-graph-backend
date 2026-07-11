@@ -5,6 +5,7 @@ defmodule OfficeGraph.ProposedChanges do
 
   use Boundary,
     deps: [
+      OfficeGraph.Audit,
       OfficeGraph.Authorization,
       OfficeGraph.Repo,
       OfficeGraph.WorkGraph
@@ -12,9 +13,11 @@ defmodule OfficeGraph.ProposedChanges do
     exports: []
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.Audit
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkGraph.{ReviewFinding, Signal, Task, VerificationCheck}
 
   require Ash.Query
 
@@ -245,8 +248,22 @@ defmodule OfficeGraph.ProposedChanges do
              organization_id: session_context.organization_id
            ),
          :ok <- validate_apply_operation(session_context, operation),
-         {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes),
-         :ok <- validate_change_set(session_context, proposed_changes),
+         {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes) do
+      case replay_applied_result(session_context, operation, proposed_changes) do
+        {:ok, applied} ->
+          {:ok, applied}
+
+        :not_replay ->
+          apply_pending_changes(session_context, operation, proposed_changes)
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
+  defp apply_pending_changes(session_context, operation, proposed_changes) do
+    with :ok <- validate_change_set(session_context, proposed_changes),
          :ok <- validate_all(session_context, proposed_changes),
          {:ok, signal_bundle} <-
            find_change(proposed_changes, "create_signal")
@@ -269,6 +286,82 @@ defmodule OfficeGraph.ProposedChanges do
          review_finding: finding_bundle.review_finding,
          verification_check: check_bundle.verification_check
        }}
+    end
+  end
+
+  defp replay_applied_result(session_context, operation, proposed_changes) do
+    if Enum.all?(proposed_changes, fn change ->
+         change.status == "applied" and change.applied_operation_id == operation.id
+       end) do
+      audit_records = Audit.records_for_operation(operation.id)
+
+      with :ok <- validate_record_scopes(session_context, proposed_changes),
+           :ok <- validate_required_types(proposed_changes),
+           :ok <- validate_single_normalized_event(proposed_changes),
+           :ok <- validate_accepted_normalized_event(session_context, proposed_changes),
+           {:ok, signal} <-
+             read_applied_resource(Signal, "signal", session_context, operation, audit_records),
+           {:ok, task} <-
+             read_applied_resource(Task, "task", session_context, operation, audit_records),
+           {:ok, review_finding} <-
+             read_applied_resource(
+               ReviewFinding,
+               "review_finding",
+               session_context,
+               operation,
+               audit_records
+             ),
+           {:ok, verification_check} <-
+             read_applied_resource(
+               VerificationCheck,
+               "verification_check",
+               session_context,
+               operation,
+               audit_records
+             ) do
+        {:ok,
+         %{
+           signal: signal,
+           task: task,
+           review_finding: review_finding,
+           verification_check: verification_check
+         }}
+      end
+    else
+      :not_replay
+    end
+  end
+
+  defp read_applied_resource(
+         resource,
+         resource_type,
+         session_context,
+         operation,
+         audit_records
+       ) do
+    case Enum.find(audit_records, &(&1.resource_type == resource_type)) do
+      nil ->
+        {:error,
+         {:invalid_proposed_change_set,
+          {:missing_applied_operation_result, inspect(resource), operation.id}}}
+
+      audit_record ->
+        resource
+        |> Ash.Query.filter(
+          id == ^audit_record.resource_id and
+            organization_id == ^session_context.organization_id and
+            workspace_id == ^session_context.workspace_id
+        )
+        |> Ash.read_one(actor: session_context)
+        |> case do
+          {:ok, nil} ->
+            {:error,
+             {:invalid_proposed_change_set,
+              {:missing_applied_operation_result, inspect(resource), operation.id}}}
+
+          result ->
+            result
+        end
     end
   end
 

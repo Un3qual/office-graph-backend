@@ -34,6 +34,13 @@ defmodule OfficeGraph.Audit do
     |> Ash.count!(authorize?: false)
   end
 
+  def records_for_operation(operation_id) do
+    AuditRecord
+    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.read!(authorize?: false)
+  end
+
   defp record_without_notifications({record, _notifications}), do: record
   defp record_without_notifications(record), do: record
 end
