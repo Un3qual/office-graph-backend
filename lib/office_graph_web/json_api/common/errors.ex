@@ -7,9 +7,15 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
   def render(conn, error, opts \\ []) do
     response = to_response(error, opts)
 
+    payload =
+      case Keyword.get(opts, :command) do
+        nil -> %{error: response.error}
+        command -> %{command: command, error: response.error}
+      end
+
     conn
     |> put_status(response.status)
-    |> json(%{error: response.error})
+    |> json(payload)
   end
 
   defp to_response({:error, error}, opts), do: to_response(error, opts)
@@ -42,7 +48,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:invalid_proposed_change_status, id}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "invalid_proposed_change_status",
       "A proposed change is no longer pending.",
       %{proposed_change_id: id}
@@ -51,7 +57,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:invalid_proposed_change_set, reason}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "invalid_proposed_change_set",
       "The proposed change set is invalid.",
       %{
@@ -69,6 +75,37 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     )
   end
 
+  defp to_response({:command_idempotency_conflict, operation_id}, _opts) do
+    response(
+      :conflict,
+      "idempotency_conflict",
+      "The idempotency key conflicts with different command input.",
+      %{operation_id: operation_id}
+    )
+  end
+
+  defp to_response({:stale_packet_version, packet_id, current_version_id}, _opts) do
+    response(
+      :conflict,
+      "stale_packet_version",
+      "The work packet version is stale.",
+      %{packet_id: packet_id, current_version_id: current_version_id}
+    )
+  end
+
+  defp to_response({:stale_work_run_state, run_id, execution_state, verification_state}, _opts) do
+    response(
+      :conflict,
+      "stale_run_state",
+      "The work run state is stale.",
+      %{
+        run_id: run_id,
+        execution_state: execution_state,
+        verification_state: verification_state
+      }
+    )
+  end
+
   defp to_response({:missing_verification_check, id}, _opts) do
     response(
       :unprocessable_entity,
@@ -82,7 +119,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:invalid_verification_check_status, id}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "invalid_verification_check_status",
       "A verification check is no longer required.",
       %{verification_check_id: id}
@@ -111,7 +148,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:observation_idempotency_conflict, observation_id}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "idempotency_conflict",
       "The observation source idempotency key conflicts with different input.",
       %{observation_id: observation_id}
@@ -146,8 +183,12 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     })
   end
 
-  defp to_response(_error, _opts) do
-    validation_response("Validation failed.")
+  defp to_response(error, _opts) do
+    if ash_forbidden_error?(error) do
+      to_response(:forbidden, [])
+    else
+      validation_response("Validation failed.")
+    end
   end
 
   defp validation_response(detail, extra \\ %{}) do
@@ -172,4 +213,12 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp format_reason({kind, value}), do: %{kind: kind, value: value}
   defp format_reason(reason), do: reason
+
+  defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true
+
+  defp ash_forbidden_error?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ash_forbidden_error?/1)
+  end
+
+  defp ash_forbidden_error?(_error), do: false
 end
