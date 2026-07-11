@@ -146,7 +146,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         body: "Create the second proposal set."
       })
 
-    before_counts = command_record_counts()
+    before_snapshot = command_record_snapshot()
 
     response =
       raw_command(conn, :apply_proposed_changes, %{
@@ -158,7 +158,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert [%{"extensions" => %{"code" => "invalid_proposed_change_set"}}] =
              response["errors"]
 
-    assert command_record_counts() == before_counts
+    assert command_record_snapshot() == before_snapshot
   end
 
   test "proposal replay corruption returns a safe JSON-encodable error", %{conn: conn} do
@@ -193,8 +193,16 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     refute inspect(response["errors"]) =~ "OfficeGraph."
   end
 
-  test "command rollback snapshots cover every durable command record family" do
-    assert MapSet.new(Map.keys(command_record_counts())) == MapSet.new(@command_record_families)
+  test "command rollback snapshots detect in-place state updates without row-count changes" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, check} = create_required_verification_check(bootstrap.session, "snapshot-state")
+    before_snapshot = command_record_snapshot()
+
+    check
+    |> Ash.Changeset.for_update(:mark_satisfied, %{})
+    |> Ash.update!(authorize?: false)
+
+    refute command_record_snapshot() == before_snapshot
   end
 
   test "step-specific GraphQL commands complete the operator loop and replay safely", %{
@@ -247,7 +255,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     version = command(conn, :create_work_packet_version, version_input)
     assert_payload(version, "create_work_packet_version", ["work_packet", "work_packet_version"])
 
-    before_stale_version = command_record_counts()
+    before_stale_version = command_record_snapshot()
 
     stale_version =
       raw_command(
@@ -259,7 +267,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       )
 
     assert [%{"extensions" => %{"code" => "stale_packet_version"}}] = stale_version["errors"]
-    assert command_record_counts() == before_stale_version
+    assert command_record_snapshot() == before_stale_version
 
     run_input = %{
       idempotencyKey: unique_key("run"),
@@ -331,7 +339,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "work_run"
     ])
 
-    before_stale_waiver = command_record_counts()
+    before_stale_waiver = command_record_snapshot()
 
     stale_waiver =
       raw_command(conn, :waive_verification_check, %{
@@ -345,7 +353,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       })
 
     assert [%{"extensions" => %{"code" => "stale_run_state"}}] = stale_waiver["errors"]
-    assert command_record_counts() == before_stale_waiver
+    assert command_record_snapshot() == before_stale_waiver
 
     waiver_input = %{
       idempotencyKey: unique_key("waive"),
@@ -384,7 +392,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       {:waive_verification_check, waiver_input, waived, :reason, "Changed waiver reason."}
     ]
 
-    before_retry_counts = command_record_counts()
+    before_retry_snapshot = command_record_snapshot()
 
     Enum.each(commands, fn {name, input, expected, changed_field, changed_value} ->
       assert stable_payload(command(conn, name, input)) == stable_payload(expected)
@@ -393,7 +401,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       assert [%{"extensions" => %{"code" => "idempotency_conflict"}}] = response["errors"]
     end)
 
-    assert command_record_counts() == before_retry_counts
+    assert command_record_snapshot() == before_retry_snapshot
 
     assert first_required_check["state"] == "pending"
   end
@@ -405,7 +413,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     {:ok, check} = create_required_verification_check(bootstrap.session, "guardrails")
 
     seed = seed_command_targets(conn, check)
-    before_counts = command_record_counts()
+    before_snapshot = command_record_snapshot()
 
     Enum.each(seed.command_inputs, fn {name, input, required_field} ->
       missing = raw_command(conn, name, Map.delete(input, required_field))
@@ -417,7 +425,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       assert message =~ "Expected type"
     end)
 
-    assert command_record_counts() == before_counts
+    assert command_record_snapshot() == before_snapshot
 
     read_only = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
 
@@ -432,7 +440,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
     end)
 
-    assert command_record_counts() == before_counts
+    assert command_record_snapshot() == before_snapshot
   end
 
   defp graphql(conn, query, variables) do
@@ -722,10 +730,28 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     %{command_inputs: command_inputs}
   end
 
-  defp command_record_counts do
-    @command_record_families
-    |> Map.new(&{&1, Ash.count!(&1, authorize?: false)})
+  # OperationCorrelation and AuthorizationDecision are deliberately excluded:
+  # command start and authorization denial traces are expected to persist even
+  # when the owning product command is rejected.
+  defp command_record_snapshot do
+    Map.new(@command_record_families, fn resource ->
+      attribute_names =
+        resource
+        |> Ash.Resource.Info.attributes()
+        |> Enum.map(& &1.name)
+
+      rows =
+        resource
+        |> Ash.Query.select(attribute_names)
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(&Map.take(&1, attribute_names))
+        |> Enum.sort_by(&snapshot_row_sort_key/1)
+
+      {resource, rows}
+    end)
   end
+
+  defp snapshot_row_sort_key(row), do: Map.get(row, :id) || inspect(row)
 
   defp create_required_verification_check(session, label) do
     {:ok, operation} = Operations.start_operation(session, :proposed_change_apply)
