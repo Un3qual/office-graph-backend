@@ -271,6 +271,143 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
     end
   end
 
+  describe "observation, evidence, acceptance, and waiver commands" do
+    test "match GraphQL command, replay, authorization, and stale-state semantics", %{conn: conn} do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      conn = Ash.PlugHelpers.set_actor(conn, bootstrap.session)
+      first = create_applied_workflow(conn, "verification-first")["result"]["verification_check"]
+
+      second =
+        create_applied_workflow(conn, "verification-second")["result"]["verification_check"]
+
+      started = create_started_run(conn, "verification", [first, second])
+
+      observation_input = %{
+        idempotency_key: unique_key("observation-operation"),
+        run_id: started["result"]["run"]["id"],
+        verification_check_id: first["id"],
+        source_graph_item_id: first["graph_item_id"],
+        observation_source_kind: "human",
+        observation_source_identity: "manual:json-observation",
+        observation_idempotency_key: unique_key("observation-source"),
+        observed_status: "passed",
+        normalized_status: "succeeded",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        observation_rationale: "The first JSON command check passed."
+      }
+
+      observed = command(conn, "record-execution-observation", observation_input)
+      assert observed["command"] == "record_execution_observation"
+      assert observed["result"]["observation"]["normalized_status"] == "succeeded"
+      assert command(conn, "record-execution-observation", observation_input) == observed
+
+      candidate_input = %{
+        idempotency_key: unique_key("candidate"),
+        work_run_id: started["result"]["run"]["id"],
+        verification_check_id: first["id"],
+        execution_observation_id: observed["result"]["observation"]["id"],
+        claim: "The first JSON command check has passing evidence.",
+        source_kind: "human",
+        source_identity: "manual:json-evidence",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      }
+
+      candidate = command(conn, "create-evidence-candidate", candidate_input)
+      assert candidate["command"] == "create_evidence_candidate"
+      assert candidate["result"]["evidence_candidate"]["candidate_state"] == "candidate"
+      assert command(conn, "create-evidence-candidate", candidate_input) == candidate
+
+      accept_input = %{
+        idempotency_key: unique_key("accept"),
+        evidence_candidate_id: candidate["result"]["evidence_candidate"]["id"],
+        title: "Accepted JSON command evidence",
+        body: "The first required check passed.",
+        result: "passed",
+        acceptance_policy_basis: "owner_acceptance"
+      }
+
+      accepted = command(conn, "accept-evidence", accept_input)
+      assert accepted["command"] == "accept_evidence"
+      assert accepted["result"]["evidence_item"]["state"] == "accepted"
+      assert accepted["result"]["verification_result"]["result"] == "passed"
+      assert command(conn, "accept-evidence", accept_input) == accepted
+
+      assert MapSet.subset?(
+               MapSet.new([
+                 "evidence_candidate",
+                 "evidence_item",
+                 "verification_result",
+                 "verification_check",
+                 "run_required_check",
+                 "review_finding",
+                 "task",
+                 "work_run"
+               ]),
+               MapSet.new(accepted["affected_ids"], & &1["type"])
+             )
+
+      second_required_check =
+        Enum.find(
+          started["result"]["required_checks"],
+          &(&1["verification_check_id"] == second["id"])
+        )
+
+      waiver_input = %{
+        idempotency_key: unique_key("waive"),
+        run_id: accepted["result"]["run"]["id"],
+        run_required_check_id: second_required_check["id"],
+        expected_execution_state: accepted["result"]["run"]["execution_state"],
+        expected_verification_state: accepted["result"]["run"]["verification_state"],
+        reason: "The second check is governed by an approved exception.",
+        policy_basis: "owner_exception"
+      }
+
+      stale =
+        raw_command(
+          conn,
+          "waive-verification-check",
+          waiver_input
+          |> Map.put(:idempotency_key, unique_key("stale-waive"))
+          |> Map.put(:expected_execution_state, "queued")
+        )
+
+      assert stale.status == 409
+
+      assert %{
+               "command" => "waive_verification_check",
+               "error" => %{"code" => "stale_run_state"}
+             } = json_response(stale, 409)
+
+      no_capabilities =
+        create_session_with_capabilities!(bootstrap, [], prefix: "json-waive-forbidden")
+
+      forbidden =
+        conn
+        |> Ash.PlugHelpers.set_actor(no_capabilities)
+        |> raw_command(
+          "waive-verification-check",
+          Map.put(waiver_input, :idempotency_key, unique_key("forbidden-waive"))
+        )
+
+      assert forbidden.status == 403
+
+      assert %{
+               "command" => "waive_verification_check",
+               "error" => %{"code" => "forbidden"}
+             } = json_response(forbidden, 403)
+
+      waived = command(conn, "waive-verification-check", waiver_input)
+      assert waived["command"] == "waive_verification_check"
+      assert waived["result"]["required_check"]["state"] == "waived"
+      assert waived["result"]["verification_result"]["result"] == "waived"
+      assert waived["result"]["run"]["verification_state"] == "verified"
+      assert command(conn, "waive-verification-check", waiver_input) == waived
+    end
+  end
+
   defp command(conn, command, input) do
     conn
     |> raw_command(command, input)
@@ -294,6 +431,29 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       idempotency_key: unique_key("#{label}-apply"),
       normalized_event_id: intake["result"]["normalized_event_id"],
       proposed_change_ids: intake["result"]["proposed_change_ids"]
+    })
+  end
+
+  defp create_started_run(conn, label, checks) do
+    packet =
+      command(conn, "create-work-packet", %{
+        idempotency_key: unique_key("#{label}-packet"),
+        title: "#{label} JSON packet",
+        objective: "Advance verification commands through the JSON API.",
+        context_summary: "The selected checks are ready for execution.",
+        requirements: "Preserve command replay and authorization behavior.",
+        success_criteria: "All required checks are accepted or waived.",
+        autonomy_posture: "human_supervised",
+        source_graph_item_ids: Enum.map(checks, & &1["graph_item_id"]),
+        verification_check_ids: Enum.map(checks, & &1["id"])
+      })
+
+    command(conn, "start-work-run", %{
+      idempotency_key: unique_key("#{label}-run"),
+      packet_version_id: packet["result"]["packet_version"]["id"],
+      source_surface: "operator_commands_json_test",
+      reason: "Exercise verification JSON commands.",
+      authority_posture: "human_supervised"
     })
   end
 

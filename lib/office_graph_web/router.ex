@@ -42,6 +42,22 @@ defmodule OfficeGraphWeb.Router do
     post "/v1/commands/start-work-run",
          JsonApi.OperatorCommands.RunsController,
          :start_work_run
+
+    post "/v1/commands/record-execution-observation",
+         JsonApi.OperatorCommands.RunsController,
+         :record_execution_observation
+
+    post "/v1/commands/create-evidence-candidate",
+         JsonApi.OperatorCommands.VerificationController,
+         :create_evidence_candidate
+
+    post "/v1/commands/accept-evidence",
+         JsonApi.OperatorCommands.VerificationController,
+         :accept_evidence
+
+    post "/v1/commands/waive-verification-check",
+         JsonApi.OperatorCommands.VerificationController,
+         :waive_verification_check
   end
 
   scope "/" do

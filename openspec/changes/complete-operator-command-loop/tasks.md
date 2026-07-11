@@ -20,7 +20,7 @@
 
 - [x] 4.1 Add JSON API tests, request parsers, controllers, serializers, and routes for manual intake and proposal application.
 - [x] 4.2 Add JSON API tests and thin commands for packet creation/versioning and run start.
-- [ ] 4.3 Add JSON API tests and thin commands for observations, evidence creation/acceptance, and waiver, including parity assertions with GraphQL behavior.
+- [x] 4.3 Add JSON API tests and thin commands for observations, evidence creation/acceptance, and waiver, including parity assertions with GraphQL behavior.
 
 ## 5. Relay Mutation Foundation
 

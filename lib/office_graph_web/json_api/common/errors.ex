@@ -93,6 +93,19 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     )
   end
 
+  defp to_response({:stale_work_run_state, run_id, execution_state, verification_state}, _opts) do
+    response(
+      :conflict,
+      "stale_run_state",
+      "The work run state is stale.",
+      %{
+        run_id: run_id,
+        execution_state: execution_state,
+        verification_state: verification_state
+      }
+    )
+  end
+
   defp to_response({:missing_verification_check, id}, _opts) do
     response(
       :unprocessable_entity,
@@ -106,7 +119,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:invalid_verification_check_status, id}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "invalid_verification_check_status",
       "A verification check is no longer required.",
       %{verification_check_id: id}
@@ -135,7 +148,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
 
   defp to_response({:observation_idempotency_conflict, observation_id}, _opts) do
     response(
-      :unprocessable_entity,
+      :conflict,
       "idempotency_conflict",
       "The observation source idempotency key conflicts with different input.",
       %{observation_id: observation_id}

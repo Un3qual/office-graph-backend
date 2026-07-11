@@ -37,6 +37,58 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.RunsController do
     end
   end
 
+  def record_execution_observation(conn, params) do
+    command = "record_execution_observation"
+
+    with {:ok, parsed} <- Input.parse(:record_execution_observation, params),
+         {:ok, session_context} <- request_session(conn),
+         {idempotency_key, command_input} <- Map.pop!(parsed, :idempotency_key),
+         {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :execution_observation_record,
+             idempotency_key,
+             command_input
+           ),
+         {run_id, attrs} <- Map.pop!(command_input, :run_id),
+         {:ok, run} <- Runs.get_run_for_observation_command(session_context, run_id),
+         attrs <- normalize_observation_attrs(attrs),
+         {:ok, result} <- Runs.record_observation(session_context, operation, run, attrs) do
+      Serializer.render(
+        conn,
+        command,
+        operation.id,
+        [
+          typed_id("execution_observation", result.observation.id),
+          typed_id("work_run", result.run.id)
+        ],
+        %{
+          observation: %{
+            id: result.observation.id,
+            normalized_status: result.observation.normalized_status
+          },
+          run: run_result(result.run)
+        }
+      )
+    else
+      error -> Errors.render(conn, error, command: command)
+    end
+  end
+
+  defp normalize_observation_attrs(attrs) do
+    attrs
+    |> rename(:observation_source_kind, :source_kind)
+    |> rename(:observation_source_identity, :source_identity)
+    |> rename(:observation_idempotency_key, :idempotency_key)
+    |> rename(:source_graph_item_id, :graph_item_id)
+    |> rename(:observation_rationale, :rationale)
+  end
+
+  defp rename(attrs, source, target) do
+    {value, attrs} = Map.pop!(attrs, source)
+    Map.put(attrs, target, value)
+  end
+
   defp run_result(run) do
     %{
       id: run.id,

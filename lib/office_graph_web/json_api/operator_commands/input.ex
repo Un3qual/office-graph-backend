@@ -43,6 +43,49 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.Input do
       source_surface: :string,
       reason: :string,
       authority_posture: :string
+    ],
+    record_execution_observation: [
+      idempotency_key: :string,
+      run_id: :uuid,
+      verification_check_id: :uuid,
+      source_graph_item_id: :uuid,
+      observation_source_kind: :string,
+      observation_source_identity: :string,
+      observation_idempotency_key: :string,
+      observed_status: :string,
+      normalized_status: :string,
+      freshness_state: :string,
+      trust_basis: :string,
+      observation_rationale: :string
+    ],
+    create_evidence_candidate: [
+      idempotency_key: :string,
+      work_run_id: :uuid,
+      verification_check_id: :uuid,
+      execution_observation_id: :uuid,
+      claim: :string,
+      source_kind: :string,
+      source_identity: :string,
+      freshness_state: :string,
+      trust_basis: :string,
+      sensitivity: :string
+    ],
+    accept_evidence: [
+      idempotency_key: :string,
+      evidence_candidate_id: :uuid,
+      title: :string,
+      body: :raw_string,
+      result: :string,
+      acceptance_policy_basis: :string
+    ],
+    waive_verification_check: [
+      idempotency_key: :string,
+      run_id: :uuid,
+      run_required_check_id: :uuid,
+      expected_execution_state: :string,
+      expected_verification_state: :string,
+      reason: :string,
+      policy_basis: :string
     ]
   }
 
