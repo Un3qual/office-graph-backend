@@ -201,9 +201,8 @@ defmodule OfficeGraph.Operations do
 
   defp normalize_command_input(value), do: value
 
-  defp command_digest_from_metadata(metadata) when is_map(metadata) do
-    Map.get(metadata, "command_input_digest") || Map.get(metadata, :command_input_digest)
-  end
+  defp command_digest_from_metadata(%{"command_input_digest" => digest}), do: digest
+  defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
 
   defp command_digest_from_metadata(_metadata), do: nil
 end

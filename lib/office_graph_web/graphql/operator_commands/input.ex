@@ -6,7 +6,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
       idempotency_key: :string,
       source_identity: :string,
       replay_identity: :string,
-      body: :string
+      body: :raw_string
     ]
   }
 
@@ -22,11 +22,19 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
   end
 
   defp required(params, key, :string) do
+    required_string(params, key, &String.trim/1)
+  end
+
+  defp required(params, key, :raw_string) do
+    required_string(params, key, &Function.identity/1)
+  end
+
+  defp required_string(params, key, return_value) do
     case Map.get(params, key) || Map.get(params, to_string(key)) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, {:missing_field, key}}
-          trimmed -> {:ok, trimmed}
+          _nonblank -> {:ok, return_value.(value)}
         end
 
       nil ->

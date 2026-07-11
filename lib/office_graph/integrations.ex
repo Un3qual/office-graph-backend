@@ -6,6 +6,7 @@ defmodule OfficeGraph.Integrations do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.Operations,
       OfficeGraph.ProposedChanges,
       OfficeGraph.Repo
     ],
@@ -15,6 +16,7 @@ defmodule OfficeGraph.Integrations do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
+  alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Repo
 
@@ -33,12 +35,52 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp submit_or_replay_manual_intake(session_context, operation, attrs) do
-    case existing_intake_for_operation(session_context, operation) do
-      {:ok, nil} -> record_manual_intake(session_context, operation, attrs)
-      {:ok, intake} -> {:ok, intake}
-      {:error, error} -> {:error, error}
+    if command_operation?(operation) do
+      submit_or_replay_manual_intake_command(session_context, operation, attrs)
+    else
+      record_manual_intake(session_context, operation, attrs)
     end
   end
+
+  defp submit_or_replay_manual_intake_command(session_context, operation, attrs) do
+    with :ok <- Operations.validate_command_replay(operation, attrs) do
+      Repo.transaction(fn ->
+        case Operations.lock_operation(operation.id) do
+          {:ok, _locked_operation} ->
+            case existing_intake_for_operation(session_context, operation) do
+              {:ok, nil} ->
+                case record_manual_intake(session_context, operation, attrs) do
+                  {:ok, intake} -> intake
+                  {:error, error} -> Repo.rollback(error)
+                end
+
+              {:ok, intake} ->
+                intake
+
+              {:error, error} ->
+                Repo.rollback(error)
+            end
+
+          {:error, error} ->
+            Repo.rollback(error)
+        end
+      end)
+      |> case do
+        {:ok, intake} -> {:ok, intake}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  defp command_operation?(operation) do
+    operation
+    |> Map.get(:metadata, %{})
+    |> command_digest?()
+  end
+
+  defp command_digest?(%{"command_input_digest" => digest}), do: is_binary(digest)
+  defp command_digest?(%{command_input_digest: digest}), do: is_binary(digest)
+  defp command_digest?(_metadata), do: false
 
   defp existing_intake_for_operation(session_context, operation) do
     NormalizedIntakeEvent

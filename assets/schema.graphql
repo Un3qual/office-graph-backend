@@ -858,6 +858,7 @@ type RootQueryType {
 }
 
 type RootMutationType {
+  submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
   executePacketRunVerification(input: ExecutePacketRunVerificationInput!): PacketRunSummary!
 }
 
@@ -963,6 +964,21 @@ input ExecutePacketRunVerificationInput {
   evidenceBody: String!
   evidenceResult: String!
   acceptancePolicyBasis: String!
+}
+
+input SubmitManualIntakeInput {
+  idempotencyKey: String!
+  sourceIdentity: String!
+  replayIdentity: String!
+  body: String!
+}
+
+type SubmitManualIntakePayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  normalizedEventId: ID!
+  proposedChangeIds: [ID!]!
 }
 
 type OperatorTypedId {

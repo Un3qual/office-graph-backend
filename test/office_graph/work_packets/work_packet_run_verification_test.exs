@@ -277,6 +277,29 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
 
     assert next.version.version_number == 3
     assert next.version.title == "Third packet version"
+
+    original_packet_operation =
+      Ash.get!(
+        OfficeGraph.Operations.OperationCorrelation,
+        packet_result.packet.operation_id,
+        authorize?: false
+      )
+
+    assert {:ok, replayed_create} =
+             WorkPackets.create_packet(bootstrap.session, original_packet_operation, %{
+               title: "Ready packet",
+               objective: "Run selected work.",
+               context_summary: "Ready context.",
+               requirements: "Complete selected work.",
+               success_criteria: "Required checks pass.",
+               autonomy_posture: "human_supervised",
+               source_graph_item_ids: [first_check.graph_item_id],
+               verification_check_ids: [first_check.id]
+             })
+
+    assert replayed_create.version.id == packet_result.version.id
+    assert replayed_create.version.version_number == 1
+    assert replayed_create.packet.current_version_id == next.version.id
   end
 
   test "governed verification waivers are replayable, audited, and recompute run state" do
@@ -332,6 +355,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     assert waived.required_check.state == "waived"
     assert waived.run.verification_state == "verified"
     assert waived.run.aggregate_state == "verified"
+
+    assert {:ok, summary} = Runs.get_summary(bootstrap.session, waived.run.id)
+    assert summary.missing_evidence == []
+
     assert Audit.count_for_operation(operation.id) >= 2
     assert Revisions.count_for_operation(operation.id) >= 2
 

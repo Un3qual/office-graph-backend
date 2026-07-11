@@ -18,6 +18,7 @@ defmodule OfficeGraph.WorkPackets do
 
   alias OfficeGraph.WorkPackets.{
     Readiness,
+    PacketResult,
     WorkPacket,
     WorkPacketRequiredCheck,
     WorkPacketSourceReference,
@@ -237,7 +238,7 @@ defmodule OfficeGraph.WorkPackets do
         })
         |> Repo.ash_update!()
 
-      %{
+      %PacketResult{
         packet: packet,
         version: version,
         source_references: source_references,
@@ -272,7 +273,7 @@ defmodule OfficeGraph.WorkPackets do
         with {:ok, source_references} <- read_source_references(version.id),
              {:ok, required_checks} <- read_required_checks(version.id) do
           {:ok,
-           %{
+           %PacketResult{
              packet: packet,
              version: version,
              source_references: source_references,
@@ -286,7 +287,7 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp replay_version_result!(
-         %{
+         %PacketResult{
            version: version,
            source_references: source_references,
            required_checks: required_checks
@@ -395,7 +396,7 @@ defmodule OfficeGraph.WorkPackets do
       })
       |> Repo.ash_update!()
 
-    %{
+    %PacketResult{
       packet: packet,
       version: version,
       source_references: source_references,
@@ -473,11 +474,12 @@ defmodule OfficeGraph.WorkPackets do
         {:ok, nil}
 
       {:ok, packet} ->
-        with {:ok, version} <- read_current_version(packet),
+        with {:ok, _current_version} <- read_current_version(packet),
+             {:ok, version} <- read_version_for_operation(packet, operation),
              {:ok, source_references} <- read_source_references(version.id),
              {:ok, required_checks} <- read_required_checks(version.id) do
           {:ok,
-           %{
+           %PacketResult{
              packet: packet,
              version: version,
              source_references: source_references,
@@ -513,8 +515,22 @@ defmodule OfficeGraph.WorkPackets do
     end
   end
 
+  defp read_version_for_operation(packet, operation) do
+    WorkPacketVersion
+    |> Ash.Query.filter(
+      work_packet_id == ^packet.id and operation_id == ^operation.id and
+        organization_id == ^packet.organization_id and workspace_id == ^packet.workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, WorkPacketVersion, operation.id}}
+      {:ok, version} -> {:ok, version}
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp replay_packet_result!(
-         %{
+         %PacketResult{
            packet: packet,
            version: version,
            source_references: source_references,
@@ -531,9 +547,7 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp same_packet_replay?(packet, version, source_references, required_checks, attrs) do
-    packet.title == attrs[:title] and
-      packet.state == version.lifecycle_state and
-      version.work_packet_id == packet.id and
+    version.work_packet_id == packet.id and
       version.operation_id == packet.operation_id and
       version.version_number == 1 and
       version.title == attrs[:title] and

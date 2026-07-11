@@ -737,9 +737,9 @@ defmodule OfficeGraph.Runs do
   end
 
   defp missing_evidence(required_checks, verification_results) do
-    passed_check_ids =
+    completed_check_ids =
       verification_results
-      |> Enum.filter(&(&1.result == "passed"))
+      |> Enum.filter(&(&1.result in ["passed", "waived"]))
       |> MapSet.new(& &1.verification_check_id)
 
     failed_check_ids =
@@ -748,7 +748,10 @@ defmodule OfficeGraph.Runs do
       |> MapSet.new(& &1.verification_check_id)
 
     required_checks
-    |> Enum.reject(&MapSet.member?(passed_check_ids, &1.verification_check_id))
+    |> Enum.reject(fn required_check ->
+      required_check.state == "waived" or
+        MapSet.member?(completed_check_ids, required_check.verification_check_id)
+    end)
     |> Enum.map(fn required_check ->
       %{
         verification_check_id: required_check.verification_check_id,

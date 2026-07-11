@@ -1,6 +1,10 @@
 defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   use OfficeGraphWeb.ConnCase, async: false
 
+  alias OfficeGraph.Integrations.RawArchive
+
+  require Ash.Query
+
   test "manual intake is a server-owned idempotent GraphQL command", %{conn: conn} do
     input = %{
       idempotencyKey: "graphql-manual-intake",
@@ -36,6 +40,35 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       })
 
     assert [%{"extensions" => %{"code" => "idempotency_conflict"}}] = conflict["errors"]
+  end
+
+  test "manual intake preserves leading and trailing body whitespace", %{conn: conn} do
+    body = "\n  pasted log line  \n"
+
+    result =
+      graphql(
+        conn,
+        """
+        mutation Submit($input: SubmitManualIntakeInput!) {
+          submitManualIntake(input: $input) { operationId }
+        }
+        """,
+        %{
+          input: %{
+            idempotencyKey: "graphql-manual-whitespace",
+            sourceIdentity: "manual:graphql-whitespace",
+            replayIdentity: "paste:graphql-whitespace",
+            body: body
+          }
+        }
+      )
+
+    archive =
+      RawArchive
+      |> Ash.Query.filter(operation_id == ^result["operationId"])
+      |> Ash.read_one!(authorize?: false)
+
+    assert archive.body == body
   end
 
   defp graphql(conn, query, variables) do

@@ -171,6 +171,140 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
+  test "command manual-intake replay works with only intake capability" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    source_identity = "manual:command-limited-#{suffix}"
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    attrs = %{
+      source_identity: source_identity,
+      replay_identity: "paste:command-limited-#{suffix}",
+      body: "Limited command replay #{suffix}"
+    }
+
+    try do
+      with_unboxed_connection(fn ->
+        insert_minimal_session_scope!(
+          organization_id,
+          workspace_id,
+          principal_id,
+          session_id,
+          suffix
+        )
+
+        {:ok, operation} =
+          Operations.start_command(
+            session_context,
+            :manual_intake_submit,
+            "command-limited-#{suffix}",
+            attrs
+          )
+
+        assert {:ok, first} =
+                 Integrations.submit_manual_intake(session_context, operation, attrs)
+
+        assert {:ok, replay} =
+                 Integrations.submit_manual_intake(session_context, operation, attrs)
+
+        assert replay.normalized_event.id == first.normalized_event.id
+
+        assert Enum.map(replay.proposed_changes, & &1.id) ==
+                 Enum.map(first.proposed_changes, & &1.id)
+      end)
+    after
+      with_unboxed_connection(fn ->
+        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+      end)
+    end
+  end
+
+  test "command manual-intake serializes same-operation replay before persistence" do
+    suffix = System.unique_integer([:positive])
+    organization_id = Ecto.UUID.generate()
+    workspace_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    session_id = Ecto.UUID.generate()
+    source_identity = "manual:command-race-#{suffix}"
+    body = "Command replay race #{suffix}"
+    lock_key = :erlang.phash2(source_identity, 2_000_000_000)
+
+    session_context = %SessionContext{
+      principal_id: principal_id,
+      session_id: session_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      capabilities: MapSet.new(["manual_intake.submit"])
+    }
+
+    attrs = %{
+      source_identity: source_identity,
+      replay_identity: "paste:command-race-#{suffix}",
+      body: body
+    }
+
+    try do
+      {blocked_count, results} =
+        with_unboxed_connection(fn ->
+          insert_minimal_session_scope!(
+            organization_id,
+            workspace_id,
+            principal_id,
+            session_id,
+            suffix
+          )
+
+          _source_id = insert_external_source!(source_identity)
+          install_raw_archive_body_wait!(body, lock_key)
+          Repo.query!("SELECT pg_advisory_lock(97001, $1)", [lock_key])
+
+          {:ok, operation} =
+            Operations.start_command(
+              session_context,
+              :manual_intake_submit,
+              "command-race-#{suffix}",
+              attrs
+            )
+
+          tasks =
+            Enum.map(1..2, fn _attempt ->
+              Task.async(fn ->
+                with_unboxed_connection(fn ->
+                  Integrations.submit_manual_intake(session_context, operation, attrs)
+                end)
+              end)
+            end)
+
+          wait_for_blocked_raw_archive!(lock_key)
+          Process.sleep(100)
+          blocked_count = blocked_raw_archive_count(lock_key)
+
+          Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
+          {blocked_count, Task.await_many(tasks, 10_000)}
+        end)
+
+      assert [{:ok, first}, {:ok, replay}] = results
+      assert blocked_count == 1
+      assert replay.normalized_event.id == first.normalized_event.id
+    after
+      with_unboxed_connection(fn ->
+        Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
+        drop_raw_archive_body_wait!()
+        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+      end)
+    end
+  end
+
   test "first manual intakes sharing a new source survive the source creation race" do
     suffix = System.unique_integer([:positive])
     organization_id = Ecto.UUID.generate()
@@ -2372,6 +2506,17 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   defp wait_for_blocked_raw_archive!(_lock_key, 0), do: flunk("raw archive insert did not block")
 
   defp wait_for_blocked_raw_archive!(lock_key, attempts) do
+    waiting_count = blocked_raw_archive_count(lock_key)
+
+    if waiting_count > 0 do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_blocked_raw_archive!(lock_key, attempts - 1)
+    end
+  end
+
+  defp blocked_raw_archive_count(lock_key) do
     %{rows: [[waiting_count]]} =
       Repo.query!(
         """
@@ -2385,12 +2530,7 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
         [lock_key]
       )
 
-    if waiting_count > 0 do
-      :ok
-    else
-      Process.sleep(10)
-      wait_for_blocked_raw_archive!(lock_key, attempts - 1)
-    end
+    waiting_count
   end
 
   defp drop_raw_archive_body_wait! do
