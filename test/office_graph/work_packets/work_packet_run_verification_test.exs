@@ -156,6 +156,129 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
     end
   end
 
+  test "packet versions are immutable, ordered, replayable, and concurrency guarded" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [first_check])
+
+    assert packet_result.version.title == "Ready packet"
+
+    version_attrs = %{
+      expected_current_version_id: packet_result.version.id,
+      title: "Revised packet",
+      objective: "Run the revised selected work.",
+      context_summary: "Revised ready context.",
+      requirements: "Complete the revised selected work.",
+      success_criteria: "Both required checks pass.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [second_check.graph_item_id, first_check.graph_item_id],
+      verification_check_ids: [second_check.id, first_check.id]
+    }
+
+    command_input = Map.put(version_attrs, :packet_id, packet_result.packet.id)
+
+    assert {:ok, operation} =
+             Operations.start_command(
+               bootstrap.session,
+               :work_packet_version_create,
+               "packet-version-2",
+               command_input
+             )
+
+    assert {:ok, revised} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               operation,
+               packet_result.packet,
+               version_attrs
+             )
+
+    assert revised.version.version_number == 2
+    assert revised.version.title == "Revised packet"
+    assert revised.packet.title == "Revised packet"
+    assert revised.packet.current_version_id == revised.version.id
+
+    assert Enum.map(revised.source_references, & &1.graph_item_id) ==
+             version_attrs.source_graph_item_ids
+
+    assert Enum.map(revised.required_checks, & &1.verification_check_id) ==
+             version_attrs.verification_check_ids
+
+    assert {:ok, replayed} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               operation,
+               packet_result.packet,
+               version_attrs
+             )
+
+    assert replayed.version.id == revised.version.id
+
+    reordered_attrs = %{
+      version_attrs
+      | source_graph_item_ids: Enum.reverse(version_attrs.source_graph_item_ids),
+        verification_check_ids: Enum.reverse(version_attrs.verification_check_ids)
+    }
+
+    assert {:error, {:command_idempotency_conflict, operation_id}} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               operation,
+               revised.packet,
+               reordered_attrs
+             )
+
+    assert operation_id == operation.id
+
+    stale_attrs = %{version_attrs | title: "Stale packet"}
+    stale_input = Map.put(stale_attrs, :packet_id, packet_result.packet.id)
+
+    assert {:ok, stale_operation} =
+             Operations.start_command(
+               bootstrap.session,
+               :work_packet_version_create,
+               "packet-version-stale",
+               stale_input
+             )
+
+    assert {:error, {:stale_packet_version, packet_id, actual_current_version_id}} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               stale_operation,
+               revised.packet,
+               stale_attrs
+             )
+
+    assert packet_id == packet_result.packet.id
+    assert actual_current_version_id == revised.version.id
+
+    next_attrs = %{
+      version_attrs
+      | expected_current_version_id: revised.version.id,
+        title: "Third packet version"
+    }
+
+    assert {:ok, next_operation} =
+             Operations.start_command(
+               bootstrap.session,
+               :work_packet_version_create,
+               "packet-version-3",
+               Map.put(next_attrs, :packet_id, packet_result.packet.id)
+             )
+
+    assert {:ok, next} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               next_operation,
+               revised.packet,
+               next_attrs
+             )
+
+    assert next.version.version_number == 3
+    assert next.version.title == "Third packet version"
+  end
+
   test "packet source bulk create rolls back an invalid middle reference" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -951,6 +1074,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: version_operation.id,
           version_number: 1,
+          title: "Ready version",
           objective: "Create a ready version.",
           context_summary: "Readiness derives from version facts.",
           requirements: "Use packet contract inputs.",
@@ -1011,6 +1135,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  workspace_id: bootstrap.session.workspace_id,
                  operation_id: version_operation.id,
                  version_number: 1,
+                 title: "Draft version",
                  objective: "Create a draft version.",
                  context_summary: "Draft derives from missing readiness inputs.",
                  requirements: "Do not let callers force readiness.",
@@ -1043,6 +1168,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
                  workspace_id: bootstrap.session.workspace_id,
                  operation_id: version_operation.id,
                  version_number: 2,
+                 title: "Forced-ready version",
                  objective: "Create a forced-ready version.",
                  context_summary: "Callers cannot force readiness.",
                  requirements: "Reject lifecycle input.",
@@ -1167,6 +1293,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
           version_number: 1,
+          title: "Malformed packet version",
           objective: "Malformed ready packet version.",
           context_summary: "Missing source and required-check rows.",
           requirements: "Should not be executable.",
@@ -1784,6 +1911,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
           version_number: 1,
+          title: "Malformed packet version",
           objective: "Malformed ready packet version.",
           context_summary: "Missing source and required-check rows.",
           requirements: "Should not be executable.",
@@ -1861,6 +1989,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
           workspace_id: bootstrap.session.workspace_id,
           operation_id: packet_operation.id,
           version_number: 1,
+          title: "Mismatched packet version",
           objective: "Malformed ready packet version.",
           context_summary: "Rows exist, but the selected check is unrelated to the source.",
           requirements: "Should not be executable.",

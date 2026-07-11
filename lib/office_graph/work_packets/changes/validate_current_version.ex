@@ -71,7 +71,9 @@ defmodule OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion do
   end
 
   defp sync_packet_state(changeset, version) do
-    Ash.Changeset.force_change_attribute(changeset, :state, version.lifecycle_state)
+    changeset
+    |> Ash.Changeset.force_change_attribute(:title, version.title)
+    |> Ash.Changeset.force_change_attribute(:state, version.lifecycle_state)
   end
 
   defp format_error(%{__exception__: true} = error), do: Exception.message(error)

@@ -5,7 +5,7 @@
 
 ## 2. Packet Versions And Verification Waivers
 
-- [ ] 2.1 Add failing packet tests, then implement concurrency-safe `WorkPackets.create_version/4` with expected-current-version checks, immutable version numbers, ordered bulk links, and operation replay validation.
+- [x] 2.1 Add failing packet tests, then implement concurrency-safe `WorkPackets.create_version/4` with expected-current-version checks, immutable version numbers, ordered bulk links, and operation replay validation.
 - [ ] 2.2 Add the nullable verification-result evidence migration and resource validation that distinguishes evidence-backed passed/failed results from evidence-free waived results.
 - [ ] 2.3 Add failing waiver tests, then implement `Verification.waive_required_check/5` with run/check locking, separate authorization, stale-state checks, audit/revision provenance, and aggregate run verification updates.
 

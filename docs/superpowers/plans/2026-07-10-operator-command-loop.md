@@ -117,7 +117,7 @@ git commit -m "feat: add operator command operations"
 - Consumes: `Operations.start_command/4`, packet/readiness bulk helpers.
 - Produces: `WorkPackets.create_version/4` returning `{:ok, %{packet: packet, version: version, source_references: list, required_checks: list}}`.
 
-- [ ] **Step 1: Add failing packet-version tests**
+- [x] **Step 1: Add failing packet-version tests**
 
 Cover success, sequential version numbers, title preservation, current-version
 update, reordered-input replay conflict, and stale expected version:
@@ -143,7 +143,7 @@ assert result.packet.current_version_id == result.version.id
 
 Expected RED: `create_version/4` is undefined and version has no title.
 
-- [ ] **Step 2: Add the version title migration and resource attribute**
+- [x] **Step 2: Add the version title migration and resource attribute**
 
 Generate the migration through the Nix shell, then make it:
 
@@ -168,7 +168,7 @@ The down migration removes `title`. Add the non-null public `:title` attribute
 and accept it in the private create action. Pass packet title when creating
 version 1.
 
-- [ ] **Step 3: Implement `create_version/4`**
+- [x] **Step 3: Implement `create_version/4`**
 
 Lock the operation and packet inside `Repo.transaction/1`; validate action,
 session, scope, expected current version, unique ordered ids, required check
@@ -180,7 +180,7 @@ Return `{:error, {:stale_packet_version, packet.id, actual_version_id}}` on an
 expected-version mismatch. Replay by `work_packet_versions.operation_id` and
 compare every scalar plus ordered link ids.
 
-- [ ] **Step 4: Run focused packet and migration tests**
+- [x] **Step 4: Run focused packet and migration tests**
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.migrate
@@ -189,7 +189,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix tes
 
 Expected: all packet/run contract tests pass.
 
-- [ ] **Step 5: Commit packet versioning**
+- [x] **Step 5: Commit packet versioning**
 
 ```bash
 git add priv/repo/migrations lib/office_graph/work_packets.ex lib/office_graph/work_packets test/office_graph/work_packets/work_packet_run_verification_test.exs
