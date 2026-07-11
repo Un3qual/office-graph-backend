@@ -1,7 +1,19 @@
 defmodule OfficeGraph do
   use Boundary,
     deps: [OfficeGraph.Repo],
-    exports: [ApiSupport, Identity.SessionContext, PacketRunVerification, Projections]
+    exports: [
+      ApiSupport,
+      Identity.SessionContext,
+      Integrations,
+      Operations,
+      PacketRunVerification,
+      Projections,
+      ProposedChanges,
+      Runs,
+      Verification,
+      WorkGraph,
+      WorkPackets
+    ]
 
   @moduledoc """
   OfficeGraph keeps the contexts that define your domain

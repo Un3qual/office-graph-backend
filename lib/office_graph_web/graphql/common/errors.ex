@@ -61,6 +61,13 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
+  defp normalize({:command_idempotency_conflict, operation_id}) do
+    %{
+      detail: "The idempotency key conflicts with different command input.",
+      extensions: %{code: "idempotency_conflict", operation_id: operation_id}
+    }
+  end
+
   defp normalize({:missing_verification_check, id}) do
     %{
       detail: "A verification check could not be found.",

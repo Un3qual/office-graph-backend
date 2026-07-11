@@ -43,6 +43,13 @@ defmodule OfficeGraph.ProposedChanges do
 
   def get_many(session_context, ids), do: read_scoped_changes(session_context, ids)
 
+  def for_normalized_event(session_context, normalized_event_id) do
+    ProposedGraphChange
+    |> Ash.Query.filter(normalized_event_id == ^normalized_event_id)
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.read!(actor: session_context)
+  end
+
   def get_many!(_session_context, []), do: []
 
   def get_many!(session_context, ids) do

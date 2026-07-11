@@ -27,8 +27,46 @@ defmodule OfficeGraph.Integrations do
            Authorization.authorize_operation(session_context, operation, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
-         {:ok, intake} <- record_manual_intake(session_context, operation, attrs) do
+         {:ok, intake} <- submit_or_replay_manual_intake(session_context, operation, attrs) do
       {:ok, intake}
+    end
+  end
+
+  defp submit_or_replay_manual_intake(session_context, operation, attrs) do
+    case existing_intake_for_operation(session_context, operation) do
+      {:ok, nil} -> record_manual_intake(session_context, operation, attrs)
+      {:ok, intake} -> {:ok, intake}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp existing_intake_for_operation(session_context, operation) do
+    NormalizedIntakeEvent
+    |> Ash.Query.filter(
+      organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and operation_id == ^operation.id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, normalized_event} ->
+        with {:ok, raw_archive} <-
+               Ash.get(RawArchive, normalized_event.raw_archive_id, authorize?: false),
+             proposed_changes <-
+               ProposedChanges.for_normalized_event(session_context, normalized_event.id) do
+          {:ok,
+           %{
+             raw_archive: raw_archive,
+             normalized_event: normalized_event,
+             duplicate?: normalized_event.outcome == "duplicate",
+             proposed_changes: proposed_changes
+           }}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
