@@ -367,6 +367,7 @@ defmodule OfficeGraph.ProposedChanges do
     case Enum.find(proposed_changes, &(&1.change_type == change_type)) do
       %{applied_resource_id: applied_resource_id} when is_binary(applied_resource_id) ->
         resource
+        |> Ash.Query.for_read(:read_for_proposed_change_replay)
         |> Ash.Query.filter(
           id == ^applied_resource_id and
             organization_id == ^session_context.organization_id and

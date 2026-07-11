@@ -4,6 +4,7 @@ defmodule OfficeGraph.ProposedChangesTest do
   require Ash.Query
 
   alias OfficeGraph.Foundation
+  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Authorization.AuthorizationDecision
   alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
@@ -397,7 +398,7 @@ defmodule OfficeGraph.ProposedChangesTest do
     bootstrap: bootstrap,
     intake: intake
   } do
-    apply_only = %{bootstrap.session | capabilities: MapSet.new(["proposed_change.apply"])}
+    apply_only = create_session_with_capabilities!(bootstrap, ["proposed_change.apply"])
     {:ok, apply_operation} = Operations.start_operation(apply_only, :proposed_change_apply)
 
     assert {:ok, applied} =
@@ -409,6 +410,25 @@ defmodule OfficeGraph.ProposedChangesTest do
              change = get_change!(change)
              change.status == "applied" and not is_nil(change.applied_at)
            end)
+  end
+
+  test "apply-only sessions can replay their exact applied proposal chain", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    apply_only = create_session_with_capabilities!(bootstrap, ["proposed_change.apply"])
+    refute MapSet.member?(apply_only.capabilities, "skeleton.read")
+
+    {:ok, apply_operation} = Operations.start_operation(apply_only, :proposed_change_apply)
+
+    assert {:ok, first} =
+             ProposedChanges.apply_all(apply_only, apply_operation, intake.proposed_changes)
+
+    assert {:ok, replay} =
+             ProposedChanges.apply_all(apply_only, apply_operation, intake.proposed_changes)
+
+    assert Map.new(first, fn {key, record} -> {key, record.id} end) ==
+             Map.new(replay, fn {key, record} -> {key, record.id} end)
   end
 
   test "manual intake titles use the first nonblank body segment", %{bootstrap: bootstrap} do
@@ -1161,6 +1181,82 @@ defmodule OfficeGraph.ProposedChangesTest do
       organization_id: bootstrap.organization.id,
       workspace_id: bootstrap.workspace.id,
       capabilities: MapSet.new()
+    }
+  end
+
+  defp create_session_with_capabilities!(bootstrap, capability_keys) do
+    suffix = System.unique_integer([:positive])
+
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email: "proposed-change-apply-only-#{suffix}@office-graph.local",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "proposed_change_apply_only_#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    role =
+      Ash.create!(
+        Role,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          key: "proposed_change_apply_only_#{suffix}",
+          name: "Proposed Change Apply Only #{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Enum.each(capability_keys, fn capability_key ->
+      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
+
+      Ash.create!(
+        RoleCapability,
+        %{id: Ecto.UUID.generate(), role_id: role.id, capability_id: capability.id},
+        action: :create,
+        authorize?: false
+      )
+    end)
+
+    Ash.create!(
+      RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: principal.id,
+        role_id: role.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    %SessionContext{
+      principal_id: principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      capabilities: MapSet.new(capability_keys)
     }
   end
 

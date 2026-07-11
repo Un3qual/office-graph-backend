@@ -1168,6 +1168,29 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "proposal replay reads stay private, scoped, and apply-authorized" do
+    for resource <- [
+          OfficeGraph.WorkGraph.Signal,
+          OfficeGraph.WorkGraph.Task,
+          OfficeGraph.WorkGraph.ReviewFinding,
+          OfficeGraph.WorkGraph.VerificationCheck
+        ] do
+      action_name = :read_for_proposed_change_replay
+
+      refute public_action?(resource, action_name, :read),
+             "#{inspect(resource)} #{inspect(action_name)} must stay private"
+
+      assert Ash.Resource.Info.action(resource, action_name),
+             "#{inspect(resource)} must define #{inspect(action_name)}"
+
+      assert capability_policy?(resource, action_name, :read, :proposed_change_apply),
+             "#{inspect(resource)} #{inspect(action_name)} must require proposed_change.apply"
+
+      assert scope_filter_policy?(resource, action_name, :read),
+             "#{inspect(resource)} #{inspect(action_name)} must retain actor scope filtering"
+    end
+  end
+
   test "WorkGraph canonical Ash create actions validate same-scope references" do
     assert_work_graph_resources_are_ash!()
 
