@@ -17,7 +17,7 @@ defmodule OfficeGraph.Projections do
     ],
     exports: []
 
-  alias OfficeGraph.Projections.{OperatorWorkflow, PacketReadiness, RunState}
+  alias OfficeGraph.Projections.{OperatorWorkflow, PacketReadiness, PacketWorkspace, RunState}
   alias OfficeGraph.{Runs, WorkGraph, WorkPackets}
 
   defdelegate operator_inbox(session_context), to: OperatorWorkflow
@@ -25,6 +25,7 @@ defmodule OfficeGraph.Projections do
   defdelegate operator_workflow_items_page(session_context, opts), to: OperatorWorkflow
   defdelegate operator_workflow_item(session_context, normalized_event_id), to: OperatorWorkflow
   defdelegate packet_readiness(session_context, attrs), to: PacketReadiness
+  defdelegate packet_workspace(session_context, packet_id), to: PacketWorkspace
   defdelegate operator_run_state(session_context, run_id), to: RunState
   defdelegate verification_outcome(session_context, run_id), to: RunState
 

@@ -77,7 +77,7 @@ export function useCommandMutation<
   TResult
 >(
   config: CommandMutationConfig<TMutation, TInput, TResult>,
-  onAuthoritativeChange?: () => void
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
 ): CommandMutationController<TInput, TResult> {
   const environment = useRelayEnvironment();
   const activeRequest = useRef<Disposable | null>(null);
@@ -116,8 +116,9 @@ export function useCommandMutation<
             return;
           }
 
-          setState({ status: "success", ...config.mapSuccess(response) });
-          authoritativeChange.current?.();
+          const success = config.mapSuccess(response);
+          setState({ status: "success", ...success });
+          authoritativeChange.current?.(success);
         },
         onError(error) {
           pending.current = false;

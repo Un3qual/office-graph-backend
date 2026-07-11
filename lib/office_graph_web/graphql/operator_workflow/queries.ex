@@ -86,6 +86,19 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
 
+    field :operator_packet_workspace, non_null(:operator_packet_workspace) do
+      arg(:id, non_null(:id))
+
+      resolve(fn %{id: id}, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, workspace} <- Projections.packet_workspace(session_context, id) do
+          {:ok, workspace}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :operator_run_state, non_null(:operator_run_state) do
       arg(:id, non_null(:id))
 

@@ -132,6 +132,47 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_watermark, :id
   end
 
+  object :operator_packet_workspace_packet do
+    field :id, non_null(:id)
+    field :title, non_null(:string)
+    field :state, non_null(:string)
+    field :current_version_id, non_null(:id)
+    field :operation_id, :id
+  end
+
+  object :operator_packet_workspace_version do
+    field :id, non_null(:id)
+    field :version_number, non_null(:integer)
+    field :lifecycle_state, non_null(:string)
+    field :title, non_null(:string)
+    field :objective, non_null(:string)
+    field :context_summary, non_null(:string)
+    field :requirements, non_null(:string)
+    field :success_criteria, :string
+    field :autonomy_posture, non_null(:string)
+    field :source_graph_item_ids, non_null(list_of(non_null(:id)))
+    field :verification_check_ids, non_null(list_of(non_null(:id)))
+    field :operation_id, non_null(:id)
+    field :inserted_at, non_null(:datetime)
+  end
+
+  object :operator_packet_workspace do
+    field :type, non_null(:string)
+    field :source_watermark, non_null(:id)
+
+    field :ready, non_null(:boolean) do
+      resolve(fn workspace, _, _ -> {:ok, Map.fetch!(workspace, :ready?)} end)
+    end
+
+    field :status, non_null(:string)
+    field :blocker_reasons, non_null(list_of(non_null(:string)))
+    field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
+    field :packet, non_null(:operator_packet_workspace_packet)
+    field :current_version, non_null(:operator_packet_workspace_version)
+    field :versions, non_null(list_of(non_null(:operator_packet_workspace_version)))
+  end
+
   object :operator_run_ref do
     field :id, non_null(:id)
     field :aggregate_state, non_null(:string)

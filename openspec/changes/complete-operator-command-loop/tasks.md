@@ -35,8 +35,8 @@
 
 ## 7. Packet Workspace Actions
 
-- [ ] 7.1 Add failing packet-route tests and packet creation/version forms with expected-current-version conflicts, immutable version history display, and authoritative refetch after mutation.
-- [ ] 7.2 Add failing packet-route tests and run-start action gated by current readiness and command affordance, linking the returned run state without adding global client workflow state.
+- [x] 7.1 Add failing packet-route tests and packet creation/version forms with expected-current-version conflicts, immutable version history display, and authoritative refetch after mutation.
+- [x] 7.2 Add failing packet-route tests and run-start action gated by current readiness and command affordance, linking the returned run state without adding global client workflow state.
 
 ## 8. Retire The One-Shot Workflow Path
 

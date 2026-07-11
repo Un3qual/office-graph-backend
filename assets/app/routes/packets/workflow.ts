@@ -4,8 +4,18 @@ import type {
   PacketsRoutePacketFragment$key
 } from "../../relay/__generated__/PacketsRoutePacketFragment.graphql";
 import type { PacketsRouteQuery as PacketsRouteOperation } from "../../relay/__generated__/PacketsRouteQuery.graphql";
-import { PacketsRoutePacketFragment, PacketsRouteQuery } from "./data";
-import type { PacketConnection, PacketRow, PacketsPage } from "./types";
+import type { PacketsWorkspaceDetailQuery as PacketsWorkspaceDetailOperation } from "../../relay/__generated__/PacketsWorkspaceDetailQuery.graphql";
+import {
+  PacketsRoutePacketFragment,
+  PacketsRouteQuery,
+  PacketsWorkspaceDetailQuery
+} from "./data";
+import type {
+  PacketConnection,
+  PacketRow,
+  PacketsPage,
+  PacketWorkspaceDetail
+} from "./types";
 
 type PacketsWorkflowInput = {
   canPageBackward: boolean;
@@ -13,6 +23,7 @@ type PacketsWorkflowInput = {
   onPreviousPage: () => void;
   onSelectPacket: (id: string) => void;
   page: PacketsPage;
+  fetchKey?: number;
   requestedSelectedId: string | null;
 };
 
@@ -29,9 +40,11 @@ export function usePacketsWorkflow({
   onPreviousPage,
   onSelectPacket,
   page,
+  fetchKey,
   requestedSelectedId
 }: PacketsWorkflowInput) {
   const data = useLazyLoadQuery<PacketsRouteOperation>(PacketsRouteQuery, page, {
+    fetchKey,
     fetchPolicy: "network-only"
   });
   const connection = packetConnectionFromRelay(data);
@@ -53,6 +66,16 @@ export function usePacketsWorkflow({
     selectedPacket,
     selectPacket: onSelectPacket
   };
+}
+
+export function usePacketWorkspaceDetail(packetId: string, fetchKey?: number) {
+  const data = useLazyLoadQuery<PacketsWorkspaceDetailOperation>(
+    PacketsWorkspaceDetailQuery,
+    { id: packetId },
+    { fetchKey, fetchPolicy: "network-only" }
+  );
+
+  return data.operatorPacketWorkspace as PacketWorkspaceDetail;
 }
 
 export type PacketsWorkflowState = ReturnType<typeof usePacketsWorkflow>;

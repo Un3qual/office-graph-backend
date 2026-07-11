@@ -13,6 +13,7 @@ import {
 } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
+import { GraphQLResponseError } from "../../relay/fetchGraphQL";
 import PacketsRoute from "./route";
 
 describe("packet workspace route", () => {
@@ -115,11 +116,318 @@ describe("packet workspace route", () => {
     );
   });
 
+  it("creates a packet, refreshes the list, and selects its immutable current version", async () => {
+    let created = false;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse(
+          created ? [packet({ id: "packet_created", title: "Created packet" })] : []
+        );
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(
+          workspace({
+            packet: packetWorkspacePacket({
+              id: "packet_created",
+              title: "Created packet",
+              currentVersionId: "version_created"
+            }),
+            currentVersion: packetVersion({
+              id: "version_created",
+              title: "Created packet"
+            }),
+            versions: [
+              packetVersion({ id: "version_created", title: "Created packet" })
+            ]
+          })
+        );
+      }
+
+      expect(request.name).toBe("PacketsCreateWorkPacketMutation");
+      expect(variables.input).toMatchObject({
+        title: "Created packet",
+        objective: "Ship the packet workspace",
+        contextSummary: "Current product context",
+        requirements: "Preserve immutable history",
+        successCriteria: "The required check passes",
+        autonomyPosture: "human_supervised",
+        sourceGraphItemIds: ["graph_1"],
+        verificationCheckIds: ["check_1"]
+      });
+      created = true;
+
+      return {
+        data: {
+          createWorkPacket: {
+            command: "create_work_packet",
+            operationId: "operation_created",
+            affectedIds: [
+              { type: "work_packet", id: "packet_created" },
+              { type: "work_packet_version", id: "version_created" }
+            ],
+            packet: {
+              id: "packet_created",
+              currentVersionId: "version_created",
+              title: "Created packet",
+              state: "ready"
+            },
+            packetVersion: {
+              id: "version_created",
+              versionNumber: 1,
+              lifecycleState: "ready"
+            }
+          }
+        }
+      };
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("No packets are available.");
+
+    fireEvent.change(screen.getByLabelText("Packet title"), {
+      target: { value: "Created packet" }
+    });
+    fireEvent.change(screen.getByLabelText("Objective"), {
+      target: { value: "Ship the packet workspace" }
+    });
+    fireEvent.change(screen.getByLabelText("Context summary"), {
+      target: { value: "Current product context" }
+    });
+    fireEvent.change(screen.getByLabelText("Requirements"), {
+      target: { value: "Preserve immutable history" }
+    });
+    fireEvent.change(screen.getByLabelText("Success criteria"), {
+      target: { value: "The required check passes" }
+    });
+    fireEvent.change(screen.getByLabelText("Source graph item IDs"), {
+      target: { value: "graph_1" }
+    });
+    fireEvent.change(screen.getByLabelText("Verification check IDs"), {
+      target: { value: "check_1" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create packet" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Created packet/i })).toHaveAttribute(
+        "aria-current",
+        "true"
+      );
+    });
+    expect(await screen.findByText("Current version 1")).toBeInTheDocument();
+  });
+
+  it("creates a new version with the exact current id and preserves immutable history", async () => {
+    let detail = workspace();
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(detail);
+      }
+
+      expect(request.name).toBe("PacketsCreateWorkPacketVersionMutation");
+      expect(variables.input).toMatchObject({
+        packetId: "packet_1",
+        expectedCurrentVersionId: "version_1",
+        title: "Revised packet",
+        sourceGraphItemIds: ["graph_1"],
+        verificationCheckIds: ["check_1"]
+      });
+
+      const versionTwo = packetVersion({
+        id: "version_2",
+        versionNumber: 2,
+        title: "Revised packet"
+      });
+      detail = workspace({
+        packet: packetWorkspacePacket({
+          title: "Revised packet",
+          currentVersionId: "version_2"
+        }),
+        currentVersion: versionTwo,
+        versions: [packetVersion(), versionTwo]
+      });
+
+      return {
+        data: {
+          createWorkPacketVersion: {
+            command: "create_work_packet_version",
+            operationId: "operation_2",
+            affectedIds: [
+              { type: "work_packet", id: "packet_1" },
+              { type: "work_packet_version", id: "version_2" }
+            ],
+            packet: {
+              id: "packet_1",
+              currentVersionId: "version_2",
+              title: "Revised packet",
+              state: "ready"
+            },
+            packetVersion: {
+              id: "version_2",
+              versionNumber: 2,
+              lifecycleState: "ready"
+            }
+          }
+        }
+      };
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("Current version 1");
+    fireEvent.change(screen.getByLabelText("Version title"), {
+      target: { value: "Revised packet" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
+
+    expect(await screen.findByText("Current version 2")).toBeInTheDocument();
+    const history = screen.getByRole("region", { name: "Version history" });
+    expect(history).toHaveTextContent("Version 1");
+    expect(history).toHaveTextContent("Version 2");
+  });
+
+  it("refreshes authoritative packet data after a stale version conflict", async () => {
+    let detail = workspace();
+    let conflicted = false;
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        if (conflicted) {
+          const versionTwo = packetVersion({ id: "version_2", versionNumber: 2 });
+          return packetWorkspaceResponse(
+            workspace({
+              packet: packetWorkspacePacket({ currentVersionId: "version_2" }),
+              currentVersion: versionTwo,
+              versions: [packetVersion(), versionTwo]
+            })
+          );
+        }
+
+        return packetWorkspaceResponse(detail);
+      }
+
+      expect(request.name).toBe("PacketsCreateWorkPacketVersionMutation");
+      conflicted = true;
+      throw new GraphQLResponseError(
+        "The work packet version is stale.",
+        ({
+          errors: [
+            {
+              message: "The work packet version is stale.",
+              extensions: {
+                code: "stale_packet_version",
+                packet_id: "packet_1",
+                current_version_id: "version_2"
+              }
+            }
+          ]
+        } as unknown as GraphQLResponse),
+        200,
+        request.name
+      );
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("Current version 1");
+    fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The work packet version is stale."
+    );
+    expect(await screen.findByText("Current version 2")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Version history" })).toHaveTextContent(
+      "Version 1"
+    );
+  });
+
+  it("starts a run only from an enabled current affordance and links the returned state", async () => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(workspace());
+      }
+
+      expect(request.name).toBe("PacketsStartWorkRunMutation");
+      expect(variables.input).toMatchObject({
+        packetVersionId: "version_1",
+        sourceSurface: "packet_workspace",
+        reason: "Start work from the packet workspace.",
+        authorityPosture: "human_supervised"
+      });
+
+      return {
+        data: {
+          startWorkRun: {
+            command: "start_work_run",
+            operationId: "operation_run",
+            affectedIds: [{ type: "work_run", id: "run_1" }],
+            run: {
+              id: "run_1",
+              executionState: "pending",
+              verificationState: "pending"
+            },
+            requiredChecks: [
+              { id: "required_1", verificationCheckId: "check_1", state: "pending" }
+            ]
+          }
+        }
+      };
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("Current version 1");
+    fireEvent.click(screen.getByRole("button", { name: "Start work run" }));
+
+    const runLink = await screen.findByRole("link", { name: /Open run run_1/i });
+    expect(runLink).toHaveAttribute("href", "/operator?runId=run_1");
+    expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent(
+      "Execution pending"
+    );
+  });
+
+  it("keeps run start unavailable when the current affordance is disabled", async () => {
+    renderWithRelay(
+      packetWorkspaceNetwork(
+        workspace({
+          ready: false,
+          status: "blocked",
+          blockerReasons: ["missing_success_criteria"],
+          allowedNextActions: [],
+          commandAffordances: [
+            startAffordance({
+              state: "disabled",
+              blockerReasons: ["missing_success_criteria"],
+              reasonCodes: ["missing_success_criteria"],
+              safeExplanation: "Resolve packet readiness blockers before starting a work run."
+            })
+          ]
+        })
+      )
+    );
+
+    await screen.findByText("Current version 1");
+    expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
+    expect(screen.getByText("Resolve packet readiness blockers before starting a work run."))
+      .toBeInTheDocument();
+    expect(document.body).toHaveTextContent("missing_success_criteria");
+  });
+
   it("loads the next Relay cursor page with an explicit loading state", async () => {
     const nextPage = deferredGraphQLResponse();
     const network = vi.fn(
-      async (_request, variables): Promise<GraphQLResponse> =>
-        variables.after === "cursor_1"
+      async (request, variables): Promise<GraphQLResponse> =>
+        request.name === "PacketsWorkspaceDetailQuery"
+          ? packetWorkspaceResponse(workspace())
+          : variables.after === "cursor_1"
           ? nextPage.promise
           : packetConnectionResponse([packet()], {
               hasNextPage: true,
@@ -149,7 +457,10 @@ describe("packet workspace route", () => {
     );
 
     await waitFor(() => {
-      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: "cursor_1" });
+      expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+        first: 50,
+        after: "cursor_1"
+      });
       expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
         "aria-current",
@@ -160,7 +471,11 @@ describe("packet workspace route", () => {
 
   it("returns to the previous packet page when the next page fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(workspace());
+      }
+
       if (variables.after === "cursor_1") {
         throw new Error("authorization policy secret_alpha denied packet_9");
       }
@@ -191,7 +506,10 @@ describe("packet workspace route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     await waitFor(() => {
-      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: null });
+      expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+        first: 50,
+        after: null
+      });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
         "true"
@@ -228,8 +546,10 @@ describe("packet workspace route", () => {
   });
 
   it("returns to the previous cursor page", async () => {
-    const network = vi.fn(async (_request, variables): Promise<GraphQLResponse> =>
-      variables.after === "cursor_1"
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> =>
+      request.name === "PacketsWorkspaceDetailQuery"
+        ? packetWorkspaceResponse(workspace())
+        : variables.after === "cursor_1"
         ? packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })], {
             hasPreviousPage: true,
             startCursor: "cursor_2",
@@ -255,7 +575,10 @@ describe("packet workspace route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     await waitFor(() => {
-      expect(network.mock.lastCall?.[1]).toEqual({ first: 50, after: null });
+      expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+        first: 50,
+        after: null
+      });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
         "true"
@@ -281,8 +604,111 @@ function renderWithRelay(network: FetchFunction) {
   );
 }
 
+function lastVariablesFor(
+  network: ReturnType<typeof vi.fn>,
+  requestName: string
+) {
+  return [...network.mock.calls]
+    .reverse()
+    .find(([request]) => request.name === requestName)?.[1];
+}
+
 function packetNetwork(packets: ReturnType<typeof packet>[]) {
-  return vi.fn(async (): Promise<GraphQLResponse> => packetConnectionResponse(packets));
+  return vi.fn(async (request): Promise<GraphQLResponse> =>
+    request.name === "PacketsWorkspaceDetailQuery"
+      ? packetWorkspaceResponse(workspace())
+      : packetConnectionResponse(packets)
+  );
+}
+
+function packetWorkspaceNetwork(detail: ReturnType<typeof workspace>) {
+  return vi.fn(async (request): Promise<GraphQLResponse> =>
+    request.name === "PacketsWorkspaceDetailQuery"
+      ? packetWorkspaceResponse(detail)
+      : packetConnectionResponse([packet()])
+  );
+}
+
+function packetWorkspaceResponse(detail: ReturnType<typeof workspace>): GraphQLResponse {
+  return { data: { operatorPacketWorkspace: detail } };
+}
+
+function workspace(overrides: Partial<WorkspacePayload> = {}): WorkspacePayload {
+  return {
+    sourceWatermark: "packet-watermark-1",
+    ready: true,
+    status: "ready_for_run",
+    blockerReasons: [],
+    allowedNextActions: ["start_work_run"],
+    packet: packetWorkspacePacket(),
+    currentVersion: packetVersion(),
+    versions: [packetVersion()],
+    commandAffordances: [startAffordance()],
+    ...overrides
+  };
+}
+
+function packetWorkspacePacket(overrides: Partial<WorkspacePacketPayload> = {}) {
+  return {
+    id: "packet_1",
+    title: "First packet",
+    state: "ready",
+    currentVersionId: "version_1",
+    operationId: "operation_1",
+    ...overrides
+  };
+}
+
+function packetVersion(overrides: Partial<WorkspaceVersionPayload> = {}) {
+  return {
+    id: "version_1",
+    versionNumber: 1,
+    lifecycleState: "ready",
+    title: "First packet",
+    objective: "Run selected work",
+    contextSummary: "Current packet context",
+    requirements: "Preserve immutable history",
+    successCriteria: "The required check passes",
+    autonomyPosture: "human_supervised",
+    sourceGraphItemIds: ["graph_1"],
+    verificationCheckIds: ["check_1"],
+    operationId: "operation_1",
+    insertedAt: "2026-07-09T12:00:00Z",
+    ...overrides
+  };
+}
+
+function startAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
+  return {
+    identity: "start_work_run",
+    state: "enabled",
+    reasonCodes: [],
+    blockerReasons: [],
+    safeExplanation: "Start a work run from the current packet version.",
+    requiredFields: [
+      "packet_version_id",
+      "source_surface",
+      "reason",
+      "authority_posture"
+    ],
+    inputDefaults: [
+      { field: "packet_version_id", value: "version_1", values: [] },
+      { field: "source_surface", value: "packet_workspace", values: [] },
+      {
+        field: "reason",
+        value: "Start work from the packet workspace.",
+        values: []
+      },
+      { field: "authority_posture", value: "human_supervised", values: [] }
+    ],
+    targetIds: [
+      { type: "work_packet", id: "packet_1" },
+      { type: "work_packet_version", id: "version_1" }
+    ],
+    traceLinks: [],
+    decisionLinks: [],
+    ...overrides
+  };
 }
 
 function packetConnectionResponse(
@@ -344,4 +770,53 @@ type PageInfoPayload = {
   hasPreviousPage: boolean;
   startCursor: string | null;
   endCursor: string | null;
+};
+
+type WorkspacePacketPayload = {
+  id: string;
+  title: string;
+  state: string;
+  currentVersionId: string;
+  operationId: string | null;
+};
+
+type WorkspaceVersionPayload = {
+  id: string;
+  versionNumber: number;
+  lifecycleState: string;
+  title: string;
+  objective: string;
+  contextSummary: string;
+  requirements: string;
+  successCriteria: string;
+  autonomyPosture: string;
+  sourceGraphItemIds: string[];
+  verificationCheckIds: string[];
+  operationId: string;
+  insertedAt: string;
+};
+
+type CommandAffordancePayload = {
+  identity: string;
+  state: string;
+  reasonCodes: string[];
+  blockerReasons: string[];
+  safeExplanation: string;
+  requiredFields: string[];
+  inputDefaults: Array<{ field: string; value: string | null; values: string[] }>;
+  targetIds: Array<{ type: string; id: string }>;
+  traceLinks: Array<{ type: string; id: string }>;
+  decisionLinks: Array<{ type: string; id: string }>;
+};
+
+type WorkspacePayload = {
+  sourceWatermark: string;
+  ready: boolean;
+  status: string;
+  blockerReasons: string[];
+  allowedNextActions: string[];
+  packet: WorkspacePacketPayload;
+  currentVersion: WorkspaceVersionPayload;
+  versions: WorkspaceVersionPayload[];
+  commandAffordances: CommandAffordancePayload[];
 };

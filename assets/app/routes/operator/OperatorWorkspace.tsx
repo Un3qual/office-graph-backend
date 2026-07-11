@@ -12,6 +12,7 @@ import type { OperatorWorkflowState } from "./workflow";
 
 type Props = {
   canPageBackward: boolean;
+  linkedRunId: string | null;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
   onSelectItem: (id: string) => void;
@@ -21,6 +22,7 @@ type Props = {
 
 export function OperatorWorkspace({
   canPageBackward,
+  linkedRunId,
   onNextPage,
   onPreviousPage,
   onSelectItem,
@@ -49,10 +51,10 @@ export function OperatorWorkspace({
       detail={<><ItemSummary item={workflow.selectedItem} /><PacketCommandForm item={workflow.selectedItem} onRefresh={onRefresh} readinessInput={workflow.readinessInput} /></>}
       inspector={
         <OperatorInspector
-          key={workflow.selectedId ?? "none"}
+          key={`${workflow.selectedId ?? "none"}:${linkedRunId ?? "derived"}`}
           readiness={workflow.readiness}
           readinessInput={workflow.readinessInput}
-          runId={workflow.runId}
+          runId={linkedRunId ?? workflow.runId}
           selectedId={workflow.selectedId}
         />
       }

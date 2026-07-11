@@ -1,0 +1,299 @@
+defmodule OfficeGraph.Projections.PacketWorkspace do
+  @moduledoc false
+
+  alias OfficeGraph.Authorization
+  alias OfficeGraph.Projections.CommandAffordance
+
+  alias OfficeGraph.WorkGraph.VerificationCheck
+
+  alias OfficeGraph.WorkPackets.{
+    WorkPacket,
+    WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
+    WorkPacketVersion
+  }
+
+  alias OfficeGraph.WorkPackets
+
+  require Ash.Query
+
+  @run_required_fields [
+    "packet_version_id",
+    "source_surface",
+    "reason",
+    "authority_posture"
+  ]
+
+  def packet_workspace(session_context, packet_id) do
+    with :ok <- authorize_read(session_context),
+         {:ok, packet} <- read_packet(session_context, packet_id),
+         {:ok, versions} <- read_versions(session_context, packet.id),
+         {:ok, source_references} <- read_source_references(session_context, versions),
+         {:ok, required_checks} <- read_required_checks(session_context, versions),
+         {:ok, current_version} <- current_version(packet, versions),
+         {:ok, verification_checks} <-
+           read_verification_checks(session_context, current_version, required_checks) do
+      {:ok,
+       build_workspace(
+         session_context,
+         packet,
+         current_version,
+         versions,
+         source_references,
+         required_checks,
+         verification_checks
+       )}
+    end
+  end
+
+  defp authorize_read(session_context) do
+    Authorization.authorize_projection(session_context, :skeleton_read,
+      organization_id: session_context.organization_id
+    )
+  end
+
+  defp read_packet(session_context, packet_id) do
+    WorkPacket
+    |> Ash.Query.filter(
+      id == ^packet_id and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, WorkPacket, packet_id}}
+      result -> result
+    end
+  end
+
+  defp read_versions(session_context, packet_id) do
+    WorkPacketVersion
+    |> Ash.Query.filter(
+      work_packet_id == ^packet_id and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(version_number: :asc, inserted_at: :asc, id: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_source_references(_session_context, []), do: {:ok, []}
+
+  defp read_source_references(session_context, versions) do
+    version_ids = Enum.map(versions, & &1.id)
+
+    WorkPacketSourceReference
+    |> Ash.Query.filter(
+      work_packet_version_id in ^version_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_required_checks(_session_context, []), do: {:ok, []}
+
+  defp read_required_checks(session_context, versions) do
+    version_ids = Enum.map(versions, & &1.id)
+
+    WorkPacketRequiredCheck
+    |> Ash.Query.filter(
+      work_packet_version_id in ^version_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp current_version(%{current_version_id: nil} = packet, _versions) do
+    {:error, {:not_found, WorkPacketVersion, packet.id}}
+  end
+
+  defp current_version(packet, versions) do
+    case Enum.find(versions, &(&1.id == packet.current_version_id)) do
+      nil -> {:error, {:not_found, WorkPacketVersion, packet.current_version_id}}
+      version -> {:ok, version}
+    end
+  end
+
+  defp read_verification_checks(session_context, current_version, required_checks) do
+    check_ids =
+      required_checks
+      |> Enum.filter(&(&1.work_packet_version_id == current_version.id))
+      |> Enum.map(& &1.verification_check_id)
+
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^check_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and lifecycle_state == "required"
+    )
+    |> Ash.read(authorize?: false)
+  end
+
+  defp build_workspace(
+         session_context,
+         packet,
+         current_version,
+         versions,
+         source_references,
+         required_checks,
+         verification_checks
+       ) do
+    source_ids = ids_for_version(source_references, current_version.id, :graph_item_id)
+
+    check_ids =
+      ids_for_version(required_checks, current_version.id, :verification_check_id)
+
+    blockers =
+      current_version
+      |> version_attrs(source_ids, check_ids)
+      |> WorkPackets.readiness_blocker_reasons()
+      |> Kernel.++(verification_check_blockers(check_ids, verification_checks))
+      |> Kernel.++(WorkPackets.mismatched_source_check_ids(source_ids, verification_checks))
+      |> Enum.map(&normalize_blocker/1)
+      |> Kernel.++(run_start_policy_blockers(session_context))
+      |> Enum.uniq()
+
+    ready? = blockers == []
+
+    command_affordances =
+      run_start_affordances(session_context, packet, current_version, blockers)
+
+    workspace = %{
+      type: "operator_packet_workspace",
+      packet: packet_projection(packet),
+      current_version: version_projection(current_version, source_references, required_checks),
+      versions: Enum.map(versions, &version_projection(&1, source_references, required_checks)),
+      ready?: ready?,
+      status: if(ready?, do: "ready_for_run", else: "blocked"),
+      blocker_reasons: blockers,
+      allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
+      command_affordances: command_affordances
+    }
+
+    Map.put(workspace, :source_watermark, projection_watermark(workspace))
+  end
+
+  defp packet_projection(packet) do
+    %{
+      id: packet.id,
+      title: packet.title,
+      state: packet.state,
+      current_version_id: packet.current_version_id,
+      operation_id: packet.operation_id
+    }
+  end
+
+  defp version_projection(version, source_references, required_checks) do
+    %{
+      id: version.id,
+      version_number: version.version_number,
+      lifecycle_state: version.lifecycle_state,
+      title: version.title,
+      objective: version.objective,
+      context_summary: version.context_summary,
+      requirements: version.requirements,
+      success_criteria: version.success_criteria,
+      autonomy_posture: version.autonomy_posture,
+      source_graph_item_ids: ids_for_version(source_references, version.id, :graph_item_id),
+      verification_check_ids:
+        ids_for_version(required_checks, version.id, :verification_check_id),
+      operation_id: version.operation_id,
+      inserted_at: version.inserted_at
+    }
+  end
+
+  defp version_attrs(version, source_ids, check_ids) do
+    %{
+      objective: version.objective,
+      context_summary: version.context_summary,
+      requirements: version.requirements,
+      success_criteria: version.success_criteria,
+      autonomy_posture: version.autonomy_posture,
+      source_graph_item_ids: source_ids,
+      verification_check_ids: check_ids
+    }
+  end
+
+  defp ids_for_version(records, version_id, field) do
+    records
+    |> Enum.filter(&(&1.work_packet_version_id == version_id))
+    |> Enum.map(&Map.fetch!(&1, field))
+  end
+
+  defp verification_check_blockers(check_ids, verification_checks) do
+    if length(check_ids) == length(verification_checks) do
+      []
+    else
+      ["missing_or_non_required_verification_check"]
+    end
+  end
+
+  defp normalize_blocker(blocker) when is_binary(blocker), do: blocker
+  defp normalize_blocker(_verification_check_id), do: "source_graph_item_check_mismatch"
+
+  defp run_start_policy_blockers(session_context) do
+    if CommandAffordance.authorized?(session_context, :work_run_start) do
+      []
+    else
+      ["policy_restricted"]
+    end
+  end
+
+  defp run_start_affordances(session_context, packet, current_version, blockers) do
+    cond do
+      not CommandAffordance.authorized?(session_context, :work_run_start) ->
+        [
+          CommandAffordance.policy_restricted("start_work_run",
+            required_fields: @run_required_fields
+          )
+        ]
+
+      blockers == [] ->
+        [
+          CommandAffordance.enabled(
+            "start_work_run",
+            "Start a work run from the current packet version.",
+            required_fields: @run_required_fields,
+            input_defaults: run_start_input_defaults(current_version),
+            target_ids: [
+              CommandAffordance.target_id("work_packet", packet.id),
+              CommandAffordance.target_id("work_packet_version", current_version.id)
+            ]
+          )
+        ]
+
+      true ->
+        [
+          CommandAffordance.disabled(
+            "start_work_run",
+            "Resolve packet readiness blockers before starting a work run.",
+            reason_codes: blockers,
+            blocker_reasons: blockers,
+            required_fields: @run_required_fields,
+            input_defaults: run_start_input_defaults(current_version),
+            target_ids: [
+              CommandAffordance.target_id("work_packet", packet.id),
+              CommandAffordance.target_id("work_packet_version", current_version.id)
+            ]
+          )
+        ]
+    end
+  end
+
+  defp run_start_input_defaults(current_version) do
+    [
+      CommandAffordance.input_default("packet_version_id", current_version.id),
+      CommandAffordance.input_default("source_surface", "packet_workspace"),
+      CommandAffordance.input_default("reason", "Start work from the packet workspace."),
+      CommandAffordance.input_default("authority_posture", current_version.autonomy_posture)
+    ]
+  end
+
+  defp projection_watermark(data) do
+    data
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
+  end
+end

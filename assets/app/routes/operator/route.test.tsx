@@ -75,6 +75,28 @@ describe("operator route", () => {
     });
   });
 
+  it("opens a packet-workspace run link from the route query string", async () => {
+    const runState = operatorRunState();
+    const network = createOperatorNetwork({
+      workflowItems: [],
+      runState: { ...runState, run: { ...runState.run, id: "run_linked" } }
+    });
+
+    renderWithRelay(<OperatorRoute />, network, "/operator?runId=run_linked");
+
+    await waitFor(() => {
+      const runCall = network.mock.calls.find(
+        ([request]) => request.name === "OperatorRunStateQuery"
+      );
+      expect(runCall?.[1]).toEqual({ id: "run_linked" });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Awaiting evidence acceptance"
+      );
+    });
+  });
+
   it("validates locally derived packet readiness before exposing backend commands", async () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -920,7 +942,11 @@ describe("operator route", () => {
   });
 });
 
-function renderWithRelay(ui: ReactElement, network: FetchFunction) {
+function renderWithRelay(
+  ui: ReactElement,
+  network: FetchFunction,
+  initialEntry = "/operator"
+) {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
@@ -928,7 +954,7 @@ function renderWithRelay(ui: ReactElement, network: FetchFunction) {
   });
 
   return render(
-    <MemoryRouter initialEntries={["/operator"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
     </MemoryRouter>
   );

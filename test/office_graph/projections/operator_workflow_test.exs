@@ -638,6 +638,48 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
            ]
   end
 
+  test "packet workspace exposes run start only to authorized operators" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_result} =
+      OperatorCommandFixtures.create_ready_packet(
+        bootstrap.session,
+        [verification_check],
+        %{
+          title: "Ready workspace packet",
+          objective: "Run selected work.",
+          context_summary: "Ready context.",
+          requirements: "Complete selected work.",
+          success_criteria: "Required checks pass.",
+          autonomy_posture: "human_supervised"
+        }
+      )
+
+    assert {:ok, workspace} =
+             Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
+
+    assert workspace.ready?
+    assert workspace.allowed_next_actions == ["start_work_run"]
+    assert [start_run] = workspace.command_affordances
+    assert start_run.identity == "start_work_run"
+    assert start_run.state == "enabled"
+    assert packet_default_value(start_run, "packet_version_id") == packet_result.version.id
+
+    read_only_session = create_read_only_session!(bootstrap)
+
+    assert {:ok, restricted_workspace} =
+             Projections.packet_workspace(read_only_session, packet_result.packet.id)
+
+    refute restricted_workspace.ready?
+    assert restricted_workspace.blocker_reasons == ["policy_restricted"]
+    assert restricted_workspace.allowed_next_actions == []
+    assert [restricted_start] = restricted_workspace.command_affordances
+    assert restricted_start.state == "hidden"
+    assert restricted_start.target_ids == []
+    assert restricted_start.input_defaults == []
+  end
+
   test "operator run state moves from missing evidence to verified" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { PacketsRouteQuery } from "./data";
 import {
@@ -17,8 +17,10 @@ type PacketNavigation = {
 
 type PacketsRouteContentProps = {
   canPageBackward: boolean;
+  fetchKey: number;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
+  onRefresh: () => void;
   onSelectPacket: (id: string) => void;
   page: PacketsPage;
   requestedSelectedId: string | null;
@@ -27,6 +29,8 @@ type PacketsRouteContentProps = {
 export const routeOwnedPacketQuery = PacketsRouteQuery;
 
 export default function PacketsRoute() {
+  const [fetchKey, setFetchKey] = useState(0);
+  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
   const [navigation, setNavigation] = useState<PacketNavigation>({
     hasNavigated: false,
     page: defaultPacketsPage,
@@ -75,8 +79,10 @@ export default function PacketsRoute() {
     >
       <PacketsRouteContent
         canPageBackward={navigation.previousCursors.length > 0}
+        fetchKey={fetchKey}
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
+        onRefresh={refresh}
         onSelectPacket={setRequestedSelectedId}
         page={navigation.page}
         requestedSelectedId={requestedSelectedId}
@@ -88,5 +94,11 @@ export default function PacketsRoute() {
 function PacketsRouteContent(props: PacketsRouteContentProps) {
   const workflow = usePacketsWorkflow(props);
 
-  return <PacketWorkspace {...workflow} />;
+  return (
+    <PacketWorkspace
+      {...workflow}
+      fetchKey={props.fetchKey}
+      onRefresh={props.onRefresh}
+    />
+  );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useSearchParams } from "react-router";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { OperatorWorkflowRouteQuery } from "./data";
 import {
@@ -16,6 +17,7 @@ type InboxNavigation = {
 
 type OperatorRouteContentProps = {
   fetchKey: number;
+  linkedRunId: string | null;
   navigation: InboxNavigation;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
@@ -27,6 +29,8 @@ type OperatorRouteContentProps = {
 export const routeOwnedOperatorWorkflowQuery = OperatorWorkflowRouteQuery;
 
 export default function OperatorRoute() {
+  const [searchParams] = useSearchParams();
+  const linkedRunId = searchParams.get("runId")?.trim() || null;
   const [fetchKey, setFetchKey] = useState(0);
   const refresh = useCallback(() => setFetchKey(key => key + 1), []);
   const [navigation, setNavigation] = useState<InboxNavigation>({
@@ -74,6 +78,7 @@ export default function OperatorRoute() {
     >
       <OperatorRouteContent
         fetchKey={fetchKey}
+        linkedRunId={linkedRunId}
         navigation={navigation}
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
@@ -87,6 +92,7 @@ export default function OperatorRoute() {
 
 function OperatorRouteContent({
   fetchKey,
+  linkedRunId,
   navigation,
   onNextPage,
   onPreviousPage,
@@ -103,6 +109,7 @@ function OperatorRouteContent({
   return (
     <OperatorWorkspace
       canPageBackward={navigation.previousCursors.length > 0}
+      linkedRunId={linkedRunId}
       onNextPage={onNextPage}
       onPreviousPage={onPreviousPage}
       onSelectItem={onSelectItem}

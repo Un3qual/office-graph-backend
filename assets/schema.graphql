@@ -780,6 +780,7 @@ type RootQueryType {
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
+  operatorPacketWorkspace(id: ID!): OperatorPacketWorkspace!
   operatorRunState(id: ID!): OperatorRunState!
   operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
   node(
@@ -1343,6 +1344,43 @@ type OperatorPacketReadiness {
   sourceLinks: [OperatorSourceLink!]!
   requiredChecks: [OperatorRequiredCheck!]!
   sourceWatermark: ID
+}
+
+type OperatorPacketWorkspacePacket {
+  id: ID!
+  title: String!
+  state: String!
+  currentVersionId: ID!
+  operationId: ID
+}
+
+type OperatorPacketWorkspaceVersion {
+  id: ID!
+  versionNumber: Int!
+  lifecycleState: String!
+  title: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String
+  autonomyPosture: String!
+  sourceGraphItemIds: [ID!]!
+  verificationCheckIds: [ID!]!
+  operationId: ID!
+  insertedAt: DateTime!
+}
+
+type OperatorPacketWorkspace {
+  type: String!
+  sourceWatermark: ID!
+  ready: Boolean!
+  status: String!
+  blockerReasons: [String!]!
+  allowedNextActions: [String!]!
+  commandAffordances: [OperatorCommandAffordance!]!
+  packet: OperatorPacketWorkspacePacket!
+  currentVersion: OperatorPacketWorkspaceVersion!
+  versions: [OperatorPacketWorkspaceVersion!]!
 }
 
 type OperatorRunRef {

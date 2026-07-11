@@ -508,25 +508,25 @@ git commit -m "feat: add operator workflow actions"
 - Consumes: Task 6 packet command hook and packet Relay query.
 - Produces: packet creation, immutable version editor, version history, and run-start UI.
 
-- [ ] **Step 1: Expand the packet query through failing tests**
+- [x] **Step 1: Expand the packet query through failing tests**
 
 Require current-version contract fields, ordered sources/checks, versions, and
 run-start affordance. Verify Relay compiler failure before updating the query
 and generated artifacts.
 
-- [ ] **Step 2: Add packet create/version tests and UI**
+- [x] **Step 2: Add packet create/version tests and UI**
 
 Cover initial values, exact expected current-version id, immutable history,
 pending state, stale conflict/refetch, changed selection, and successful current
 version display.
 
-- [ ] **Step 3: Add run-start tests and UI**
+- [x] **Step 3: Add run-start tests and UI**
 
 Render only when current readiness/affordance permits. Submit source surface,
 reason, and authority posture; show returned run link/state and refetch packet
 data without a global client store.
 
-- [ ] **Step 4: Verify and commit packet actions**
+- [x] **Step 4: Verify and commit packet actions**
 
 Run packet tests, Relay check, typecheck, import boundaries, and production
 build. Commit:
