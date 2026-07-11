@@ -33,7 +33,7 @@
 - Consumes: `Operations.start_operation/3`, `Identity.SessionContext`, owner bootstrap.
 - Produces: `Operations.start_command/4`, `Operations.validate_command_replay/2`, actions `:work_packet_version_create` and `:verification_waive`, capability `verification.waive`.
 
-- [ ] **Step 1: Add failing operation digest tests**
+- [x] **Step 1: Add failing operation digest tests**
 
 Add tests that start a command twice with the same key/input and once with changed input:
 
@@ -67,7 +67,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix tes
 
 Expected: failure because `start_command/4` is undefined.
 
-- [ ] **Step 2: Implement deterministic command digests**
+- [x] **Step 2: Implement deterministic command digests**
 
 Add these public signatures:
 
@@ -82,7 +82,7 @@ as `metadata["command_input_digest"]`. On an existing operation, return
 `{:error, {:command_idempotency_conflict, operation.id}}` unless the digest
 matches.
 
-- [ ] **Step 3: Add waiver capability tests and implementation**
+- [x] **Step 3: Add waiver capability tests and implementation**
 
 Extend bootstrap assertions to include `"verification.waive"`. Add:
 
@@ -96,7 +96,7 @@ Extend bootstrap assertions to include `"verification.waive"`. Add:
 to Operations and matching owner capability atoms/strings to Authorization.
 Run the two focused test files and confirm they pass.
 
-- [ ] **Step 4: Commit the foundation**
+- [x] **Step 4: Commit the foundation**
 
 ```bash
 git add lib/office_graph/operations.ex lib/office_graph/authorization.ex test/office_graph/operations_test.exs test/office_graph/foundation/bootstrap_test.exs

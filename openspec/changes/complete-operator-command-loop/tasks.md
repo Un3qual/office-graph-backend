@@ -1,7 +1,7 @@
 ## 1. Command Foundation
 
-- [ ] 1.1 Add focused tests and shared command helpers that start server-owned operation correlations, record normalized input digests, and return stable idempotency and stale-state conflicts.
-- [ ] 1.2 Extend owner bootstrap and authorization policy coverage with the separate `verification.waive` capability and operation action.
+- [x] 1.1 Add focused tests and shared command helpers that start server-owned operation correlations, record normalized input digests, and return stable idempotency and stale-state conflicts.
+- [x] 1.2 Extend owner bootstrap and authorization policy coverage with the separate `verification.waive` capability and operation action.
 
 ## 2. Packet Versions And Verification Waivers
 
