@@ -59,6 +59,7 @@ const conflictCodes = new Set([
   "invalid_proposed_change_set",
   "invalid_proposed_change_status",
   "invalid_verification_check_status",
+  "manual_intake_replay_conflict",
   "packet_version_not_ready",
   "stale_packet_version",
   "stale_run_state"
