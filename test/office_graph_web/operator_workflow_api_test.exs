@@ -2,16 +2,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.ApiSupport
-  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
+  alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.Runs
+  alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkPackets
 
   @inbox_query """
   query Inbox($limit: Int, $afterCursor: String) {
@@ -105,6 +103,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"
     assert row["allowedNextActions"] == ["apply_proposed_changes"]
+    normalized_event_id = intake.normalized_event.id
+    proposed_change_ids = Enum.map(intake.proposed_changes, & &1.id)
 
     assert [
              %{
@@ -113,12 +113,23 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
                "reasonCodes" => [],
                "blockerReasons" => [],
                "safeExplanation" => "Apply pending proposed changes for this intake.",
-               "requiredFields" => [],
-               "inputDefaults" => [],
+               "requiredFields" => ["normalized_event_id", "proposed_change_ids"],
+               "inputDefaults" => [
+                 %{
+                   "field" => "normalized_event_id",
+                   "value" => ^normalized_event_id,
+                   "values" => []
+                 },
+                 %{
+                   "field" => "proposed_change_ids",
+                   "value" => nil,
+                   "values" => ^proposed_change_ids
+                 }
+               ],
                "targetIds" => [
                  %{
                    "type" => "normalized_intake_event",
-                   "id" => normalized_event_id
+                   "id" => ^normalized_event_id
                  }
                ],
                "traceLinks" => [],
@@ -165,10 +176,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       )
 
     assert item["status"] == "ready_for_packet"
-    assert item["allowedNextActions"] == ["prepare_packet"]
+    assert item["allowedNextActions"] == ["create_work_packet"]
     assert item["blockerReasons"] == []
     assert [prepare_command] = item["commandAffordances"]
-    assert prepare_command["identity"] == "prepare_packet"
+    assert prepare_command["identity"] == "create_work_packet"
     assert prepare_command["state"] == "enabled"
     assert prepare_command["reasonCodes"] == []
     assert prepare_command["blockerReasons"] == []
@@ -440,8 +451,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert run_state["status"] == "awaiting_evidence_acceptance"
     assert is_binary(run_state["sourceWatermark"])
-    assert run_state["allowedNextActions"] == ["accept_evidence"]
-    assert [accept_evidence] = run_state["commandAffordances"]
+    assert run_state["allowedNextActions"] == ["accept_evidence", "waive_verification_check"]
+    assert [accept_evidence, waive_check] = run_state["commandAffordances"]
     assert accept_evidence["identity"] == "accept_evidence"
     assert accept_evidence["state"] == "enabled"
     assert accept_evidence["reasonCodes"] == []
@@ -451,6 +462,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "Accept a candidate as evidence for a missing check."
 
     assert accept_evidence["inputDefaults"] == []
+    assert waive_check["identity"] == "waive_verification_check"
+    assert waive_check["state"] == "enabled"
 
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
@@ -708,86 +721,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp create_session_with_capabilities!(bootstrap, capability_keys) do
-    suffix = System.unique_integer([:positive])
-    principal_id = Ecto.UUID.generate()
-    session_id = Ecto.UUID.generate()
-    role_id = Ecto.UUID.generate()
-
-    principal =
-      Ash.create!(
-        Principal,
-        %{
-          id: principal_id,
-          email: "operator-api-read-only-#{suffix}@office-graph.local",
-          kind: "human",
-          status: "active"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    session =
-      Ash.create!(
-        Session,
-        %{
-          id: session_id,
-          principal_id: principal.id,
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          purpose: "operator_api_read_only_#{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    role =
-      Ash.create!(
-        Role,
-        %{
-          id: role_id,
-          organization_id: bootstrap.organization.id,
-          key: "operator_api_read_only_#{suffix}",
-          name: "Operator API Read Only #{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    Enum.each(capability_keys, fn capability_key ->
-      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
-
-      Ash.create!(
-        RoleCapability,
-        %{
-          id: Ecto.UUID.generate(),
-          role_id: role.id,
-          capability_id: capability.id
-        },
-        action: :create,
-        authorize?: false
-      )
-    end)
-
-    Ash.create!(
-      RoleAssignment,
-      %{
-        id: Ecto.UUID.generate(),
-        principal_id: principal.id,
-        role_id: role.id,
-        organization_id: bootstrap.organization.id,
-        workspace_id: bootstrap.workspace.id
-      },
-      action: :create,
-      authorize?: false
+    SessionCaseHelpers.create_session_with_capabilities!(bootstrap, capability_keys,
+      prefix: "operator-api-read-only"
     )
-
-    %SessionContext{
-      principal_id: principal.id,
-      session_id: session.id,
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(capability_keys)
-    }
   end
 
   defp force_intake_inserted_at!(normalized_event_id, inserted_at) do
@@ -825,73 +761,65 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp create_ready_run(session, verification_check) do
-    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
-
-    {:ok, packet_result} =
-      WorkPackets.create_packet(session, packet_operation, %{
+    OperatorCommandFixtures.create_ready_run(
+      session,
+      verification_check,
+      %{
         title: "Ready operator GraphQL packet",
         objective: "Run selected GraphQL work.",
         context_summary: "Ready GraphQL context.",
         requirements: "Complete selected GraphQL work.",
         success_criteria: "Required GraphQL checks pass.",
-        autonomy_posture: "human_supervised",
-        source_graph_item_ids: [verification_check.graph_item_id],
-        verification_check_ids: [verification_check.id]
-      })
-
-    {:ok, run_operation} = Operations.start_operation(session, :work_run_start)
-
-    with {:ok, run_result} <-
-           Runs.start_run(session, run_operation, packet_result.version, %{
-             source_surface: "operator_workflow_graphql_test",
-             reason: "Execute ready GraphQL packet.",
-             authority_posture: "human_supervised"
-           }) do
-      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
-    end
+        autonomy_posture: "human_supervised"
+      },
+      %{
+        source_surface: "operator_workflow_graphql_test",
+        reason: "Execute ready GraphQL packet.",
+        authority_posture: "human_supervised"
+      },
+      attach_packet_version?: true
+    )
   end
 
   defp record_observation(session, run, verification_check, opts) do
     key = Keyword.fetch!(opts, :key)
 
-    {:ok, operation} =
-      Operations.start_operation(session, :execution_observation_record,
-        idempotency_key: "observation-operation:#{key}"
-      )
-
-    Runs.record_observation(session, operation, run, %{
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      idempotency_key: "observation:#{key}",
-      observed_status: "passed",
-      normalized_status: "succeeded",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      verification_check_id: verification_check.id,
-      graph_item_id: verification_check.graph_item_id,
-      rationale: "Human confirmed #{key}."
-    })
+    OperatorCommandFixtures.record_observation(
+      session,
+      run,
+      verification_check,
+      %{
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        idempotency_key: "observation:#{key}",
+        observed_status: "passed",
+        normalized_status: "succeeded",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        rationale: "Human confirmed #{key}."
+      },
+      idempotency_key: "observation-operation:#{key}"
+    )
   end
 
   defp create_evidence_candidate(session, run, verification_check, observation, opts) do
     key = Keyword.fetch!(opts, :key)
 
-    {:ok, operation} =
-      Operations.start_operation(session, :evidence_candidate_create,
-        idempotency_key: "candidate-operation:#{key}"
-      )
-
-    Verification.create_evidence_candidate(session, operation, %{
-      work_run_id: run.id,
-      verification_check_id: verification_check.id,
-      execution_observation_id: observation.id,
-      claim: "Evidence candidate #{key}.",
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      sensitivity: "internal"
-    })
+    OperatorCommandFixtures.create_evidence_candidate(
+      session,
+      run,
+      verification_check,
+      observation,
+      %{
+        claim: "Evidence candidate #{key}.",
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      },
+      idempotency_key: "candidate-operation:#{key}"
+    )
   end
 
   defp accept_candidate(session, candidate, opts) do

@@ -707,6 +707,34 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "operator command resolvers remain transport-only" do
+    resolver_paths =
+      "lib/office_graph_web/graphql/operator_commands/resolvers/*.ex"
+      |> Path.wildcard()
+      |> Enum.sort()
+
+    assert length(resolver_paths) == 4
+
+    for path <- resolver_paths do
+      source = File.read!(path)
+      resolver_body = source |> String.split("\n") |> tl() |> Enum.join("\n")
+
+      refute source =~ "Repo.", "#{path} must not perform direct repository operations"
+      refute source =~ "Ash.Changeset", "#{path} must not build Ash changesets"
+      refute resolver_body =~ "Resolvers.", "#{path} must not call another resolver"
+
+      refute source =~ "defp validate_",
+             "#{path} must leave command validation inside the owning domain"
+
+      assert source =~ "Input.parse", "#{path} must parse transport input"
+
+      assert source =~ "RequestSession.resolve_resolution",
+             "#{path} must resolve request sessions"
+
+      assert source =~ "Operations.start_command", "#{path} must start server-owned commands"
+    end
+  end
+
   test "old compatibility GraphQL modules stay retired" do
     for retired_path <- [
           "lib/office_graph_web/graphql/compatibility/types.ex",
@@ -1137,6 +1165,63 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
         assert scope_filter_policy?(resource, action.name, :read),
                "#{inspect(resource)} #{inspect(action.name)} must filter reads by actor organization_id and workspace_id"
       end
+    end
+  end
+
+  test "proposal replay reads stay private, scoped, and apply-authorized" do
+    for resource <- [
+          OfficeGraph.WorkGraph.Signal,
+          OfficeGraph.WorkGraph.Task,
+          OfficeGraph.WorkGraph.ReviewFinding,
+          OfficeGraph.WorkGraph.VerificationCheck
+        ] do
+      action_name = :read_for_proposed_change_replay
+
+      refute public_action?(resource, action_name, :read),
+             "#{inspect(resource)} #{inspect(action_name)} must stay private"
+
+      assert Ash.Resource.Info.action(resource, action_name),
+             "#{inspect(resource)} must define #{inspect(action_name)}"
+
+      assert capability_policy?(resource, action_name, :read, :proposed_change_apply),
+             "#{inspect(resource)} #{inspect(action_name)} must require proposed_change.apply"
+
+      assert scope_filter_policy?(resource, action_name, :read),
+             "#{inspect(resource)} #{inspect(action_name)} must retain actor scope filtering"
+    end
+  end
+
+  test "work packet version command read stays private, scoped, and version-authorized" do
+    resource = OfficeGraph.WorkPackets.WorkPacket
+    action_name = :read_for_version_command
+
+    refute public_action?(resource, action_name, :read)
+    assert Ash.Resource.Info.action(resource, action_name)
+
+    assert capability_policy?(
+             resource,
+             action_name,
+             :read,
+             :work_packet_version_create
+           )
+
+    assert scope_filter_policy?(resource, action_name, :read)
+  end
+
+  test "operator command target reads stay private, scoped, and command-authorized" do
+    for {resource, action_name, capability} <- [
+          {OfficeGraph.WorkPackets.WorkPacketVersion, :read_for_run_start_command,
+           :work_run_start},
+          {OfficeGraph.Runs.Run, :read_for_observation_command, :execution_observation_record},
+          {OfficeGraph.WorkGraph.EvidenceCandidate, :read_for_accept_command, :evidence_accept},
+          {OfficeGraph.Runs.Run, :read_for_waive_command, :verification_waive},
+          {OfficeGraph.Runs.RunRequiredCheck, :read_for_waive_command, :verification_waive},
+          {OfficeGraph.Runs.RunRequiredCheck, :read_for_accept_command, :evidence_accept}
+        ] do
+      refute public_action?(resource, action_name, :read)
+      assert Ash.Resource.Info.action(resource, action_name)
+      assert capability_policy?(resource, action_name, :read, capability)
+      assert scope_filter_policy?(resource, action_name, :read)
     end
   end
 

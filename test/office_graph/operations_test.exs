@@ -2,6 +2,7 @@ defmodule OfficeGraph.OperationsTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Foundation, Operations}
+  alias OfficeGraph.WorkPackets.WorkPacket
 
   test "command operations replay equivalent input and reject changed input" do
     assert {:ok, bootstrap} =
@@ -85,5 +86,18 @@ defmodule OfficeGraph.OperationsTest do
              })
 
     assert operation_id == operation.id
+  end
+
+  test "command target reads preserve the resource and requested id in not-found errors" do
+    assert {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    missing_id = Ecto.UUID.generate()
+
+    assert {:error, {:not_found, WorkPacket, ^missing_id}} =
+             Operations.read_command_target(
+               WorkPacket,
+               :read_for_version_command,
+               bootstrap.session,
+               missing_id
+             )
   end
 end

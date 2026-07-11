@@ -53,6 +53,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       pagination keyset?: true, countable: false, required?: false
     end
 
+    read :read_for_version_command do
+      public? false
+    end
+
     create :create do
       public? false
 
@@ -91,8 +95,13 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_version_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_version_create}
     end
 
     policy action_type(:read) do

@@ -1,18 +1,17 @@
 defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
+  alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.Projections
   alias OfficeGraph.QueryCounter
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
+  alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkPackets
 
   test "operator inbox exposes pending manual intake as actionable triage" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -29,6 +28,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert row.blocker_reasons == []
     assert row.allowed_next_actions == ["apply_proposed_changes"]
     normalized_event_id = intake.normalized_event.id
+    proposed_change_ids = Enum.map(intake.proposed_changes, & &1.id)
 
     assert [
              %{
@@ -37,7 +37,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                reason_codes: [],
                blocker_reasons: [],
                safe_explanation: "Apply pending proposed changes for this intake.",
-               required_fields: [],
+               required_fields: ["normalized_event_id", "proposed_change_ids"],
+               input_defaults: [
+                 %{
+                   field: "normalized_event_id",
+                   value: ^normalized_event_id,
+                   values: []
+                 },
+                 %{
+                   field: "proposed_change_ids",
+                   value: nil,
+                   values: ^proposed_change_ids
+                 }
+               ],
                target_ids: [
                  %{type: "normalized_intake_event", id: ^normalized_event_id}
                ],
@@ -100,10 +112,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
 
     assert detail.status == "ready_for_packet"
-    assert detail.allowed_next_actions == ["prepare_packet"]
+    assert detail.allowed_next_actions == ["create_work_packet"]
     assert detail.blocker_reasons == []
     assert [prepare_command] = detail.command_affordances
-    assert prepare_command.identity == "prepare_packet"
+    assert prepare_command.identity == "create_work_packet"
     assert prepare_command.state == "enabled"
     assert prepare_command.reason_codes == []
     assert prepare_command.blocker_reasons == []
@@ -636,15 +648,21 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert initial_state.status == "awaiting_execution"
     assert is_binary(initial_state.source_watermark)
-    assert initial_state.allowed_next_actions == ["record_observation"]
-    assert [record_observation] = initial_state.command_affordances
-    assert record_observation.identity == "record_observation"
+
+    assert initial_state.allowed_next_actions == [
+             "record_execution_observation",
+             "waive_verification_check"
+           ]
+
+    assert [record_observation, waive_check] = initial_state.command_affordances
+    assert record_observation.identity == "record_execution_observation"
     assert record_observation.state == "enabled"
     assert record_observation.reason_codes == []
     assert record_observation.blocker_reasons == []
     assert record_observation.safe_explanation == "Record execution observations for this run."
 
     assert record_observation.required_fields == [
+             "run_id",
              "observation_source_kind",
              "observation_source_identity",
              "observation_idempotency_key",
@@ -657,9 +675,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              "observation_rationale"
            ]
 
+    assert record_observation.input_defaults == [
+             %{field: "run_id", value: run_result.run.id, values: []}
+           ]
+
     assert %{type: "work_run", id: run_result.run.id} in record_observation.target_ids
 
     assert %{type: "verification_check", id: verification_check.id} in record_observation.target_ids
+
+    assert waive_check.identity == "waive_verification_check"
+    assert waive_check.state == "enabled"
 
     assert initial_state.missing_evidence == [
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
@@ -669,6 +694,42 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       record_observation(bootstrap.session, run_result.run, verification_check,
         key: "operator-run-state"
       )
+
+    assert {:ok, awaiting_candidate} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert awaiting_candidate.status == "awaiting_evidence"
+
+    assert awaiting_candidate.allowed_next_actions == [
+             "create_evidence_candidate",
+             "waive_verification_check"
+           ]
+
+    assert [create_candidate, waive_check] = awaiting_candidate.command_affordances
+    assert waive_check.identity == "waive_verification_check"
+
+    assert create_candidate.required_fields == [
+             "work_run_id",
+             "verification_check_id",
+             "execution_observation_id",
+             "claim",
+             "source_kind",
+             "source_identity",
+             "freshness_state",
+             "trust_basis",
+             "sensitivity"
+           ]
+
+    assert create_candidate.input_defaults == [
+             %{field: "work_run_id", value: run_result.run.id, values: []},
+             %{field: "verification_check_id", value: nil, values: [verification_check.id]},
+             %{
+               field: "execution_observation_id",
+               value: nil,
+               values: [observation_result.observation.id]
+             },
+             %{field: "sensitivity", value: "internal", values: []}
+           ]
 
     {:ok, candidate} =
       create_evidence_candidate(
@@ -683,8 +744,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.operator_run_state(bootstrap.session, run_result.run.id)
 
     assert awaiting_evidence.status == "awaiting_evidence_acceptance"
-    assert awaiting_evidence.allowed_next_actions == ["accept_evidence"]
-    assert [accept_evidence] = awaiting_evidence.command_affordances
+
+    assert awaiting_evidence.allowed_next_actions == [
+             "accept_evidence",
+             "waive_verification_check"
+           ]
+
+    assert [accept_evidence, waive_check] = awaiting_evidence.command_affordances
+    assert waive_check.identity == "waive_verification_check"
     assert accept_evidence.identity == "accept_evidence"
     assert accept_evidence.state == "enabled"
     assert accept_evidence.reason_codes == []
@@ -693,7 +760,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert accept_evidence.safe_explanation ==
              "Accept a candidate as evidence for a missing check."
 
-    assert accept_evidence.required_fields == ["evidence_candidate_id", "title", "body", "result"]
+    assert accept_evidence.required_fields == [
+             "evidence_candidate_id",
+             "title",
+             "body",
+             "result",
+             "acceptance_policy_basis"
+           ]
 
     assert [
              %{
@@ -739,6 +812,52 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert operation_id == accepted.verification_result.operation_id
     assert actor_principal_id == bootstrap.session.principal_id
     assert target_graph_item_id == verification_check.graph_item_id
+  end
+
+  test "operator run state advertises GraphQL observation and waiver commands" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    assert {:ok, run_state} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert run_state.allowed_next_actions == [
+             "record_execution_observation",
+             "waive_verification_check"
+           ]
+
+    assert [record_observation, waive_check] = run_state.command_affordances
+    assert record_observation.identity == "record_execution_observation"
+    assert waive_check.identity == "waive_verification_check"
+
+    assert waive_check.required_fields == [
+             "run_id",
+             "run_required_check_id",
+             "expected_execution_state",
+             "expected_verification_state",
+             "reason",
+             "policy_basis"
+           ]
+
+    assert waive_check.input_defaults == [
+             %{field: "run_id", value: run_result.run.id, values: []},
+             %{
+               field: "run_required_check_id",
+               value: nil,
+               values: Enum.map(run_result.required_checks, & &1.id)
+             },
+             %{
+               field: "expected_execution_state",
+               value: run_result.run.execution_state,
+               values: []
+             },
+             %{
+               field: "expected_verification_state",
+               value: run_result.run.verification_state,
+               values: []
+             }
+           ]
   end
 
   test "operator run state source watermark changes when visible child state changes" do
@@ -807,7 +926,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                Projections.operator_run_state(bootstrap.session, run_result.run.id)
 
       assert awaiting_evidence.status == "awaiting_evidence"
-      assert awaiting_evidence.allowed_next_actions == ["create_evidence_candidate"]
+
+      assert awaiting_evidence.allowed_next_actions == [
+               "create_evidence_candidate",
+               "waive_verification_check"
+             ]
 
       assert Enum.any?(
                awaiting_evidence.evidence_candidates,
@@ -860,7 +983,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.operator_run_state(bootstrap.session, second_observation.run.id)
 
     assert waiting_state.status == "awaiting_evidence_acceptance"
-    assert waiting_state.allowed_next_actions == ["accept_evidence"]
+
+    assert waiting_state.allowed_next_actions == [
+             "accept_evidence",
+             "waive_verification_check"
+           ]
 
     assert Enum.any?(
              waiting_state.evidence_candidates,
@@ -926,7 +1053,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert initial_state.status == "awaiting_execution"
     assert initial_state.allowed_next_actions == []
     assert [record_observation] = initial_state.command_affordances
-    assert record_observation.identity == "record_observation"
+    assert record_observation.identity == "record_execution_observation"
     assert record_observation.state == "hidden"
     assert record_observation.reason_codes == ["policy_restricted"]
     assert record_observation.blocker_reasons == ["policy_restricted"]
@@ -1024,30 +1151,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   end
 
   defp create_ready_run(session, verification_checks) when is_list(verification_checks) do
-    {:ok, packet_operation} = Operations.start_operation(session, :work_packet_create)
-
-    {:ok, packet_result} =
-      WorkPackets.create_packet(session, packet_operation, %{
+    OperatorCommandFixtures.create_ready_run(
+      session,
+      verification_checks,
+      %{
         title: "Ready operator packet",
         objective: "Run selected work.",
         context_summary: "Ready context.",
         requirements: "Complete selected work.",
         success_criteria: "Required checks pass.",
-        autonomy_posture: "human_supervised",
-        source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
-        verification_check_ids: Enum.map(verification_checks, & &1.id)
-      })
-
-    {:ok, run_operation} = Operations.start_operation(session, :work_run_start)
-
-    with {:ok, run_result} <-
-           Runs.start_run(session, run_operation, packet_result.version, %{
-             source_surface: "test",
-             reason: "Execute ready packet.",
-             authority_posture: "human_supervised"
-           }) do
-      {:ok, Map.put(run_result, :packet_version, packet_result.version)}
-    end
+        autonomy_posture: "human_supervised"
+      },
+      %{
+        source_surface: "test",
+        reason: "Execute ready packet.",
+        authority_posture: "human_supervised"
+      },
+      attach_packet_version?: true
+    )
   end
 
   defp create_read_only_session!(bootstrap) do
@@ -1055,87 +1176,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   end
 
   defp create_session_with_capabilities!(bootstrap, capability_keys) do
-    suffix = System.unique_integer([:positive])
-    principal_id = Ecto.UUID.generate()
-    session_id = Ecto.UUID.generate()
-    role_id = Ecto.UUID.generate()
-
-    principal =
-      Ash.create!(
-        Principal,
-        %{
-          id: principal_id,
-          email: "operator-read-only-#{suffix}@office-graph.local",
-          kind: "human",
-          status: "active"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    session =
-      Ash.create!(
-        Session,
-        %{
-          id: session_id,
-          principal_id: principal.id,
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          purpose: "operator_read_only_#{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    role =
-      Ash.create!(
-        Role,
-        %{
-          id: role_id,
-          organization_id: bootstrap.organization.id,
-          key: "operator_read_only_#{suffix}",
-          name: "Operator Read Only #{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    Enum.each(capability_keys, fn capability_key ->
-      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
-
-      Ash.create!(
-        RoleCapability,
-        %{
-          id: Ecto.UUID.generate(),
-          role_id: role.id,
-          capability_id: capability.id
-        },
-        action: :create,
-        authorize?: false
-      )
-    end)
-
-    Ash.create!(
-      RoleAssignment,
-      %{
-        id: Ecto.UUID.generate(),
-        principal_id: principal.id,
-        role_id: role.id,
-        organization_id: bootstrap.organization.id,
-        workspace_id: bootstrap.workspace.id
-      },
-      action: :create,
-      authorize?: false
-    )
-
-    %SessionContext{
-      principal_id: principal.id,
-      session_id: session.id,
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(capability_keys),
+    SessionCaseHelpers.create_session_with_capabilities!(bootstrap, capability_keys,
+      prefix: "operator-read-only",
       trusted?: true
-    }
+    )
   end
 
   defp packet_default_value(command_affordance, field) do
@@ -1233,23 +1277,22 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     observed_status = Keyword.get(opts, :observed_status, "passed")
     normalized_status = Keyword.get(opts, :normalized_status, "succeeded")
 
-    {:ok, operation} =
-      Operations.start_operation(session, :execution_observation_record,
-        idempotency_key: "observation-operation:#{key}"
-      )
-
-    Runs.record_observation(session, operation, run, %{
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      idempotency_key: "observation:#{key}",
-      observed_status: observed_status,
-      normalized_status: normalized_status,
-      freshness_state: "fresh",
-      trust_basis: "owner_attested",
-      verification_check_id: verification_check.id,
-      graph_item_id: verification_check.graph_item_id,
-      rationale: "Human confirmed #{key}."
-    })
+    OperatorCommandFixtures.record_observation(
+      session,
+      run,
+      verification_check,
+      %{
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        idempotency_key: "observation:#{key}",
+        observed_status: observed_status,
+        normalized_status: normalized_status,
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        rationale: "Human confirmed #{key}."
+      },
+      idempotency_key: "observation-operation:#{key}"
+    )
   end
 
   defp create_evidence_candidate(session, run, verification_check, observation, opts) do
@@ -1257,22 +1300,21 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     freshness_state = Keyword.get(opts, :freshness_state, "fresh")
     trust_basis = Keyword.get(opts, :trust_basis, "owner_attested")
 
-    {:ok, operation} =
-      Operations.start_operation(session, :evidence_candidate_create,
-        idempotency_key: "candidate-operation:#{key}"
-      )
-
-    Verification.create_evidence_candidate(session, operation, %{
-      work_run_id: run.id,
-      verification_check_id: verification_check.id,
-      execution_observation_id: observation.id,
-      claim: "Evidence candidate #{key}.",
-      source_kind: "human",
-      source_identity: "manual:#{key}",
-      freshness_state: freshness_state,
-      trust_basis: trust_basis,
-      sensitivity: "internal"
-    })
+    OperatorCommandFixtures.create_evidence_candidate(
+      session,
+      run,
+      verification_check,
+      observation,
+      %{
+        claim: "Evidence candidate #{key}.",
+        source_kind: "human",
+        source_identity: "manual:#{key}",
+        freshness_state: freshness_state,
+        trust_basis: trust_basis,
+        sensitivity: "internal"
+      },
+      idempotency_key: "candidate-operation:#{key}"
+    )
   end
 
   defp accept_candidate(session, candidate, opts) do

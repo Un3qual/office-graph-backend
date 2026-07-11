@@ -11,10 +11,10 @@
 
 ## 3. Step-Specific GraphQL Commands
 
-- [ ] 3.1 Add GraphQL tests and thin mutations for manual intake submission and complete proposed-change application.
-- [ ] 3.2 Add GraphQL tests and thin mutations for packet creation, packet version creation, and packet-backed run start.
-- [ ] 3.3 Add GraphQL tests and thin mutations for observation recording, evidence candidate creation, evidence acceptance, and verification waiver.
-- [ ] 3.4 Regenerate the GraphQL schema and add architecture coverage proving command resolvers remain transport-only and expose safe validation, authorization, idempotency, and conflict errors.
+- [x] 3.1 Add GraphQL tests and thin mutations for manual intake submission and complete proposed-change application.
+- [x] 3.2 Add GraphQL tests and thin mutations for packet creation, packet version creation, and packet-backed run start.
+- [x] 3.3 Add GraphQL tests and thin mutations for observation recording, evidence candidate creation, evidence acceptance, and verification waiver.
+- [x] 3.4 Regenerate the GraphQL schema and add architecture coverage proving command resolvers remain transport-only and expose safe validation, authorization, idempotency, and conflict errors.
 
 ## 4. Step-Specific JSON Commands
 

@@ -40,6 +40,19 @@ defmodule OfficeGraph.Runs do
 
   def graphql_node(_session_context, _type, _id), do: {:ok, nil}
 
+  def get_packet_version_for_start_command(session_context, id) do
+    Operations.read_command_target(
+      WorkPacketVersion,
+      :read_for_run_start_command,
+      session_context,
+      id
+    )
+  end
+
+  def get_run_for_observation_command(session_context, id) do
+    Operations.read_command_target(Run, :read_for_observation_command, session_context, id)
+  end
+
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, @work_run_start_action),

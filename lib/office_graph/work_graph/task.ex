@@ -49,6 +49,10 @@ defmodule OfficeGraph.WorkGraph.Task do
   actions do
     defaults [:read]
 
+    read :read_for_proposed_change_replay do
+      public? false
+    end
+
     create :create do
       accept [
         :id,
@@ -79,8 +83,13 @@ defmodule OfficeGraph.WorkGraph.Task do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_proposed_change_replay) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :proposed_change_apply}
     end
 
     policy action_type(:read) do

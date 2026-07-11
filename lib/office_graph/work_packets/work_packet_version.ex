@@ -57,6 +57,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   actions do
     defaults [:read]
 
+    read :read_for_run_start_command do
+      public? false
+    end
+
     create :create do
       public? false
 
@@ -93,8 +97,12 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_run_start_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
     end
 
     policy action_type(:read) do

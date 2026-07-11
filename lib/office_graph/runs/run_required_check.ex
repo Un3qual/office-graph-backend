@@ -43,6 +43,14 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   actions do
     defaults [:read]
 
+    read :read_for_waive_command do
+      public? false
+    end
+
+    read :read_for_accept_command do
+      public? false
+    end
+
     create :create do
       public? false
 
@@ -83,8 +91,17 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_waive_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :verification_waive}
+    end
+
+    policy action(:read_for_accept_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_accept}
     end
 
     policy action_type(:read) do

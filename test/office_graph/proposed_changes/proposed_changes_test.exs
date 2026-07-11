@@ -12,6 +12,9 @@ defmodule OfficeGraph.ProposedChangesTest do
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
+  alias OfficeGraph.WorkGraph
+
+  import OfficeGraph.SessionCaseHelpers
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -396,7 +399,11 @@ defmodule OfficeGraph.ProposedChangesTest do
     bootstrap: bootstrap,
     intake: intake
   } do
-    apply_only = %{bootstrap.session | capabilities: MapSet.new(["proposed_change.apply"])}
+    apply_only =
+      create_session_with_capabilities!(bootstrap, ["proposed_change.apply"],
+        prefix: "proposed-change-apply-only"
+      )
+
     {:ok, apply_operation} = Operations.start_operation(apply_only, :proposed_change_apply)
 
     assert {:ok, applied} =
@@ -408,6 +415,29 @@ defmodule OfficeGraph.ProposedChangesTest do
              change = get_change!(change)
              change.status == "applied" and not is_nil(change.applied_at)
            end)
+  end
+
+  test "apply-only sessions can replay their exact applied proposal chain", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    apply_only =
+      create_session_with_capabilities!(bootstrap, ["proposed_change.apply"],
+        prefix: "proposed-change-apply-only"
+      )
+
+    refute MapSet.member?(apply_only.capabilities, "skeleton.read")
+
+    {:ok, apply_operation} = Operations.start_operation(apply_only, :proposed_change_apply)
+
+    assert {:ok, first} =
+             ProposedChanges.apply_all(apply_only, apply_operation, intake.proposed_changes)
+
+    assert {:ok, replay} =
+             ProposedChanges.apply_all(apply_only, apply_operation, intake.proposed_changes)
+
+    assert Map.new(first, fn {key, record} -> {key, record.id} end) ==
+             Map.new(replay, fn {key, record} -> {key, record.id} end)
   end
 
   test "manual intake titles use the first nonblank body segment", %{bootstrap: bootstrap} do
@@ -714,6 +744,124 @@ defmodule OfficeGraph.ProposedChangesTest do
                change.operation_id == intake_operation.id and
                Map.get(change, :applied_operation_id) == apply_operation.id
            end)
+  end
+
+  test "successful apply replays the original result for the same operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, first} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert {:ok, replay} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert Map.new(first, fn {key, record} -> {key, record.id} end) ==
+             Map.new(replay, fn {key, record} -> {key, record.id} end)
+  end
+
+  test "successful apply replay ignores unrelated earlier traces for the same operation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, %{signal: unrelated_signal}} =
+             WorkGraph.create_signal(bootstrap.session, apply_operation, %{
+               title: "Unrelated signal",
+               body: "This trace predates proposal application."
+             })
+
+    assert {:ok, %{task: unrelated_task}} =
+             WorkGraph.create_task(
+               bootstrap.session,
+               apply_operation,
+               unrelated_signal,
+               %{
+                 title: "Unrelated task",
+                 body: "This task is not part of the applied proposal chain."
+               }
+             )
+
+    assert {:ok, %{review_finding: unrelated_finding}} =
+             WorkGraph.create_review_finding(
+               bootstrap.session,
+               apply_operation,
+               unrelated_task,
+               %{
+                 title: "Unrelated finding",
+                 body: "This finding is not part of the applied proposal chain."
+               }
+             )
+
+    assert {:ok, %{verification_check: unrelated_check}} =
+             WorkGraph.create_verification_check(
+               bootstrap.session,
+               apply_operation,
+               unrelated_finding,
+               %{
+                 title: "Unrelated check",
+                 body: "This check is not part of the applied proposal chain."
+               }
+             )
+
+    assert {:ok, first} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    assert {:ok, replay} =
+             ProposedChanges.apply_all(
+               bootstrap.session,
+               apply_operation,
+               intake.proposed_changes
+             )
+
+    refute first.signal.id == unrelated_signal.id
+    refute first.task.id == unrelated_task.id
+    refute first.review_finding.id == unrelated_finding.id
+    refute first.verification_check.id == unrelated_check.id
+
+    assert Map.new(first, fn {key, record} -> {key, record.id} end) ==
+             Map.new(replay, fn {key, record} -> {key, record.id} end)
+  end
+
+  test "apply command owns normalized event target validation", %{
+    bootstrap: bootstrap,
+    intake: intake
+  } do
+    {:ok, other_intake_operation} =
+      Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    {:ok, other_intake} =
+      Integrations.submit_manual_intake(bootstrap.session, other_intake_operation, %{
+        source_identity: "manual:domain-owned-target",
+        replay_identity: "paste:domain-owned-target-#{System.unique_integer([:positive])}",
+        body: "Create another proposal set for target validation."
+      })
+
+    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+    other_event_id = other_intake.normalized_event.id
+
+    assert {:error, {:invalid_proposed_change_set, {:normalized_event_mismatch, ^other_event_id}}} =
+             ProposedChanges.apply_all(bootstrap.session, apply_operation, %{
+               normalized_event_id: other_event_id,
+               proposed_changes: intake.proposed_changes
+             })
+
+    assert Enum.all?(intake.proposed_changes, &(get_change!(&1).status == "pending"))
   end
 
   test "apply ignores unmodeled payload keys instead of atomizing them", %{

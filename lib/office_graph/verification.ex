@@ -32,6 +32,7 @@ defmodule OfficeGraph.Verification do
     EvidenceItem,
     GraphItem,
     GraphRelationship,
+    ReviewFinding,
     VerificationCheck,
     VerificationResult
   }
@@ -42,6 +43,28 @@ defmodule OfficeGraph.Verification do
   @evidence_accept_action "evidence.accept"
   @verification_waive_action "verification.waive"
   @evidence_results ["passed", "failed"]
+
+  def get_candidate_for_accept_command(session_context, id) do
+    Operations.read_command_target(
+      EvidenceCandidate,
+      :read_for_accept_command,
+      session_context,
+      id
+    )
+  end
+
+  def get_run_for_waive_command(session_context, id) do
+    Operations.read_command_target(Run, :read_for_waive_command, session_context, id)
+  end
+
+  def get_required_check_for_waive_command(session_context, id) do
+    Operations.read_command_target(
+      RunRequiredCheck,
+      :read_for_waive_command,
+      session_context,
+      id
+    )
+  end
 
   def complete_with_evidence(session_context, operation, verification_check, attrs) do
     with :ok <-
@@ -77,7 +100,9 @@ defmodule OfficeGraph.Verification do
          :ok <-
            Authorization.authorize_operation(session_context, operation, :evidence_accept,
              organization_id: session_context.organization_id
-           ) do
+           ),
+         {:ok, affected_refs} <-
+           acceptance_affected_refs(session_context, candidate, attrs) do
       case existing_acceptance_for_operation(session_context, operation) do
         {:ok, nil} ->
           accept_evidence_candidate_record(session_context, operation, candidate, attrs)
@@ -88,6 +113,7 @@ defmodule OfficeGraph.Verification do
         {:error, error} ->
           {:error, error}
       end
+      |> attach_acceptance_affected_refs(affected_refs)
     end
   end
 
@@ -126,6 +152,81 @@ defmodule OfficeGraph.Verification do
     Map.get(source, :freshness_state) == "fresh" and
       Map.get(source, :trust_basis) in ["owner_attested", "signed_provider_payload"]
   end
+
+  defp acceptance_affected_refs(session_context, candidate, attrs) do
+    case Map.get(attrs, :result, "passed") do
+      "passed" ->
+        passed_acceptance_affected_refs(session_context, candidate)
+
+      _other ->
+        {:ok,
+         %{
+           affected_verification_check_id: nil,
+           affected_run_required_check_id: nil,
+           affected_review_finding_id: nil,
+           affected_task_id: nil
+         }}
+    end
+  end
+
+  defp passed_acceptance_affected_refs(session_context, candidate) do
+    with {:ok, parent_refs} <- acceptance_parent_refs(session_context, candidate),
+         {:ok, required_check_id} <- acceptance_required_check_id(session_context, candidate) do
+      {:ok,
+       Map.merge(parent_refs, %{
+         affected_verification_check_id: candidate.verification_check_id,
+         affected_run_required_check_id: required_check_id
+       })}
+    end
+  end
+
+  defp acceptance_parent_refs(session_context, candidate) do
+    with {:ok, verification_check} <-
+           fetch_scoped(VerificationCheck, session_context, candidate.verification_check_id),
+         {:ok, review_finding} <-
+           fetch_scoped(ReviewFinding, session_context, verification_check.review_finding_id) do
+      {:ok,
+       %{
+         affected_review_finding_id: review_finding.id,
+         affected_task_id: review_finding.task_id
+       }}
+    end
+  end
+
+  defp acceptance_required_check_id(_session_context, %{work_run_id: nil}), do: {:ok, nil}
+
+  defp acceptance_required_check_id(session_context, candidate) do
+    RunRequiredCheck
+    |> Ash.Query.filter(
+      run_id == ^candidate.work_run_id and
+        verification_check_id == ^candidate.verification_check_id and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.for_read(:read_for_accept_command)
+    |> Ash.read_one(actor: session_context)
+    |> case do
+      {:ok, nil} ->
+        {:error,
+         {:not_found, RunRequiredCheck,
+          %{
+            run_id: candidate.work_run_id,
+            verification_check_id: candidate.verification_check_id
+          }}}
+
+      {:ok, required_check} ->
+        {:ok, required_check.id}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp attach_acceptance_affected_refs({:ok, accepted}, affected_refs) do
+    {:ok, Map.merge(accepted, affected_refs)}
+  end
+
+  defp attach_acceptance_affected_refs(error, _affected_refs), do: error
 
   defp create_evidence_candidate_record(session_context, operation, attrs) do
     Repo.transaction(fn ->

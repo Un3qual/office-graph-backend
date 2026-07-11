@@ -54,6 +54,13 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
+  defp normalize({:invalid_proposed_change_replay, _reason}) do
+    %{
+      detail: "The applied proposal result is unavailable.",
+      extensions: %{code: "invalid_proposed_change_replay"}
+    }
+  end
+
   defp normalize({:manual_intake_replay_conflict, accepted_id}) do
     %{
       detail: "Manual intake replay identity conflicts with an accepted event.",
@@ -65,6 +72,29 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     %{
       detail: "The idempotency key conflicts with different command input.",
       extensions: %{code: "idempotency_conflict", operation_id: operation_id}
+    }
+  end
+
+  defp normalize({:stale_packet_version, packet_id, current_version_id}) do
+    %{
+      detail: "The work packet version is stale.",
+      extensions: %{
+        code: "stale_packet_version",
+        packet_id: packet_id,
+        current_version_id: current_version_id
+      }
+    }
+  end
+
+  defp normalize({:stale_work_run_state, run_id, execution_state, verification_state}) do
+    %{
+      detail: "The work run state is stale.",
+      extensions: %{
+        code: "stale_run_state",
+        run_id: run_id,
+        execution_state: execution_state,
+        verification_state: verification_state
+      }
     }
   end
 
@@ -178,8 +208,31 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     end
   end
 
-  defp format_reason({kind, value}), do: %{kind: kind, value: value}
-  defp format_reason(reason), do: reason
+  defp format_reason({kind, value}) when is_atom(kind) do
+    %{kind: safe_atom(kind), value: format_reason(value)}
+  end
+
+  defp format_reason(nil), do: nil
+  defp format_reason(reason) when is_boolean(reason), do: reason
+  defp format_reason(reason) when is_atom(reason), do: safe_atom(reason)
+  defp format_reason(reason) when is_binary(reason), do: reason
+  defp format_reason(reason) when is_number(reason), do: reason
+  defp format_reason(reason) when is_list(reason), do: Enum.map(reason, &format_reason/1)
+
+  defp format_reason(reason) when is_map(reason) and not is_struct(reason) do
+    Map.new(reason, fn {key, value} -> {to_string(key), format_reason(value)} end)
+  end
+
+  defp format_reason(_reason), do: "invalid"
+
+  defp safe_atom(atom) do
+    atom
+    |> Atom.to_string()
+    |> case do
+      "Elixir." <> _module -> "internal"
+      value -> value
+    end
+  end
 
   defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true
 
