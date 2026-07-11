@@ -113,6 +113,7 @@ describe("packet route data architecture", () => {
     const commandsSource = readFileSync(commandsPath, "utf8");
     const workflowSource = readFileSync(workflowPath, "utf8");
 
+    expect(commandsSource).toContain("PacketsCreateWorkPacketMutation");
     expect(commandsSource).toContain("PacketsCreateWorkPacketVersionMutation");
     expect(commandsSource).toContain("PacketsStartWorkRunMutation");
     expect(workflowSource).toContain("useCommandMutation");
