@@ -3,8 +3,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
 
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
-  alias OfficeGraph.Runs.Run
-  alias OfficeGraph.WorkPackets.WorkPacketVersion
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
@@ -21,7 +19,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
              command_input
            ),
          {packet_version_id, attrs} <- Map.pop!(command_input, :packet_version_id),
-         {:ok, packet_version} <- fetch(WorkPacketVersion, packet_version_id, session_context),
+         {:ok, packet_version} <-
+           Runs.get_packet_version_for_start_command(session_context, packet_version_id),
          {:ok, result} <- Runs.start_run(session_context, operation, packet_version, attrs) do
       affected_ids =
         [typed_id("work_run", result.run.id)] ++
@@ -52,7 +51,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
              command_input
            ),
          {run_id, attrs} <- Map.pop!(command_input, :run_id),
-         {:ok, run} <- fetch(Run, run_id, session_context),
+         {:ok, run} <- Runs.get_run_for_observation_command(session_context, run_id),
          attrs <- normalize_observation_attrs(attrs),
          {:ok, result} <- Runs.record_observation(session_context, operation, run, attrs) do
       {:ok,
@@ -83,13 +82,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
   defp rename(attrs, source, target) do
     {value, attrs} = Map.pop!(attrs, source)
     Map.put(attrs, target, value)
-  end
-
-  defp fetch(resource, id, session_context) do
-    case Ash.get(resource, id, actor: session_context, not_found_error?: false) do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
-      result -> result
-    end
   end
 
   defp typed_id(type, id), do: %{type: type, id: id}

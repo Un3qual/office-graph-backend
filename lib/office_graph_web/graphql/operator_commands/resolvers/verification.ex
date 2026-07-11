@@ -2,9 +2,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
   @moduledoc false
 
   alias OfficeGraph.Operations
-  alias OfficeGraph.Runs.{Run, RunRequiredCheck}
   alias OfficeGraph.Verification
-  alias OfficeGraph.WorkGraph.EvidenceCandidate
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
@@ -45,8 +43,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
              idempotency_key,
              command_input
            ),
-         {candidate_id, attrs} <- Map.pop!(command_input, :candidate_id),
-         {:ok, candidate} <- fetch(EvidenceCandidate, candidate_id, session_context),
+         {candidate_id, attrs} <- Map.pop!(command_input, :evidence_candidate_id),
+         {:ok, candidate} <-
+           Verification.get_candidate_for_accept_command(session_context, candidate_id),
          {:ok, accepted} <-
            Verification.accept_evidence_candidate(session_context, operation, candidate, attrs) do
       affected_ids =
@@ -54,7 +53,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
           typed_id("evidence_candidate", accepted.candidate.id),
           typed_id("evidence_item", accepted.evidence_item.id),
           typed_id("verification_result", accepted.verification_result.id)
-        ] ++ optional_typed_id("work_run", accepted.work_run)
+        ] ++
+          optional_typed_id("verification_check", accepted.affected_verification_check_id) ++
+          optional_typed_id("run_required_check", accepted.affected_run_required_check_id) ++
+          optional_typed_id("work_run", accepted.work_run)
 
       {:ok,
        %{
@@ -84,9 +86,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
            ),
          {run_id, command_input} <- Map.pop!(command_input, :run_id),
          {required_check_id, attrs} <- Map.pop!(command_input, :run_required_check_id),
-         {:ok, run} <- fetch(Run, run_id, session_context),
+         {:ok, run} <- Verification.get_run_for_waive_command(session_context, run_id),
          {:ok, required_check} <-
-           fetch(RunRequiredCheck, required_check_id, session_context),
+           Verification.get_required_check_for_waive_command(session_context, required_check_id),
          {:ok, waived} <-
            Verification.waive_required_check(
              session_context,
@@ -113,14 +115,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
     end
   end
 
-  defp fetch(resource, id, session_context) do
-    case Ash.get(resource, id, actor: session_context, not_found_error?: false) do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
-      result -> result
-    end
-  end
-
   defp optional_typed_id(_type, nil), do: []
+  defp optional_typed_id(type, id) when is_binary(id), do: [typed_id(type, id)]
   defp optional_typed_id(type, resource), do: [typed_id(type, resource.id)]
 
   defp typed_id(type, id), do: %{type: type, id: id}

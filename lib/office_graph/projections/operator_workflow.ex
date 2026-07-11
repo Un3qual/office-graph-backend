@@ -236,6 +236,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         session_context,
         command_authorizations,
         event,
+        proposed_changes,
         status,
         reason_codes,
         graph_links,
@@ -749,6 +750,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          %{proposed_change_apply: false},
          _event,
+         _proposed_changes,
          "pending_triage",
          _reason_codes,
          _graph_links,
@@ -761,6 +763,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          _command_authorizations,
          event,
+         proposed_changes,
          "pending_triage",
          _reason_codes,
          _graph_links,
@@ -770,6 +773,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       CommandAffordance.enabled(
         "apply_proposed_changes",
         "Apply pending proposed changes for this intake.",
+        required_fields: ["normalized_event_id", "proposed_change_ids"],
+        input_defaults: apply_input_defaults(event, proposed_changes),
         target_ids: [CommandAffordance.target_id("normalized_intake_event", event.id)]
       )
     ]
@@ -779,13 +784,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          %{work_packet_create: false},
          event,
+         _proposed_changes,
          "ready_for_packet",
          _reason_codes,
          graph_links,
          _trace
        ) do
     [
-      CommandAffordance.policy_restricted("prepare_packet",
+      CommandAffordance.policy_restricted("create_work_packet",
         required_fields: CommandAffordance.packet_required_fields(),
         input_defaults: packet_input_defaults(event, graph_links)
       )
@@ -796,6 +802,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          _command_authorizations,
          event,
+         _proposed_changes,
          "ready_for_packet",
          _reason_codes,
          graph_links,
@@ -803,7 +810,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
        ) do
     [
       CommandAffordance.enabled(
-        "prepare_packet",
+        "create_work_packet",
         "Prepare a work packet from the applied intake.",
         required_fields: CommandAffordance.packet_required_fields(),
         input_defaults: packet_input_defaults(event, graph_links),
@@ -817,6 +824,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          _command_authorizations,
          %{duplicate_of_id: duplicate_of_id},
+         _proposed_changes,
          "not_actionable",
          reason_codes,
          _graph_links,
@@ -838,12 +846,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          _session_context,
          _command_authorizations,
          _event,
+         _proposed_changes,
          _status,
          _reason_codes,
          _graph_links,
          _trace
        ),
        do: []
+
+  defp apply_input_defaults(event, proposed_changes) do
+    [
+      CommandAffordance.input_default("normalized_event_id", event.id),
+      CommandAffordance.input_default("proposed_change_ids", Enum.map(proposed_changes, & &1.id))
+    ]
+  end
 
   defp graph_link_target_ids(graph_links) do
     graph_links

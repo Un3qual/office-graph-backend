@@ -78,7 +78,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
 
   input_object :accept_evidence_input do
     field :idempotency_key, non_null(:string)
-    field :candidate_id, non_null(:id)
+    field :evidence_candidate_id, non_null(:id)
     field :title, non_null(:string)
     field :body, non_null(:string)
     field :result, non_null(:string)

@@ -1208,6 +1208,23 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     assert scope_filter_policy?(resource, action_name, :read)
   end
 
+  test "operator command target reads stay private, scoped, and command-authorized" do
+    for {resource, action_name, capability} <- [
+          {OfficeGraph.WorkPackets.WorkPacketVersion, :read_for_run_start_command,
+           :work_run_start},
+          {OfficeGraph.Runs.Run, :read_for_observation_command, :execution_observation_record},
+          {OfficeGraph.WorkGraph.EvidenceCandidate, :read_for_accept_command, :evidence_accept},
+          {OfficeGraph.Runs.Run, :read_for_waive_command, :verification_waive},
+          {OfficeGraph.Runs.RunRequiredCheck, :read_for_waive_command, :verification_waive},
+          {OfficeGraph.Runs.RunRequiredCheck, :read_for_accept_command, :evidence_accept}
+        ] do
+      refute public_action?(resource, action_name, :read)
+      assert Ash.Resource.Info.action(resource, action_name)
+      assert capability_policy?(resource, action_name, :read, capability)
+      assert scope_filter_policy?(resource, action_name, :read)
+    end
+  end
+
   test "WorkGraph canonical Ash create actions validate same-scope references" do
     assert_work_graph_resources_are_ash!()
 

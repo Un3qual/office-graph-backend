@@ -1051,7 +1051,7 @@ input CreateEvidenceCandidateInput {
 
 input AcceptEvidenceInput {
   idempotencyKey: String!
-  candidateId: ID!
+  evidenceCandidateId: ID!
   title: String!
   body: String!
   result: String!

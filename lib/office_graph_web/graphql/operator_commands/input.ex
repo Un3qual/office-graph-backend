@@ -72,7 +72,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
     ],
     accept_evidence: [
       idempotency_key: :string,
-      candidate_id: :uuid,
+      evidence_candidate_id: :uuid,
       title: :string,
       body: :raw_string,
       result: :string,

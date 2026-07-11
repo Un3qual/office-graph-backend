@@ -9,6 +9,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
+  alias OfficeGraph.Runs
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
@@ -325,7 +326,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     accept_input = %{
       idempotencyKey: unique_key("accept"),
-      candidateId: candidate["evidenceCandidate"]["id"],
+      evidenceCandidateId: candidate["evidenceCandidate"]["id"],
       title: "Accepted GraphQL command evidence",
       body: "The first required check passed.",
       result: "passed",
@@ -338,6 +339,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "evidence_candidate",
       "evidence_item",
       "verification_result",
+      "verification_check",
+      "run_required_check",
       "work_run"
     ])
 
@@ -431,7 +434,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     accepted =
       command(conn, :accept_evidence, %{
         idempotencyKey: unique_key("runless-accept"),
-        candidateId: candidate.id,
+        evidenceCandidateId: candidate.id,
         title: "Runless accepted GraphQL evidence",
         body: "This evidence is not attached to a work run.",
         result: "passed",
@@ -440,12 +443,173 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     assert accepted["run"] == nil
     refute Enum.any?(accepted["affectedIds"], &(&1["type"] == "work_run"))
+    assert Enum.any?(accepted["affectedIds"], &(&1["type"] == "verification_check"))
 
     verification_result =
       Ash.get!(VerificationResult, accepted["verificationResult"]["id"], authorize?: false)
 
     assert verification_result.reason == nil
     assert verification_result.policy_basis == "owner_acceptance"
+  end
+
+  test "run-start-only sessions can target packet versions without skeleton read", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session, "run-only")
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    run_only =
+      create_session_with_capabilities!(bootstrap, ["work_run.start"], prefix: "graphql-run-only")
+
+    started =
+      conn
+      |> Ash.PlugHelpers.set_actor(run_only)
+      |> command(:start_work_run, %{
+        idempotencyKey: unique_key("run-only"),
+        packetVersionId: packet_result.version.id,
+        sourceSurface: "operator_commands_graphql_test",
+        reason: "Prove least-capability run creation.",
+        authorityPosture: "human_supervised"
+      })
+
+    assert started["run"]["id"]
+  end
+
+  test "observation-only sessions can target runs without skeleton read", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, verification_check} =
+      create_required_verification_check(bootstrap.session, "observe-only")
+
+    {:ok, run_result} = create_ready_run(bootstrap.session, [verification_check])
+
+    observation_only =
+      create_session_with_capabilities!(bootstrap, ["execution_observation.record"],
+        prefix: "graphql-observation-only"
+      )
+
+    observed =
+      conn
+      |> Ash.PlugHelpers.set_actor(observation_only)
+      |> command(:record_execution_observation, %{
+        idempotencyKey: unique_key("observation-only-operation"),
+        runId: run_result.run.id,
+        verificationCheckId: verification_check.id,
+        sourceGraphItemId: verification_check.graph_item_id,
+        observationSourceKind: "human",
+        observationSourceIdentity: "manual:observation-only",
+        observationIdempotencyKey: unique_key("observation-only-source"),
+        observedStatus: "passed",
+        normalizedStatus: "succeeded",
+        freshnessState: "fresh",
+        trustBasis: "owner_attested",
+        observationRationale: "Prove least-capability observation recording."
+      })
+
+    assert observed["run"]["id"] == run_result.run.id
+  end
+
+  test "accept-only sessions can target candidates and report every changed check", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, verification_check} =
+      create_required_verification_check(bootstrap.session, "accept-only")
+
+    {:ok, run_result} = create_ready_run(bootstrap.session, [verification_check])
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check)
+
+    {:ok, candidate} =
+      create_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation
+      )
+
+    accept_only =
+      create_session_with_capabilities!(bootstrap, ["evidence.accept"],
+        prefix: "graphql-accept-only"
+      )
+
+    accepted =
+      conn
+      |> Ash.PlugHelpers.set_actor(accept_only)
+      |> command(:accept_evidence, %{
+        idempotencyKey: unique_key("accept-only"),
+        evidenceCandidateId: candidate.id,
+        title: "Accepted by a least-capability operator",
+        body: "The required check passed.",
+        result: "passed",
+        acceptancePolicyBasis: "owner_acceptance"
+      })
+
+    assert_payload(accepted, "accept_evidence", [
+      "evidence_candidate",
+      "evidence_item",
+      "verification_result",
+      "verification_check",
+      "run_required_check",
+      "work_run"
+    ])
+  end
+
+  test "waive-only sessions can target runs and required checks without skeleton read", %{
+    conn: conn
+  } do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, verification_check} =
+      create_required_verification_check(bootstrap.session, "waive-only")
+
+    {:ok, run_result} = create_ready_run(bootstrap.session, [verification_check])
+    [required_check] = run_result.required_checks
+
+    waive_only =
+      create_session_with_capabilities!(bootstrap, ["verification.waive"],
+        prefix: "graphql-waive-only"
+      )
+
+    waived =
+      conn
+      |> Ash.PlugHelpers.set_actor(waive_only)
+      |> command(:waive_verification_check, %{
+        idempotencyKey: unique_key("waive-only"),
+        runId: run_result.run.id,
+        runRequiredCheckId: required_check.id,
+        expectedExecutionState: run_result.run.execution_state,
+        expectedVerificationState: run_result.run.verification_state,
+        reason: "Approved least-capability exception.",
+        policyBasis: "owner_exception"
+      })
+
+    assert waived["requiredCheck"]["state"] == "waived"
+  end
+
+  test "apply commands without read or apply grants return a safe forbidden error", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    intake =
+      command(conn, :submit_manual_intake, %{
+        idempotencyKey: unique_key("no-cap-intake"),
+        sourceIdentity: "manual:no-cap-apply",
+        replayIdentity: unique_key("no-cap-replay"),
+        body: "Prove safe apply authorization errors."
+      })
+
+    no_capabilities =
+      create_session_with_capabilities!(bootstrap, [], prefix: "graphql-no-capabilities")
+
+    response =
+      conn
+      |> Ash.PlugHelpers.set_actor(no_capabilities)
+      |> raw_command(:apply_proposed_changes, %{
+        idempotencyKey: unique_key("no-cap-apply"),
+        normalizedEventId: intake["normalizedEventId"],
+        proposedChangeIds: intake["proposedChangeIds"]
+      })
+
+    assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
   end
 
   test "version-only sessions can create a packet version without skeleton read", %{conn: conn} do
@@ -771,7 +935,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     accept_input = %{
       idempotencyKey: unique_key("guardrail-accept"),
-      candidateId: candidate["evidenceCandidate"]["id"],
+      evidenceCandidateId: candidate["evidenceCandidate"]["id"],
       title: "Guardrail evidence",
       body: "Guardrail evidence body.",
       result: "passed",
@@ -867,6 +1031,65 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
            }) do
       {:ok, check}
     end
+  end
+
+  defp create_ready_packet(session, verification_checks) do
+    {:ok, operation} = Operations.start_operation(session, :work_packet_create)
+
+    WorkPackets.create_packet(session, operation, %{
+      title: "Least-capability command packet",
+      objective: "Prove command target authorization.",
+      context_summary: "The command target already exists in the operator workspace.",
+      requirements: "Use only the command-specific capability.",
+      success_criteria: "The command succeeds without skeleton.read.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: Enum.map(verification_checks, & &1.graph_item_id),
+      verification_check_ids: Enum.map(verification_checks, & &1.id)
+    })
+  end
+
+  defp create_ready_run(session, verification_checks) do
+    {:ok, packet_result} = create_ready_packet(session, verification_checks)
+    {:ok, operation} = Operations.start_operation(session, :work_run_start)
+
+    Runs.start_run(session, operation, packet_result.version, %{
+      source_surface: "operator_commands_graphql_test",
+      reason: "Create a command target fixture.",
+      authority_posture: "human_supervised"
+    })
+  end
+
+  defp record_observation(session, run, verification_check) do
+    {:ok, operation} = Operations.start_operation(session, :execution_observation_record)
+
+    Runs.record_observation(session, operation, run, %{
+      source_kind: "human",
+      source_identity: "manual:accept-only-observation",
+      idempotency_key: unique_key("accept-only-observation"),
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      rationale: "Create an acceptance target fixture."
+    })
+  end
+
+  defp create_candidate(session, run, verification_check, observation) do
+    {:ok, operation} = Operations.start_operation(session, :evidence_candidate_create)
+
+    Verification.create_evidence_candidate(session, operation, %{
+      work_run_id: run.id,
+      verification_check_id: verification_check.id,
+      execution_observation_id: observation.id,
+      claim: "The command target fixture passed.",
+      source_kind: "human",
+      source_identity: "manual:accept-only-candidate",
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      sensitivity: "internal"
+    })
   end
 
   defp unique_key(label), do: "#{label}:#{System.unique_integer([:positive, :monotonic])}"

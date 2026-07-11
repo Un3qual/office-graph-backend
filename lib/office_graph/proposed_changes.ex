@@ -138,12 +138,17 @@ defmodule OfficeGraph.ProposedChanges do
   end
 
   defp read_scoped_changes(session_context, ids, opts \\ []) do
-    records =
-      ProposedGraphChange
-      |> Ash.Query.filter(id in ^ids)
-      |> maybe_lock(opts[:lock?])
-      |> Ash.read!(actor: session_context)
+    ProposedGraphChange
+    |> Ash.Query.filter(id in ^ids)
+    |> maybe_lock(opts[:lock?])
+    |> Ash.read(actor: session_context)
+    |> case do
+      {:ok, records} -> order_scoped_changes(records, ids)
+      {:error, error} -> {:error, error}
+    end
+  end
 
+  defp order_scoped_changes(records, ids) do
     by_id = Map.new(records, &{&1.id, &1})
 
     ids

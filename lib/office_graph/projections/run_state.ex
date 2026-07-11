@@ -203,12 +203,17 @@ defmodule OfficeGraph.Projections.RunState do
         "create_evidence_candidate",
         "Create an evidence candidate for missing verification evidence.",
         required_fields: [
+          "work_run_id",
+          "verification_check_id",
+          "execution_observation_id",
           "claim",
           "source_kind",
           "source_identity",
           "freshness_state",
-          "trust_basis"
+          "trust_basis",
+          "sensitivity"
         ],
+        input_defaults: candidate_input_defaults(summary),
         target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
       )
     ]
@@ -229,6 +234,21 @@ defmodule OfficeGraph.Projections.RunState do
         target_ids:
           run_target_ids(summary) ++ acceptable_candidate_target_ids(summary, evidence_candidates)
       )
+    ]
+  end
+
+  defp candidate_input_defaults(summary) do
+    [
+      CommandAffordance.input_default("work_run_id", summary.run.id),
+      CommandAffordance.input_default(
+        "verification_check_id",
+        Enum.map(summary.missing_evidence, & &1.verification_check_id)
+      ),
+      CommandAffordance.input_default(
+        "execution_observation_id",
+        Enum.map(summary.observations, & &1.id)
+      ),
+      CommandAffordance.input_default("sensitivity", "internal")
     ]
   end
 

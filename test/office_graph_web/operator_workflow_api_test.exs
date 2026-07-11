@@ -104,6 +104,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"
     assert row["allowedNextActions"] == ["apply_proposed_changes"]
+    normalized_event_id = intake.normalized_event.id
+    proposed_change_ids = Enum.map(intake.proposed_changes, & &1.id)
 
     assert [
              %{
@@ -112,12 +114,23 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
                "reasonCodes" => [],
                "blockerReasons" => [],
                "safeExplanation" => "Apply pending proposed changes for this intake.",
-               "requiredFields" => [],
-               "inputDefaults" => [],
+               "requiredFields" => ["normalized_event_id", "proposed_change_ids"],
+               "inputDefaults" => [
+                 %{
+                   "field" => "normalized_event_id",
+                   "value" => ^normalized_event_id,
+                   "values" => []
+                 },
+                 %{
+                   "field" => "proposed_change_ids",
+                   "value" => nil,
+                   "values" => ^proposed_change_ids
+                 }
+               ],
                "targetIds" => [
                  %{
                    "type" => "normalized_intake_event",
-                   "id" => normalized_event_id
+                   "id" => ^normalized_event_id
                  }
                ],
                "traceLinks" => [],
@@ -164,10 +177,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       )
 
     assert item["status"] == "ready_for_packet"
-    assert item["allowedNextActions"] == ["prepare_packet"]
+    assert item["allowedNextActions"] == ["create_work_packet"]
     assert item["blockerReasons"] == []
     assert [prepare_command] = item["commandAffordances"]
-    assert prepare_command["identity"] == "prepare_packet"
+    assert prepare_command["identity"] == "create_work_packet"
     assert prepare_command["state"] == "enabled"
     assert prepare_command["reasonCodes"] == []
     assert prepare_command["blockerReasons"] == []

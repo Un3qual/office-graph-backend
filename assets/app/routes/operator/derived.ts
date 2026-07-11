@@ -70,7 +70,10 @@ export function verificationOutcomeFromRunState(runState: OperatorRunStateFragme
 }
 
 export function preparePacketAffordance(item: OperatorWorkflowItemFragment$data) {
-  return item.commandAffordances.find((affordance) => affordance.identity === "prepare_packet") ?? null;
+  return (
+    item.commandAffordances.find((affordance) => affordance.identity === "create_work_packet") ??
+    null
+  );
 }
 
 function commandInputDefaults(

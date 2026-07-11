@@ -569,7 +569,7 @@ describe("operator route", () => {
   it("renders command affordance states without leaking hidden or redacted policy details", async () => {
     const sensitiveAffordances = [
       {
-        identity: "prepare_packet",
+        identity: "create_work_packet",
         state: "enabled",
         reasonCodes: [],
         blockerReasons: [],
@@ -646,7 +646,7 @@ describe("operator route", () => {
       );
     });
 
-    expect(itemDetail).toHaveTextContent("Prepare packet");
+    expect(itemDetail).toHaveTextContent("Create work packet");
     expect(itemDetail).toHaveTextContent("Accept evidence disabled");
     expect(itemDetail).toHaveTextContent("Accept evidence after a candidate is selected.");
     expect(itemDetail).toHaveTextContent("Hidden command: Policy hidden");
@@ -787,7 +787,7 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     },
     proposedChangeStatus: { pending: 4, applied: 0, rejected: 0, total: 4 },
     blockerReasons: [],
-    allowedNextActions: ["prepare_packet"],
+    allowedNextActions: ["create_work_packet"],
     commandAffordances,
     operationWatermark: "op_123",
     sourceWatermark: "op_123",
@@ -812,7 +812,7 @@ function preparePacketCommandForGraphLinks(
     .map((link) => link.id);
 
   return {
-    identity: "prepare_packet",
+    identity: "create_work_packet",
     state: "enabled",
     reasonCodes: [],
     blockerReasons: [],

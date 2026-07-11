@@ -40,6 +40,19 @@ defmodule OfficeGraph.Runs do
 
   def graphql_node(_session_context, _type, _id), do: {:ok, nil}
 
+  def get_packet_version_for_start_command(session_context, id) do
+    read_command_target(
+      WorkPacketVersion,
+      :read_for_run_start_command,
+      session_context,
+      id
+    )
+  end
+
+  def get_run_for_observation_command(session_context, id) do
+    read_command_target(Run, :read_for_observation_command, session_context, id)
+  end
+
   def start_run(session_context, operation, packet_version, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, @work_run_start_action),
@@ -48,6 +61,17 @@ defmodule OfficeGraph.Runs do
              organization_id: session_context.organization_id
            ) do
       create_run_records(session_context, operation, packet_version, attrs)
+    end
+  end
+
+  defp read_command_target(resource, action, session_context, id) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.for_read(action)
+    |> Ash.read_one(actor: session_context)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      result -> result
     end
   end
 

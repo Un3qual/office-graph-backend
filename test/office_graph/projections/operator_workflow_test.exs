@@ -28,6 +28,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert row.blocker_reasons == []
     assert row.allowed_next_actions == ["apply_proposed_changes"]
     normalized_event_id = intake.normalized_event.id
+    proposed_change_ids = Enum.map(intake.proposed_changes, & &1.id)
 
     assert [
              %{
@@ -36,7 +37,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                reason_codes: [],
                blocker_reasons: [],
                safe_explanation: "Apply pending proposed changes for this intake.",
-               required_fields: [],
+               required_fields: ["normalized_event_id", "proposed_change_ids"],
+               input_defaults: [
+                 %{
+                   field: "normalized_event_id",
+                   value: ^normalized_event_id,
+                   values: []
+                 },
+                 %{
+                   field: "proposed_change_ids",
+                   value: nil,
+                   values: ^proposed_change_ids
+                 }
+               ],
                target_ids: [
                  %{type: "normalized_intake_event", id: ^normalized_event_id}
                ],
@@ -99,10 +112,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
 
     assert detail.status == "ready_for_packet"
-    assert detail.allowed_next_actions == ["prepare_packet"]
+    assert detail.allowed_next_actions == ["create_work_packet"]
     assert detail.blocker_reasons == []
     assert [prepare_command] = detail.command_affordances
-    assert prepare_command.identity == "prepare_packet"
+    assert prepare_command.identity == "create_work_packet"
     assert prepare_command.state == "enabled"
     assert prepare_command.reason_codes == []
     assert prepare_command.blocker_reasons == []
@@ -668,6 +681,36 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       record_observation(bootstrap.session, run_result.run, verification_check,
         key: "operator-run-state"
       )
+
+    assert {:ok, awaiting_candidate} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert awaiting_candidate.status == "awaiting_evidence"
+    assert awaiting_candidate.allowed_next_actions == ["create_evidence_candidate"]
+    assert [create_candidate] = awaiting_candidate.command_affordances
+
+    assert create_candidate.required_fields == [
+             "work_run_id",
+             "verification_check_id",
+             "execution_observation_id",
+             "claim",
+             "source_kind",
+             "source_identity",
+             "freshness_state",
+             "trust_basis",
+             "sensitivity"
+           ]
+
+    assert create_candidate.input_defaults == [
+             %{field: "work_run_id", value: run_result.run.id, values: []},
+             %{field: "verification_check_id", value: nil, values: [verification_check.id]},
+             %{
+               field: "execution_observation_id",
+               value: nil,
+               values: [observation_result.observation.id]
+             },
+             %{field: "sensitivity", value: "internal", values: []}
+           ]
 
     {:ok, candidate} =
       create_evidence_candidate(
