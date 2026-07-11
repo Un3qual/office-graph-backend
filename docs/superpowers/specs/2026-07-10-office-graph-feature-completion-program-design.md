@@ -88,9 +88,11 @@ integration PR and starts from `main` after all dependencies merge.
 
 Implementation PRs MAY stack on unmerged parent branches without waiting for
 parent approval. Every stacked PR MUST target its immediate parent branch,
-name that dependency in its description, and be retargeted to `main` after the
-parent merges. Do not duplicate parent commits into a sibling PR or hide the
-stack relationship from reviewers.
+name that dependency in its description, and, after the parent merges, MUST
+rebase the child onto the updated `main` branch or equivalently rewrite it so
+the parent-delivered commits are absent before retargeting the child to `main`.
+Do not duplicate parent commits into a sibling PR or hide the stack relationship
+from reviewers.
 
 ## PR 1: Close Completed Work And Establish The Program
 
