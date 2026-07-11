@@ -39,6 +39,22 @@ describe("packet workspace route", () => {
     expect(screen.queryByText("First packet")).not.toBeInTheDocument();
   });
 
+  it("hides packet creation without an enabled backend affordance", async () => {
+    renderWithRelay(
+      packetNetwork(
+        [],
+        createPacketAffordance({
+          state: "hidden",
+          reasonCodes: ["policy_restricted"],
+          blockerReasons: ["policy_restricted"]
+        })
+      )
+    );
+
+    await screen.findByText("No packets are available.");
+    expect(screen.queryByRole("button", { name: "Create packet" })).not.toBeInTheDocument();
+  });
+
   it("renders a safe error without exposing Relay details", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     renderWithRelay(
@@ -50,6 +66,30 @@ describe("packet workspace route", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(document.body).not.toHaveTextContent("packet_9");
+  });
+
+  it("retries a failed packet list without requiring navigation", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let routeReads = 0;
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        routeReads += 1;
+        if (routeReads === 1) throw new Error("temporary packet list failure");
+        return packetConnectionResponse([packet()]);
+      }
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(workspace());
+      }
+      throw new Error(`Unexpected Relay request in packet route test: ${request.name}`);
+    });
+
+    renderWithRelay(network);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets");
+    fireEvent.click(screen.getByRole("button", { name: "Retry packets" }));
+
+    expect(await screen.findByRole("button", { name: /First packet/i })).toBeInTheDocument();
+    expect(routeReads).toBe(2);
   });
 
   it("selects the first packet by default", async () => {
@@ -66,6 +106,36 @@ describe("packet workspace route", () => {
     expect(screen.getByRole("button", { name: /Second packet/i })).not.toHaveAttribute(
       "aria-current"
     );
+  });
+
+  it("retries failed packet details without changing the selection", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let detailReads = 0;
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        detailReads += 1;
+        if (detailReads === 1) throw new Error("temporary detail failure");
+        return packetWorkspaceResponse(workspace());
+      }
+      throw new Error(`Unexpected Relay request in packet route test: ${request.name}`);
+    });
+
+    renderWithRelay(network);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load packet contract details"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry packet details" }));
+
+    expect(await screen.findByRole("region", { name: "Version history" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
+      "aria-current",
+      "true"
+    );
+    expect(detailReads).toBe(2);
   });
 
   it("updates route-local selection when a packet row is selected", async () => {
@@ -613,11 +683,14 @@ function lastVariablesFor(
     .find(([request]) => request.name === requestName)?.[1];
 }
 
-function packetNetwork(packets: ReturnType<typeof packet>[]) {
+function packetNetwork(
+  packets: ReturnType<typeof packet>[],
+  createAffordance = createPacketAffordance()
+) {
   return vi.fn(async (request): Promise<GraphQLResponse> =>
     request.name === "PacketsWorkspaceDetailQuery"
       ? packetWorkspaceResponse(workspace())
-      : packetConnectionResponse(packets)
+      : packetConnectionResponse(packets, {}, createAffordance)
   );
 }
 
@@ -711,12 +784,30 @@ function startAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
   };
 }
 
+function createPacketAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
+  return {
+    identity: "create_work_packet",
+    state: "enabled",
+    reasonCodes: [],
+    blockerReasons: [],
+    safeExplanation: "Create a work packet.",
+    requiredFields: [],
+    inputDefaults: [],
+    targetIds: [],
+    traceLinks: [],
+    decisionLinks: [],
+    ...overrides
+  };
+}
+
 function packetConnectionResponse(
   packets: ReturnType<typeof packet>[],
-  pageInfoOverrides: Partial<PageInfoPayload> = {}
+  pageInfoOverrides: Partial<PageInfoPayload> = {},
+  createAffordance = createPacketAffordance()
 ): GraphQLResponse {
   return {
     data: {
+      operatorPacketCreateAffordance: createAffordance,
       listWorkPackets: {
         edges: packets.map((node, index) => ({
           cursor: `cursor_${index + 1}`,

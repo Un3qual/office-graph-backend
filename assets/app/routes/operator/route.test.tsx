@@ -421,6 +421,30 @@ describe("operator route", () => {
     expect(document.body).not.toHaveTextContent("secret_alpha");
   });
 
+  it("retries a failed workflow query without requiring navigation", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let workflowReads = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        workflowReads += 1;
+        if (workflowReads === 1) throw new Error("temporary workflow failure");
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load operator inbox");
+    fireEvent.click(screen.getByRole("button", { name: "Retry operator workflow" }));
+
+    expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
+    expect(workflowReads).toBe(2);
+  });
+
   it("updates the selected row and derived workflow panels from Relay data", async () => {
     const secondItem = operatorWorkflowItem({
       id: "operator_workflow_item_global_2",
@@ -711,9 +735,9 @@ describe("operator route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submitting intake" }));
 
     expect(screen.getByRole("button", { name: "Submitting intake" })).toBeDisabled();
-    expect(
+    await waitFor(() => expect(
       network.mock.calls.filter(([request]) => request.name === "OperatorSubmitManualIntakeMutation")
-    ).toHaveLength(1);
+    ).toHaveLength(1));
     expect(
       network.mock.calls.find(([request]) => request.name === "OperatorSubmitManualIntakeMutation")?.[1]
     ).toMatchObject({
@@ -743,9 +767,11 @@ describe("operator route", () => {
 
   it("refreshes after a manual-intake replay conflict and keeps the explicit retry form", async () => {
     let workflowReads = 0;
+    const refreshResponse = deferredGraphQLResponse();
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         workflowReads += 1;
+        if (workflowReads === 2) return refreshResponse.promise;
         return workflowConnectionResponse([], variables);
       }
       if (request.name === "OperatorSubmitManualIntakeMutation") throw new GraphQLResponseError(
@@ -766,7 +792,12 @@ describe("operator route", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This intake was already accepted");
     await waitFor(() => expect(workflowReads).toBe(2));
+    expect(screen.getByLabelText("Manual intake")).toHaveValue("Duplicate deployment report");
     expect(screen.getByRole("button", { name: "Submit intake" })).toBeEnabled();
+
+    await act(async () => {
+      refreshResponse.resolve(workflowConnectionResponse([], { first: 50, after: null }));
+    });
   });
 
   it("applies only the selected item's enabled proposal affordance defaults", async () => {
@@ -839,6 +870,9 @@ describe("operator route", () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
       if (request.name === "OperatorRunStateQuery") return { data: { operatorRunState: operatorRunState() } };
+      if (request.name === "OperatorPacketReadinessQuery") return {
+        data: { operatorPacketReadiness: operatorPacketReadiness() }
+      };
       if (request.name === "OperatorCreateWorkPacketMutation") return {
         data: { createWorkPacket: {
           command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
@@ -850,6 +884,9 @@ describe("operator route", () => {
     });
 
     renderWithRelay(<OperatorRoute />, network);
+    await screen.findByText("Prepare packet context");
+    expect(screen.queryByRole("button", { name: "Create work packet" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
     fireEvent.click(await screen.findByRole("button", { name: "Create work packet" }));
 
     await waitFor(() => expect(
@@ -864,8 +901,12 @@ describe("operator route", () => {
 
   it("accepts evidence from the enabled run affordance and refreshes run state", async () => {
     let runReads = 0;
+    let workflowReads = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
-      if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        workflowReads += 1;
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
       if (request.name === "OperatorRunStateQuery") {
         runReads += 1;
         return { data: { operatorRunState: operatorRunState() } };
@@ -897,7 +938,177 @@ describe("operator route", () => {
       acceptancePolicyBasis: "owner_acceptance"
     } }));
     await waitFor(() => expect(runReads).toBe(2));
+    await waitFor(() => expect(workflowReads).toBe(2));
     expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("accepts the candidate targeted by the enabled affordance", async () => {
+    const base = operatorRunState();
+    const secondCandidate = {
+      ...base.evidenceCandidates[0],
+      id: "candidate_2",
+      verificationCheckId: "check_2",
+      executionObservationId: "observation_2"
+    };
+    const runState = {
+      ...base,
+      evidenceCandidates: [...base.evidenceCandidates, secondCandidate],
+      commandAffordances: [
+        enabledCommandAffordance("accept_evidence", [], [
+          { type: "work_run", id: "run_1" },
+          { type: "evidence_candidate", id: "candidate_2" }
+        ])
+      ]
+    };
+    const network = operatorCommandNetwork(runState);
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Evidence title"), {
+      target: { value: "Second candidate" }
+    });
+    fireEvent.change(screen.getByLabelText("Evidence body"), {
+      target: { value: "Accept the affordance-scoped candidate." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
+
+    await waitFor(() => expect(lastVariablesFor(network, "OperatorAcceptEvidenceMutation"))
+      .toMatchObject({ input: { evidenceCandidateId: "candidate_2" } }));
+  });
+
+  it("creates evidence from the operator-selected matching observation and check", async () => {
+    const base = operatorRunState();
+    const secondObservation = {
+      ...base.observations[0],
+      id: "observation_2",
+      verificationCheckId: "check_2"
+    };
+    const runState = {
+      ...base,
+      observations: [...base.observations, secondObservation],
+      missingEvidence: [
+        ...base.missingEvidence,
+        { verificationCheckId: "check_2", reason: "missing" }
+      ],
+      commandAffordances: [
+        enabledCommandAffordance("create_evidence_candidate", [
+          { field: "work_run_id", value: "run_1", values: [] },
+          { field: "verification_check_id", value: null, values: ["check_1", "check_2"] },
+          { field: "execution_observation_id", value: null, values: ["observation_1", "observation_2"] }
+        ])
+      ]
+    };
+    const network = operatorCommandNetwork(runState);
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Evidence observation"), {
+      target: { value: "observation_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Evidence claim"), {
+      target: { value: "The second check passed." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create evidence candidate" }));
+
+    await waitFor(() => expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation"))
+      .toMatchObject({
+        input: {
+          executionObservationId: "observation_2",
+          verificationCheckId: "check_2"
+        }
+      }));
+  });
+
+  it("waives the operator-selected required check", async () => {
+    const base = operatorRunState();
+    const secondCheck = {
+      ...base.requiredChecks[0],
+      id: "required_2",
+      verificationCheckId: "check_2"
+    };
+    const runState = {
+      ...base,
+      requiredChecks: [...base.requiredChecks, secondCheck],
+      commandAffordances: [
+        enabledCommandAffordance("waive_verification_check", [
+          { field: "run_id", value: "run_1", values: [] },
+          { field: "run_required_check_id", value: null, values: ["required_1", "required_2"] },
+          { field: "expected_execution_state", value: "completed", values: [] },
+          { field: "expected_verification_state", value: "pending", values: [] }
+        ])
+      ]
+    };
+    const network = operatorCommandNetwork(runState);
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Required check"), {
+      target: { value: "required_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Waiver reason"), {
+      target: { value: "Approved exception for the second check." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Waive verification check" }));
+
+    await waitFor(() => expect(lastVariablesFor(network, "OperatorWaiveVerificationCheckMutation"))
+      .toMatchObject({ input: { runRequiredCheckId: "required_2" } }));
+  });
+
+  it("records the operator-selected check and failed outcome", async () => {
+    const base = operatorRunState();
+    const runState = {
+      ...base,
+      missingEvidence: [
+        ...base.missingEvidence,
+        { verificationCheckId: "check_2", reason: "missing" }
+      ],
+      commandAffordances: [
+        enabledCommandAffordance("record_execution_observation", [
+          { field: "run_id", value: "run_1", values: [] }
+        ], [
+          { type: "work_run", id: "run_1" },
+          { type: "verification_check", id: "check_1" },
+          { type: "verification_check", id: "check_2" }
+        ])
+      ]
+    };
+    const network = operatorCommandNetwork(runState);
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Verification check"), {
+      target: { value: "check_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Observation outcome"), {
+      target: { value: "failed" }
+    });
+    fireEvent.change(screen.getByLabelText("Source graph item ID"), {
+      target: { value: "graph_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Observation rationale"), {
+      target: { value: "The second check failed." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record execution observation" }));
+
+    await waitFor(() => expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation"))
+      .toMatchObject({
+        input: {
+          verificationCheckId: "check_2",
+          observedStatus: "failed",
+          normalizedStatus: "failed"
+        }
+      }));
+  });
+
+  it("does not synthesize run start from an inbox-only affordance", async () => {
+    const workflowItem = operatorWorkflowItem({
+      commandAffordances: [
+        enabledCommandAffordance("start_work_run", [
+          { field: "packet_version_id", value: "version_1", values: [] }
+        ])
+      ]
+    });
+
+    renderWithRelay(<OperatorRoute />, createOperatorNetwork({ workflowItems: [workflowItem] }));
+
+    await screen.findByRole("button", { name: /evt_1/i });
+    expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
   });
 
   it("renders remaining run forms only from exact enabled affordances", async () => {
@@ -934,13 +1145,34 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, network);
 
-    expect(await screen.findByRole("button", { name: "Start work run" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Record execution observation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create evidence candidate" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Waive verification check" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accept evidence" })).not.toBeInTheDocument();
   });
 });
+
+function operatorCommandNetwork(runState: ReturnType<typeof operatorRunState>) {
+  return vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    if (request.name === "OperatorWorkflowRouteQuery") {
+      return workflowConnectionResponse([operatorWorkflowItem()], variables);
+    }
+    if (request.name === "OperatorRunStateQuery") {
+      return { data: { operatorRunState: runState } };
+    }
+    if (request.name.endsWith("Mutation")) {
+      return new Promise<GraphQLResponse>(() => undefined);
+    }
+    throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+  });
+}
+
+function lastVariablesFor(network: ReturnType<typeof vi.fn>, requestName: string) {
+  return [...network.mock.calls]
+    .reverse()
+    .find(([request]) => request.name === requestName)?.[1];
+}
 
 function renderWithRelay(
   ui: ReactElement,
@@ -1121,6 +1353,25 @@ function preparePacketCommandForGraphLinks(
       { field: "primary_verification_check_id", value: verificationCheck?.id ?? null, values: [] }
     ],
     targetIds: verificationCheck ? [{ type: "verification_check", id: verificationCheck.id }] : [],
+    traceLinks: [],
+    decisionLinks: []
+  };
+}
+
+function enabledCommandAffordance(
+  identity: string,
+  inputDefaults: CommandAffordancePayload["inputDefaults"] = [],
+  targetIds: CommandAffordancePayload["targetIds"] = []
+): CommandAffordancePayload {
+  return {
+    identity,
+    state: "enabled",
+    reasonCodes: [],
+    blockerReasons: [],
+    safeExplanation: `${identity} is available.`,
+    requiredFields: [],
+    inputDefaults,
+    targetIds,
     traceLinks: [],
     decisionLinks: []
   };

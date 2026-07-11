@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
 import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, defaultValue, enabledAffordance, submissionIdentity } from "../commandFormSupport";
+import { commandFeedback, defaultValue, enabledAffordance, submissionIdentity, targetValues } from "../commandFormSupport";
 import { useRecordExecutionObservationCommand } from "../commandWorkflow";
 import type { OperatorRunState } from "../workflow";
 
@@ -14,12 +14,16 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
 
   if (!affordance) return null;
 
-  const submit = (event: FormEvent) => {
+  const verificationCheckIds = targetValues(affordance, "verification_check");
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const outcome = String(form.get("observationOutcome") ?? "");
     const input = {
       runId: defaultValue(affordance, "run_id") || runState.run.id,
-      verificationCheckId: runState.missingEvidence[0]?.verificationCheckId ?? runState.requiredChecks[0]?.verificationCheckId ?? "",
-      sourceGraphItemId: sourceGraphItemId.trim(), observedStatus: "succeeded", normalizedStatus: "succeeded",
+      verificationCheckId: String(form.get("verificationCheckId") ?? ""),
+      sourceGraphItemId: sourceGraphItemId.trim(), observedStatus: outcome, normalizedStatus: outcome,
       observationRationale: rationale.trim(), observationSourceKind: "human",
       observationSourceIdentity: "operator-console", freshnessState: "fresh", trustBasis: "owner_attested"
     };
@@ -28,9 +32,18 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
   };
 
   return <form className="operator-command-form" onSubmit={submit}>
+    <label htmlFor="verification-check">Verification check</label>
+    <select defaultValue={verificationCheckIds[0] ?? ""} id="verification-check" name="verificationCheckId">
+      {verificationCheckIds.map(id => <option key={id} value={id}>{id}</option>)}
+    </select>
+    <label htmlFor="observation-outcome">Observation outcome</label>
+    <select defaultValue="succeeded" id="observation-outcome" name="observationOutcome">
+      <option value="succeeded">Succeeded</option>
+      <option value="failed">Failed</option>
+    </select>
     <label htmlFor="observation-source">Source graph item ID</label><input id="observation-source" onChange={event => setSourceGraphItemId(event.target.value)} value={sourceGraphItemId} />
     <label htmlFor="observation-rationale">Observation rationale</label><textarea id="observation-rationale" onChange={event => setRationale(event.target.value)} value={rationale} />
-    <Button isDisabled={command.state.status === "pending" || !sourceGraphItemId.trim() || !rationale.trim()} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
+    <Button isDisabled={command.state.status === "pending" || !sourceGraphItemId.trim() || !rationale.trim() || verificationCheckIds.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
     <FormFeedback feedback={commandFeedback(command.state)} />
   </form>;
 }

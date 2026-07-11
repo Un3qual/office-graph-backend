@@ -6,22 +6,26 @@ import { useSubmitManualIntakeCommand } from "../commandWorkflow";
 
 export function ManualIntakeForm({ onRefresh }: { onRefresh: () => void }) {
   const [body, setBody] = useState("");
+  const [preparing, setPreparing] = useState(false);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const command = useSubmitManualIntakeCommand(onRefresh);
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const normalizedBody = body.trim();
     if (!normalizedBody) return;
+    setPreparing(true);
     attempt.current = submissionIdentity(attempt.current, { body: normalizedBody });
+    const replayIdentity = await manualReplayIdentity(normalizedBody);
     command.submit({
       body: normalizedBody,
       idempotencyKey: attempt.current.key,
-      replayIdentity: manualReplayIdentity(normalizedBody),
+      replayIdentity,
       sourceIdentity: "manual:operator-console"
     });
+    setPreparing(false);
   };
-  const pending = command.state.status === "pending";
+  const pending = preparing || command.state.status === "pending";
 
   return (
     <form className="operator-command-form operator-intake-form" onSubmit={submit}>

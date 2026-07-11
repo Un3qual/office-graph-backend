@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { startTransition, useCallback, useState } from "react";
 import { useSearchParams } from "react-router";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { OperatorWorkflowRouteQuery } from "./data";
@@ -32,7 +32,7 @@ export default function OperatorRoute() {
   const [searchParams] = useSearchParams();
   const linkedRunId = searchParams.get("runId")?.trim() || null;
   const [fetchKey, setFetchKey] = useState(0);
-  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
+  const refresh = useCallback(() => startTransition(() => setFetchKey(key => key + 1)), []);
   const [navigation, setNavigation] = useState<InboxNavigation>({
     page: defaultOperatorInboxPage,
     previousCursors: []
@@ -70,11 +70,12 @@ export default function OperatorRoute() {
       errorFallback={
         <OperatorWorkspaceError
           canPageBackward={navigation.previousCursors.length > 0}
+          onRetry={refresh}
           onPreviousPage={loadPreviousPage}
         />
       }
       loadingFallback={<OperatorWorkspaceLoading />}
-      resetKey={`operator:${navigation.page.after ?? "initial"}`}
+      resetKey={`operator:${navigation.page.after ?? "initial"}:${fetchKey}`}
     >
       <OperatorRouteContent
         fetchKey={fetchKey}

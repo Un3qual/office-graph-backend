@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { startTransition, useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { PacketsRouteQuery } from "./data";
 import {
@@ -30,7 +30,7 @@ export const routeOwnedPacketQuery = PacketsRouteQuery;
 
 export default function PacketsRoute() {
   const [fetchKey, setFetchKey] = useState(0);
-  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
+  const refresh = useCallback(() => startTransition(() => setFetchKey(key => key + 1)), []);
   const [navigation, setNavigation] = useState<PacketNavigation>({
     hasNavigated: false,
     page: defaultPacketsPage,
@@ -71,11 +71,12 @@ export default function PacketsRoute() {
       errorFallback={
         <PacketWorkspaceError
           canPageBackward={navigation.previousCursors.length > 0}
+          onRetry={refresh}
           onPreviousPage={loadPreviousPage}
         />
       }
       loadingFallback={<PacketWorkspaceLoading isPage={navigation.hasNavigated} />}
-      resetKey={`packets:${navigation.page.after ?? "initial"}`}
+      resetKey={`packets:${navigation.page.after ?? "initial"}:${fetchKey}`}
     >
       <PacketsRouteContent
         canPageBackward={navigation.previousCursors.length > 0}

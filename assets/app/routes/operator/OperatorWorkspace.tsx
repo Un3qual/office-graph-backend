@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "../../../src/ui/Button";
 import { InboxList, InboxListFallback } from "./components/InboxList";
 import { ItemSummary } from "./components/ItemSummary";
 import { OperatorLayout } from "./components/OperatorLayout";
@@ -48,12 +49,13 @@ export function OperatorWorkspace({
             sourceWatermark={workflow.inbox.sourceWatermark}
           />
       }
-      detail={<><ItemSummary item={workflow.selectedItem} /><PacketCommandForm item={workflow.selectedItem} onRefresh={onRefresh} readinessInput={workflow.readinessInput} /></>}
+      detail={<><ItemSummary item={workflow.selectedItem} /><PacketCommandForm item={workflow.selectedItem} onRefresh={onRefresh} readiness={null} readinessInput={workflow.readinessInput} /></>}
       inspector={
         <OperatorInspector
           key={`${workflow.selectedId ?? "none"}:${linkedRunId ?? "derived"}`}
           readiness={workflow.readiness}
           readinessInput={workflow.readinessInput}
+          onRefresh={onRefresh}
           runId={linkedRunId ?? workflow.runId}
           selectedId={workflow.selectedId}
         />
@@ -68,19 +70,24 @@ export function OperatorWorkspaceLoading() {
 
 export function OperatorWorkspaceError({
   canPageBackward,
+  onRetry,
   onPreviousPage
 }: {
   canPageBackward: boolean;
+  onRetry: () => void;
   onPreviousPage: () => void;
 }) {
   return (
     <OperatorFallbackWorkspace
       inbox={
-        <InboxListFallback
-          canPageBackward={canPageBackward}
-          onPreviousPage={onPreviousPage}
-          state="error"
-        />
+        <>
+          <InboxListFallback
+            canPageBackward={canPageBackward}
+            onPreviousPage={onPreviousPage}
+            state="error"
+          />
+          <Button onPress={onRetry}>Retry operator workflow</Button>
+        </>
       }
     />
   );

@@ -2,6 +2,10 @@ import { graphql } from "react-relay";
 
 export const PacketsRouteQuery = graphql`
   query PacketsRouteQuery($first: Int!, $after: String) {
+    operatorPacketCreateAffordance {
+      identity
+      state
+    }
     listWorkPackets(first: $first, after: $after) {
       edges {
         cursor

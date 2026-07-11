@@ -54,6 +54,9 @@ export function usePacketsWorkflow({
 
   return {
     canPageBackward,
+    canCreatePacket:
+      data.operatorPacketCreateAffordance.identity === "create_work_packet" &&
+      data.operatorPacketCreateAffordance.state === "enabled",
     hasNextPage: connection.hasNextPage,
     loadNextPage: () => {
       if (connection.hasNextPage && connection.nextCursor !== null) {

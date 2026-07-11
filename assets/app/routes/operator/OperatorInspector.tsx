@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { startTransition, useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
 import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
 import { RunCommandForm } from "./components/RunCommandForm";
+import { PacketCommandForm } from "./components/PacketCommandForm";
 import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
 import {
@@ -16,6 +17,7 @@ import {
 type Props = {
   readiness: PacketReadinessState | null;
   readinessInput: PacketReadinessInput | null;
+  onRefresh: () => void;
   runId: string | null;
   selectedId: string | null;
 };
@@ -23,6 +25,7 @@ type Props = {
 export function OperatorInspector({
   readiness,
   readinessInput,
+  onRefresh,
   runId,
   selectedId
 }: Props) {
@@ -42,7 +45,7 @@ export function OperatorInspector({
           }
           resetKey={`${selectedId ?? "none"}:readiness:requested`}
         >
-          <ValidatedReadinessPanel input={readinessInput} />
+          <ValidatedReadinessPanel input={readinessInput} onRefresh={onRefresh} />
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
@@ -51,26 +54,34 @@ export function OperatorInspector({
           readinessInput={readinessInput}
         />
       )}
-      <RunStatePanels runId={runId} selectedId={selectedId} />
+      <RunStatePanels onRefresh={onRefresh} runId={runId} selectedId={selectedId} />
     </>
   );
 }
 
-function ValidatedReadinessPanel({ input }: { input: PacketReadinessInput }) {
+function ValidatedReadinessPanel({ input, onRefresh }: { input: PacketReadinessInput; onRefresh: () => void }) {
   const readiness = useValidatedPacketReadiness(input);
 
-  return <ReadinessPanel readiness={readiness} readinessInput={input} />;
+  return <>
+    <ReadinessPanel readiness={readiness} readinessInput={input} />
+    <PacketCommandForm item={null} onRefresh={onRefresh} readiness={readiness} readinessInput={input} />
+  </>;
 }
 
 function RunStatePanels({
   runId,
+  onRefresh,
   selectedId
 }: {
   runId: string | null;
+  onRefresh: () => void;
   selectedId: string | null;
 }) {
   const [fetchKey, setFetchKey] = useState(0);
-  const refresh = useCallback(() => setFetchKey(key => key + 1), []);
+  const refresh = useCallback(() => {
+    startTransition(() => setFetchKey(key => key + 1));
+    onRefresh();
+  }, [onRefresh]);
   if (!runId) {
     return (
       <>

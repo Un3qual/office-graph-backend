@@ -680,6 +680,22 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert restricted_start.input_defaults == []
   end
 
+  test "packet create affordance is exposed only to authorized operators" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, enabled} = Projections.packet_create_affordance(bootstrap.session)
+    assert enabled.identity == "create_work_packet"
+    assert enabled.state == "enabled"
+
+    read_only_session = create_read_only_session!(bootstrap)
+
+    assert {:ok, restricted} = Projections.packet_create_affordance(read_only_session)
+    assert restricted.identity == "create_work_packet"
+    assert restricted.state == "hidden"
+    assert restricted.target_ids == []
+    assert restricted.input_defaults == []
+  end
+
   test "operator run state moves from missing evidence to verified" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

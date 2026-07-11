@@ -2,24 +2,28 @@ import { useRef, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
 import { FormFeedback } from "../../../../src/ui/FormFeedback";
 import { commandFeedback, defaultValue, defaultValues, enabledAffordance, submissionIdentity } from "../commandFormSupport";
-import { useApplyProposedChangesCommand, useCreateWorkPacketCommand, useStartWorkRunCommand } from "../commandWorkflow";
+import { useApplyProposedChangesCommand, useCreateWorkPacketCommand } from "../commandWorkflow";
 import type { PacketReadinessInput } from "../types";
-import type { OperatorWorkflowItem } from "../workflow";
+import type { OperatorWorkflowItem, PacketReadinessState } from "../workflow";
 
-type Props = { item: OperatorWorkflowItem | null; onRefresh: () => void; readinessInput: PacketReadinessInput | null };
+type Props = {
+  item: OperatorWorkflowItem | null;
+  onRefresh: () => void;
+  readiness: PacketReadinessState | null;
+  readinessInput: PacketReadinessInput | null;
+};
 
-export function PacketCommandForm({ item, onRefresh, readinessInput }: Props) {
+export function PacketCommandForm({ item, onRefresh, readiness, readinessInput }: Props) {
   const apply = useApplyProposedChangesCommand(onRefresh);
   const create = useCreateWorkPacketCommand(onRefresh);
-  const start = useStartWorkRunCommand(onRefresh);
   const applyAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const createAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
-  const startAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const applyAffordance = item ? enabledAffordance(item.commandAffordances, "apply_proposed_changes") : null;
-  const createAffordance = item ? enabledAffordance(item.commandAffordances, "create_work_packet") : null;
-  const startAffordance = item ? enabledAffordance(item.commandAffordances, "start_work_run") : null;
+  const createAffordance = readiness && !("isDerived" in readiness)
+    ? enabledAffordance(readiness.commandAffordances, "create_work_packet")
+    : null;
 
-  if (!applyAffordance && !(createAffordance && readinessInput) && !startAffordance) return null;
+  if (!applyAffordance && !(createAffordance && readinessInput)) return null;
 
   const submitApply = (event: FormEvent) => {
     event.preventDefault();
@@ -34,19 +38,6 @@ export function PacketCommandForm({ item, onRefresh, readinessInput }: Props) {
     createAttempt.current = submissionIdentity(createAttempt.current, readinessInput);
     create.submit({ ...readinessInput, idempotencyKey: createAttempt.current.key });
   };
-  const submitStart = (event: FormEvent) => {
-    event.preventDefault();
-    if (!startAffordance || !item) return;
-    const input = {
-      packetVersionId: defaultValue(startAffordance, "packet_version_id") || item.graphLinks.find(link => link.type === "work_packet_version")?.id || "",
-      authorityPosture: defaultValue(startAffordance, "authority_posture") || "human_supervised",
-      reason: defaultValue(startAffordance, "reason") || "Operator console run",
-      sourceSurface: defaultValue(startAffordance, "source_surface") || "operator_console"
-    };
-    startAttempt.current = submissionIdentity(startAttempt.current, input);
-    start.submit({ ...input, idempotencyKey: startAttempt.current.key });
-  };
-
   return <div className="operator-command-stack">
     {applyAffordance ? <form className="operator-command-form" onSubmit={submitApply}>
       <p>{applyAffordance.safeExplanation}</p>
@@ -57,11 +48,6 @@ export function PacketCommandForm({ item, onRefresh, readinessInput }: Props) {
       <p>{createAffordance.safeExplanation}</p>
       <Button isDisabled={create.state.status === "pending"} type="submit" variant="primary">{create.state.status === "pending" ? "Creating work packet" : "Create work packet"}</Button>
       <FormFeedback feedback={commandFeedback(create.state)} />
-    </form> : null}
-    {startAffordance ? <form className="operator-command-form" onSubmit={submitStart}>
-      <p>{startAffordance.safeExplanation}</p>
-      <Button isDisabled={start.state.status === "pending"} type="submit" variant="primary">{start.state.status === "pending" ? "Starting work run" : "Start work run"}</Button>
-      <FormFeedback feedback={commandFeedback(start.state)} />
     </form> : null}
   </div>;
 }

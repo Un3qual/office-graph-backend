@@ -24,6 +24,23 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     "authority_posture"
   ]
 
+  def packet_create_affordance(session_context) do
+    affordance =
+      if CommandAffordance.authorized?(session_context, :work_packet_create) do
+        CommandAffordance.enabled(
+          "create_work_packet",
+          "Create a work packet in the current workspace.",
+          required_fields: CommandAffordance.packet_required_fields()
+        )
+      else
+        CommandAffordance.policy_restricted("create_work_packet",
+          required_fields: CommandAffordance.packet_required_fields()
+        )
+      end
+
+    {:ok, affordance}
+  end
+
   def packet_workspace(session_context, packet_id) do
     with :ok <- authorize_read(session_context),
          {:ok, packet} <- read_packet(session_context, packet_id),

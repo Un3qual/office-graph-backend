@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<96d9f9b3ef5286cec882536e5c3f4936>>
+ * @generated SignedSource<<652f41a4d35a5ca009bf079edd0424e7>>
  * @lightSyntaxTransform
  */
 
@@ -66,6 +66,13 @@ v5 = {
   "storageKey": null
 },
 v6 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "id",
+  "storageKey": null
+},
+v7 = {
   "alias": null,
   "args": null,
   "concreteType": "OperatorCommandAffordance",
@@ -140,22 +147,28 @@ v6 = {
         }
       ],
       "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorTypedId",
+      "kind": "LinkedField",
+      "name": "targetIds",
+      "plural": true,
+      "selections": [
+        (v2/*:: as any*/),
+        (v6/*:: as any*/)
+      ],
+      "storageKey": null
     }
   ],
-  "storageKey": null
-},
-v7 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "sourceWatermark",
   "storageKey": null
 },
 v8 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "id",
+  "name": "sourceWatermark",
   "storageKey": null
 },
 v9 = {
@@ -166,7 +179,7 @@ v9 = {
   "name": "packet",
   "plural": false,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     {
       "alias": null,
       "args": null,
@@ -186,7 +199,7 @@ v10 = {
   "name": "packetVersion",
   "plural": false,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     {
       "alias": null,
       "args": null,
@@ -219,7 +232,7 @@ v11 = {
   "name": "run",
   "plural": false,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     {
       "alias": null,
       "args": null,
@@ -287,7 +300,7 @@ v17 = {
   "name": "observations",
   "plural": true,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     (v12/*:: as any*/),
     {
       "alias": null,
@@ -318,7 +331,7 @@ v18 = {
   "name": "evidenceCandidates",
   "plural": true,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     (v12/*:: as any*/),
     {
       "alias": null,
@@ -357,7 +370,7 @@ v20 = {
   "name": "evidenceItems",
   "plural": true,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     (v5/*:: as any*/),
     {
       "alias": null,
@@ -378,7 +391,7 @@ v21 = {
   "name": "verificationResults",
   "plural": true,
   "selections": [
-    (v8/*:: as any*/),
+    (v6/*:: as any*/),
     {
       "alias": null,
       "args": null,
@@ -474,8 +487,8 @@ return {
               (v2/*:: as any*/),
               (v3/*:: as any*/),
               (v4/*:: as any*/),
-              (v6/*:: as any*/),
               (v7/*:: as any*/),
+              (v8/*:: as any*/),
               (v9/*:: as any*/),
               (v10/*:: as any*/),
               (v11/*:: as any*/),
@@ -525,8 +538,8 @@ return {
           (v2/*:: as any*/),
           (v3/*:: as any*/),
           (v4/*:: as any*/),
-          (v6/*:: as any*/),
           (v7/*:: as any*/),
+          (v8/*:: as any*/),
           (v9/*:: as any*/),
           (v10/*:: as any*/),
           (v11/*:: as any*/),
@@ -540,7 +553,7 @@ return {
             "selections": [
               (v12/*:: as any*/),
               (v5/*:: as any*/),
-              (v8/*:: as any*/)
+              (v6/*:: as any*/)
             ],
             "storageKey": null
           },
@@ -555,12 +568,12 @@ return {
     ]
   },
   "params": {
-    "cacheID": "247d465d94f600ef736875b0595f8cbe",
+    "cacheID": "a870479b559eca30a24b8f95c4d7211d",
     "id": null,
     "metadata": {},
     "name": "OperatorRunStateQuery",
     "operationKind": "query",
-    "text": "query OperatorRunStateQuery(\n  $id: ID!\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment\n  }\n}\n\nfragment OperatorRunStateFragment on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n  }\n  sourceWatermark\n  packet {\n    id\n    title\n    state\n  }\n  packetVersion {\n    id\n    versionNumber\n    lifecycleState\n    objective\n  }\n  run {\n    id\n    aggregateState\n    executionState\n    verificationState\n  }\n  requiredChecks {\n    verificationCheckId\n    state\n    id\n  }\n  observations {\n    id\n    verificationCheckId\n    graphItemId\n    normalizedStatus\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceCandidates {\n    id\n    verificationCheckId\n    executionObservationId\n    claim\n    state\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceItems {\n    id\n    state\n    candidateId\n    workRunId\n  }\n  verificationResults {\n    id\n    result\n    verificationCheckId\n    evidenceItemId\n    operationId\n    actorPrincipalId\n    policyBasis\n    targetGraphItemId\n    workRunId\n    workPacketVersionId\n  }\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
+    "text": "query OperatorRunStateQuery(\n  $id: ID!\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment\n  }\n}\n\nfragment OperatorRunStateFragment on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  sourceWatermark\n  packet {\n    id\n    title\n    state\n  }\n  packetVersion {\n    id\n    versionNumber\n    lifecycleState\n    objective\n  }\n  run {\n    id\n    aggregateState\n    executionState\n    verificationState\n  }\n  requiredChecks {\n    verificationCheckId\n    state\n    id\n  }\n  observations {\n    id\n    verificationCheckId\n    graphItemId\n    normalizedStatus\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceCandidates {\n    id\n    verificationCheckId\n    executionObservationId\n    claim\n    state\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceItems {\n    id\n    state\n    candidateId\n    workRunId\n  }\n  verificationResults {\n    id\n    result\n    verificationCheckId\n    evidenceItemId\n    operationId\n    actorPrincipalId\n    policyBasis\n    targetGraphItemId\n    workRunId\n    workPacketVersionId\n  }\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
   }
 };
 })();

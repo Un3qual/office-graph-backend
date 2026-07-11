@@ -781,6 +781,7 @@ type RootQueryType {
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
   operatorPacketWorkspace(id: ID!): OperatorPacketWorkspace!
+  operatorPacketCreateAffordance: OperatorCommandAffordance!
   operatorRunState(id: ID!): OperatorRunState!
   operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
   node(

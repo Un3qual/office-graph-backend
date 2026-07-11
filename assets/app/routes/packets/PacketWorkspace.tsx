@@ -1,4 +1,5 @@
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
+import { Button } from "../../../src/ui/Button";
 import { PacketDetail } from "./components/PacketDetail";
 import { PacketCreateForm } from "./components/PacketCreateForm";
 import { PacketList, PacketListFallback } from "./components/PacketList";
@@ -8,6 +9,7 @@ import { usePacketWorkspaceDetail } from "./workflow";
 
 type Props = {
   canPageBackward: boolean;
+  canCreatePacket: boolean;
   fetchKey: number;
   hasNextPage: boolean;
   loadNextPage: () => void;
@@ -21,6 +23,7 @@ type Props = {
 
 export function PacketWorkspace({
   canPageBackward,
+  canCreatePacket,
   fetchKey,
   hasNextPage,
   loadNextPage,
@@ -35,13 +38,14 @@ export function PacketWorkspace({
     <PacketsLayout
       detail={
         <div className="packet-detail-column">
-          <PacketCreateForm onCreated={selectPacket} onRefresh={onRefresh} />
+          {canCreatePacket ? <PacketCreateForm onCreated={selectPacket} onRefresh={onRefresh} /> : null}
           {selectedPacket ? (
             <AsyncBoundary
               errorFallback={
                 <div>
                   <PacketDetail packet={selectedPacket} />
                   <p className="packet-detail-error" role="alert">Unable to load packet contract details.</p>
+                  <Button onPress={onRefresh}>Retry packet details</Button>
                 </div>
               }
               loadingFallback={
@@ -50,7 +54,7 @@ export function PacketWorkspace({
                   <p className="packet-detail-loading" role="status">Loading packet contract...</p>
                 </div>
               }
-              resetKey={`packet-detail:${selectedPacket.id}`}
+              resetKey={`packet-detail:${selectedPacket.id}:${fetchKey}`}
             >
               <LoadedPacketDetail
                 fetchKey={fetchKey}
@@ -103,20 +107,25 @@ export function PacketWorkspaceLoading({ isPage }: { isPage: boolean }) {
 
 export function PacketWorkspaceError({
   canPageBackward,
+  onRetry,
   onPreviousPage
 }: {
   canPageBackward: boolean;
+  onRetry: () => void;
   onPreviousPage: () => void;
 }) {
   return (
     <PacketsLayout
       detail={<div className="packet-detail-column"><PacketDetail packet={null} /></div>}
       list={
-        <PacketListFallback
-          canPageBackward={canPageBackward}
-          onPreviousPage={onPreviousPage}
-          state="error"
-        />
+        <>
+          <PacketListFallback
+            canPageBackward={canPageBackward}
+            onPreviousPage={onPreviousPage}
+            state="error"
+          />
+          <Button onPress={onRetry}>Retry packets</Button>
+        </>
       }
     />
   );

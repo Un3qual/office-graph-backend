@@ -99,6 +99,17 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
 
+    field :operator_packet_create_affordance, non_null(:operator_command_affordance) do
+      resolve(fn _args, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, affordance} <- Projections.packet_create_affordance(session_context) do
+          {:ok, affordance}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :operator_run_state, non_null(:operator_run_state) do
       arg(:id, non_null(:id))
 

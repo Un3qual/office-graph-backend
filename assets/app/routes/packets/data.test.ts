@@ -14,6 +14,9 @@ describe("packet route Relay data", () => {
     expect(packetFragment.kind).toBe("InlineDataFragment");
     expect(detailQuery.params.name).toBe("PacketsWorkspaceDetailQuery");
     expect(detailQuery.params.text).toContain("operatorPacketWorkspace(id: $id)");
+    expect(routeQuery.params.text).toContain("operatorPacketCreateAffordance");
+    expect(routeQuery.params.text).toContain("identity");
+    expect(routeQuery.params.text).toContain("state");
 
     for (const field of [
       "currentVersion",

@@ -57,6 +57,7 @@ export const OperatorWorkflowItemFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     operationWatermark
     sourceWatermark
@@ -102,6 +103,7 @@ export const OperatorPacketReadinessFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     blockerReasons
     sourceLinks {
@@ -139,6 +141,7 @@ export const OperatorRunStateFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     sourceWatermark
     packet {

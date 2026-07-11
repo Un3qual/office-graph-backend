@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0c70005025083b69eecbb99a1ca78b5d>>
+ * @generated SignedSource<<338074bafd42b604b81deee02ee9ff12>>
  * @lightSyntaxTransform
  */
 
@@ -29,6 +29,10 @@ export type PacketsRouteQuery$data = {
       readonly startCursor: string | null | undefined;
     };
   } | null | undefined;
+  readonly operatorPacketCreateAffordance: {
+    readonly identity: string;
+    readonly state: string;
+  };
 };
 export type PacketsRouteQuery = {
   response: PacketsRouteQuery$data;
@@ -46,7 +50,33 @@ v1 = {
   "kind": "LocalArgument",
   "name": "first"
 },
-v2 = [
+v2 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "state",
+  "storageKey": null
+},
+v3 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorCommandAffordance",
+  "kind": "LinkedField",
+  "name": "operatorPacketCreateAffordance",
+  "plural": false,
+  "selections": [
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "identity",
+      "storageKey": null
+    },
+    (v2/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v4 = [
   {
     "kind": "Variable",
     "name": "after",
@@ -58,22 +88,22 @@ v2 = [
     "variableName": "first"
   }
 ],
-v3 = {
+v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "cursor",
   "storageKey": null
 },
-v4 = {
+v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "id",
   "storageKey": null
 },
-v5 = [
-  (v4/*:: as any*/),
+v7 = [
+  (v6/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -81,13 +111,7 @@ v5 = [
     "name": "title",
     "storageKey": null
   },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "state",
-    "storageKey": null
-  },
+  (v2/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -110,7 +134,7 @@ v5 = [
     "storageKey": null
   }
 ],
-v6 = {
+v8 = {
   "alias": null,
   "args": null,
   "concreteType": "PageInfo",
@@ -159,9 +183,10 @@ return {
     "metadata": null,
     "name": "PacketsRouteQuery",
     "selections": [
+      (v3/*:: as any*/),
       {
         "alias": null,
-        "args": (v2/*:: as any*/),
+        "args": (v4/*:: as any*/),
         "concreteType": "WorkPacketConnection",
         "kind": "LinkedField",
         "name": "listWorkPackets",
@@ -175,7 +200,7 @@ return {
             "name": "edges",
             "plural": true,
             "selections": [
-              (v3/*:: as any*/),
+              (v5/*:: as any*/),
               {
                 "alias": null,
                 "args": null,
@@ -184,11 +209,11 @@ return {
                 "name": "node",
                 "plural": false,
                 "selections": [
-                  (v4/*:: as any*/),
+                  (v6/*:: as any*/),
                   {
                     "kind": "InlineDataFragmentSpread",
                     "name": "PacketsRoutePacketFragment",
-                    "selections": (v5/*:: as any*/),
+                    "selections": (v7/*:: as any*/),
                     "args": null,
                     "argumentDefinitions": []
                   }
@@ -198,7 +223,7 @@ return {
             ],
             "storageKey": null
           },
-          (v6/*:: as any*/)
+          (v8/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -215,9 +240,10 @@ return {
     "kind": "Operation",
     "name": "PacketsRouteQuery",
     "selections": [
+      (v3/*:: as any*/),
       {
         "alias": null,
-        "args": (v2/*:: as any*/),
+        "args": (v4/*:: as any*/),
         "concreteType": "WorkPacketConnection",
         "kind": "LinkedField",
         "name": "listWorkPackets",
@@ -231,7 +257,7 @@ return {
             "name": "edges",
             "plural": true,
             "selections": [
-              (v3/*:: as any*/),
+              (v5/*:: as any*/),
               {
                 "alias": null,
                 "args": null,
@@ -239,29 +265,29 @@ return {
                 "kind": "LinkedField",
                 "name": "node",
                 "plural": false,
-                "selections": (v5/*:: as any*/),
+                "selections": (v7/*:: as any*/),
                 "storageKey": null
               }
             ],
             "storageKey": null
           },
-          (v6/*:: as any*/)
+          (v8/*:: as any*/)
         ],
         "storageKey": null
       }
     ]
   },
   "params": {
-    "cacheID": "75a03e07c3443f729e889f2ada353eaa",
+    "cacheID": "7082f14d192643c9f622d41a33883788",
     "id": null,
     "metadata": {},
     "name": "PacketsRouteQuery",
     "operationKind": "query",
-    "text": "query PacketsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  listWorkPackets(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...PacketsRoutePacketFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment PacketsRoutePacketFragment on WorkPacket {\n  id\n  title\n  state\n  currentVersionId\n  operationId\n  updatedAt\n}\n"
+    "text": "query PacketsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorPacketCreateAffordance {\n    identity\n    state\n  }\n  listWorkPackets(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...PacketsRoutePacketFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment PacketsRoutePacketFragment on WorkPacket {\n  id\n  title\n  state\n  currentVersionId\n  operationId\n  updatedAt\n}\n"
   }
 };
 })();
 
-(node as any).hash = "902025c0856387134741e29e44e0a436";
+(node as any).hash = "28821dac996b0f1937303350af4388cc";
 
 export default node;
