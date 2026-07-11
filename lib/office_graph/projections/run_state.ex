@@ -195,6 +195,7 @@ defmodule OfficeGraph.Projections.RunState do
         "record_execution_observation",
         "Record execution observations for this run.",
         required_fields: CommandAffordance.observation_required_fields(),
+        input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
         target_ids: run_target_ids(summary)
       )
     ]

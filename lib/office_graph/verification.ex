@@ -32,6 +32,7 @@ defmodule OfficeGraph.Verification do
     EvidenceItem,
     GraphItem,
     GraphRelationship,
+    ReviewFinding,
     VerificationCheck,
     VerificationResult
   }
@@ -154,20 +155,47 @@ defmodule OfficeGraph.Verification do
 
   defp acceptance_affected_refs(session_context, candidate, attrs) do
     case Map.get(attrs, :result, "passed") do
-      "passed" -> passed_acceptance_affected_refs(session_context, candidate)
-      _other -> {:ok, %{affected_verification_check_id: nil, affected_run_required_check_id: nil}}
+      "passed" ->
+        passed_acceptance_affected_refs(session_context, candidate)
+
+      _other ->
+        {:ok,
+         %{
+           affected_verification_check_id: nil,
+           affected_run_required_check_id: nil,
+           affected_review_finding_id: nil,
+           affected_task_id: nil
+         }}
     end
   end
 
-  defp passed_acceptance_affected_refs(_session_context, %{work_run_id: nil} = candidate) do
-    {:ok,
-     %{
-       affected_verification_check_id: candidate.verification_check_id,
-       affected_run_required_check_id: nil
-     }}
+  defp passed_acceptance_affected_refs(session_context, candidate) do
+    with {:ok, parent_refs} <- acceptance_parent_refs(session_context, candidate),
+         {:ok, required_check_id} <- acceptance_required_check_id(session_context, candidate) do
+      {:ok,
+       Map.merge(parent_refs, %{
+         affected_verification_check_id: candidate.verification_check_id,
+         affected_run_required_check_id: required_check_id
+       })}
+    end
   end
 
-  defp passed_acceptance_affected_refs(session_context, candidate) do
+  defp acceptance_parent_refs(session_context, candidate) do
+    with {:ok, verification_check} <-
+           fetch_scoped(VerificationCheck, session_context, candidate.verification_check_id),
+         {:ok, review_finding} <-
+           fetch_scoped(ReviewFinding, session_context, verification_check.review_finding_id) do
+      {:ok,
+       %{
+         affected_review_finding_id: review_finding.id,
+         affected_task_id: review_finding.task_id
+       }}
+    end
+  end
+
+  defp acceptance_required_check_id(_session_context, %{work_run_id: nil}), do: {:ok, nil}
+
+  defp acceptance_required_check_id(session_context, candidate) do
     RunRequiredCheck
     |> Ash.Query.filter(
       run_id == ^candidate.work_run_id and
@@ -187,11 +215,7 @@ defmodule OfficeGraph.Verification do
           }}}
 
       {:ok, required_check} ->
-        {:ok,
-         %{
-           affected_verification_check_id: candidate.verification_check_id,
-           affected_run_required_check_id: required_check.id
-         }}
+        {:ok, required_check.id}
 
       {:error, error} ->
         {:error, error}

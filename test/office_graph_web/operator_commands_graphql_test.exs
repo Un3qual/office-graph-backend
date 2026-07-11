@@ -347,8 +347,16 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "verification_result",
       "verification_check",
       "run_required_check",
-      "work_run"
+      "work_run",
+      "review_finding",
+      "task"
     ])
+
+    assert %{"type" => "review_finding", "id" => applied["reviewFinding"]["id"]} in accepted[
+             "affectedIds"
+           ]
+
+    assert %{"type" => "task", "id" => applied["task"]["id"]} in accepted["affectedIds"]
 
     accepted_required_check =
       Ash.get!(RunRequiredCheck, first_required_check["id"], authorize?: false)
@@ -424,6 +432,9 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session, "runless")
 
+    review_finding =
+      Ash.get!(ReviewFinding, verification_check.review_finding_id, authorize?: false)
+
     {:ok, candidate_operation} =
       Operations.start_operation(bootstrap.session, :evidence_candidate_create,
         idempotency_key: unique_key("runless-candidate")
@@ -453,6 +464,10 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert accepted["run"] == nil
     refute Enum.any?(accepted["affectedIds"], &(&1["type"] == "work_run"))
     assert Enum.any?(accepted["affectedIds"], &(&1["type"] == "verification_check"))
+
+    assert %{"type" => "review_finding", "id" => review_finding.id} in accepted["affectedIds"]
+
+    assert %{"type" => "task", "id" => review_finding.task_id} in accepted["affectedIds"]
 
     verification_result =
       Ash.get!(VerificationResult, accepted["verificationResult"]["id"], authorize?: false)

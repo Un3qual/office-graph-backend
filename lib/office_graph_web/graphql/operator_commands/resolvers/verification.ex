@@ -56,6 +56,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
         ] ++
           optional_typed_id("verification_check", accepted.affected_verification_check_id) ++
           optional_typed_id("run_required_check", accepted.affected_run_required_check_id) ++
+          optional_typed_id("review_finding", accepted.affected_review_finding_id) ++
+          optional_typed_id("task", accepted.affected_task_id) ++
           optional_typed_id("work_run", accepted.work_run)
 
       {:ok,

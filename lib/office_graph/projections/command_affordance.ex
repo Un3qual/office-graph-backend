@@ -15,6 +15,7 @@ defmodule OfficeGraph.Projections.CommandAffordance do
   ]
 
   @observation_required_fields [
+    "run_id",
     "observation_source_kind",
     "observation_source_identity",
     "observation_idempotency_key",

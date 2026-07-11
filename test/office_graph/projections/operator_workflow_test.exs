@@ -662,6 +662,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert record_observation.safe_explanation == "Record execution observations for this run."
 
     assert record_observation.required_fields == [
+             "run_id",
              "observation_source_kind",
              "observation_source_identity",
              "observation_idempotency_key",
@@ -672,6 +673,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              "verification_check_id",
              "source_graph_item_id",
              "observation_rationale"
+           ]
+
+    assert record_observation.input_defaults == [
+             %{field: "run_id", value: run_result.run.id, values: []}
            ]
 
     assert %{type: "work_run", id: run_result.run.id} in record_observation.target_ids
