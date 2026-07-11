@@ -52,15 +52,15 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :idempotency_key, non_null(:string)
     field :run_id, non_null(:id)
     field :verification_check_id, non_null(:id)
-    field :graph_item_id, non_null(:id)
-    field :source_kind, non_null(:string)
-    field :source_identity, non_null(:string)
-    field :source_idempotency_key, non_null(:string)
+    field :source_graph_item_id, non_null(:id)
+    field :observation_source_kind, non_null(:string)
+    field :observation_source_identity, non_null(:string)
+    field :observation_idempotency_key, non_null(:string)
     field :observed_status, non_null(:string)
     field :normalized_status, non_null(:string)
     field :freshness_state, non_null(:string)
     field :trust_basis, non_null(:string)
-    field :rationale, non_null(:string)
+    field :observation_rationale, non_null(:string)
   end
 
   input_object :create_evidence_candidate_input do
@@ -223,7 +223,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :evidence_candidate, non_null(:operator_command_evidence_candidate)
     field :evidence_item, non_null(:operator_command_evidence_item)
     field :verification_result, non_null(:operator_command_verification_result)
-    field :run, non_null(:operator_command_work_run)
+    field :run, :operator_command_work_run
   end
 
   object :waive_verification_check_payload do

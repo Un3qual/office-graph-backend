@@ -49,16 +49,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
          {:ok, candidate} <- fetch(EvidenceCandidate, candidate_id, session_context),
          {:ok, accepted} <-
            Verification.accept_evidence_candidate(session_context, operation, candidate, attrs) do
+      affected_ids =
+        [
+          typed_id("evidence_candidate", accepted.candidate.id),
+          typed_id("evidence_item", accepted.evidence_item.id),
+          typed_id("verification_result", accepted.verification_result.id)
+        ] ++ optional_typed_id("work_run", accepted.work_run)
+
       {:ok,
        %{
          command: "accept_evidence",
          operation_id: operation.id,
-         affected_ids: [
-           typed_id("evidence_candidate", accepted.candidate.id),
-           typed_id("evidence_item", accepted.evidence_item.id),
-           typed_id("verification_result", accepted.verification_result.id),
-           typed_id("work_run", accepted.work_run.id)
-         ],
+         affected_ids: affected_ids,
          evidence_candidate: accepted.candidate,
          evidence_item: accepted.evidence_item,
          verification_result: accepted.verification_result,
@@ -117,6 +119,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Verification do
       result -> result
     end
   end
+
+  defp optional_typed_id(_type, nil), do: []
+  defp optional_typed_id(type, resource), do: [typed_id(type, resource.id)]
 
   defp typed_id(type, id), do: %{type: type, id: id}
 end

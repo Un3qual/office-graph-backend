@@ -1191,6 +1191,23 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     end
   end
 
+  test "work packet version command read stays private, scoped, and version-authorized" do
+    resource = OfficeGraph.WorkPackets.WorkPacket
+    action_name = :read_for_version_command
+
+    refute public_action?(resource, action_name, :read)
+    assert Ash.Resource.Info.action(resource, action_name)
+
+    assert capability_policy?(
+             resource,
+             action_name,
+             :read,
+             :work_packet_version_create
+           )
+
+    assert scope_filter_policy?(resource, action_name, :read)
+  end
+
   test "WorkGraph canonical Ash create actions validate same-scope references" do
     assert_work_graph_resources_are_ash!()
 

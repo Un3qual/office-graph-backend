@@ -48,15 +48,15 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
       idempotency_key: :string,
       run_id: :uuid,
       verification_check_id: :uuid,
-      graph_item_id: :uuid,
-      source_kind: :string,
-      source_identity: :string,
-      source_idempotency_key: :string,
+      source_graph_item_id: :uuid,
+      observation_source_kind: :string,
+      observation_source_identity: :string,
+      observation_idempotency_key: :string,
       observed_status: :string,
       normalized_status: :string,
       freshness_state: :string,
       trust_basis: :string,
-      rationale: :string
+      observation_rationale: :string
     ],
     create_evidence_candidate: [
       idempotency_key: :string,

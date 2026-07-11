@@ -1,18 +1,18 @@
 defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Audit.AuditRecord
   alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
+  alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   alias OfficeGraph.WorkGraph.{
     EvidenceCandidate,
@@ -62,6 +62,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   ]
 
   require Ash.Query
+
+  import OfficeGraph.SessionCaseHelpers
 
   test "manual intake is a server-owned idempotent GraphQL command", %{conn: conn} do
     input = %{
@@ -290,15 +292,15 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       idempotencyKey: unique_key("observation-operation"),
       runId: started["run"]["id"],
       verificationCheckId: first_check["id"],
-      graphItemId: first_check["graphItemId"],
-      sourceKind: "human",
-      sourceIdentity: "manual:graphql-sequence-observation",
-      sourceIdempotencyKey: unique_key("observation-source"),
+      sourceGraphItemId: first_check["graphItemId"],
+      observationSourceKind: "human",
+      observationSourceIdentity: "manual:graphql-sequence-observation",
+      observationIdempotencyKey: unique_key("observation-source"),
       observedStatus: "passed",
       normalizedStatus: "succeeded",
       freshnessState: "fresh",
       trustBasis: "owner_attested",
-      rationale: "The first required check passed."
+      observationRationale: "The first required check passed."
     }
 
     observed = command(conn, :record_execution_observation, observation_input)
@@ -385,7 +387,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       {:create_work_packet_version, version_input, version, :sourceGraphItemIds,
        Enum.reverse(source_ids)},
       {:start_work_run, run_input, started, :reason, "Changed run reason."},
-      {:record_execution_observation, observation_input, observed, :rationale,
+      {:record_execution_observation, observation_input, observed, :observationRationale,
        "Changed rationale."},
       {:create_evidence_candidate, candidate_input, candidate, :claim, "Changed claim."},
       {:accept_evidence, accept_input, accepted, :title, "Changed evidence title"},
@@ -404,6 +406,92 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert command_record_snapshot() == before_retry_snapshot
 
     assert first_required_check["state"] == "pending"
+  end
+
+  test "runless evidence acceptance returns a successful payload without a run", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session, "runless")
+
+    {:ok, candidate_operation} =
+      Operations.start_operation(bootstrap.session, :evidence_candidate_create,
+        idempotency_key: unique_key("runless-candidate")
+      )
+
+    {:ok, candidate} =
+      Verification.create_evidence_candidate(bootstrap.session, candidate_operation, %{
+        verification_check_id: verification_check.id,
+        claim: "Runless GraphQL evidence candidate.",
+        source_kind: "human_note",
+        source_identity: "manual:runless-graphql-candidate",
+        freshness_state: "fresh",
+        trust_basis: "owner_attested",
+        sensitivity: "internal"
+      })
+
+    accepted =
+      command(conn, :accept_evidence, %{
+        idempotencyKey: unique_key("runless-accept"),
+        candidateId: candidate.id,
+        title: "Runless accepted GraphQL evidence",
+        body: "This evidence is not attached to a work run.",
+        result: "passed",
+        acceptancePolicyBasis: "owner_acceptance"
+      })
+
+    assert accepted["run"] == nil
+    refute Enum.any?(accepted["affectedIds"], &(&1["type"] == "work_run"))
+
+    verification_result =
+      Ash.get!(VerificationResult, accepted["verificationResult"]["id"], authorize?: false)
+
+    assert verification_result.reason == nil
+    assert verification_result.policy_basis == "owner_acceptance"
+  end
+
+  test "version-only sessions can create a packet version without skeleton read", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, verification_check} =
+      create_required_verification_check(bootstrap.session, "version-only")
+
+    {:ok, packet_operation} = Operations.start_operation(bootstrap.session, :work_packet_create)
+
+    {:ok, packet_result} =
+      WorkPackets.create_packet(bootstrap.session, packet_operation, %{
+        title: "Version-only command packet",
+        objective: "Prove least-capability version creation.",
+        context_summary: "The packet already exists in the operator workspace.",
+        requirements: "Create the next version without skeleton.read.",
+        success_criteria: "The command returns the new packet version.",
+        autonomy_posture: "human_supervised",
+        source_graph_item_ids: [verification_check.graph_item_id],
+        verification_check_ids: [verification_check.id]
+      })
+
+    version_only =
+      create_session_with_capabilities!(bootstrap, ["work_packet.version.create"],
+        prefix: "graphql-version-only"
+      )
+
+    input =
+      packet_input(
+        unique_key("version-only-command"),
+        [verification_check.graph_item_id],
+        [verification_check.id]
+      )
+      |> Map.merge(%{
+        packetId: packet_result.packet.id,
+        expectedCurrentVersionId: packet_result.version.id,
+        title: "Version-only command packet v2"
+      })
+
+    created =
+      conn
+      |> Ash.PlugHelpers.set_actor(version_only)
+      |> command(:create_work_packet_version, input)
+
+    assert created["packet"]["id"] == packet_result.packet.id
+    assert created["packetVersion"]["versionNumber"] == 2
   end
 
   test "every command rejects missing input and forbidden sessions without partial writes", %{
@@ -427,7 +515,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     assert command_record_snapshot() == before_snapshot
 
-    read_only = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+    read_only =
+      create_session_with_capabilities!(bootstrap, ["skeleton.read"], prefix: "graphql-read-only")
 
     Enum.each(seed.command_inputs, fn {name, input, _required_field} ->
       forbidden_input = Map.put(input, :idempotencyKey, unique_key("forbidden-#{name}"))
@@ -652,15 +741,15 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       idempotencyKey: unique_key("guardrail-observation-operation"),
       runId: started["run"]["id"],
       verificationCheckId: applied_check["id"],
-      graphItemId: applied_check["graphItemId"],
-      sourceKind: "human",
-      sourceIdentity: "manual:guardrail-observation",
-      sourceIdempotencyKey: unique_key("guardrail-observation-source"),
+      sourceGraphItemId: applied_check["graphItemId"],
+      observationSourceKind: "human",
+      observationSourceIdentity: "manual:guardrail-observation",
+      observationIdempotencyKey: unique_key("guardrail-observation-source"),
       observedStatus: "passed",
       normalizedStatus: "succeeded",
       freshnessState: "fresh",
       trustBasis: "owner_attested",
-      rationale: "Guardrail observation."
+      observationRationale: "Guardrail observation."
     }
 
     observed = command(conn, :record_execution_observation, observation_input)
@@ -778,82 +867,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
            }) do
       {:ok, check}
     end
-  end
-
-  defp create_session_with_capabilities!(bootstrap, capability_keys) do
-    suffix = System.unique_integer([:positive])
-
-    principal =
-      Ash.create!(
-        Principal,
-        %{
-          id: Ecto.UUID.generate(),
-          email: "graphql-read-only-#{suffix}@office-graph.local",
-          kind: "human",
-          status: "active"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    session =
-      Ash.create!(
-        Session,
-        %{
-          id: Ecto.UUID.generate(),
-          principal_id: principal.id,
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          purpose: "graphql_read_only_#{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    role =
-      Ash.create!(
-        Role,
-        %{
-          id: Ecto.UUID.generate(),
-          organization_id: bootstrap.organization.id,
-          key: "graphql_read_only_#{suffix}",
-          name: "GraphQL Read Only #{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    Enum.each(capability_keys, fn capability_key ->
-      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
-
-      Ash.create!(
-        RoleCapability,
-        %{id: Ecto.UUID.generate(), role_id: role.id, capability_id: capability.id},
-        action: :create,
-        authorize?: false
-      )
-    end)
-
-    Ash.create!(
-      RoleAssignment,
-      %{
-        id: Ecto.UUID.generate(),
-        principal_id: principal.id,
-        role_id: role.id,
-        organization_id: bootstrap.organization.id,
-        workspace_id: bootstrap.workspace.id
-      },
-      action: :create,
-      authorize?: false
-    )
-
-    %SessionContext{
-      principal_id: principal.id,
-      session_id: session.id,
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(capability_keys)
-    }
   end
 
   defp unique_key(label), do: "#{label}:#{System.unique_integer([:positive, :monotonic])}"

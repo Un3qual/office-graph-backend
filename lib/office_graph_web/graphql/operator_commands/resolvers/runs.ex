@@ -53,7 +53,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
            ),
          {run_id, attrs} <- Map.pop!(command_input, :run_id),
          {:ok, run} <- fetch(Run, run_id, session_context),
-         attrs <- rename_source_idempotency_key(attrs),
+         attrs <- normalize_observation_attrs(attrs),
          {:ok, result} <- Runs.record_observation(session_context, operation, run, attrs) do
       {:ok,
        %{
@@ -71,9 +71,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
     end
   end
 
-  defp rename_source_idempotency_key(attrs) do
-    {source_idempotency_key, attrs} = Map.pop!(attrs, :source_idempotency_key)
-    Map.put(attrs, :idempotency_key, source_idempotency_key)
+  defp normalize_observation_attrs(attrs) do
+    attrs
+    |> rename(:observation_source_kind, :source_kind)
+    |> rename(:observation_source_identity, :source_identity)
+    |> rename(:observation_idempotency_key, :idempotency_key)
+    |> rename(:source_graph_item_id, :graph_item_id)
+    |> rename(:observation_rationale, :rationale)
+  end
+
+  defp rename(attrs, source, target) do
+    {value, attrs} = Map.pop!(attrs, source)
+    Map.put(attrs, target, value)
   end
 
   defp fetch(resource, id, session_context) do

@@ -3,7 +3,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
 
   alias OfficeGraph.Operations
   alias OfficeGraph.WorkPackets
-  alias OfficeGraph.WorkPackets.WorkPacket
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
@@ -33,7 +32,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
              command_input
            ),
          {packet_id, attrs} <- Map.pop!(command_input, :packet_id),
-         {:ok, packet} <- fetch(WorkPacket, packet_id, session_context),
+         {:ok, packet} <- WorkPackets.get_packet_for_version_command(session_context, packet_id),
          {:ok, result} <- WorkPackets.create_version(session_context, operation, packet, attrs) do
       {:ok, packet_payload("create_work_packet_version", operation, result)}
     else
@@ -52,13 +51,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
       packet: result.packet,
       packet_version: result.version
     }
-  end
-
-  defp fetch(resource, id, session_context) do
-    case Ash.get(resource, id, actor: session_context, not_found_error?: false) do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
-      result -> result
-    end
   end
 
   defp typed_id(type, id), do: %{type: type, id: id}

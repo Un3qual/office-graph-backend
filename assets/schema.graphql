@@ -1025,15 +1025,15 @@ input RecordExecutionObservationInput {
   idempotencyKey: String!
   runId: ID!
   verificationCheckId: ID!
-  graphItemId: ID!
-  sourceKind: String!
-  sourceIdentity: String!
-  sourceIdempotencyKey: String!
+  sourceGraphItemId: ID!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  observationIdempotencyKey: String!
   observedStatus: String!
   normalizedStatus: String!
   freshnessState: String!
   trustBasis: String!
-  rationale: String!
+  observationRationale: String!
 }
 
 input CreateEvidenceCandidateInput {
@@ -1194,7 +1194,7 @@ type AcceptEvidencePayload {
   evidenceCandidate: OperatorCommandEvidenceCandidate!
   evidenceItem: OperatorCommandEvidenceItem!
   verificationResult: OperatorCommandVerificationResult!
-  run: OperatorCommandWorkRun!
+  run: OperatorCommandWorkRun
 }
 
 type WaiveVerificationCheckPayload {

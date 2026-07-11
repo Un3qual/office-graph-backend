@@ -1,15 +1,14 @@
 defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.Projections
   alias OfficeGraph.QueryCounter
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
+  alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
@@ -693,7 +692,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert accept_evidence.safe_explanation ==
              "Accept a candidate as evidence for a missing check."
 
-    assert accept_evidence.required_fields == ["evidence_candidate_id", "title", "body", "result"]
+    assert accept_evidence.required_fields == [
+             "evidence_candidate_id",
+             "title",
+             "body",
+             "result",
+             "acceptance_policy_basis"
+           ]
 
     assert [
              %{
@@ -1055,87 +1060,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   end
 
   defp create_session_with_capabilities!(bootstrap, capability_keys) do
-    suffix = System.unique_integer([:positive])
-    principal_id = Ecto.UUID.generate()
-    session_id = Ecto.UUID.generate()
-    role_id = Ecto.UUID.generate()
-
-    principal =
-      Ash.create!(
-        Principal,
-        %{
-          id: principal_id,
-          email: "operator-read-only-#{suffix}@office-graph.local",
-          kind: "human",
-          status: "active"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    session =
-      Ash.create!(
-        Session,
-        %{
-          id: session_id,
-          principal_id: principal.id,
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          purpose: "operator_read_only_#{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    role =
-      Ash.create!(
-        Role,
-        %{
-          id: role_id,
-          organization_id: bootstrap.organization.id,
-          key: "operator_read_only_#{suffix}",
-          name: "Operator Read Only #{suffix}"
-        },
-        action: :create,
-        authorize?: false
-      )
-
-    Enum.each(capability_keys, fn capability_key ->
-      capability = Ash.get!(Capability, %{key: capability_key}, authorize?: false)
-
-      Ash.create!(
-        RoleCapability,
-        %{
-          id: Ecto.UUID.generate(),
-          role_id: role.id,
-          capability_id: capability.id
-        },
-        action: :create,
-        authorize?: false
-      )
-    end)
-
-    Ash.create!(
-      RoleAssignment,
-      %{
-        id: Ecto.UUID.generate(),
-        principal_id: principal.id,
-        role_id: role.id,
-        organization_id: bootstrap.organization.id,
-        workspace_id: bootstrap.workspace.id
-      },
-      action: :create,
-      authorize?: false
-    )
-
-    %SessionContext{
-      principal_id: principal.id,
-      session_id: session.id,
-      organization_id: bootstrap.organization.id,
-      workspace_id: bootstrap.workspace.id,
-      capabilities: MapSet.new(capability_keys),
+    SessionCaseHelpers.create_session_with_capabilities!(bootstrap, capability_keys,
+      prefix: "operator-read-only",
       trusted?: true
-    }
+    )
   end
 
   defp packet_default_value(command_affordance, field) do

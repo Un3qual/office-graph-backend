@@ -219,7 +219,13 @@ defmodule OfficeGraph.Projections.RunState do
       CommandAffordance.enabled(
         "accept_evidence",
         "Accept a candidate as evidence for a missing check.",
-        required_fields: ["evidence_candidate_id", "title", "body", "result"],
+        required_fields: [
+          "evidence_candidate_id",
+          "title",
+          "body",
+          "result",
+          "acceptance_policy_basis"
+        ],
         target_ids:
           run_target_ids(summary) ++ acceptable_candidate_target_ids(summary, evidence_candidates)
       )
