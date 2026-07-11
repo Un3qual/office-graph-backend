@@ -16,12 +16,41 @@ defmodule OfficeGraph.Operations do
     evidence_link: "evidence.link",
     verification_complete: "verification.complete",
     work_packet_create: "work_packet.create",
+    work_packet_version_create: "work_packet.version.create",
     work_run_start: "work_run.start",
     execution_observation_record: "execution_observation.record",
     evidence_candidate_create: "evidence_candidate.create",
     evidence_accept: "evidence.accept",
+    verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"
   }
+
+  def start_command(session_context, action, idempotency_key, input)
+      when is_binary(idempotency_key) and idempotency_key != "" do
+    digest = command_input_digest(input)
+
+    with {:ok, operation} <-
+           start_operation(session_context, action,
+             idempotency_key: idempotency_key,
+             metadata: %{"command_input_digest" => digest}
+           ),
+         :ok <- validate_command_replay(operation, input) do
+      {:ok, operation}
+    end
+  end
+
+  def validate_command_replay(operation, input) when is_map(operation) do
+    expected_digest =
+      operation
+      |> Map.get(:metadata, %{})
+      |> command_digest_from_metadata()
+
+    if expected_digest == command_input_digest(input) do
+      :ok
+    else
+      {:error, {:command_idempotency_conflict, Map.fetch!(operation, :id)}}
+    end
+  end
 
   def validate_operation_context(session_context, operation)
       when is_map(session_context) and is_map(operation) do
@@ -150,4 +179,30 @@ defmodule OfficeGraph.Operations do
       {:error, _refetch_error} -> {:error, error}
     end
   end
+
+  defp command_input_digest(input) do
+    input
+    |> normalize_command_input()
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp normalize_command_input(value) when is_map(value) and not is_struct(value) do
+    value
+    |> Enum.map(fn {key, nested_value} ->
+      {to_string(key), normalize_command_input(nested_value)}
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp normalize_command_input(value) when is_list(value),
+    do: Enum.map(value, &normalize_command_input/1)
+
+  defp normalize_command_input(value), do: value
+
+  defp command_digest_from_metadata(%{"command_input_digest" => digest}), do: digest
+  defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
+
+  defp command_digest_from_metadata(_metadata), do: nil
 end

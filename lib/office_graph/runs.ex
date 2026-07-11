@@ -106,19 +106,10 @@ defmodule OfficeGraph.Runs do
   end
 
   def apply_accepted_verification_result(run, %{result: "passed"} = verification_result) do
-    Repo.transaction(fn ->
-      locked_run = lock_run!(run.id)
-
-      _required_check =
-        mark_required_check_satisfied_in_locked_run!(
-          locked_run.id,
-          verification_result.verification_check_id
-        )
-
-      required_checks = lock_required_checks_for_run!(locked_run.id)
-      maybe_set_run_verified!(locked_run, required_checks)
-    end)
-    |> normalize_transaction_result()
+    case apply_required_check_result(run, verification_result, :mark_satisfied) do
+      {:ok, %{run: run}} -> {:ok, run}
+      {:error, error} -> {:error, error}
+    end
   end
 
   def apply_accepted_verification_result(run, %{result: "failed"}) do
@@ -134,10 +125,47 @@ defmodule OfficeGraph.Runs do
     |> normalize_transaction_result()
   end
 
+  def apply_waived_verification_result(run, %{result: "waived"} = verification_result) do
+    apply_required_check_result(run, verification_result, :mark_waived)
+  end
+
+  defp apply_required_check_result(run, verification_result, action) do
+    Repo.transaction(fn ->
+      locked_run = lock_run!(run.id)
+
+      required_check =
+        mark_required_check_in_locked_run!(
+          locked_run.id,
+          verification_result.verification_check_id,
+          action
+        )
+
+      required_checks = lock_required_checks_for_run!(locked_run.id)
+      updated_run = maybe_set_run_verified!(locked_run, required_checks)
+
+      %{run: updated_run, required_check: required_check}
+    end)
+    |> normalize_transaction_result()
+  end
+
   def required_checks_for_run(run_id) do
     RunRequiredCheck
     |> Ash.Query.filter(run_id == ^run_id)
     |> Ash.read(authorize?: false)
+  end
+
+  def validate_required_check_contract(run, required_check) do
+    WorkPacketRequiredCheck
+    |> Ash.Query.filter(
+      work_packet_version_id == ^run.work_packet_version_id and
+        verification_check_id == ^required_check.verification_check_id and
+        organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
+    )
+    |> Ash.exists?(authorize?: false)
+    |> case do
+      true -> :ok
+      false -> {:error, {:required_check_outside_packet_contract, run.id, required_check.id}}
+    end
   end
 
   def get_summary(session_context, run_id) do
@@ -519,7 +547,7 @@ defmodule OfficeGraph.Runs do
     |> Ash.read!(authorize?: false)
   end
 
-  defp mark_required_check_satisfied_in_locked_run!(run_id, verification_check_id) do
+  defp mark_required_check_in_locked_run!(run_id, verification_check_id, action) do
     RunRequiredCheck
     |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
     |> Ash.Query.lock(:for_update)
@@ -530,7 +558,7 @@ defmodule OfficeGraph.Runs do
 
       {:ok, required_check} ->
         required_check
-        |> Ash.Changeset.for_update(:mark_satisfied, %{})
+        |> Ash.Changeset.for_update(action, %{})
         |> Ash.update(authorize?: false, return_notifications?: true)
         |> case do
           {:ok, required_check, _notifications} -> required_check
@@ -548,7 +576,8 @@ defmodule OfficeGraph.Runs do
       run_failed?(run) ->
         run
 
-      required_checks != [] and Enum.all?(required_checks, &(&1.state == "satisfied")) ->
+      required_checks != [] and
+          Enum.all?(required_checks, &(&1.state in ["satisfied", "waived"])) ->
         set_run_verified!(run)
 
       true ->
@@ -708,9 +737,9 @@ defmodule OfficeGraph.Runs do
   end
 
   defp missing_evidence(required_checks, verification_results) do
-    passed_check_ids =
+    completed_check_ids =
       verification_results
-      |> Enum.filter(&(&1.result == "passed"))
+      |> Enum.filter(&(&1.result in ["passed", "waived"]))
       |> MapSet.new(& &1.verification_check_id)
 
     failed_check_ids =
@@ -719,7 +748,10 @@ defmodule OfficeGraph.Runs do
       |> MapSet.new(& &1.verification_check_id)
 
     required_checks
-    |> Enum.reject(&MapSet.member?(passed_check_ids, &1.verification_check_id))
+    |> Enum.reject(fn required_check ->
+      required_check.state == "waived" or
+        MapSet.member?(completed_check_ids, required_check.verification_check_id)
+    end)
     |> Enum.map(fn required_check ->
       %{
         verification_check_id: required_check.verification_check_id,

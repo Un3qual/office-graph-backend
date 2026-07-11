@@ -4,6 +4,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   require Ash.Query
 
   alias OfficeGraph.Content.Document
+  alias OfficeGraph.Authorization
+  alias OfficeGraph.Authorization.AuthorizationDecision
   alias OfficeGraph.Foundation
   alias OfficeGraph.Operations
   alias OfficeGraph.QueryCounter
@@ -19,7 +21,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
   alias OfficeGraph.WorkGraph.Signal, as: SignalResource
   alias OfficeGraph.WorkGraph.Task, as: TaskResource
   alias OfficeGraph.WorkGraph.VerificationCheck, as: VerificationCheckResource
-  alias OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch
+  alias OfficeGraph.WorkGraph.VerificationResult.ValidateResultEvidence
   alias OfficeGraph.WorkGraph.VerificationResult, as: VerificationResultResource
 
   test "Ash reads are filtered to the actor organization and workspace" do
@@ -1355,9 +1357,108 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     assert Exception.message(error) =~ "evidence_item_id"
   end
 
+  test "waived verification results require no evidence and separate authority" do
+    {:ok, bootstrap} = bootstrap_scope("waived-result-contract")
+    chain = create_verification_chain!(bootstrap)
+    artifact = insert_artifact!(bootstrap, "Waiver contract artifact")
+    evidence = insert_evidence_item!(bootstrap, chain.verification_check, artifact)
+
+    limited_session =
+      create_limited_session_context!(bootstrap, "waiver-authority", ["skeleton.read"])
+
+    assert {:error, :forbidden} =
+             Authorization.authorize(limited_session, :verification_waive,
+               organization_id: bootstrap.organization.id
+             )
+
+    {:ok, denied_operation} = Operations.start_operation(limited_session, :verification_waive)
+
+    assert {:error, :forbidden} =
+             Authorization.authorize_operation(
+               limited_session,
+               denied_operation,
+               :verification_waive,
+               organization_id: bootstrap.organization.id
+             )
+
+    assert AuthorizationDecision
+           |> Ash.Query.filter(operation_id == ^denied_operation.id and decision == "deny")
+           |> Ash.exists?(authorize?: false)
+
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :verification_waive)
+
+    assert {:error, evidence_error} =
+             Ash.create(
+               VerificationResultResource,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 verification_check_id: chain.verification_check.id,
+                 evidence_item_id: evidence.id,
+                 operation_id: operation.id,
+                 actor_principal_id: bootstrap.session.principal_id,
+                 policy_basis: "owner_exception",
+                 reason: "Waivers are governance decisions, not evidence.",
+                 recorded_at: DateTime.utc_now(),
+                 result: "waived"
+               },
+               authorize?: false,
+               action: :create
+             )
+
+    assert Exception.message(evidence_error) =~ "evidence_item_id"
+
+    assert {:ok, waived_result} =
+             Ash.create(
+               VerificationResultResource,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 verification_check_id: chain.verification_check.id,
+                 evidence_item_id: nil,
+                 operation_id: operation.id,
+                 actor_principal_id: bootstrap.session.principal_id,
+                 policy_basis: "owner_exception",
+                 reason: "Approved exception.",
+                 recorded_at: DateTime.utc_now(),
+                 result: "waived"
+               },
+               authorize?: false,
+               action: :create
+             )
+
+    assert waived_result.result == "waived"
+    assert waived_result.evidence_item_id == nil
+
+    missing_evidence_chain = create_verification_chain!(bootstrap)
+
+    {:ok, missing_evidence_operation} =
+      Operations.start_operation(bootstrap.session, :verification_complete)
+
+    assert {:error, missing_evidence_error} =
+             Ash.create(
+               VerificationResultResource,
+               %{
+                 id: Ecto.UUID.generate(),
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id,
+                 verification_check_id: missing_evidence_chain.verification_check.id,
+                 evidence_item_id: nil,
+                 operation_id: missing_evidence_operation.id,
+                 result: "passed"
+               },
+               authorize?: false,
+               action: :create
+             )
+
+    assert Exception.message(missing_evidence_error) =~ "evidence_item_id"
+  end
+
   test "verification evidence match lookup fails closed when evidence cannot be read" do
     assert false ==
-             ValidateEvidenceCheckMatch.evidence_matches_check?(
+             ValidateResultEvidence.evidence_matches_check?(
                Ecto.UUID.generate(),
                Ecto.UUID.generate(),
                fn _evidence_item_id -> {:error, :database_unavailable} end

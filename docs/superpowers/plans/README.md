@@ -6,6 +6,6 @@ Completed plans live in `archive/`. Do not execute archived plans as current wor
 
 Current status:
 
-- No active Superpowers execution plan is open.
+- Active: `2026-07-10-operator-command-loop.md`.
 - OpenSpec is the project workflow source of truth for new changes.
 - Completed OpenSpec changes are under `openspec/changes/archive/`.

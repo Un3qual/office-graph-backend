@@ -6,6 +6,7 @@ defmodule OfficeGraph.Integrations do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.Operations,
       OfficeGraph.ProposedChanges,
       OfficeGraph.Repo
     ],
@@ -15,6 +16,7 @@ defmodule OfficeGraph.Integrations do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
+  alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Repo
 
@@ -27,8 +29,86 @@ defmodule OfficeGraph.Integrations do
            Authorization.authorize_operation(session_context, operation, :manual_intake_submit,
              organization_id: session_context.organization_id
            ),
-         {:ok, intake} <- record_manual_intake(session_context, operation, attrs) do
+         {:ok, intake} <- submit_or_replay_manual_intake(session_context, operation, attrs) do
       {:ok, intake}
+    end
+  end
+
+  defp submit_or_replay_manual_intake(session_context, operation, attrs) do
+    if command_operation?(operation) do
+      submit_or_replay_manual_intake_command(session_context, operation, attrs)
+    else
+      record_manual_intake(session_context, operation, attrs)
+    end
+  end
+
+  defp submit_or_replay_manual_intake_command(session_context, operation, attrs) do
+    with :ok <- Operations.validate_command_replay(operation, attrs) do
+      Repo.transaction(fn ->
+        case Operations.lock_operation(operation.id) do
+          {:ok, _locked_operation} ->
+            case existing_intake_for_operation(session_context, operation) do
+              {:ok, nil} ->
+                case record_manual_intake(session_context, operation, attrs) do
+                  {:ok, intake} -> intake
+                  {:error, error} -> Repo.rollback(error)
+                end
+
+              {:ok, intake} ->
+                intake
+
+              {:error, error} ->
+                Repo.rollback(error)
+            end
+
+          {:error, error} ->
+            Repo.rollback(error)
+        end
+      end)
+      |> case do
+        {:ok, intake} -> {:ok, intake}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  defp command_operation?(operation) do
+    operation
+    |> Map.get(:metadata, %{})
+    |> command_digest?()
+  end
+
+  defp command_digest?(%{"command_input_digest" => digest}), do: is_binary(digest)
+  defp command_digest?(%{command_input_digest: digest}), do: is_binary(digest)
+  defp command_digest?(_metadata), do: false
+
+  defp existing_intake_for_operation(session_context, operation) do
+    NormalizedIntakeEvent
+    |> Ash.Query.filter(
+      organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and operation_id == ^operation.id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, normalized_event} ->
+        with {:ok, raw_archive} <-
+               Ash.get(RawArchive, normalized_event.raw_archive_id, authorize?: false),
+             proposed_changes <-
+               ProposedChanges.for_normalized_event(session_context, normalized_event.id) do
+          {:ok,
+           %{
+             raw_archive: raw_archive,
+             normalized_event: normalized_event,
+             duplicate?: normalized_event.outcome == "duplicate",
+             proposed_changes: proposed_changes
+           }}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

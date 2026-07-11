@@ -1,54 +1,3 @@
-defmodule OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch do
-  @moduledoc false
-
-  use Ash.Resource.Change
-
-  alias OfficeGraph.WorkGraph.EvidenceItem
-
-  require Ash.Query
-
-  @impl true
-  def change(changeset, _opts, _context) do
-    verification_check_id = Ash.Changeset.get_attribute(changeset, :verification_check_id)
-    evidence_item_id = Ash.Changeset.get_attribute(changeset, :evidence_item_id)
-
-    cond do
-      is_nil(verification_check_id) or is_nil(evidence_item_id) ->
-        changeset
-
-      evidence_matches_check?(evidence_item_id, verification_check_id) ->
-        changeset
-
-      true ->
-        Ash.Changeset.add_error(changeset,
-          field: :evidence_item_id,
-          message: "must belong to verification_check_id"
-        )
-    end
-  end
-
-  @doc false
-  def evidence_matches_check?(
-        evidence_item_id,
-        verification_check_id,
-        fetch_evidence_item \\ &fetch_evidence_item/1
-      ) do
-    evidence_item_id
-    |> fetch_evidence_item.()
-    |> case do
-      {:ok, %{verification_check_id: ^verification_check_id}} -> true
-      {:ok, _missing_or_mismatch} -> false
-      {:error, _error} -> false
-    end
-  end
-
-  defp fetch_evidence_item(evidence_item_id) do
-    EvidenceItem
-    |> Ash.Query.filter(id == ^evidence_item_id)
-    |> Ash.read_one(authorize?: false)
-  end
-end
-
 defmodule OfficeGraph.WorkGraph.VerificationResult do
   @moduledoc false
 
@@ -69,7 +18,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
-    attribute :evidence_item_id, :uuid, allow_nil?: false, public?: true
+    attribute :evidence_item_id, :uuid, allow_nil?: true, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :work_run_id, :uuid, allow_nil?: true, public?: true
     attribute :work_packet_version_id, :uuid, allow_nil?: true, public?: true
@@ -94,7 +43,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
     belongs_to :evidence_item, OfficeGraph.WorkGraph.EvidenceItem do
       source_attribute :evidence_item_id
       define_attribute? false
-      allow_nil? false
+      allow_nil? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
@@ -139,7 +88,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
 
-      change OfficeGraph.WorkGraph.VerificationResult.ValidateEvidenceCheckMatch
+      change OfficeGraph.WorkGraph.VerificationResult.ValidateResultEvidence
     end
   end
 

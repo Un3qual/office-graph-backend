@@ -21,6 +21,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :version_number, :integer, allow_nil?: false, public?: true
     attribute :lifecycle_state, :string, allow_nil?: false, public?: true
+    attribute :title, :string, allow_nil?: false, public?: true
     attribute :objective, :string, allow_nil?: false, public?: true
     attribute :context_summary, :string, allow_nil?: false, public?: true
     attribute :requirements, :string, allow_nil?: false, public?: true
@@ -69,6 +70,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
         :workspace_id,
         :operation_id,
         :version_number,
+        :title,
         :objective,
         :context_summary,
         :requirements,
@@ -104,7 +106,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
 
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :work_packet_create}
+                    capability: :work_packet_version_create}
     end
   end
 

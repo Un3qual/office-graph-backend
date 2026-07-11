@@ -24,7 +24,12 @@ defmodule OfficeGraph.Integrations.RawArchive do
     attribute :source_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :content_hash, :string, allow_nil?: false, public?: true
-    attribute :body, :string, allow_nil?: false, public?: true
+
+    attribute :body, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false]
+
     attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
