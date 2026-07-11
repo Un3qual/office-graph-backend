@@ -15,14 +15,22 @@ Office Graph SHALL execute backend reads whose result relationships can grow wit
 Office Graph SHALL create packet source references, packet required checks, and run required checks with Ash-native bulk actions rather than one create action per input item.
 
 #### Scenario: Packet links are created in bulk
+
 - **WHEN** packet creation receives multiple source graph item IDs and verification check IDs
 - **THEN** source references and packet required checks MUST be inserted in resource-level bulk batches while preserving input order in the packet command result and idempotent replay
 
 #### Scenario: Run checks are created in bulk
+
 - **WHEN** a packet-backed run starts with multiple required verification checks
 - **THEN** run required checks MUST be inserted in a resource-level bulk batch while preserving their input order in the command result and idempotent replay
 
+#### Scenario: Persisted packet and run child ordering survives reads and replay
+
+- **WHEN** packet source references, packet required checks, or run required checks are read after creation or returned by an idempotent replay
+- **THEN** Office Graph MUST order them by persisted input position and MUST use inserted-at and id tie-breakers when positions match, including deterministic ordering for legacy rows whose position is zero
+
 #### Scenario: Empty collections remain valid
+
 - **WHEN** an allowed collection write has no input records
 - **THEN** the bulk helper MUST return an empty result without issuing an insert
 
