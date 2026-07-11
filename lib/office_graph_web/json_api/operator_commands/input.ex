@@ -12,6 +12,37 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.Input do
       idempotency_key: :string,
       normalized_event_id: :uuid,
       proposed_change_ids: {:list, :uuid}
+    ],
+    create_work_packet: [
+      idempotency_key: :string,
+      title: :string,
+      objective: :string,
+      context_summary: :string,
+      requirements: :string,
+      success_criteria: :string,
+      autonomy_posture: :string,
+      source_graph_item_ids: {:list, :uuid},
+      verification_check_ids: {:list, :uuid}
+    ],
+    create_work_packet_version: [
+      idempotency_key: :string,
+      packet_id: :uuid,
+      expected_current_version_id: :uuid,
+      title: :string,
+      objective: :string,
+      context_summary: :string,
+      requirements: :string,
+      success_criteria: :string,
+      autonomy_posture: :string,
+      source_graph_item_ids: {:list, :uuid},
+      verification_check_ids: {:list, :uuid}
+    ],
+    start_work_run: [
+      idempotency_key: :string,
+      packet_version_id: :uuid,
+      source_surface: :string,
+      reason: :string,
+      authority_posture: :string
     ]
   }
 

@@ -84,6 +84,15 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     )
   end
 
+  defp to_response({:stale_packet_version, packet_id, current_version_id}, _opts) do
+    response(
+      :conflict,
+      "stale_packet_version",
+      "The work packet version is stale.",
+      %{packet_id: packet_id, current_version_id: current_version_id}
+    )
+  end
+
   defp to_response({:missing_verification_check, id}, _opts) do
     response(
       :unprocessable_entity,

@@ -30,6 +30,18 @@ defmodule OfficeGraphWeb.Router do
     post "/v1/commands/apply-proposed-changes",
          JsonApi.OperatorCommands.IntakeController,
          :apply_proposed_changes
+
+    post "/v1/commands/create-work-packet",
+         JsonApi.OperatorCommands.PacketsController,
+         :create_work_packet
+
+    post "/v1/commands/create-work-packet-version",
+         JsonApi.OperatorCommands.PacketsController,
+         :create_work_packet_version
+
+    post "/v1/commands/start-work-run",
+         JsonApi.OperatorCommands.RunsController,
+         :start_work_run
   end
 
   scope "/" do
