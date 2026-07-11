@@ -50,10 +50,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Intake do
            ),
          {:ok, proposed_changes} <-
            ProposedChanges.get_many(session_context, command_input.proposed_change_ids),
-         :ok <-
-           validate_normalized_event(proposed_changes, command_input.normalized_event_id),
          {:ok, applied} <-
-           ProposedChanges.apply_all(session_context, operation, proposed_changes) do
+           ProposedChanges.apply_all(session_context, operation, %{
+             normalized_event_id: command_input.normalized_event_id,
+             proposed_changes: proposed_changes
+           }) do
       affected_ids = [
         typed_id("signal", applied.signal.id),
         typed_id("task", applied.task.id),
@@ -77,12 +78,4 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Intake do
   end
 
   defp typed_id(type, id), do: %{type: type, id: id}
-
-  defp validate_normalized_event(proposed_changes, normalized_event_id) do
-    if Enum.all?(proposed_changes, &(&1.normalized_event_id == normalized_event_id)) do
-      :ok
-    else
-      {:error, {:invalid_proposed_change_set, {:normalized_event_mismatch, normalized_event_id}}}
-    end
-  end
 end

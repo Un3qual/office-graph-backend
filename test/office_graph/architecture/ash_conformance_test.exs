@@ -723,6 +723,9 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       refute source =~ "Ash.Changeset", "#{path} must not build Ash changesets"
       refute resolver_body =~ "Resolvers.", "#{path} must not call another resolver"
 
+      refute source =~ "defp validate_",
+             "#{path} must leave command validation inside the owning domain"
+
       assert source =~ "Input.parse", "#{path} must parse transport input"
 
       assert source =~ "RequestSession.resolve_resolution",

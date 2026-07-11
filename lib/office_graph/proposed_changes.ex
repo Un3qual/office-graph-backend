@@ -5,7 +5,6 @@ defmodule OfficeGraph.ProposedChanges do
 
   use Boundary,
     deps: [
-      OfficeGraph.Audit,
       OfficeGraph.Authorization,
       OfficeGraph.Repo,
       OfficeGraph.WorkGraph
@@ -13,7 +12,6 @@ defmodule OfficeGraph.ProposedChanges do
     exports: []
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.Audit
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
@@ -101,19 +99,42 @@ defmodule OfficeGraph.ProposedChanges do
     end
   end
 
-  def apply_all(session_context, operation, proposed_changes) do
-    Repo.transaction(fn ->
-      case apply_all_locked(session_context, operation, proposed_changes) do
-        {:ok, applied} -> {:ok, applied}
-        {:error, error} when is_apply_validation_error(error) -> {:error, error}
-        {:error, error} -> Repo.rollback(error)
+  def apply_all(session_context, operation, input) do
+    with {:ok, proposed_changes, normalized_event_id} <- normalize_apply_input(input) do
+      Repo.transaction(fn ->
+        case apply_all_locked(
+               session_context,
+               operation,
+               proposed_changes,
+               normalized_event_id
+             ) do
+          {:ok, applied} -> {:ok, applied}
+          {:error, error} when is_apply_validation_error(error) -> {:error, error}
+          {:error, error} -> Repo.rollback(error)
+        end
+      end)
+      |> case do
+        {:ok, {:ok, applied}} -> {:ok, applied}
+        {:ok, {:error, error}} -> {:error, error}
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, {:ok, applied}} -> {:ok, applied}
-      {:ok, {:error, error}} -> {:error, error}
-      {:error, error} -> {:error, error}
     end
+  end
+
+  defp normalize_apply_input(%{
+         normalized_event_id: normalized_event_id,
+         proposed_changes: proposed_changes
+       })
+       when is_binary(normalized_event_id) and is_list(proposed_changes) do
+    {:ok, proposed_changes, normalized_event_id}
+  end
+
+  defp normalize_apply_input(proposed_changes) when is_list(proposed_changes) do
+    {:ok, proposed_changes, nil}
+  end
+
+  defp normalize_apply_input(_input) do
+    {:error, {:invalid_proposed_change_set, :invalid_apply_input}}
   end
 
   defp read_scoped_changes(session_context, ids, opts \\ []) do
@@ -242,13 +263,14 @@ defmodule OfficeGraph.ProposedChanges do
     end
   end
 
-  defp apply_all_locked(session_context, operation, proposed_changes) do
+  defp apply_all_locked(session_context, operation, proposed_changes, normalized_event_id) do
     with :ok <-
            Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
              organization_id: session_context.organization_id
            ),
          :ok <- validate_apply_operation(session_context, operation),
-         {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes) do
+         {:ok, proposed_changes} <- reload_for_apply(session_context, proposed_changes),
+         :ok <- validate_normalized_event_target(proposed_changes, normalized_event_id) do
       case replay_applied_result(session_context, operation, proposed_changes) do
         {:ok, applied} ->
           {:ok, applied}
@@ -277,15 +299,16 @@ defmodule OfficeGraph.ProposedChanges do
          {:ok, check_bundle} <-
            find_change(proposed_changes, "create_verification_check")
            |> apply_verification_check(session_context, operation, finding_bundle.review_finding) do
-      mark_applied!(proposed_changes, operation)
+      applied = %{
+        signal: signal_bundle.signal,
+        task: task_bundle.task,
+        review_finding: finding_bundle.review_finding,
+        verification_check: check_bundle.verification_check
+      }
 
-      {:ok,
-       %{
-         signal: signal_bundle.signal,
-         task: task_bundle.task,
-         review_finding: finding_bundle.review_finding,
-         verification_check: check_bundle.verification_check
-       }}
+      mark_applied!(proposed_changes, operation, applied)
+
+      {:ok, applied}
     end
   end
 
@@ -293,32 +316,35 @@ defmodule OfficeGraph.ProposedChanges do
     if Enum.all?(proposed_changes, fn change ->
          change.status == "applied" and change.applied_operation_id == operation.id
        end) do
-      audit_records = Audit.records_for_operation(operation.id)
-
       with :ok <- validate_record_scopes(session_context, proposed_changes),
            :ok <- validate_required_types(proposed_changes),
            :ok <- validate_single_normalized_event(proposed_changes),
            :ok <- validate_accepted_normalized_event(session_context, proposed_changes),
            {:ok, signal} <-
-             read_applied_resource(Signal, "signal", session_context, operation, audit_records),
+             read_applied_resource(
+               Signal,
+               "create_signal",
+               session_context,
+               proposed_changes
+             ),
            {:ok, task} <-
-             read_applied_resource(Task, "task", session_context, operation, audit_records),
+             read_applied_resource(Task, "create_task", session_context, proposed_changes),
            {:ok, review_finding} <-
              read_applied_resource(
                ReviewFinding,
-               "review_finding",
+               "create_review_finding",
                session_context,
-               operation,
-               audit_records
+               proposed_changes
              ),
            {:ok, verification_check} <-
              read_applied_resource(
                VerificationCheck,
-               "verification_check",
+               "create_verification_check",
                session_context,
-               operation,
-               audit_records
-             ) do
+               proposed_changes
+             ),
+           :ok <-
+             validate_applied_lineage(signal, task, review_finding, verification_check) do
         {:ok,
          %{
            signal: signal,
@@ -334,34 +360,48 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp read_applied_resource(
          resource,
-         resource_type,
+         change_type,
          session_context,
-         operation,
-         audit_records
+         proposed_changes
        ) do
-    case Enum.find(audit_records, &(&1.resource_type == resource_type)) do
-      nil ->
-        {:error,
-         {:invalid_proposed_change_set,
-          {:missing_applied_operation_result, inspect(resource), operation.id}}}
-
-      audit_record ->
+    case Enum.find(proposed_changes, &(&1.change_type == change_type)) do
+      %{applied_resource_id: applied_resource_id} when is_binary(applied_resource_id) ->
         resource
         |> Ash.Query.filter(
-          id == ^audit_record.resource_id and
+          id == ^applied_resource_id and
             organization_id == ^session_context.organization_id and
             workspace_id == ^session_context.workspace_id
         )
         |> Ash.read_one(actor: session_context)
         |> case do
           {:ok, nil} ->
-            {:error,
-             {:invalid_proposed_change_set,
-              {:missing_applied_operation_result, inspect(resource), operation.id}}}
+            {:error, {:invalid_proposed_change_replay, :missing_applied_resource}}
 
           result ->
             result
         end
+
+      _missing_or_unlinked_change ->
+        {:error, {:invalid_proposed_change_replay, :missing_applied_resource}}
+    end
+  end
+
+  defp validate_applied_lineage(signal, task, review_finding, verification_check) do
+    if task.source_signal_id == signal.id and review_finding.task_id == task.id and
+         verification_check.review_finding_id == review_finding.id do
+      :ok
+    else
+      {:error, {:invalid_proposed_change_replay, :invalid_applied_lineage}}
+    end
+  end
+
+  defp validate_normalized_event_target(_proposed_changes, nil), do: :ok
+
+  defp validate_normalized_event_target(proposed_changes, normalized_event_id) do
+    if Enum.all?(proposed_changes, &(&1.normalized_event_id == normalized_event_id)) do
+      :ok
+    else
+      {:error, {:invalid_proposed_change_set, {:normalized_event_mismatch, normalized_event_id}}}
     end
   end
 
@@ -529,16 +569,24 @@ defmodule OfficeGraph.ProposedChanges do
     )
   end
 
-  defp mark_applied!(changes, operation) do
+  defp mark_applied!(changes, operation, applied) do
     now = DateTime.utc_now()
 
     Enum.each(changes, fn change ->
       ash_update_internal!(change, :mark_applied, %{
         applied_at: now,
-        applied_operation_id: operation.id
+        applied_operation_id: operation.id,
+        applied_resource_id: applied_resource_id(applied, change.change_type)
       })
     end)
   end
+
+  defp applied_resource_id(applied, "create_signal"), do: applied.signal.id
+  defp applied_resource_id(applied, "create_task"), do: applied.task.id
+  defp applied_resource_id(applied, "create_review_finding"), do: applied.review_finding.id
+
+  defp applied_resource_id(applied, "create_verification_check"),
+    do: applied.verification_check.id
 
   defp ash_create!(resource, attrs, session_context) do
     resource

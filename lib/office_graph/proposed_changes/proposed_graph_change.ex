@@ -433,6 +433,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :applied_operation_id, :uuid, public?: true
+    attribute :applied_resource_id, :uuid, public?: true
     attribute :normalized_event_id, :uuid, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
@@ -483,7 +484,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
 
     update :mark_applied do
       require_atomic? false
-      accept [:applied_at, :applied_operation_id]
+      accept [:applied_at, :applied_operation_id, :applied_resource_id]
       validate attribute_equals(:status, "pending")
       change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
       change set_attribute(:status, "applied")

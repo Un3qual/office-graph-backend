@@ -2,14 +2,64 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
+  alias OfficeGraph.Audit.AuditRecord
+  alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity.{Principal, Session, SessionContext}
-  alias OfficeGraph.Integrations.RawArchive
+  alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
-  alias OfficeGraph.Runs.{ExecutionObservation, Run}
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
+  alias OfficeGraph.Repo
+  alias OfficeGraph.Revisions.Revision
+  alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.WorkGraph.{EvidenceCandidate, EvidenceItem, VerificationResult}
-  alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketVersion}
+
+  alias OfficeGraph.WorkGraph.{
+    EvidenceCandidate,
+    EvidenceItem,
+    GraphItem,
+    GraphRelationship,
+    ReviewFinding,
+    Signal,
+    Task,
+    VerificationCheck,
+    VerificationResult
+  }
+
+  alias OfficeGraph.WorkPackets.{
+    WorkPacket,
+    WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
+    WorkPacketVersion
+  }
+
+  @command_record_families [
+    AuditRecord,
+    Document,
+    DocumentBlock,
+    DocumentRevision,
+    ExternalSource,
+    RawArchive,
+    NormalizedIntakeEvent,
+    ProposedGraphChange,
+    GraphItem,
+    GraphRelationship,
+    Signal,
+    Task,
+    ReviewFinding,
+    VerificationCheck,
+    WorkPacket,
+    WorkPacketVersion,
+    WorkPacketSourceReference,
+    WorkPacketRequiredCheck,
+    Run,
+    RunRequiredCheck,
+    ExecutionObservation,
+    EvidenceCandidate,
+    EvidenceItem,
+    VerificationResult,
+    Revision
+  ]
 
   require Ash.Query
 
@@ -96,6 +146,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         body: "Create the second proposal set."
       })
 
+    before_counts = command_record_counts()
+
     response =
       raw_command(conn, :apply_proposed_changes, %{
         idempotencyKey: unique_key("mismatch-apply"),
@@ -105,6 +157,44 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     assert [%{"extensions" => %{"code" => "invalid_proposed_change_set"}}] =
              response["errors"]
+
+    assert command_record_counts() == before_counts
+  end
+
+  test "proposal replay corruption returns a safe JSON-encodable error", %{conn: conn} do
+    intake =
+      command(conn, :submit_manual_intake, %{
+        idempotencyKey: unique_key("corrupt-replay-intake"),
+        sourceIdentity: "manual:corrupt-replay",
+        replayIdentity: unique_key("corrupt-replay-source"),
+        body: "Create a proposal result that will be corrupted."
+      })
+
+    apply_input = %{
+      idempotencyKey: unique_key("corrupt-replay-apply"),
+      normalizedEventId: intake["normalizedEventId"],
+      proposedChangeIds: intake["proposedChangeIds"]
+    }
+
+    applied = command(conn, :apply_proposed_changes, apply_input)
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "DELETE FROM verification_checks WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(applied["verificationCheck"]["id"])]
+             )
+
+    response = raw_command(conn, :apply_proposed_changes, apply_input)
+
+    assert [%{"extensions" => %{"code" => "invalid_proposed_change_replay"}}] =
+             response["errors"]
+
+    assert {:ok, _json} = Jason.encode(response)
+    refute inspect(response["errors"]) =~ "OfficeGraph."
+  end
+
+  test "command rollback snapshots cover every durable command record family" do
+    assert MapSet.new(Map.keys(command_record_counts())) == MapSet.new(@command_record_families)
   end
 
   test "step-specific GraphQL commands complete the operator loop and replay safely", %{
@@ -157,7 +247,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     version = command(conn, :create_work_packet_version, version_input)
     assert_payload(version, "create_work_packet_version", ["work_packet", "work_packet_version"])
 
-    version_count = Ash.count!(WorkPacketVersion, authorize?: false)
+    before_stale_version = command_record_counts()
 
     stale_version =
       raw_command(
@@ -169,7 +259,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       )
 
     assert [%{"extensions" => %{"code" => "stale_packet_version"}}] = stale_version["errors"]
-    assert Ash.count!(WorkPacketVersion, authorize?: false) == version_count
+    assert command_record_counts() == before_stale_version
 
     run_input = %{
       idempotencyKey: unique_key("run"),
@@ -241,7 +331,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "work_run"
     ])
 
-    verification_result_count = Ash.count!(VerificationResult, authorize?: false)
+    before_stale_waiver = command_record_counts()
 
     stale_waiver =
       raw_command(conn, :waive_verification_check, %{
@@ -255,7 +345,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       })
 
     assert [%{"extensions" => %{"code" => "stale_run_state"}}] = stale_waiver["errors"]
-    assert Ash.count!(VerificationResult, authorize?: false) == verification_result_count
+    assert command_record_counts() == before_stale_waiver
 
     waiver_input = %{
       idempotencyKey: unique_key("waive"),
@@ -319,7 +409,12 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     Enum.each(seed.command_inputs, fn {name, input, required_field} ->
       missing = raw_command(conn, name, Map.delete(input, required_field))
-      assert [_error | _rest] = missing["errors"]
+
+      assert [%{"message" => message}] = missing["errors"]
+
+      field = Atom.to_string(required_field)
+      assert message =~ "In field \"#{field}\""
+      assert message =~ "Expected type"
     end)
 
     assert command_record_counts() == before_counts
@@ -628,15 +723,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   end
 
   defp command_record_counts do
-    [
-      WorkPacket,
-      WorkPacketVersion,
-      Run,
-      ExecutionObservation,
-      EvidenceCandidate,
-      EvidenceItem,
-      VerificationResult
-    ]
+    @command_record_families
     |> Map.new(&{&1, Ash.count!(&1, authorize?: false)})
   end
 
