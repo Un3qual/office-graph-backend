@@ -397,19 +397,19 @@ git commit -m "feat: expose operator JSON commands"
 - Consumes: Task 4 GraphQL mutations.
 - Produces: generated mutation artifacts, route-owned `useOperatorCommand` and `usePacketCommand` hooks, generic `FormFeedback`.
 
-- [ ] **Step 1: Add failing pure workflow and primitive tests**
+- [x] **Step 1: Add failing pure workflow and primitive tests**
 
 Test result mapping for success, field errors, conflict, forbidden, and unknown
 safe failure. Test that `FormFeedback` renders caller copy and field messages
 without importing Relay or product vocabulary.
 
-- [ ] **Step 2: Add Relay mutation documents and compile them**
+- [x] **Step 2: Add Relay mutation documents and compile them**
 
 Define one exported `graphql` document per command in the owning route. Request
 `command`, `operationId`, `affectedIds`, and minimal typed result fields. Run
 `pnpm run relay` and commit generated artifacts with the source documents.
 
-- [ ] **Step 3: Implement route-owned mutation hooks**
+- [x] **Step 3: Implement route-owned mutation hooks**
 
 Wrap Relay `commitMutation` in a shared transport-only lifecycle helper, then
 expose route-owned hooks for each command with a discriminated state:
@@ -429,7 +429,7 @@ selection or durable records. The shared helper may normalize Relay transport
 errors, but it MUST NOT name product commands, select route queries, or retain
 workflow state.
 
-- [ ] **Step 4: Verify frontend foundation and commit**
+- [x] **Step 4: Verify frontend foundation and commit**
 
 ```bash
 cd assets
