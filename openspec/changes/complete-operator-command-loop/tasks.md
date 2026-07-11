@@ -24,8 +24,8 @@
 
 ## 5. Relay Mutation Foundation
 
-- [ ] 5.1 Add generated Relay mutation documents and route-owned mutation helpers for every step-specific command, with pending, safe error, field error, conflict, and success result mapping.
-- [ ] 5.2 Add frontend tests and a shallow generic form-feedback primitive that remains free of product vocabulary and transport details.
+- [x] 5.1 Add generated Relay mutation documents and route-owned mutation helpers for every step-specific command, with pending, safe error, field error, conflict, and success result mapping.
+- [x] 5.2 Add frontend tests and a shallow generic form-feedback primitive that remains free of product vocabulary and transport details.
 
 ## 6. Operator Console Actions
 

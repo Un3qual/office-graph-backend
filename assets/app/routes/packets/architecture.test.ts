@@ -102,4 +102,22 @@ describe("packet route data architecture", () => {
     expect(packetListSource).not.toContain("function formatState");
     expect(packetDetailSource).not.toContain("function formatState");
   });
+
+  it("keeps packet mutation documents and lifecycle wrappers route-owned", () => {
+    const commandsPath = join(routeRoot, "commands.ts");
+    const workflowPath = join(routeRoot, "commandWorkflow.ts");
+
+    expect(existsSync(commandsPath)).toBe(true);
+    expect(existsSync(workflowPath)).toBe(true);
+
+    const commandsSource = readFileSync(commandsPath, "utf8");
+    const workflowSource = readFileSync(workflowPath, "utf8");
+
+    expect(commandsSource).toContain("PacketsCreateWorkPacketMutation");
+    expect(commandsSource).toContain("PacketsCreateWorkPacketVersionMutation");
+    expect(commandsSource).toContain("PacketsStartWorkRunMutation");
+    expect(workflowSource).toContain("useCommandMutation");
+    expect(workflowSource).not.toContain("fetchGraphQL");
+    expect(workflowSource).not.toContain("/api/");
+  });
 });

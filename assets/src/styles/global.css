@@ -183,6 +183,20 @@ h2 {
   font-weight: 600;
 }
 
+.ui-form-feedback {
+  border-left: 3px solid var(--og-color-border-strong);
+  padding-left: 10px;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.ui-form-feedback[data-kind="conflict"],
+.ui-form-feedback[data-kind="error"],
+.ui-form-feedback[data-kind="field"] {
+  border-left-color: #b42318;
+  color: #b42318;
+}
+
 .inbox-list {
   display: grid;
 }

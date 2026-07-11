@@ -44,6 +44,23 @@ describe("operator route architecture", () => {
     expect(workflowSource).toContain("OperatorPacketReadinessFragment$data");
     expect(workflowSource).toContain("OperatorRunStateFragment$data");
   });
+
+  it("keeps command documents and lifecycle wrappers owned by the operator route", () => {
+    const commandsPath = join(routeRoot, "commands.ts");
+    const workflowPath = join(routeRoot, "commandWorkflow.ts");
+
+    expect(existsSync(commandsPath)).toBe(true);
+    expect(existsSync(workflowPath)).toBe(true);
+
+    const commandsSource = readFileSync(commandsPath, "utf8");
+    const workflowSource = readFileSync(workflowPath, "utf8");
+
+    expect(commandsSource).toContain("OperatorSubmitManualIntakeMutation");
+    expect(commandsSource).toContain("OperatorWaiveVerificationCheckMutation");
+    expect(workflowSource).toContain("useCommandMutation");
+    expect(workflowSource).not.toContain("fetchGraphQL");
+    expect(workflowSource).not.toContain("/api/");
+  });
 });
 
 function routeSource() {
