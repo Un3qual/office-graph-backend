@@ -381,12 +381,14 @@ git commit -m "feat: expose operator JSON commands"
 ### Task 6: Relay Mutation And Form Feedback Foundation
 
 **Files:**
+- Create: `assets/app/relay/commandMutation.ts`
+- Create: `assets/app/relay/commandMutation.test.tsx`
 - Create: `assets/app/routes/operator/commands.ts`
 - Create: `assets/app/routes/operator/commandWorkflow.ts`
-- Create: `assets/app/routes/operator/commandWorkflow.test.ts`
+- Create: `assets/app/routes/operator/commandWorkflow.test.tsx`
 - Create: `assets/app/routes/packets/commands.ts`
 - Create: `assets/app/routes/packets/commandWorkflow.ts`
-- Create: `assets/app/routes/packets/commandWorkflow.test.ts`
+- Create: `assets/app/routes/packets/commandWorkflow.test.tsx`
 - Create: `assets/src/ui/FormFeedback.tsx`
 - Modify: `assets/src/ui/primitives.test.tsx`
 - Modify: `assets/src/ui/importBoundaries.test.ts`
@@ -409,7 +411,8 @@ Define one exported `graphql` document per command in the owning route. Request
 
 - [ ] **Step 3: Implement route-owned mutation hooks**
 
-Wrap `useMutation` with a discriminated state:
+Wrap Relay `commitMutation` in a shared transport-only lifecycle helper, then
+expose route-owned hooks for each command with a discriminated state:
 
 ```typescript
 type CommandState =
@@ -422,14 +425,16 @@ type CommandState =
 ```
 
 Expose `submit(input)`, `state`, and `reset()`. The hook does not own route
-selection or durable records.
+selection or durable records. The shared helper may normalize Relay transport
+errors, but it MUST NOT name product commands, select route queries, or retain
+workflow state.
 
 - [ ] **Step 4: Verify frontend foundation and commit**
 
 ```bash
 cd assets
 pnpm run relay:check
-pnpm exec vitest run src/ui/primitives.test.tsx src/ui/importBoundaries.test.ts app/routes/operator/commandWorkflow.test.ts app/routes/packets/commandWorkflow.test.ts
+pnpm exec vitest run src/ui/primitives.test.tsx src/ui/importBoundaries.test.ts app/relay/commandMutation.test.tsx app/routes/operator/commandWorkflow.test.tsx app/routes/packets/commandWorkflow.test.tsx
 pnpm run typecheck
 git add app src
 git commit -m "feat: add Relay command foundation"
