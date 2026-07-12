@@ -1029,6 +1029,57 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
              })
   end
 
+  test "work run start rejects a ready version that is no longer current" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    version_attrs = %{
+      expected_current_version_id: packet_result.version.id,
+      title: "Current ready packet",
+      objective: "Run only the current selected work.",
+      context_summary: "Current ready context.",
+      requirements: "Reject superseded packet versions.",
+      success_criteria: "The current required check passes.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [verification_check.graph_item_id],
+      verification_check_ids: [verification_check.id]
+    }
+
+    {:ok, version_operation} =
+      Operations.start_command(
+        bootstrap.session,
+        :work_packet_version_create,
+        "supersede-ready-run-version",
+        Map.put(version_attrs, :packet_id, packet_result.packet.id)
+      )
+
+    assert {:ok, revised} =
+             WorkPackets.create_version(
+               bootstrap.session,
+               version_operation,
+               packet_result.packet,
+               version_attrs
+             )
+
+    assert revised.version.lifecycle_state == "ready"
+
+    {:ok, run_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "reject-superseded-ready-run-version"
+      )
+
+    assert {:error, error} =
+             Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+               source_surface: "test",
+               reason: "A superseded ready version must not start.",
+               authority_posture: "human_supervised"
+             })
+
+    assert Exception.message(error) =~
+             "work_packet_version_id must reference the current packet version"
+  end
+
   test "work run start rejects packet versions whose checks are already satisfied" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

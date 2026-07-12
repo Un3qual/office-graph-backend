@@ -21,11 +21,15 @@ type PacketsWorkflowInput = {
   canPageBackward: boolean;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
-  onSelectPacket: (id: string) => void;
+  onSelectPacket: (selection: PacketSelection) => void;
   page: PacketsPage;
   fetchKey?: number;
-  requestedSelectedId: string | null;
+  requestedSelection: PacketSelection | null;
 };
+
+export type PacketSelection =
+  | { kind: "relay_id"; value: string }
+  | { kind: "operation_id"; value: string };
 
 type RelayPageInfo = {
   readonly endCursor: string | null | undefined;
@@ -41,14 +45,14 @@ export function usePacketsWorkflow({
   onSelectPacket,
   page,
   fetchKey,
-  requestedSelectedId
+  requestedSelection
 }: PacketsWorkflowInput) {
   const data = useLazyLoadQuery<PacketsRouteOperation>(PacketsRouteQuery, page, {
     fetchKey,
     fetchPolicy: "network-only"
   });
   const connection = packetConnectionFromRelay(data);
-  const selectedId = selectedPacketId(connection.rows, requestedSelectedId);
+  const selectedId = selectedPacketId(connection.rows, requestedSelection);
   const selectedPacket =
     connection.rows.find((packet) => packet.id === selectedId) ?? null;
 
@@ -67,7 +71,10 @@ export function usePacketsWorkflow({
     rows: connection.rows,
     selectedId,
     selectedPacket,
-    selectPacket: onSelectPacket
+    selectCreatedPacket: (operationId: string) =>
+      onSelectPacket({ kind: "operation_id", value: operationId }),
+    selectPacket: (relayId: string) =>
+      onSelectPacket({ kind: "relay_id", value: relayId })
   };
 }
 
@@ -96,13 +103,19 @@ export function packetConnectionFromRows<TPacket>(
   };
 }
 
-export function selectedPacketId<TPacket extends Pick<PacketRow, "id">>(
+export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operationId">>(
   rows: readonly TPacket[],
-  requestedSelectedId: string | null
+  requestedSelection: PacketSelection | null
 ) {
-  return rows.some((packet) => packet.id === requestedSelectedId)
-    ? requestedSelectedId
-    : (rows[0]?.id ?? null);
+  const selectedPacket = requestedSelection
+    ? rows.find((packet) =>
+        requestedSelection.kind === "relay_id"
+          ? packet.id === requestedSelection.value
+          : packet.operationId === requestedSelection.value
+      )
+    : null;
+
+  return selectedPacket?.id ?? rows[0]?.id ?? null;
 }
 
 function packetConnectionFromRelay(

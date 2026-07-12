@@ -7,8 +7,14 @@ import type {
 
 export function packetReadinessInputForItem(
   item: OperatorWorkflowItemFragment$data
-): PacketReadinessInput {
-  const defaults = commandInputDefaults(createWorkPacketAffordance(item));
+): PacketReadinessInput | null {
+  const affordance = createWorkPacketAffordance(item);
+
+  if (!affordance) {
+    return null;
+  }
+
+  const defaults = commandInputDefaults(affordance);
 
   return {
     title: defaultValue(defaults, "title"),

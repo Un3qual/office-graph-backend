@@ -7,7 +7,11 @@ import {
   PacketWorkspaceLoading
 } from "./PacketWorkspace";
 import type { PacketsPage } from "./types";
-import { defaultPacketsPage, usePacketsWorkflow } from "./workflow";
+import {
+  defaultPacketsPage,
+  type PacketSelection,
+  usePacketsWorkflow
+} from "./workflow";
 
 type PacketNavigation = {
   hasNavigated: boolean;
@@ -21,9 +25,9 @@ type PacketsRouteContentProps = {
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
   onRefresh: () => void;
-  onSelectPacket: (id: string) => void;
+  onSelectPacket: (selection: PacketSelection) => void;
   page: PacketsPage;
-  requestedSelectedId: string | null;
+  requestedSelection: PacketSelection | null;
 };
 
 export const routeOwnedPacketQuery = PacketsRouteQuery;
@@ -36,10 +40,10 @@ export default function PacketsRoute() {
     page: defaultPacketsPage,
     previousCursors: []
   });
-  const [requestedSelectedId, setRequestedSelectedId] = useState<string | null>(null);
+  const [requestedSelection, setRequestedSelection] = useState<PacketSelection | null>(null);
 
   const loadNextPage = (nextCursor: string) => {
-    setRequestedSelectedId(null);
+    setRequestedSelection(null);
     setNavigation(({ page, previousCursors }) => ({
       hasNavigated: true,
       page: page.after === nextCursor ? page : { ...page, after: nextCursor },
@@ -49,7 +53,7 @@ export default function PacketsRoute() {
   };
 
   const loadPreviousPage = () => {
-    setRequestedSelectedId(null);
+    setRequestedSelection(null);
     setNavigation(({ page, previousCursors }) => {
       if (previousCursors.length === 0) {
         return { hasNavigated: true, page, previousCursors };
@@ -84,9 +88,9 @@ export default function PacketsRoute() {
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
         onRefresh={refresh}
-        onSelectPacket={setRequestedSelectedId}
+        onSelectPacket={setRequestedSelection}
         page={navigation.page}
-        requestedSelectedId={requestedSelectedId}
+        requestedSelection={requestedSelection}
       />
     </AsyncBoundary>
   );

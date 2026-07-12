@@ -18,6 +18,7 @@ type Props = {
   rows: PacketRow[];
   selectedId: string | null;
   selectedPacket: PacketRow | null;
+  selectCreatedPacket: (operationId: string) => void;
   selectPacket: (id: string) => void;
 };
 
@@ -32,13 +33,16 @@ export function PacketWorkspace({
   rows,
   selectedId,
   selectedPacket,
+  selectCreatedPacket,
   selectPacket
 }: Props) {
   return (
     <PacketsLayout
       detail={
         <div className="packet-detail-column">
-          {canCreatePacket ? <PacketCreateForm onCreated={selectPacket} onRefresh={onRefresh} /> : null}
+          {canCreatePacket ? (
+            <PacketCreateForm onCreated={selectCreatedPacket} onRefresh={onRefresh} />
+          ) : null}
           {selectedPacket ? (
             <AsyncBoundary
               errorFallback={

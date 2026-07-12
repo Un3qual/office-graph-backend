@@ -6,7 +6,7 @@ import { useCreateWorkPacketCommand } from "../commandWorkflow";
 import { PacketContractFields, packetContractInput } from "./PacketContractFields";
 
 type Props = {
-  readonly onCreated: (packetId: string) => void;
+  readonly onCreated: (operationId: string) => void;
   readonly onRefresh: () => void;
 };
 
@@ -14,7 +14,7 @@ export function PacketCreateForm({ onCreated, onRefresh }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const command = useCreateWorkPacketCommand(success => {
     if (success) {
-      onCreated(success.result.packet.id);
+      onCreated(success.operationId);
     }
     onRefresh();
   });

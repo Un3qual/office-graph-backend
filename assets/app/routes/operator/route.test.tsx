@@ -78,7 +78,7 @@ describe("operator route", () => {
   it("opens a packet-workspace run link from the route query string", async () => {
     const runState = operatorRunState();
     const network = createOperatorNetwork({
-      workflowItems: [],
+      workflowItems: [operatorWorkflowItem()],
       runState: { ...runState, run: { ...runState.run, id: "run_linked" } }
     });
 
@@ -95,6 +95,15 @@ describe("operator route", () => {
         "Awaiting evidence acceptance"
       );
     });
+    expect(screen.getByRole("button", { name: /evt_1/i })).not.toHaveAttribute(
+      "aria-current"
+    );
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "No item selected"
+    );
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "No packet readiness selected"
+    );
   });
 
   it("validates locally derived packet readiness before exposing backend commands", async () => {
@@ -916,31 +925,48 @@ describe("operator route", () => {
 
   it("creates a packet from the selected enabled affordance defaults", async () => {
     let readinessReads = 0;
+    let packetCreated = false;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
-      if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([
+          packetCreated
+            ? operatorWorkflowItem({
+                status: "packet_created",
+                allowedNextActions: [],
+                commandAffordances: [],
+                graphLinks: [
+                  ...operatorWorkflowItem().graphLinks,
+                  {
+                    type: "work_packet",
+                    id: "packet_1",
+                    graphItemId: null,
+                    title: "Run console verification",
+                    state: "ready"
+                  }
+                ]
+              })
+            : operatorWorkflowItem()
+        ], variables);
+      }
       if (request.name === "OperatorRunStateQuery") return { data: { operatorRunState: operatorRunState() } };
       if (request.name === "OperatorPacketReadinessQuery") {
         readinessReads += 1;
         return {
           data: {
-            operatorPacketReadiness:
-              readinessReads === 1
-                ? operatorPacketReadiness()
-                : operatorPacketReadiness({
-                    status: "packet_created",
-                    allowedNextActions: [],
-                    commandAffordances: []
-                  })
+            operatorPacketReadiness: operatorPacketReadiness()
           }
         };
       }
-      if (request.name === "OperatorCreateWorkPacketMutation") return {
-        data: { createWorkPacket: {
-          command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
-          packet: { id: "packet_1", currentVersionId: "version_1", title: "Run console verification", state: "draft" },
-          packetVersion: { id: "version_1", versionNumber: 1, lifecycleState: "draft" }
-        } }
-      };
+      if (request.name === "OperatorCreateWorkPacketMutation") {
+        packetCreated = true;
+        return {
+          data: { createWorkPacket: {
+            command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
+            packet: { id: "packet_1", currentVersionId: "version_1", title: "Run console verification", state: "draft" },
+            packetVersion: { id: "version_1", versionNumber: 1, lifecycleState: "draft" }
+          } }
+        };
+      }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
@@ -958,10 +984,14 @@ describe("operator route", () => {
       sourceGraphItemIds: ["graph_1"],
       verificationCheckIds: ["check_1"]
     } }));
-    await waitFor(() => expect(readinessReads).toBe(2));
-    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Packet created"
-    );
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "No packet readiness selected"
+      );
+    });
+    expect(readinessReads).toBe(1);
+    expect(screen.queryByRole("button", { name: "Validate readiness" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create work packet" })).not.toBeInTheDocument();
   });
 
   it("accepts evidence from the enabled run affordance and refreshes run state", async () => {

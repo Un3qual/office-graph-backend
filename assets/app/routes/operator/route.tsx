@@ -29,7 +29,7 @@ type OperatorRouteContentProps = {
 export const routeOwnedOperatorWorkflowQuery = OperatorWorkflowRouteQuery;
 
 export default function OperatorRoute() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const linkedRunId = searchParams.get("runId")?.trim() || null;
   const [fetchKey, setFetchKey] = useState(0);
   const refresh = useCallback(() => startTransition(() => setFetchKey(key => key + 1)), []);
@@ -38,6 +38,16 @@ export default function OperatorRoute() {
     previousCursors: []
   });
   const [requestedSelectedId, setRequestedSelectedId] = useState<string | null>(null);
+
+  const selectItem = (id: string) => {
+    setRequestedSelectedId(id);
+
+    if (linkedRunId) {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("runId");
+      setSearchParams(nextSearchParams, { replace: true });
+    }
+  };
 
   const loadNextPage = (nextCursor: string) => {
     setRequestedSelectedId(null);
@@ -83,7 +93,7 @@ export default function OperatorRoute() {
         navigation={navigation}
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
-        onSelectItem={setRequestedSelectedId}
+        onSelectItem={selectItem}
         onRefresh={refresh}
         requestedSelectedId={requestedSelectedId}
       />
@@ -104,7 +114,8 @@ function OperatorRouteContent({
   const workflow = useOperatorWorkflow({
     fetchKey,
     inboxPage: navigation.page,
-    requestedSelectedId
+    requestedSelectedId,
+    selectionMode: linkedRunId ? "linked_run" : "inbox"
   });
 
   return (

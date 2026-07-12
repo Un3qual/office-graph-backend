@@ -162,6 +162,35 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert detail.revision_trace.resource_count == 4
   end
 
+  test "operator workflow stops offering packet creation once its packet contract exists" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "created-packet-terminal-state")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+
+    {:ok, _packet_result} =
+      OperatorCommandFixtures.create_ready_packet(
+        bootstrap.session,
+        [applied.verification_check],
+        %{
+          title: "Created intake packet",
+          objective: "Run the applied intake work.",
+          context_summary: "The intake has an authoritative packet.",
+          requirements: "Do not create the packet twice.",
+          success_criteria: "The required check passes.",
+          autonomy_posture: "human_supervised"
+        }
+      )
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert detail.status == "packet_created"
+    assert detail.allowed_next_actions == []
+    assert detail.command_affordances == []
+    assert packet_link = Enum.find(detail.graph_links, &(&1.type == "work_packet"))
+    assert packet_link.title == "Created intake packet"
+  end
+
   test "operator workflow item links packet-backed runs for applied checks" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "run-linked-triage")

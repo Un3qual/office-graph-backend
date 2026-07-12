@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
 import { MemoryRouter } from "react-router";
 import {
@@ -194,15 +194,28 @@ describe("packet workspace route", () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
         return packetConnectionResponse(
-          created ? [packet({ id: "packet_created", title: "Created packet" })] : []
+          created
+            ? [
+                packet(),
+                packet({
+                  id: "relay_packet_created",
+                  operationId: "operation_created",
+                  title: "Created packet"
+                })
+              ]
+            : [packet()]
         );
       }
 
       if (request.name === "PacketsWorkspaceDetailQuery") {
+        if (variables.id !== "relay_packet_created") {
+          return packetWorkspaceResponse(workspace());
+        }
+
         return packetWorkspaceResponse(
           workspace({
             packet: packetWorkspacePacket({
-              id: "packet_created",
+              id: "raw_packet_created",
               title: "Created packet",
               currentVersionId: "version_created"
             }),
@@ -236,11 +249,11 @@ describe("packet workspace route", () => {
             command: "create_work_packet",
             operationId: "operation_created",
             affectedIds: [
-              { type: "work_packet", id: "packet_created" },
+              { type: "work_packet", id: "raw_packet_created" },
               { type: "work_packet_version", id: "version_created" }
             ],
             packet: {
-              id: "packet_created",
+              id: "raw_packet_created",
               currentVersionId: "version_created",
               title: "Created packet",
               state: "ready"
@@ -256,30 +269,31 @@ describe("packet workspace route", () => {
     });
 
     renderWithRelay(network);
-    await screen.findByText("No packets are available.");
+    await screen.findByRole("button", { name: /First packet/i });
+    const createPacket = within(screen.getByRole("region", { name: "Create packet" }));
 
-    fireEvent.change(screen.getByLabelText("Packet title"), {
+    fireEvent.change(createPacket.getByLabelText("Packet title"), {
       target: { value: "Created packet" }
     });
-    fireEvent.change(screen.getByLabelText("Objective"), {
+    fireEvent.change(createPacket.getByLabelText("Objective"), {
       target: { value: "Ship the packet workspace" }
     });
-    fireEvent.change(screen.getByLabelText("Context summary"), {
+    fireEvent.change(createPacket.getByLabelText("Context summary"), {
       target: { value: "Current product context" }
     });
-    fireEvent.change(screen.getByLabelText("Requirements"), {
+    fireEvent.change(createPacket.getByLabelText("Requirements"), {
       target: { value: "Preserve immutable history" }
     });
-    fireEvent.change(screen.getByLabelText("Success criteria"), {
+    fireEvent.change(createPacket.getByLabelText("Success criteria"), {
       target: { value: "The required check passes" }
     });
-    fireEvent.change(screen.getByLabelText("Source graph item IDs"), {
+    fireEvent.change(createPacket.getByLabelText("Source graph item IDs"), {
       target: { value: "graph_1" }
     });
-    fireEvent.change(screen.getByLabelText("Verification check IDs"), {
+    fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
       target: { value: "check_1" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create packet" }));
+    fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Created packet/i })).toHaveAttribute(

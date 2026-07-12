@@ -33,6 +33,7 @@ type OperatorWorkflowInput = {
   fetchKey?: number;
   inboxPage: OperatorInboxPage;
   requestedSelectedId: string | null;
+  selectionMode: "inbox" | "linked_run";
 };
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
@@ -46,7 +47,8 @@ export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: n
 export function useOperatorWorkflow({
   fetchKey,
   inboxPage,
-  requestedSelectedId
+  requestedSelectedId,
+  selectionMode
 }: OperatorWorkflowInput) {
   const rootData = useLazyLoadQuery<OperatorWorkflowRouteOperation>(
     OperatorWorkflowRouteQuery,
@@ -54,11 +56,12 @@ export function useOperatorWorkflow({
     { fetchKey, fetchPolicy: "network-only" }
   );
   const inbox = workflowConnectionFromRelay(rootData, inboxPage);
-  const selectedId = inbox.rows.some(
-    (row) => row.normalizedEventId === requestedSelectedId
-  )
-    ? requestedSelectedId
-    : (inbox.rows[0]?.normalizedEventId ?? null);
+  const selectedId =
+    selectionMode === "linked_run"
+      ? null
+      : inbox.rows.some((row) => row.normalizedEventId === requestedSelectedId)
+        ? requestedSelectedId
+        : (inbox.rows[0]?.normalizedEventId ?? null);
   const selectedItem =
     inbox.rows.find((row) => row.normalizedEventId === selectedId) ?? null;
   const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
