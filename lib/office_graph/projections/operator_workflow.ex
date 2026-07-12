@@ -89,7 +89,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
                limit + 1
              )
            ) do
-      page_rows = Enum.take(rows, limit)
+      detail_rows = Enum.reject(rows, &(List.first(&1) == nil))
+      page_rows = Enum.take(detail_rows, limit)
       counts = relationship_counts_from_rows(rows)
 
       {:ok,
@@ -99,7 +100,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
              detail = relationship_detail_row(row)
              %{node: detail, cursor: KeysetCursor.encode([detail.kind, detail.stable_id])}
            end),
-         has_next_page?: length(rows) > limit,
+         has_next_page?: length(detail_rows) > limit,
          has_previous_page?: not is_nil(after_cursor),
          graph_link_count: counts.graph_links,
          graph_relationship_count: counts.graph_relationships
@@ -109,20 +110,30 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   defp relationship_details_sql do
     """
-    WITH #{relationship_projection_ctes()}, details_with_totals AS (
-      SELECT details.*,
-             count(*) FILTER (WHERE kind = 'graph_link') OVER (PARTITION BY event_id) AS graph_link_count,
-             count(*) FILTER (WHERE kind = 'graph_relationship') OVER (PARTITION BY event_id) AS graph_relationship_count
+    WITH #{relationship_projection_ctes()}, detail_totals AS (
+      SELECT event_id,
+             count(*) FILTER (WHERE kind = 'graph_link') AS graph_link_count,
+             count(*) FILTER (WHERE kind = 'graph_relationship') AS graph_relationship_count
       FROM details
+      GROUP BY event_id
+    ), paged_details AS (
+      SELECT *
+      FROM details
+      WHERE event_id = $4
+        AND ($5::text IS NULL OR (kind, stable_id) > ($5, $6))
+      ORDER BY kind ASC, stable_id ASC
+      LIMIT $7
     )
-    SELECT kind, stable_id, title, status, source_graph_item_id::text,
-           target_graph_item_id::text, relationship_type, graph_link_count,
-           graph_relationship_count
-    FROM details_with_totals
-    WHERE event_id = $4
-      AND ($5::text IS NULL OR (kind, stable_id) > ($5, $6))
-    ORDER BY kind ASC, stable_id ASC
-    LIMIT $7
+    SELECT paged_details.kind, paged_details.stable_id, paged_details.title,
+           paged_details.status, paged_details.source_graph_item_id::text,
+           paged_details.target_graph_item_id::text, paged_details.relationship_type,
+           COALESCE(detail_totals.graph_link_count, 0),
+           COALESCE(detail_totals.graph_relationship_count, 0)
+    FROM requested_events
+    LEFT JOIN detail_totals USING (event_id)
+    LEFT JOIN paged_details USING (event_id)
+    WHERE requested_events.event_id = $4
+    ORDER BY paged_details.kind ASC NULLS LAST, paged_details.stable_id ASC NULLS LAST
     """
   end
 
@@ -179,30 +190,26 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         AND pgc.organization_id = $2 AND pgc.workspace_id = $3
         AND pgc.status = 'applied' AND pgc.change_type = 'create_verification_check'
         AND vc.organization_id = $2 AND vc.workspace_id = $3
+    ), source_matched_versions AS (
+      SELECT DISTINCT applied_links.event_id, wps.work_packet_version_id
+      FROM applied_links
+      JOIN work_packet_version_sources wps
+        ON wps.graph_item_id = applied_links.graph_item_id
+       AND wps.organization_id = $2 AND wps.workspace_id = $3
     ), linked_versions AS (
-      SELECT DISTINCT requested_events.event_id, wpv.id, wpv.work_packet_id, wpv.version_number,
+      SELECT source_matched_versions.event_id, wpv.id, wpv.work_packet_id, wpv.version_number,
              wpv.title, wpv.lifecycle_state
-      FROM requested_events
+      FROM source_matched_versions
       JOIN work_packet_versions wpv
-        ON wpv.organization_id = $2 AND wpv.workspace_id = $3
-      WHERE wpv.organization_id = $2 AND wpv.workspace_id = $3
-        AND EXISTS (
-          SELECT 1 FROM work_packet_version_sources wps
-          WHERE wps.work_packet_version_id = wpv.id
-            AND wps.organization_id = $2 AND wps.workspace_id = $3
-            AND EXISTS (
-              SELECT 1 FROM applied_links al
-              WHERE al.event_id = requested_events.event_id
-                AND al.graph_item_id = wps.graph_item_id
-            )
-        )
-        AND EXISTS (
+        ON wpv.id = source_matched_versions.work_packet_version_id
+       AND wpv.organization_id = $2 AND wpv.workspace_id = $3
+      WHERE EXISTS (
           SELECT 1 FROM work_packet_version_required_checks wprc
           WHERE wprc.work_packet_version_id = wpv.id
             AND wprc.organization_id = $2 AND wprc.workspace_id = $3
             AND EXISTS (
               SELECT 1 FROM applied_links al
-              WHERE al.event_id = requested_events.event_id
+              WHERE al.event_id = source_matched_versions.event_id
                 AND al.link_type = 'verification_check'
                 AND al.id = wprc.verification_check_id
             )
@@ -213,14 +220,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
             AND wprc.organization_id = $2 AND wprc.workspace_id = $3
             AND NOT EXISTS (
               SELECT 1 FROM applied_links al
-              WHERE al.event_id = requested_events.event_id
+              WHERE al.event_id = source_matched_versions.event_id
                 AND al.link_type = 'verification_check'
                 AND al.id = wprc.verification_check_id
             )
         )
         AND NOT EXISTS (
           SELECT 1 FROM applied_links al
-          WHERE al.event_id = requested_events.event_id
+          WHERE al.event_id = source_matched_versions.event_id
             AND al.link_type = 'verification_check'
             AND NOT EXISTS (
               SELECT 1 FROM work_packet_version_required_checks wprc
@@ -861,7 +868,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          version_ids = version_ids_by_operation_id |> flatten_map_values() |> Enum.uniq(),
          {:ok, packet_versions} <-
            read_scoped_many(WorkPacketVersion, session_context, version_ids),
-         {:ok, runs} <- read_runs_for_versions(session_context, version_ids) do
+         {:ok, runs_by_operation_id} <-
+           read_runs_for_workflow_events(session_context, version_ids_by_operation_id) do
       packet_versions = Enum.sort_by(packet_versions, & &1.version_number, :desc)
 
       workflow_links_by_operation_id =
@@ -875,8 +883,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
             |> Enum.map(&packet_graph_link/1)
 
           run_links =
-            runs
-            |> Enum.filter(&MapSet.member?(version_ids, &1.work_packet_version_id))
+            runs_by_operation_id
+            |> Map.get(operation_id, [])
             |> Enum.map(&run_graph_link/1)
 
           {operation_id, packet_links ++ run_links}
@@ -1002,26 +1010,41 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     |> Enum.uniq()
   end
 
-  defp read_runs_for_versions(_session_context, []), do: {:ok, []}
+  defp read_runs_for_workflow_events(_session_context, version_ids_by_event)
+       when map_size(version_ids_by_event) == 0,
+       do: {:ok, %{}}
 
-  defp read_runs_for_versions(session_context, version_ids) do
+  defp read_runs_for_workflow_events(session_context, version_ids_by_event) do
+    event_versions =
+      for {event_key, version_ids} <- version_ids_by_event,
+          version_id <- version_ids,
+          do: {event_key, version_id}
+
+    {event_keys, version_ids} = Enum.unzip(event_versions)
+
     sql = """
-    SELECT id::text, work_packet_version_id::text, objective, state, aggregate_state
-    FROM (
-      SELECT id, work_packet_version_id, objective, state, aggregate_state,
+    WITH event_versions(event_key, version_id) AS (
+      SELECT * FROM unnest($1::text[], $2::uuid[])
+    ), ranked_runs AS (
+      SELECT event_versions.event_key, r.id, r.work_packet_version_id, r.objective,
+             r.state, r.aggregate_state,
              row_number() OVER (
-               PARTITION BY work_packet_version_id
-               ORDER BY inserted_at DESC, id DESC
-             ) AS version_rank
-      FROM runs
-      WHERE work_packet_version_id = ANY($1::uuid[])
-        AND organization_id = $2 AND workspace_id = $3
-    ) ranked_runs
-    WHERE version_rank <= $4
-    ORDER BY work_packet_version_id, version_rank
+               PARTITION BY event_key
+               ORDER BY r.inserted_at DESC, r.id DESC
+             ) AS event_rank
+      FROM event_versions
+      JOIN runs r ON r.work_packet_version_id = event_versions.version_id
+      WHERE r.organization_id = $3 AND r.workspace_id = $4
+    )
+    SELECT event_key, id::text, work_packet_version_id::text, objective, state,
+           aggregate_state
+    FROM ranked_runs
+    WHERE event_rank <= $5
+    ORDER BY event_key, event_rank
     """
 
     params = [
+      event_keys,
       Enum.map(version_ids, &Ecto.UUID.dump!/1),
       Ecto.UUID.dump!(session_context.organization_id),
       Ecto.UUID.dump!(session_context.workspace_id),
@@ -1031,15 +1054,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     case Repo.query(sql, params) do
       {:ok, %{rows: rows}} ->
         {:ok,
-         Enum.map(rows, fn [id, work_packet_version_id, objective, state, aggregate_state] ->
-           %{
-             id: id,
-             work_packet_version_id: work_packet_version_id,
-             objective: objective,
-             state: state,
-             aggregate_state: aggregate_state
-           }
-         end)}
+         Enum.group_by(
+           rows,
+           &List.first/1,
+           fn [_event_key, id, work_packet_version_id, objective, state, aggregate_state] ->
+             %{
+               id: id,
+               work_packet_version_id: work_packet_version_id,
+               objective: objective,
+               state: state,
+               aggregate_state: aggregate_state
+             }
+           end
+         )}
 
       {:error, error} ->
         {:error, error}

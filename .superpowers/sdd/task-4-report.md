@@ -316,3 +316,53 @@ git diff --check
 ```
 
 Results: backend projection/API 47 passed (seed 205015); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.
+
+## Fifth Independent Scale Review Remediation
+
+Status: DONE
+
+### Exact totals on exhausted pages
+
+- Relationship detail now computes event totals independently from the cursor-filtered page and left-joins the bounded page rows.
+- A count-only sentinel row carries totals when a valid cursor is after the final detail; the projection filters that sentinel out of edges.
+- The terminal-page regression proves empty edges, `hasNextPage: false`, `hasPreviousPage: true`, and unchanged totals of 26 links and 3 relationships.
+
+### One event-wide run rank
+
+- The bounded base run read now unnests `(event_key, packet_version_id)` pairs and applies one `row_number()` partition per event, ordered by `(run.inserted_at, run.id)` descending.
+- Each event returns at most 21 runs total across every linked version. The ordered result is preserved when building workflow links, so the first linked run and therefore item status is the genuinely newest run.
+- A 23-version regression makes packet-version UUID order disagree with run recency. Before the fix the item was `failed`; after the fix it is `running`, and telemetry proves the SQL returned exactly 21 rows.
+
+### Source-driven packet linking
+
+- The canonical CTE now starts candidate discovery from tenant-scoped applied graph items joined to tenant-scoped `work_packet_version_sources`, producing `source_matched_versions` before joining packet versions.
+- The requested-events cross product with every tenant packet version was removed while retaining source intersection and bidirectional exact verification-check-set equality.
+- The 50-row query-shape regression requires the source-driven CTE and rejects the prior requested-events-to-all-packet-versions join. The evidence showed a query-shape defect, not a missing index, so no speculative migration was added.
+
+### RED and focused GREEN evidence
+
+Initial focused run: 0/3.
+
+- Exhausted relationship page totals fell from 26/3 to 0/0.
+- A newer `running` run lost to an older `failed` run because packet-version UUID ordered the base result.
+- The relationship CTE still lacked `source_matched_versions` and crossed requested events with all tenant packet versions.
+
+Focused GREEN: 3/3. The complete backend projection/API suite then passed 48 tests (seed 389328).
+
+### Final fifth-review gate
+
+```sh
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test test/office_graph_web/operator_workflow_api_test.exs \
+  test/office_graph/projections/operator_workflow_test.exs
+pnpm --dir assets run relay:check
+pnpm --dir assets run typecheck
+pnpm --dir assets exec vitest run app/routes/operator/route.test.tsx \
+  app/routes/packets/route.test.tsx --reporter=dot
+pnpm --dir assets run build
+openspec validate harden-project-quality --strict
+git diff --check
+```
+
+Results: backend projection/API 48 passed (seed 395502); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.

@@ -278,6 +278,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       end)
 
     assert length(relationship_projection_queries) == 1
+
+    relationship_query = hd(relationship_projection_queries).query
+    assert String.contains?(relationship_query, "source_matched_versions AS")
+
+    refute Regex.match?(
+             ~r/FROM requested_events\s+JOIN work_packet_versions/,
+             relationship_query
+           )
   end
 
   test "operator run state query count stays bounded across child collections" do
@@ -521,6 +529,98 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert Enum.all?(runs, &("work_run:#{&1.id}" in all_ids))
     refute "work_run:#{other_run.run.id}" in all_ids
     refute cross_tenant_relationship_id in all_ids
+
+    assert {:ok, exhausted_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 20,
+               after_cursor: List.last(second_page.edges).cursor
+             )
+
+    assert exhausted_page.edges == []
+    assert exhausted_page.has_next_page? == false
+    assert exhausted_page.has_previous_page? == true
+    assert exhausted_page.graph_link_count == 26
+    assert exhausted_page.graph_relationship_count == 3
+  end
+
+  @tag timeout: 120_000
+  test "workflow run summary ranks once per event by run recency across packet versions" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "event-wide-run-ranking")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+
+    {:ok, packet_result} =
+      create_packet_with_sources_and_checks(
+        bootstrap.session,
+        "event-wide-run-ranking",
+        [applied.verification_check.graph_item_id],
+        [applied.verification_check.id]
+      )
+
+    {:ok, initial_run} =
+      start_run_for_packet_version(
+        bootstrap.session,
+        packet_result.version,
+        "event-wide-run-ranking:1"
+      )
+
+    version_runs =
+      Enum.reduce(2..23, [{packet_result.version, initial_run.run}], fn index,
+                                                                        [
+                                                                          {_version, current_run}
+                                                                          | _
+                                                                        ] =
+                                                                          version_runs ->
+        mark_run_failed!(current_run)
+
+        {:ok, next_packet_result} =
+          create_next_packet_version(
+            bootstrap.session,
+            packet_result.packet.id,
+            hd(version_runs) |> elem(0),
+            applied.verification_check,
+            index
+          )
+
+        {:ok, next_run} =
+          start_run_for_packet_version(
+            bootstrap.session,
+            next_packet_result.version,
+            "event-wide-run-ranking:#{index}"
+          )
+
+        [{next_packet_result.version, next_run.run} | version_runs]
+      end)
+
+    {uuid_first_version, uuid_first_run} = Enum.min_by(version_runs, &elem(&1, 0).id)
+
+    {recent_version, recent_run} =
+      Enum.find(version_runs, fn {version, _run} -> version.id != uuid_first_version.id end)
+
+    Enum.each(version_runs, fn {_version, run} -> mark_run_failed!(run) end)
+
+    Repo.query!(
+      "UPDATE runs SET inserted_at = now() - interval '2 hours' WHERE id = $1",
+      [Ecto.UUID.dump!(uuid_first_run.id)]
+    )
+
+    restore_running_run!(recent_run)
+
+    {{:ok, detail}, queries} =
+      QueryCounter.count(fn ->
+        Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+      end)
+
+    assert detail.status == recent_run.aggregate_state
+
+    run_query = Enum.find(queries, &String.contains?(&1.query || "", "ranked_runs"))
+    assert run_query
+    assert String.contains?(run_query.query, "PARTITION BY event_key")
+    assert String.contains?(run_query.query, "ORDER BY r.inserted_at DESC, r.id DESC")
+    assert {:ok, %Postgrex.Result{num_rows: 21}} = run_query.result
+    refute recent_version.id == uuid_first_version.id
   end
 
   test "relationship base and detail use the canonical packet link predicate" do
@@ -1715,6 +1815,55 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       source_graph_item_ids: source_ids,
       verification_check_ids: check_ids
     })
+  end
+
+  defp create_next_packet_version(session, packet_id, current_version, check, index) do
+    packet =
+      Ash.get!(OfficeGraph.WorkPackets.WorkPacket, packet_id, authorize?: false)
+
+    attrs = %{
+      expected_current_version_id: current_version.id,
+      title: "Event-wide packet version #{index}",
+      objective: "Rank linked runs across every packet version.",
+      context_summary: "Event-wide run-rank coverage.",
+      requirements: "Keep one bounded event run summary.",
+      success_criteria: "The newest run controls status.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: [check.graph_item_id],
+      verification_check_ids: [check.id]
+    }
+
+    command_input = Map.put(attrs, :packet_id, packet.id)
+
+    {:ok, operation} =
+      Operations.start_command(
+        session,
+        :work_packet_version_create,
+        "event-wide-packet-version:#{index}:#{System.unique_integer([:positive])}",
+        command_input
+      )
+
+    WorkPackets.create_version(session, operation, packet, attrs)
+  end
+
+  defp mark_run_failed!(run) do
+    Repo.query!(
+      "UPDATE runs SET state = 'failed', aggregate_state = 'failed', execution_state = 'failed', verification_state = 'failed', inserted_at = now() - interval '1 day' WHERE id = $1",
+      [Ecto.UUID.dump!(run.id)]
+    )
+  end
+
+  defp restore_running_run!(run) do
+    Repo.query!(
+      "UPDATE runs SET state = $1, aggregate_state = $2, execution_state = $3, verification_state = $4, inserted_at = now() WHERE id = $5",
+      [
+        run.state,
+        run.aggregate_state,
+        run.execution_state,
+        run.verification_state,
+        Ecto.UUID.dump!(run.id)
+      ]
+    )
   end
 
   defp assert_terminal_linked_run_status(expected_status) do
