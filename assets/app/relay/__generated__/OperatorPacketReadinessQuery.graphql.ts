@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0bcd29b841ae099e264a2003270534c5>>
+ * @generated SignedSource<<df69e8579e882a66a45834c58fe0c679>>
  * @lightSyntaxTransform
  */
 
@@ -92,6 +92,13 @@ v7 = {
 v8 = {
   "alias": null,
   "args": null,
+  "kind": "ScalarField",
+  "name": "id",
+  "storageKey": null
+},
+v9 = {
+  "alias": null,
+  "args": null,
   "concreteType": "OperatorCommandAffordance",
   "kind": "LinkedField",
   "name": "commandAffordances",
@@ -158,29 +165,35 @@ v8 = {
         }
       ],
       "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorTypedId",
+      "kind": "LinkedField",
+      "name": "targetIds",
+      "plural": true,
+      "selections": [
+        (v2/*:: as any*/),
+        (v8/*:: as any*/)
+      ],
+      "storageKey": null
     }
   ],
-  "storageKey": null
-},
-v9 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "title",
   "storageKey": null
 },
 v10 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "sourceWatermark",
+  "name": "title",
   "storageKey": null
 },
 v11 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "id",
+  "name": "sourceWatermark",
   "storageKey": null
 };
 return {
@@ -206,7 +219,7 @@ return {
               (v3/*:: as any*/),
               (v4/*:: as any*/),
               (v5/*:: as any*/),
-              (v8/*:: as any*/),
+              (v9/*:: as any*/),
               (v7/*:: as any*/),
               {
                 "alias": null,
@@ -216,7 +229,7 @@ return {
                 "name": "sourceLinks",
                 "plural": true,
                 "selections": [
-                  (v9/*:: as any*/)
+                  (v10/*:: as any*/)
                 ],
                 "storageKey": null
               },
@@ -232,7 +245,7 @@ return {
                 ],
                 "storageKey": null
               },
-              (v10/*:: as any*/)
+              (v11/*:: as any*/)
             ],
             "args": null,
             "argumentDefinitions": []
@@ -262,7 +275,7 @@ return {
           (v3/*:: as any*/),
           (v4/*:: as any*/),
           (v5/*:: as any*/),
-          (v8/*:: as any*/),
+          (v9/*:: as any*/),
           (v7/*:: as any*/),
           {
             "alias": null,
@@ -272,8 +285,8 @@ return {
             "name": "sourceLinks",
             "plural": true,
             "selections": [
-              (v9/*:: as any*/),
-              (v11/*:: as any*/)
+              (v10/*:: as any*/),
+              (v8/*:: as any*/)
             ],
             "storageKey": null
           },
@@ -286,23 +299,23 @@ return {
             "plural": true,
             "selections": [
               (v6/*:: as any*/),
-              (v11/*:: as any*/)
+              (v8/*:: as any*/)
             ],
             "storageKey": null
           },
-          (v10/*:: as any*/)
+          (v11/*:: as any*/)
         ],
         "storageKey": null
       }
     ]
   },
   "params": {
-    "cacheID": "a5945b0acf46d70f7ac3201a9eea3af3",
+    "cacheID": "88f178d0f7f3d7621f801afc27825de3",
     "id": null,
     "metadata": {},
     "name": "OperatorPacketReadinessQuery",
     "operationKind": "query",
-    "text": "query OperatorPacketReadinessQuery(\n  $input: OperatorPacketReadinessInput!\n) {\n  operatorPacketReadiness(input: $input) {\n    ...OperatorPacketReadinessFragment\n  }\n}\n\nfragment OperatorPacketReadinessFragment on OperatorPacketReadiness {\n  type\n  ready\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n  }\n  blockerReasons\n  sourceLinks {\n    title\n    id\n  }\n  requiredChecks {\n    state\n    id\n  }\n  sourceWatermark\n}\n"
+    "text": "query OperatorPacketReadinessQuery(\n  $input: OperatorPacketReadinessInput!\n) {\n  operatorPacketReadiness(input: $input) {\n    ...OperatorPacketReadinessFragment\n  }\n}\n\nfragment OperatorPacketReadinessFragment on OperatorPacketReadiness {\n  type\n  ready\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  blockerReasons\n  sourceLinks {\n    title\n    id\n  }\n  requiredChecks {\n    state\n    id\n  }\n  sourceWatermark\n}\n"
   }
 };
 })();

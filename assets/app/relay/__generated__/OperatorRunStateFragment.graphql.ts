@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<f72e81ce8cdea13aca7304692ebdaae8>>
+ * @generated SignedSource<<0901ffcd5d01a6570fcb8d4ede4114ec>>
  * @lightSyntaxTransform
  */
 
@@ -23,6 +23,10 @@ export type OperatorRunStateFragment$data = {
     readonly requiredFields: ReadonlyArray<string>;
     readonly safeExplanation: string;
     readonly state: string;
+    readonly targetIds: ReadonlyArray<{
+      readonly id: string;
+      readonly type: string;
+    }>;
   }>;
   readonly evidenceCandidates: ReadonlyArray<{
     readonly claim: string;
@@ -67,6 +71,8 @@ export type OperatorRunStateFragment$data = {
     readonly versionNumber: number;
   };
   readonly requiredChecks: ReadonlyArray<{
+    readonly graphItemId: string | null | undefined;
+    readonly id: string;
     readonly state: string;
     readonly verificationCheckId: string | null | undefined;
   }>;
@@ -103,6 +109,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "4c6fa1f3b6013e147ae2e35e6190cdd4";
+(node as any).hash = "0d19e6b73fe4c73735a088fa95e9ad78";
 
 export default node;

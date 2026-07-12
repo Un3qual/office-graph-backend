@@ -30,8 +30,10 @@ import {
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
 type OperatorWorkflowInput = {
+  fetchKey?: number;
   inboxPage: OperatorInboxPage;
   requestedSelectedId: string | null;
+  selectionMode: "inbox" | "linked_run";
 };
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
@@ -43,20 +45,23 @@ export type PacketReadinessState =
 export const defaultOperatorInboxPage: OperatorInboxPage = { first: 50, after: null };
 
 export function useOperatorWorkflow({
+  fetchKey,
   inboxPage,
-  requestedSelectedId
+  requestedSelectedId,
+  selectionMode
 }: OperatorWorkflowInput) {
   const rootData = useLazyLoadQuery<OperatorWorkflowRouteOperation>(
     OperatorWorkflowRouteQuery,
     inboxPage,
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
   const inbox = workflowConnectionFromRelay(rootData, inboxPage);
-  const selectedId = inbox.rows.some(
-    (row) => row.normalizedEventId === requestedSelectedId
-  )
-    ? requestedSelectedId
-    : (inbox.rows[0]?.normalizedEventId ?? null);
+  const selectedId =
+    selectionMode === "linked_run"
+      ? null
+      : inbox.rows.some((row) => row.normalizedEventId === requestedSelectedId)
+        ? requestedSelectedId
+        : (inbox.rows[0]?.normalizedEventId ?? null);
   const selectedItem =
     inbox.rows.find((row) => row.normalizedEventId === selectedId) ?? null;
   const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
@@ -66,6 +71,9 @@ export function useOperatorWorkflow({
       : null;
 
   return {
+    canSubmitManualIntake:
+      rootData.operatorManualIntakeAffordance.identity === "submit_manual_intake" &&
+      rootData.operatorManualIntakeAffordance.state === "enabled",
     inbox,
     readiness,
     readinessInput,
@@ -78,21 +86,21 @@ export function useOperatorWorkflow({
 
 export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
 
-export function useValidatedPacketReadiness(input: PacketReadinessInput) {
+export function useValidatedPacketReadiness(input: PacketReadinessInput, fetchKey?: number) {
   const data = useLazyLoadQuery<OperatorPacketReadinessOperation>(
     OperatorPacketReadinessQuery,
     { input: packetReadinessQueryInput(input) },
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
 
   return packetReadinessFromRelay(data);
 }
 
-export function useOperatorRunState(runId: string) {
+export function useOperatorRunState(runId: string, fetchKey?: number) {
   const data = useLazyLoadQuery<OperatorRunStateOperation>(
     OperatorRunStateQuery,
     { id: runId },
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
 
   return runStateFromRelay(data);

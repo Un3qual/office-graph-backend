@@ -64,6 +64,12 @@ defmodule OfficeGraph.Runs do
     end
   end
 
+  def active_run?(run) do
+    run.state not in ["failed", "verified"] and
+      run.aggregate_state not in ["failed", "verified"] and
+      run.verification_state not in ["failed", "verified"]
+  end
+
   def record_observation(session_context, operation, run, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <-
@@ -283,6 +289,7 @@ defmodule OfficeGraph.Runs do
 
       case existing_run_result(session_context, operation, packet_version, attrs) do
         {:ok, nil} ->
+          validate_fresh_run_start!(session_context, packet_version)
           required_checks = packet_required_checks(packet_version)
 
           create_run_records!(
@@ -302,6 +309,38 @@ defmodule OfficeGraph.Runs do
       end
     end)
     |> normalize_transaction_result()
+  end
+
+  defp validate_fresh_run_start!(session_context, packet_version) do
+    packet = lock_run_start_packet!(session_context, packet_version.work_packet_id)
+
+    if packet.current_version_id != packet_version.id do
+      Repo.rollback({:stale_packet_version, packet.id, packet.current_version_id})
+    end
+
+    case active_run_for_packet_version(session_context, packet_version.id) do
+      nil -> :ok
+      active_run -> Repo.rollback({:active_work_run, packet_version.id, active_run.id})
+    end
+  end
+
+  defp lock_run_start_packet!(session_context, packet_id) do
+    case Operations.lock_scoped_target(WorkPacket, session_context, packet_id) do
+      {:ok, packet} -> packet
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp active_run_for_packet_version(session_context, packet_version_id) do
+    Run
+    |> Ash.Query.filter(
+      work_packet_version_id == ^packet_version_id and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.read!(authorize?: false)
+    |> Enum.find(&active_run?/1)
   end
 
   defp create_run_records!(

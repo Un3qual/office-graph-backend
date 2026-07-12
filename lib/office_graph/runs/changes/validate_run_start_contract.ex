@@ -7,6 +7,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
   alias OfficeGraph.WorkPackets
 
   alias OfficeGraph.WorkPackets.{
+    WorkPacket,
     WorkPacketRequiredCheck,
     WorkPacketSourceReference,
     WorkPacketVersion
@@ -34,9 +35,19 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
              workspace_id,
              :work_packet_version_id,
              "work_packet_version_id must reference a ready packet version"
+           ),
+         {:ok, packet} <-
+           ScopedRead.fetch_locked(
+             WorkPacket,
+             packet_version.work_packet_id,
+             organization_id,
+             workspace_id,
+             :work_packet_version_id,
+             "work_packet_version_id must reference the current packet version"
            ) do
       changeset
       |> validate_packet_version_belongs(packet_version, work_packet_id)
+      |> validate_packet_version_current(packet_version, packet)
       |> validate_packet_version_ready(packet_version)
       |> validate_authority_posture(packet_version, authority_posture)
     else
@@ -57,6 +68,21 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunStartContract do
     Ash.Changeset.add_error(changeset,
       field: :work_packet_version_id,
       message: "work_packet_version_id must belong to work_packet_id"
+    )
+  end
+
+  defp validate_packet_version_current(
+         changeset,
+         %{id: packet_version_id},
+         %{current_version_id: packet_version_id}
+       ) do
+    changeset
+  end
+
+  defp validate_packet_version_current(changeset, _packet_version, _packet) do
+    Ash.Changeset.add_error(changeset,
+      field: :work_packet_version_id,
+      message: "work_packet_version_id must reference the current packet version"
     )
   end
 

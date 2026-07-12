@@ -10,6 +10,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   @inbox_query """
   query Inbox($limit: Int, $afterCursor: String) {
@@ -512,6 +513,189 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert result["actorPrincipalId"] == bootstrap.session.principal_id
     assert result["policyBasis"] == "owner_acceptance"
     assert result["targetGraphItemId"] == verification_check.graph_item_id
+  end
+
+  test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    packet_attrs = %{
+      title: "Packet workspace version one",
+      objective: "Execute the first immutable packet contract.",
+      context_summary: "Packet workspace context one.",
+      requirements: "Keep version one in history.",
+      success_criteria: "The required check passes.",
+      autonomy_posture: "human_supervised"
+    }
+
+    {:ok, packet_result} =
+      OperatorCommandFixtures.create_ready_packet(
+        bootstrap.session,
+        [verification_check],
+        packet_attrs
+      )
+
+    version_attrs =
+      packet_attrs
+      |> Map.merge(%{
+        expected_current_version_id: packet_result.version.id,
+        title: "Packet workspace version two",
+        objective: "Execute the current immutable packet contract.",
+        source_graph_item_ids: [verification_check.graph_item_id],
+        verification_check_ids: [verification_check.id]
+      })
+
+    {:ok, operation} =
+      Operations.start_command(
+        bootstrap.session,
+        :work_packet_version_create,
+        "packet-workspace-version",
+        Map.put(version_attrs, :packet_id, packet_result.packet.id)
+      )
+
+    {:ok, version_result} =
+      WorkPackets.create_version(
+        bootstrap.session,
+        operation,
+        packet_result.packet,
+        version_attrs
+      )
+
+    relay_packet_id =
+      Absinthe.Relay.Node.to_global_id(
+        :work_packet,
+        packet_result.packet.id,
+        OfficeGraphWeb.GraphQL.Schema
+      )
+
+    workspace =
+      graphql(
+        conn,
+        """
+        query PacketWorkspace($id: ID!) {
+          operatorPacketWorkspace(id: $id) {
+            sourceWatermark
+            ready
+            status
+            blockerReasons
+            allowedNextActions
+            packet { id title state currentVersionId operationId }
+            currentVersion {
+              id
+              versionNumber
+              lifecycleState
+              title
+              objective
+              contextSummary
+              requirements
+              successCriteria
+              autonomyPosture
+              sourceGraphItemIds
+              verificationCheckIds
+              operationId
+              insertedAt
+            }
+            versions {
+              id
+              versionNumber
+              title
+              sourceGraphItemIds
+              verificationCheckIds
+            }
+            commandAffordances {
+              identity
+              state
+              safeExplanation
+              blockerReasons
+              requiredFields
+              inputDefaults { field value values }
+              targetIds { type id }
+            }
+          }
+        }
+        """,
+        %{id: relay_packet_id},
+        "operatorPacketWorkspace"
+      )
+
+    assert workspace["sourceWatermark"]
+    assert workspace["ready"] == true
+    assert workspace["status"] == "ready_for_run"
+    assert workspace["blockerReasons"] == []
+    assert workspace["allowedNextActions"] == ["create_work_packet_version", "start_work_run"]
+    assert workspace["packet"]["currentVersionId"] == version_result.version.id
+    assert workspace["packet"]["title"] == "Packet workspace version two"
+    assert workspace["currentVersion"]["id"] == version_result.version.id
+    assert workspace["currentVersion"]["versionNumber"] == 2
+    assert workspace["currentVersion"]["sourceGraphItemIds"] == [verification_check.graph_item_id]
+    assert workspace["currentVersion"]["verificationCheckIds"] == [verification_check.id]
+
+    assert Enum.map(workspace["versions"], & &1["id"]) == [
+             packet_result.version.id,
+             version_result.version.id
+           ]
+
+    assert Enum.map(workspace["versions"], & &1["title"]) == [
+             "Packet workspace version one",
+             "Packet workspace version two"
+           ]
+
+    assert [create_version, start_run] = workspace["commandAffordances"]
+    assert create_version["identity"] == "create_work_packet_version"
+    assert create_version["state"] == "enabled"
+    assert start_run["identity"] == "start_work_run"
+    assert start_run["state"] == "enabled"
+    assert start_run["blockerReasons"] == []
+
+    assert %{
+             "field" => "packet_version_id",
+             "value" => version_result.version.id,
+             "values" => []
+           } in start_run["inputDefaults"]
+
+    assert %{"type" => "work_packet_version", "id" => version_result.version.id} in start_run[
+             "targetIds"
+           ]
+  end
+
+  test "GraphQL exposes workspace command affordances according to capabilities", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    packet_query =
+      "query PacketAffordance { operatorPacketCreateAffordance { identity state } }"
+
+    intake_query =
+      "query IntakeAffordance { operatorManualIntakeAffordance { identity state } }"
+
+    assert graphql(conn, packet_query, %{}, "operatorPacketCreateAffordance") == %{
+             "identity" => "create_work_packet",
+             "state" => "enabled"
+           }
+
+    assert graphql(conn, intake_query, %{}, "operatorManualIntakeAffordance") == %{
+             "identity" => "submit_manual_intake",
+             "state" => "enabled"
+           }
+
+    read_only_session = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+
+    with_local_api_owner_bootstrap(false, fn ->
+      restricted_conn = Ash.PlugHelpers.set_actor(conn, read_only_session)
+
+      assert graphql(
+               restricted_conn,
+               packet_query,
+               %{},
+               "operatorPacketCreateAffordance"
+             )["state"] == "hidden"
+
+      assert graphql(
+               restricted_conn,
+               intake_query,
+               %{},
+               "operatorManualIntakeAffordance"
+             )["state"] == "hidden"
+    end)
   end
 
   test "GraphQL packet readiness normalizes nullable id lists", %{conn: conn} do

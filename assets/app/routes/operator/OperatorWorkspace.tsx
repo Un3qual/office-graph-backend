@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "../../../src/ui/Button";
 import { InboxList, InboxListFallback } from "./components/InboxList";
 import { ItemSummary } from "./components/ItemSummary";
 import { OperatorLayout } from "./components/OperatorLayout";
@@ -6,21 +7,31 @@ import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
 import { OperatorInspector } from "./OperatorInspector";
+import { ManualIntakeForm } from "./components/ManualIntakeForm";
+import { PacketCommandForm } from "./components/PacketCommandForm";
 import type { OperatorWorkflowState } from "./workflow";
 
 type Props = {
   canPageBackward: boolean;
+  fetchKey: number;
+  linkedRunId: string | null;
+  onManualIntakeAuthoritativeChange: (normalizedEventId?: string) => void;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
   onSelectItem: (id: string) => void;
+  onRefresh: () => void;
   workflow: OperatorWorkflowState;
 };
 
 export function OperatorWorkspace({
   canPageBackward,
+  fetchKey,
+  linkedRunId,
+  onManualIntakeAuthoritativeChange,
   onNextPage,
   onPreviousPage,
   onSelectItem,
+  onRefresh,
   workflow
 }: Props) {
   const canPageForward = workflow.inbox.hasMore && workflow.inbox.nextCursor !== null;
@@ -29,27 +40,32 @@ export function OperatorWorkspace({
     <OperatorLayout
       inbox={
         <InboxList
-          canPageBackward={canPageBackward}
-          canPageForward={canPageForward}
-          onNextPage={() => {
-            if (workflow.inbox.nextCursor !== null) {
-              onNextPage(workflow.inbox.nextCursor);
-            }
-          }}
-          onPreviousPage={onPreviousPage}
-          onSelect={onSelectItem}
-          rows={workflow.rows}
-          selectedId={workflow.selectedId}
-          sourceWatermark={workflow.inbox.sourceWatermark}
-        />
+            canPageBackward={canPageBackward}
+            canPageForward={canPageForward}
+            intake={workflow.canSubmitManualIntake ? (
+              <ManualIntakeForm
+                onAuthoritativeChange={onManualIntakeAuthoritativeChange}
+              />
+            ) : null}
+            onNextPage={() => {
+              if (workflow.inbox.nextCursor !== null) onNextPage(workflow.inbox.nextCursor);
+            }}
+            onPreviousPage={onPreviousPage}
+            onSelect={onSelectItem}
+            rows={workflow.rows}
+            selectedId={workflow.selectedId}
+            sourceWatermark={workflow.inbox.sourceWatermark}
+          />
       }
-      detail={<ItemSummary item={workflow.selectedItem} />}
+      detail={<><ItemSummary item={workflow.selectedItem} /><PacketCommandForm item={workflow.selectedItem} onRefresh={onRefresh} readiness={null} readinessInput={workflow.readinessInput} /></>}
       inspector={
         <OperatorInspector
-          key={workflow.selectedId ?? "none"}
+          fetchKey={fetchKey}
+          key={`${workflow.selectedId ?? "none"}:${linkedRunId ?? "derived"}`}
           readiness={workflow.readiness}
           readinessInput={workflow.readinessInput}
-          runId={workflow.runId}
+          onRefresh={onRefresh}
+          runId={linkedRunId ?? workflow.runId}
           selectedId={workflow.selectedId}
         />
       }
@@ -63,19 +79,24 @@ export function OperatorWorkspaceLoading() {
 
 export function OperatorWorkspaceError({
   canPageBackward,
+  onRetry,
   onPreviousPage
 }: {
   canPageBackward: boolean;
+  onRetry: () => void;
   onPreviousPage: () => void;
 }) {
   return (
     <OperatorFallbackWorkspace
       inbox={
-        <InboxListFallback
-          canPageBackward={canPageBackward}
-          onPreviousPage={onPreviousPage}
-          state="error"
-        />
+        <>
+          <InboxListFallback
+            canPageBackward={canPageBackward}
+            onPreviousPage={onPreviousPage}
+            state="error"
+          />
+          <Button onPress={onRetry}>Retry operator workflow</Button>
+        </>
       }
     />
   );

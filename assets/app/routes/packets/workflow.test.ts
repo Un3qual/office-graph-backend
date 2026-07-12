@@ -33,9 +33,35 @@ describe("packet route workflow", () => {
     const rows = [packet(), packet({ id: "packet_2", title: "Second packet" })];
 
     expect(selectedPacketId(rows, null)).toBe("packet_1");
-    expect(selectedPacketId(rows, "packet_2")).toBe("packet_2");
-    expect(selectedPacketId(rows, "packet_missing")).toBe("packet_1");
-    expect(selectedPacketId([], "packet_2")).toBeNull();
+    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_2" })).toBe("packet_2");
+    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_missing" })).toBe(
+      "packet_1"
+    );
+    expect(selectedPacketId([], { kind: "relay_id", value: "packet_2" })).toBeNull();
+  });
+
+  it("correlates a created packet by operation without treating its raw id as a Relay id", () => {
+    const rows = [
+      packet(),
+      packet({
+        id: "relay_packet_created",
+        operationId: "operation_created",
+        title: "Created packet"
+      })
+    ];
+
+    expect(
+      selectedPacketId(rows, { kind: "operation_id", value: "operation_created" })
+    ).toBe("relay_packet_created");
+  });
+
+  it("does not fall back to an unrelated packet when an operation selection is absent", () => {
+    expect(
+      selectedPacketId([packet()], {
+        kind: "operation_id",
+        value: "operation_missing"
+      })
+    ).toBeNull();
   });
 });
 

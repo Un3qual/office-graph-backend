@@ -86,6 +86,17 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
+  defp normalize({:active_work_run, packet_version_id, run_id}) do
+    %{
+      detail: "The packet version already has an active work run.",
+      extensions: %{
+        code: "active_work_run",
+        packet_version_id: packet_version_id,
+        run_id: run_id
+      }
+    }
+  end
+
   defp normalize({:stale_work_run_state, run_id, execution_state, verification_state}) do
     %{
       detail: "The work run state is stale.",

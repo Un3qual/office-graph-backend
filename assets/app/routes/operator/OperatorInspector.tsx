@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { startTransition, useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
+import { Button } from "../../../src/ui/Button";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
+import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
+import { RunCommandForm } from "./components/RunCommandForm";
+import { PacketCommandForm } from "./components/PacketCommandForm";
 import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
 import {
@@ -12,15 +16,19 @@ import {
 } from "./workflow";
 
 type Props = {
+  fetchKey: number;
   readiness: PacketReadinessState | null;
   readinessInput: PacketReadinessInput | null;
+  onRefresh: () => void;
   runId: string | null;
   selectedId: string | null;
 };
 
 export function OperatorInspector({
+  fetchKey,
   readiness,
   readinessInput,
+  onRefresh,
   runId,
   selectedId
 }: Props) {
@@ -30,7 +38,7 @@ export function OperatorInspector({
     <>
       {validationRequested && readiness && readinessInput ? (
         <AsyncBoundary
-          errorFallback={<ReadinessPanelError />}
+          errorFallback={<ReadinessPanelError onRetry={onRefresh} />}
           loadingFallback={
             <ReadinessPanel
               isValidating
@@ -38,9 +46,9 @@ export function OperatorInspector({
               readinessInput={readinessInput}
             />
           }
-          resetKey={`${selectedId ?? "none"}:readiness:requested`}
+          resetKey={`${selectedId ?? "none"}:readiness:requested:${fetchKey}`}
         >
-          <ValidatedReadinessPanel input={readinessInput} />
+          <ValidatedReadinessPanel fetchKey={fetchKey} input={readinessInput} onRefresh={onRefresh} />
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
@@ -49,24 +57,34 @@ export function OperatorInspector({
           readinessInput={readinessInput}
         />
       )}
-      <RunStatePanels runId={runId} selectedId={selectedId} />
+      <RunStatePanels onRefresh={onRefresh} runId={runId} selectedId={selectedId} />
     </>
   );
 }
 
-function ValidatedReadinessPanel({ input }: { input: PacketReadinessInput }) {
-  const readiness = useValidatedPacketReadiness(input);
+function ValidatedReadinessPanel({ fetchKey, input, onRefresh }: { fetchKey: number; input: PacketReadinessInput; onRefresh: () => void }) {
+  const readiness = useValidatedPacketReadiness(input, fetchKey);
 
-  return <ReadinessPanel readiness={readiness} readinessInput={input} />;
+  return <>
+    <ReadinessPanel readiness={readiness} readinessInput={input} />
+    <PacketCommandForm item={null} onRefresh={onRefresh} readiness={readiness} readinessInput={input} />
+  </>;
 }
 
 function RunStatePanels({
   runId,
+  onRefresh,
   selectedId
 }: {
   runId: string | null;
+  onRefresh: () => void;
   selectedId: string | null;
 }) {
+  const [fetchKey, setFetchKey] = useState(0);
+  const refresh = useCallback(() => {
+    startTransition(() => setFetchKey(key => key + 1));
+    onRefresh();
+  }, [onRefresh]);
   if (!runId) {
     return (
       <>
@@ -82,6 +100,7 @@ function RunStatePanels({
         <>
           <RunPanel runId={runId} runState={null} state="error" />
           <VerificationPanel state="error" verification={null} />
+          <Button onPress={refresh}>Retry run state</Button>
         </>
       }
       loadingFallback={
@@ -90,21 +109,23 @@ function RunStatePanels({
           <VerificationPanel state="loading" verification={null} />
         </>
       }
-      resetKey={`${selectedId ?? "none"}:run:${runId}`}
+      resetKey={`${selectedId ?? "none"}:run:${runId}:${fetchKey}`}
     >
-      <LoadedRunStatePanels runId={runId} />
+      <LoadedRunStatePanels fetchKey={fetchKey} onRefresh={refresh} runId={runId} />
     </AsyncBoundary>
   );
 }
 
-function LoadedRunStatePanels({ runId }: { runId: string }) {
-  const runState = useOperatorRunState(runId);
+function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number; onRefresh: () => void; runId: string }) {
+  const runState = useOperatorRunState(runId, fetchKey);
   const verification = verificationOutcomeFromRunState(runState);
 
   return (
     <>
       <RunPanel runId={runId} runState={runState} state="loaded" />
+      <RunCommandForm onRefresh={onRefresh} runState={runState} />
       <VerificationPanel state="loaded" verification={verification} />
+      <EvidenceCommandForm onRefresh={onRefresh} runState={runState} />
     </>
   );
 }

@@ -5,13 +5,15 @@ defmodule OfficeGraph.Projections.RunState do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph.EvidenceCandidate
+  alias OfficeGraph.WorkGraph.VerificationCheck
 
   require Ash.Query
 
   def operator_run_state(session_context, run_id) do
     with {:ok, summary} <- Runs.get_summary(session_context, run_id),
-         {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id) do
-      {:ok, build_run_state(session_context, summary, evidence_candidates)}
+         {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id),
+         {:ok, verification_checks} <- read_verification_checks(session_context, summary) do
+      {:ok, build_run_state(session_context, summary, evidence_candidates, verification_checks)}
     end
   end
 
@@ -39,8 +41,20 @@ defmodule OfficeGraph.Projections.RunState do
     |> Ash.read(authorize?: false)
   end
 
-  defp build_run_state(session_context, summary, evidence_candidates) do
+  defp read_verification_checks(session_context, summary) do
+    check_ids = Enum.map(summary.required_checks, & &1.verification_check_id)
+
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^check_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read(actor: session_context)
+  end
+
+  defp build_run_state(session_context, summary, evidence_candidates, verification_checks) do
     status = run_status(summary, evidence_candidates)
+    verification_checks_by_id = Map.new(verification_checks, &{&1.id, &1})
 
     command_affordances =
       run_command_affordances(session_context, status, summary, evidence_candidates)
@@ -73,6 +87,11 @@ defmodule OfficeGraph.Projections.RunState do
           %{
             id: required_check.id,
             verification_check_id: required_check.verification_check_id,
+            graph_item_id:
+              get_in(verification_checks_by_id, [
+                required_check.verification_check_id,
+                Access.key(:graph_item_id)
+              ]),
             state: required_check.state
           }
         end),
@@ -151,11 +170,7 @@ defmodule OfficeGraph.Projections.RunState do
          summary,
          _evidence_candidates
        ) do
-    if CommandAffordance.authorized?(session_context, :execution_observation_record) do
-      record_observation_affordance(summary)
-    else
-      [CommandAffordance.policy_restricted("record_execution_observation")]
-    end
+    record_observation_affordance(session_context, summary)
     |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
@@ -165,11 +180,8 @@ defmodule OfficeGraph.Projections.RunState do
          summary,
          _evidence_candidates
        ) do
-    if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
-      create_evidence_candidate_affordance(summary)
-    else
-      [CommandAffordance.policy_restricted("create_evidence_candidate")]
-    end
+    record_observation_affordance(session_context, summary)
+    |> Kernel.++(create_evidence_candidate_affordance(session_context, summary))
     |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
@@ -179,81 +191,136 @@ defmodule OfficeGraph.Projections.RunState do
          summary,
          evidence_candidates
        ) do
-    if CommandAffordance.authorized?(session_context, :evidence_accept) do
-      accept_evidence_affordance(summary, evidence_candidates)
-    else
-      [CommandAffordance.policy_restricted("accept_evidence")]
-    end
+    record_observation_affordance(session_context, summary)
+    |> Kernel.++(accept_evidence_affordance(session_context, summary, evidence_candidates))
     |> Kernel.++(waive_verification_check_affordance(session_context, summary))
   end
 
   defp run_command_affordances(_session_context, _status, _summary, _evidence_candidates), do: []
 
-  defp record_observation_affordance(summary) do
-    [
-      CommandAffordance.enabled(
-        "record_execution_observation",
-        "Record execution observations for this run.",
-        required_fields: CommandAffordance.observation_required_fields(),
-        input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
-        target_ids: run_target_ids(summary)
-      )
-    ]
+  defp record_observation_affordance(session_context, summary) do
+    case checks_needing_observations(summary) do
+      [] ->
+        []
+
+      check_ids ->
+        if CommandAffordance.authorized?(session_context, :execution_observation_record) do
+          [
+            CommandAffordance.enabled(
+              "record_execution_observation",
+              "Record execution observations for this run.",
+              required_fields: CommandAffordance.observation_required_fields(),
+              input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
+              target_ids:
+                [CommandAffordance.target_id("work_run", summary.run.id)] ++
+                  Enum.map(
+                    check_ids,
+                    &CommandAffordance.target_id("verification_check", &1)
+                  )
+            )
+          ]
+        else
+          [CommandAffordance.policy_restricted("record_execution_observation")]
+        end
+    end
   end
 
-  defp create_evidence_candidate_affordance(summary) do
-    [
-      CommandAffordance.enabled(
-        "create_evidence_candidate",
-        "Create an evidence candidate for missing verification evidence.",
-        required_fields: [
-          "work_run_id",
-          "verification_check_id",
-          "execution_observation_id",
-          "claim",
-          "source_kind",
-          "source_identity",
-          "freshness_state",
-          "trust_basis",
-          "sensitivity"
-        ],
-        input_defaults: candidate_input_defaults(summary),
-        target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
-      )
-    ]
+  defp create_evidence_candidate_affordance(session_context, summary) do
+    if candidate_eligible_observations(summary) == [] do
+      []
+    else
+      if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
+        [
+          CommandAffordance.enabled(
+            "create_evidence_candidate",
+            "Create an evidence candidate for missing verification evidence.",
+            required_fields: [
+              "work_run_id",
+              "verification_check_id",
+              "execution_observation_id",
+              "claim",
+              "source_kind",
+              "source_identity",
+              "freshness_state",
+              "trust_basis",
+              "sensitivity"
+            ],
+            input_defaults: candidate_input_defaults(summary),
+            target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
+          )
+        ]
+      else
+        [CommandAffordance.policy_restricted("create_evidence_candidate")]
+      end
+    end
   end
 
-  defp accept_evidence_affordance(summary, evidence_candidates) do
-    [
-      CommandAffordance.enabled(
-        "accept_evidence",
-        "Accept a candidate as evidence for a missing check.",
-        required_fields: [
-          "evidence_candidate_id",
-          "title",
-          "body",
-          "result",
-          "acceptance_policy_basis"
-        ],
-        target_ids:
-          run_target_ids(summary) ++ acceptable_candidate_target_ids(summary, evidence_candidates)
-      )
-    ]
+  defp accept_evidence_affordance(session_context, summary, evidence_candidates) do
+    if CommandAffordance.authorized?(session_context, :evidence_accept) do
+      [
+        CommandAffordance.enabled(
+          "accept_evidence",
+          "Accept a candidate as evidence for a missing check.",
+          required_fields: [
+            "evidence_candidate_id",
+            "title",
+            "body",
+            "result",
+            "acceptance_policy_basis"
+          ],
+          target_ids:
+            run_target_ids(summary) ++
+              acceptable_candidate_target_ids(summary, evidence_candidates)
+        )
+      ]
+    else
+      [CommandAffordance.policy_restricted("accept_evidence")]
+    end
   end
 
   defp candidate_input_defaults(summary) do
+    eligible_observations = candidate_eligible_observations(summary)
+
+    eligible_check_ids =
+      eligible_observations
+      |> Enum.map(& &1.verification_check_id)
+      |> MapSet.new()
+
     [
       CommandAffordance.input_default("work_run_id", summary.run.id),
       CommandAffordance.input_default(
         "verification_check_id",
-        Enum.map(summary.missing_evidence, & &1.verification_check_id)
+        summary.missing_evidence
+        |> Enum.map(& &1.verification_check_id)
+        |> Enum.filter(&MapSet.member?(eligible_check_ids, &1))
       ),
       CommandAffordance.input_default(
         "execution_observation_id",
-        Enum.map(summary.observations, & &1.id)
+        Enum.map(eligible_observations, & &1.id)
       ),
       CommandAffordance.input_default("sensitivity", "internal")
     ]
+  end
+
+  defp candidate_eligible_observations(summary) do
+    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
+
+    Enum.filter(summary.observations, fn observation ->
+      MapSet.member?(missing_check_ids, observation.verification_check_id) and
+        observation.normalized_status == "succeeded" and
+        Verification.acceptable_evidence_source?(observation)
+    end)
+  end
+
+  defp checks_needing_observations(summary) do
+    observed_check_ids =
+      summary
+      |> candidate_eligible_observations()
+      |> MapSet.new(& &1.verification_check_id)
+
+    summary.missing_evidence
+    |> Enum.map(& &1.verification_check_id)
+    |> Enum.reject(&MapSet.member?(observed_check_ids, &1))
   end
 
   defp waive_verification_check_affordance(session_context, summary) do

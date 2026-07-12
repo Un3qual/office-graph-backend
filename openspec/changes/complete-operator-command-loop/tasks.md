@@ -29,14 +29,14 @@
 
 ## 6. Operator Console Actions
 
-- [ ] 6.1 Add failing operator tests and a manual-intake form that submits through Relay, prevents duplicate pending submission, and refreshes the inbox.
-- [ ] 6.2 Add failing operator tests and proposal-apply plus packet-create actions driven only by enabled command affordances and current selected-item defaults.
-- [ ] 6.3 Add failing operator tests and run-start, observation, evidence candidate, evidence acceptance, and waiver actions that preserve still-valid workspace context on pending, validation, conflict, or authorization failure.
+- [x] 6.1 Add failing operator tests and a manual-intake form that submits through Relay, prevents duplicate pending submission, and refreshes the inbox.
+- [x] 6.2 Add failing operator tests and proposal-apply plus packet-create actions driven only by enabled command affordances and current selected-item defaults.
+- [x] 6.3 Add failing operator tests and run-start, observation, evidence candidate, evidence acceptance, and waiver actions that preserve still-valid workspace context on pending, validation, conflict, or authorization failure.
 
 ## 7. Packet Workspace Actions
 
-- [ ] 7.1 Add failing packet-route tests and packet creation/version forms with expected-current-version conflicts, immutable version history display, and authoritative refetch after mutation.
-- [ ] 7.2 Add failing packet-route tests and run-start action gated by current readiness and command affordance, linking the returned run state without adding global client workflow state.
+- [x] 7.1 Add failing packet-route tests and packet creation/version forms with expected-current-version conflicts, immutable version history display, and authoritative refetch after mutation.
+- [x] 7.2 Add failing packet-route tests and run-start action gated by current readiness and command affordance, linking the returned run state without adding global client workflow state.
 
 ## 8. Retire The One-Shot Workflow Path
 

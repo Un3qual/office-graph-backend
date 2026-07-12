@@ -55,6 +55,7 @@ type SafePayloadError = {
 };
 
 const conflictCodes = new Set([
+  "active_work_run",
   "idempotency_conflict",
   "invalid_proposed_change_set",
   "invalid_proposed_change_status",
@@ -76,11 +77,14 @@ export function useCommandMutation<
   TInput,
   TResult
 >(
-  config: CommandMutationConfig<TMutation, TInput, TResult>
+  config: CommandMutationConfig<TMutation, TInput, TResult>,
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
 ): CommandMutationController<TInput, TResult> {
   const environment = useRelayEnvironment();
   const activeRequest = useRef<Disposable | null>(null);
   const pending = useRef(false);
+  const authoritativeChange = useRef(onAuthoritativeChange);
+  authoritativeChange.current = onAuthoritativeChange;
   const [state, setState] = useState<CommandMutationState<TResult>>({ status: "idle" });
 
   const reset = useCallback(() => {
@@ -107,16 +111,22 @@ export function useCommandMutation<
           activeRequest.current = null;
 
           if (errors && errors.length > 0) {
-            setState(mapPayloadErrors(errors));
+            const nextState = mapPayloadErrors(errors);
+            setState(nextState);
+            if (nextState.status === "conflict") authoritativeChange.current?.();
             return;
           }
 
-          setState({ status: "success", ...config.mapSuccess(response) });
+          const success = config.mapSuccess(response);
+          setState({ status: "success", ...success });
+          authoritativeChange.current?.(success);
         },
         onError(error) {
           pending.current = false;
           activeRequest.current = null;
-          setState(mapCommandFailure(error));
+          const nextState = mapCommandFailure(error);
+          setState(nextState);
+          if (nextState.status === "conflict") authoritativeChange.current?.();
         }
       });
 

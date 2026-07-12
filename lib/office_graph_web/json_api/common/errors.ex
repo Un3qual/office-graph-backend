@@ -93,6 +93,15 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     )
   end
 
+  defp to_response({:active_work_run, packet_version_id, run_id}, _opts) do
+    response(
+      :conflict,
+      "active_work_run",
+      "The packet version already has an active work run.",
+      %{packet_version_id: packet_version_id, run_id: run_id}
+    )
+  end
+
   defp to_response({:stale_work_run_state, run_id, execution_state, verification_state}, _opts) do
     response(
       :conflict,

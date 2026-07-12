@@ -9,7 +9,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph.{GraphRelationship, ReviewFinding, Signal, Task, VerificationCheck}
-  alias OfficeGraph.WorkPackets.{WorkPacketRequiredCheck, WorkPacketSourceReference}
+
+  alias OfficeGraph.WorkPackets.{
+    WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
+    WorkPacketVersion
+  }
 
   require Ash.Query
 
@@ -27,6 +32,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   }
   @default_operator_inbox_limit 50
   @max_operator_inbox_limit 100
+
+  def manual_intake_affordance(session_context) do
+    affordance =
+      if CommandAffordance.authorized?(session_context, :manual_intake_submit) do
+        CommandAffordance.enabled(
+          "submit_manual_intake",
+          "Submit manual intake in the current workspace."
+        )
+      else
+        CommandAffordance.policy_restricted("submit_manual_intake")
+      end
+
+    {:ok, affordance}
+  end
 
   def operator_inbox(session_context, opts \\ []) do
     with {:ok, page} <- read_intake_rows_page(session_context, opts) do
@@ -225,11 +244,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          proposed_changes,
          applied_projection
        ) do
-    run_links = Map.get(applied_projection, :run_links, [])
+    workflow_links = Map.get(applied_projection, :workflow_links, [])
 
-    status = intake_status(event, proposed_changes, applied_projection.graph_links, run_links)
+    status =
+      intake_status(event, proposed_changes, applied_projection.graph_links, workflow_links)
+
     reason_codes = intake_reason_codes(event, proposed_changes)
-    graph_links = applied_projection.graph_links ++ run_links
+    graph_links = applied_projection.graph_links ++ workflow_links
 
     command_affordances =
       intake_command_affordances(
@@ -303,8 +324,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
            graph_links_by_operation_id(session_context, audit_records_by_operation_id),
          all_graph_links = flatten_map_values(graph_links_by_operation_id),
          {:ok, graph_relationships} <- graph_relationships_for_links(all_graph_links),
-         {:ok, run_links_by_operation_id} <-
-           run_links_by_operation_id(session_context, graph_links_by_operation_id) do
+         {:ok, workflow_links_by_operation_id} <-
+           workflow_links_by_operation_id(session_context, graph_links_by_operation_id) do
       projections =
         Map.new(operation_id_by_event_id, fn
           {event_id, nil} ->
@@ -327,7 +348,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
                    operation_id,
                    Map.get(revision_records_by_operation_id, operation_id, [])
                  ),
-               run_links: Map.get(run_links_by_operation_id, operation_id, [])
+               workflow_links: Map.get(workflow_links_by_operation_id, operation_id, [])
              }}
         end)
 
@@ -341,7 +362,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       graph_relationships: [],
       audit_trace: %{operation_id: nil, resource_count: 0, resources: []},
       revision_trace: %{operation_id: nil, resource_count: 0, resources: []},
-      run_links: []
+      workflow_links: []
     }
   end
 
@@ -487,7 +508,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     end)
   end
 
-  defp run_links_by_operation_id(session_context, graph_links_by_operation_id) do
+  defp workflow_links_by_operation_id(session_context, graph_links_by_operation_id) do
     graph_links = flatten_map_values(graph_links_by_operation_id)
 
     verification_check_ids =
@@ -509,20 +530,30 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          version_ids_by_operation_id =
            version_ids_by_operation_id(graph_links_by_operation_id, check_links, source_links),
          version_ids = version_ids_by_operation_id |> flatten_map_values() |> Enum.uniq(),
+         {:ok, packet_versions} <-
+           read_scoped_many(WorkPacketVersion, session_context, version_ids),
          {:ok, runs} <- read_runs_for_versions(session_context, version_ids) do
-      run_links_by_operation_id =
+      packet_versions = Enum.sort_by(packet_versions, & &1.version_number, :desc)
+
+      workflow_links_by_operation_id =
         Map.new(version_ids_by_operation_id, fn {operation_id, operation_version_ids} ->
           version_ids = MapSet.new(operation_version_ids)
+
+          packet_links =
+            packet_versions
+            |> Enum.filter(&MapSet.member?(version_ids, &1.id))
+            |> Enum.uniq_by(& &1.work_packet_id)
+            |> Enum.map(&packet_graph_link/1)
 
           run_links =
             runs
             |> Enum.filter(&MapSet.member?(version_ids, &1.work_packet_version_id))
             |> Enum.map(&run_graph_link/1)
 
-          {operation_id, run_links}
+          {operation_id, packet_links ++ run_links}
         end)
 
-      {:ok, run_links_by_operation_id}
+      {:ok, workflow_links_by_operation_id}
     end
   end
 
@@ -556,6 +587,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     check_version_ids_by_check_id =
       Enum.group_by(check_links, & &1.verification_check_id, & &1.work_packet_version_id)
 
+    check_ids_by_version_id =
+      Enum.group_by(check_links, & &1.work_packet_version_id, & &1.verification_check_id)
+
     source_version_ids_by_graph_item_id =
       Enum.group_by(source_links, & &1.graph_item_id, & &1.work_packet_version_id)
 
@@ -576,7 +610,17 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       source_version_ids =
         flat_map_lookup(source_version_ids_by_graph_item_id, source_graph_item_ids)
 
-      {operation_id, version_intersection(check_version_ids, source_version_ids)}
+      expected_check_ids = MapSet.new(verification_check_ids)
+
+      matching_version_ids =
+        check_version_ids
+        |> version_intersection(source_version_ids)
+        |> Enum.filter(fn version_id ->
+          version_check_ids = Map.get(check_ids_by_version_id, version_id, []) |> MapSet.new()
+          MapSet.equal?(version_check_ids, expected_check_ids)
+        end)
+
+      {operation_id, matching_version_ids}
     end)
   end
 
@@ -626,6 +670,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
+  defp packet_graph_link(packet_version) do
+    %{
+      type: "work_packet",
+      id: packet_version.work_packet_id,
+      graph_item_id: nil,
+      title: packet_version.title,
+      state: packet_version.lifecycle_state
+    }
+  end
+
   defp trace_summary(operation_id, trace_records) do
     %{
       operation_id: operation_id,
@@ -637,12 +691,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
-  defp intake_status(%{outcome: "duplicate"}, _proposed_changes, _graph_links, _run_links),
+  defp intake_status(%{outcome: "duplicate"}, _proposed_changes, _graph_links, _workflow_links),
     do: "not_actionable"
 
-  defp intake_status(_event, proposed_changes, graph_links, run_links) do
+  defp intake_status(_event, proposed_changes, graph_links, workflow_links) do
     status_summary = proposed_change_status_summary(proposed_changes)
-    linked_run_status = latest_linked_run_status(run_links)
+    linked_run_status = latest_linked_run_status(workflow_links)
 
     cond do
       not is_nil(linked_run_status) ->
@@ -660,12 +714,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       status_summary.all_applied and satisfied_verification_links?(graph_links) ->
         "verified"
 
+      status_summary.all_applied and linked_packet?(workflow_links) ->
+        "packet_created"
+
       status_summary.all_applied ->
         "ready_for_packet"
 
       true ->
         "not_actionable"
     end
+  end
+
+  defp linked_packet?(workflow_links) do
+    Enum.any?(workflow_links, &(&1.type == "work_packet"))
   end
 
   defp latest_linked_run_status(run_links) do

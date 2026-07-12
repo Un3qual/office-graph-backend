@@ -14,6 +14,7 @@ import type {
 import {
   commandMutationSuccess,
   useCommandMutation,
+  type CommandMutationSuccess,
   type CommandMutationConfig
 } from "../../relay/commandMutation";
 import {
@@ -22,17 +23,17 @@ import {
   PacketsStartWorkRunMutation
 } from "./commands";
 
-type CreateWorkPacketResult = Pick<
+export type CreateWorkPacketResult = Pick<
   CreateWorkPacketMutation["response"]["createWorkPacket"],
   "packet" | "packetVersion"
 >;
 
-type CreateWorkPacketVersionResult = Pick<
+export type CreateWorkPacketVersionResult = Pick<
   CreateWorkPacketVersionMutation["response"]["createWorkPacketVersion"],
   "packet" | "packetVersion"
 >;
 
-type StartWorkRunResult = Pick<
+export type StartWorkRunResult = Pick<
   StartWorkRunMutation["response"]["startWorkRun"],
   "requiredChecks" | "run"
 >;
@@ -89,30 +90,41 @@ export function usePacketCommand<
   TMutation extends MutationParameters,
   TInput,
   TResult
->(config: CommandMutationConfig<TMutation, TInput, TResult>) {
-  return useCommandMutation(config);
+>(
+  config: CommandMutationConfig<TMutation, TInput, TResult>,
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
+) {
+  return useCommandMutation(config, onAuthoritativeChange);
 }
 
-export function useCreateWorkPacketCommand() {
+export function useCreateWorkPacketCommand(
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<CreateWorkPacketResult>) => void
+) {
   return usePacketCommand<
     CreateWorkPacketMutation,
     CreateWorkPacketVariables["input"],
     CreateWorkPacketResult
-  >(createWorkPacketConfig);
+  >(createWorkPacketConfig, onAuthoritativeChange);
 }
 
-export function useCreateWorkPacketVersionCommand() {
+export function useCreateWorkPacketVersionCommand(
+  onAuthoritativeChange?: (
+    success?: CommandMutationSuccess<CreateWorkPacketVersionResult>
+  ) => void
+) {
   return usePacketCommand<
     CreateWorkPacketVersionMutation,
     CreateWorkPacketVersionVariables["input"],
     CreateWorkPacketVersionResult
-  >(createWorkPacketVersionConfig);
+  >(createWorkPacketVersionConfig, onAuthoritativeChange);
 }
 
-export function useStartWorkRunCommand() {
+export function useStartWorkRunCommand(
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<StartWorkRunResult>) => void
+) {
   return usePacketCommand<
     StartWorkRunMutation,
     StartWorkRunVariables["input"],
     StartWorkRunResult
-  >(startWorkRunConfig);
+  >(startWorkRunConfig, onAuthoritativeChange);
 }

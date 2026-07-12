@@ -322,15 +322,7 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp lock_packet!(session_context, packet_id) do
-    WorkPacket
-    |> Ash.Query.filter(
-      id == ^packet_id and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> Repo.rollback({:not_found, WorkPacket, packet_id})
+    case Operations.lock_scoped_target(WorkPacket, session_context, packet_id) do
       {:ok, packet} -> packet
       {:error, error} -> Repo.rollback(error)
     end

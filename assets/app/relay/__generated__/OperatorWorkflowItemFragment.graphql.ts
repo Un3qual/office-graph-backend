@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<32990a00161b7ec0cfcd1128ca30137f>>
+ * @generated SignedSource<<16c371382f4dbfe9bab5244039e31ed2>>
  * @lightSyntaxTransform
  */
 
@@ -28,6 +28,10 @@ export type OperatorWorkflowItemFragment$data = {
     readonly requiredFields: ReadonlyArray<string>;
     readonly safeExplanation: string;
     readonly state: string;
+    readonly targetIds: ReadonlyArray<{
+      readonly id: string;
+      readonly type: string;
+    }>;
   }>;
   readonly duplicateOfId: string | null | undefined;
   readonly graphLinks: ReadonlyArray<{
@@ -81,6 +85,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorWorkflowItemFragment"
 };
 
-(node as any).hash = "9ffb51eca96f21af09f2f3beedabfaab";
+(node as any).hash = "535c3e521437408be17d980e9a65e058";
 
 export default node;

@@ -48,9 +48,14 @@ function runMix(args) {
     maxBuffer: 20 * 1024 * 1024
   });
 
+  if (result.error) {
+    console.error(`Unable to run Mix: ${result.error.message}`);
+    process.exit(1);
+  }
+
   if (result.status !== 0) {
-    process.stdout.write(result.stdout);
-    process.stderr.write(result.stderr);
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
     process.exit(result.status ?? 1);
   }
 

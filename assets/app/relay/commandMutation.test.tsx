@@ -21,6 +21,7 @@ describe("command mutation failure mapping", () => {
   });
 
   it.each([
+    "active_work_run",
     "idempotency_conflict",
     "manual_intake_replay_conflict",
     "stale_packet_version",

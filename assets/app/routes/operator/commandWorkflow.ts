@@ -34,6 +34,7 @@ import type {
 import {
   commandMutationSuccess,
   useCommandMutation,
+  type CommandMutationSuccess,
   type CommandMutationConfig
 } from "../../relay/commandMutation";
 import {
@@ -223,70 +224,77 @@ export function useOperatorCommand<
   TMutation extends MutationParameters,
   TInput,
   TResult
->(config: CommandMutationConfig<TMutation, TInput, TResult>) {
-  return useCommandMutation(config);
+>(
+  config: CommandMutationConfig<TMutation, TInput, TResult>,
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
+) {
+  return useCommandMutation(config, onAuthoritativeChange);
 }
 
-export function useSubmitManualIntakeCommand() {
+export function useSubmitManualIntakeCommand(
+  onAuthoritativeChange?: (
+    success?: CommandMutationSuccess<SubmitManualIntakeResult>
+  ) => void
+) {
   return useOperatorCommand<
     SubmitManualIntakeMutation,
     SubmitManualIntakeVariables["input"],
     SubmitManualIntakeResult
-  >(submitManualIntakeConfig);
+  >(submitManualIntakeConfig, onAuthoritativeChange);
 }
 
-export function useApplyProposedChangesCommand() {
+export function useApplyProposedChangesCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     ApplyProposedChangesMutation,
     ApplyProposedChangesVariables["input"],
     ApplyProposedChangesResult
-  >(applyProposedChangesConfig);
+  >(applyProposedChangesConfig, onAuthoritativeChange);
 }
 
-export function useCreateWorkPacketCommand() {
+export function useCreateWorkPacketCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     CreateWorkPacketMutation,
     CreateWorkPacketVariables["input"],
     CreateWorkPacketResult
-  >(createWorkPacketConfig);
+  >(createWorkPacketConfig, onAuthoritativeChange);
 }
 
-export function useStartWorkRunCommand() {
+export function useStartWorkRunCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     StartWorkRunMutation,
     StartWorkRunVariables["input"],
     StartWorkRunResult
-  >(startWorkRunConfig);
+  >(startWorkRunConfig, onAuthoritativeChange);
 }
 
-export function useRecordExecutionObservationCommand() {
+export function useRecordExecutionObservationCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     RecordExecutionObservationMutation,
     RecordExecutionObservationVariables["input"],
     RecordExecutionObservationResult
-  >(recordExecutionObservationConfig);
+  >(recordExecutionObservationConfig, onAuthoritativeChange);
 }
 
-export function useCreateEvidenceCandidateCommand() {
+export function useCreateEvidenceCandidateCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     CreateEvidenceCandidateMutation,
     CreateEvidenceCandidateVariables["input"],
     CreateEvidenceCandidateResult
-  >(createEvidenceCandidateConfig);
+  >(createEvidenceCandidateConfig, onAuthoritativeChange);
 }
 
-export function useAcceptEvidenceCommand() {
+export function useAcceptEvidenceCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     AcceptEvidenceMutation,
     AcceptEvidenceVariables["input"],
     AcceptEvidenceResult
-  >(acceptEvidenceConfig);
+  >(acceptEvidenceConfig, onAuthoritativeChange);
 }
 
-export function useWaiveVerificationCheckCommand() {
+export function useWaiveVerificationCheckCommand(onAuthoritativeChange?: () => void) {
   return useOperatorCommand<
     WaiveVerificationCheckMutation,
     WaiveVerificationCheckVariables["input"],
     WaiveVerificationCheckResult
-  >(waiveVerificationCheckConfig);
+  >(waiveVerificationCheckConfig, onAuthoritativeChange);
 }

@@ -2,6 +2,10 @@ import { graphql } from "react-relay";
 
 export const OperatorWorkflowRouteQuery = graphql`
   query OperatorWorkflowRouteQuery($first: Int!, $after: String) {
+    operatorManualIntakeAffordance {
+      identity
+      state
+    }
     operatorWorkflowItems(first: $first, after: $after) {
       edges {
         cursor
@@ -57,6 +61,7 @@ export const OperatorWorkflowItemFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     operationWatermark
     sourceWatermark
@@ -102,6 +107,7 @@ export const OperatorPacketReadinessFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     blockerReasons
     sourceLinks {
@@ -139,6 +145,7 @@ export const OperatorRunStateFragment = graphql`
         value
         values
       }
+      targetIds { type id }
     }
     sourceWatermark
     packet {
@@ -159,6 +166,8 @@ export const OperatorRunStateFragment = graphql`
       verificationState
     }
     requiredChecks {
+      id
+      graphItemId
       verificationCheckId
       state
     }
