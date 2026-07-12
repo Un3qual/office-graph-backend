@@ -12,6 +12,14 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     end
   end
 
+  defmodule RaisingBroadcaster do
+    def broadcast(_invalidation), do: raise("pubsub unavailable")
+  end
+
+  defmodule ExitingBroadcaster do
+    def broadcast(_invalidation), do: exit(:pubsub_unavailable)
+  end
+
   test "authorized same-scope subscribers receive one bounded invalidation" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
@@ -120,6 +128,74 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     assert_received {:delivery_state_during_broadcast, "pending"}
 
     assert {:ok, %{delivery_state: "pending", dispatched_at: nil}} =
+             Ash.get(DomainEvent, event.id)
+  end
+
+  test "dispatch rejects an invalid event id without entering the retry path" do
+    assert {:error, {:terminal, :invalid_event_id}} = DurableDelivery.dispatch(:not_an_event_id)
+  end
+
+  for {broadcaster, failure_kind} <- [
+        {RaisingBroadcaster, "exceptions"},
+        {ExitingBroadcaster, "exits"}
+      ] do
+    test "dispatch classifies broadcaster #{failure_kind} and leaves the event pending" do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+      assert {:ok, event} =
+               DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+                 event_key: "test:crashed-invalidation:#{unquote(failure_kind)}",
+                 event_kind: "manual_intake.accepted",
+                 subject_kind: "normalized_intake_event",
+                 subject_id: Ecto.UUID.generate()
+               })
+
+      assert {:error, {:retryable, :event_dispatch_crashed}} =
+               DurableDelivery.dispatch(event.id, unquote(broadcaster))
+
+      assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
+               Ash.get(DomainEvent, event.id)
+    end
+  end
+
+  test "failure marking preserves an already dispatched event" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:dispatched-wins",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    assert :ok = DurableDelivery.dispatch(event.id)
+    assert :ok = DurableDelivery.mark_failed(event.id, "attempts_exhausted")
+
+    assert {:ok, %{delivery_state: "dispatched", failure_code: nil, failed_at: nil}} =
+             Ash.get(DomainEvent, event.id)
+  end
+
+  test "the dispatch worker rejects a mismatched job scope without changing the event" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:mismatched-job-scope",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    [job] = jobs_for_event(event.id)
+    mismatched_job = put_in(job.args["workspace_id"], Ecto.UUID.generate())
+
+    assert {:cancel, "event_scope_mismatch"} = DispatchEventWorker.perform(mismatched_job)
+
+    assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
              Ash.get(DomainEvent, event.id)
   end
 

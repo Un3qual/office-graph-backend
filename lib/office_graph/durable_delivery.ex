@@ -92,31 +92,45 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  def dispatch(event_id), do: dispatch(event_id, Subscriptions)
+  def dispatch(event_id) when is_binary(event_id),
+    do: dispatch_safely(event_id, nil, Subscriptions)
+
+  def dispatch(_event_id), do: {:error, {:terminal, :invalid_event_id}}
 
   @doc false
   def dispatch(event_id, broadcaster) when is_binary(event_id) and is_atom(broadcaster) do
-    case transaction(fn -> dispatch_locked(event_id, broadcaster) end) do
-      {:ok, result} -> result
-      {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
-    end
+    dispatch_safely(event_id, nil, broadcaster)
   end
+
+  def dispatch(
+        event_id,
+        %{organization_id: organization_id, workspace_id: workspace_id} = scope
+      )
+      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id),
+      do: dispatch_safely(event_id, scope, Subscriptions)
 
   def dispatch(_event_id, _broadcaster), do: {:error, {:terminal, :invalid_event_id}}
 
-  defp dispatch_locked(event_id, broadcaster) do
-    case read_event_for_dispatch(event_id) do
+  defp dispatch_safely(event_id, expected_scope, broadcaster) do
+    case transaction(fn -> dispatch_locked(event_id, expected_scope, broadcaster) end) do
+      {:ok, result} -> result
+      {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
+    end
+  catch
+    _kind, _reason -> {:error, {:retryable, :event_dispatch_crashed}}
+  end
+
+  defp dispatch_locked(event_id, expected_scope, broadcaster) do
+    case read_event_for_transition(event_id) do
       {:ok, nil} ->
         {:error, {:terminal, :event_not_found}}
 
-      {:ok, %{delivery_state: "pending"} = event} ->
-        dispatch_pending(event, broadcaster)
-
-      {:ok, %{delivery_state: "dispatched"}} ->
-        :ok
-
-      {:ok, %{delivery_state: "failed", failure_code: code}} ->
-        {:error, {:terminal, code || "delivery_failed"}}
+      {:ok, event} ->
+        if event_in_scope?(event, expected_scope) do
+          dispatch_event(event, broadcaster)
+        else
+          {:error, {:terminal, :event_scope_mismatch}}
+        end
 
       {:error, _error} ->
         {:error, {:retryable, :event_read_failed}}
@@ -124,23 +138,44 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   def mark_failed(event_id, failure_code) do
+    mark_failed(event_id, nil, failure_code)
+  end
+
+  def mark_failed(event_id, expected_scope, failure_code) do
     failure_code =
       OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
 
-    with {:ok, event} <- Ash.get(DomainEvent, event_id),
-         {:ok, _failed} <-
-           Ash.update(
-             event,
-             %{
-               delivery_state: "failed",
-               failure_code: failure_code,
-               failed_at: DateTime.utc_now()
-             },
-             action: :mark_failed
-           ) do
-      :ok
-    else
-      _other -> :ok
+    case transaction(fn -> mark_failed_locked(event_id, expected_scope, failure_code) end) do
+      {:ok, _result} -> :ok
+      {:error, _error} -> :ok
+    end
+  end
+
+  defp mark_failed_locked(event_id, expected_scope, failure_code) do
+    case read_event_for_transition(event_id) do
+      {:ok, %{delivery_state: "pending"} = event} ->
+        if event_in_scope?(event, expected_scope) do
+          mark_event_failed(event, failure_code)
+        else
+          :ok
+        end
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp mark_event_failed(event, failure_code) do
+    event
+    |> Ash.Changeset.for_update(:mark_failed, %{
+      delivery_state: "failed",
+      failure_code: failure_code,
+      failed_at: DateTime.utc_now()
+    })
+    |> Ash.update(return_notifications?: true)
+    |> case do
+      {:ok, _failed, _notifications} -> :ok
+      {:error, _error} -> :ok
     end
   end
 
@@ -227,12 +262,27 @@ defmodule OfficeGraph.DurableDelivery do
     |> Map.new(&{&1.id, &1.failure_code})
   end
 
-  defp read_event_for_dispatch(event_id) do
+  defp read_event_for_transition(event_id) do
     DomainEvent
     |> Ash.Query.filter(id == ^event_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one()
   end
+
+  defp event_in_scope?(_event, nil), do: true
+
+  defp event_in_scope?(event, expected_scope) do
+    event.organization_id == expected_scope.organization_id and
+      event.workspace_id == expected_scope.workspace_id
+  end
+
+  defp dispatch_event(%{delivery_state: "pending"} = event, broadcaster),
+    do: dispatch_pending(event, broadcaster)
+
+  defp dispatch_event(%{delivery_state: "dispatched"}, _broadcaster), do: :ok
+
+  defp dispatch_event(%{delivery_state: "failed", failure_code: code}, _broadcaster),
+    do: {:error, {:terminal, code || "delivery_failed"}}
 
   defp dispatch_pending(event, broadcaster) do
     invalidation = ProjectionInvalidation.from_event(event)

@@ -50,6 +50,12 @@ without exposing internal exceptions as product data.
 - **THEN** Oban MUST retain the job for bounded retry and telemetry MUST record
   the failed attempt
 
+#### Scenario: Dispatch terminates before returning a classified result
+
+- **WHEN** event dispatch raises, exits, or throws before returning a result
+- **THEN** Office Graph MUST convert the termination into a stable retryable
+  failure so exhausted delivery attempts still record a terminal event state
+
 #### Scenario: Worker failure is terminal
 
 - **WHEN** a worker returns a classified terminal failure or exhausts its
@@ -57,6 +63,18 @@ without exposing internal exceptions as product data.
 - **THEN** the job MUST stop retrying and a scoped operator read MUST expose its
   stable state, safe reason, attempts, queue, worker, and timestamps throughout
   the configured operator-history retention window
+
+#### Scenario: A delivery job carries the wrong scope
+
+- **WHEN** a delivery job's organization or workspace does not match its event
+- **THEN** the worker MUST fail closed without broadcasting or changing the
+  event
+
+#### Scenario: Terminal failure races with successful dispatch
+
+- **WHEN** terminal failure handling overlaps a successful event dispatch
+- **THEN** the event transition MUST be serialized and a dispatched event MUST
+  NOT be overwritten as failed
 
 #### Scenario: Terminal history is pruned
 
