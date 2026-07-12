@@ -146,10 +146,9 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   end
 
   defp add_lookup_error(changeset, field, error) do
-    Logger.warning("same-scope reference lookup failed",
-      field: field,
-      error: inspect(error)
-    )
+    Logger.warning(fn ->
+      "same-scope reference lookup failed field=#{inspect(field)} error=#{inspect(error)}"
+    end)
 
     Ash.Changeset.add_error(
       changeset,

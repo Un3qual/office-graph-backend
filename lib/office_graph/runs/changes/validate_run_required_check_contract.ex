@@ -197,9 +197,8 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   end
 
   defp log_lookup_failure(field, error) do
-    Logger.warning("run required-check reference lookup failed",
-      field: field,
-      error: inspect(error)
-    )
+    Logger.warning(fn ->
+      "run required-check reference lookup failed field=#{inspect(field)} error=#{inspect(error)}"
+    end)
   end
 end
