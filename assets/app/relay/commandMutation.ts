@@ -56,6 +56,7 @@ type SafePayloadError = {
 
 const conflictCodes = new Set([
   "active_work_run",
+  "evidence_candidate_already_accepted",
   "idempotency_conflict",
   "invalid_proposed_change_set",
   "invalid_proposed_change_status",
@@ -63,7 +64,8 @@ const conflictCodes = new Set([
   "manual_intake_replay_conflict",
   "packet_version_not_ready",
   "stale_packet_version",
-  "stale_run_state"
+  "stale_run_state",
+  "verification_result_slot_conflict"
 ]);
 
 const unknownFailure = {

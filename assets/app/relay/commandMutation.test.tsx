@@ -29,7 +29,9 @@ describe("command mutation failure mapping", () => {
     "invalid_proposed_change_status",
     "invalid_proposed_change_set",
     "invalid_verification_check_status",
-    "packet_version_not_ready"
+    "packet_version_not_ready",
+    "evidence_candidate_already_accepted",
+    "verification_result_slot_conflict"
   ])("maps %s as a conflict that requires an explicit retry", code => {
     expect(
       mapCommandFailure(graphQLError([error("Refresh before retrying.", code)]))

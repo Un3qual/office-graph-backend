@@ -9,8 +9,9 @@ import {
   type GraphQLResponse,
   type Variables
 } from "relay-runtime";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CommandMutationController } from "../../relay/commandMutation";
+import { GraphQLResponseError } from "../../relay/fetchGraphQL";
 import {
   useAcceptEvidenceCommand,
   useApplyProposedChangesCommand,
@@ -261,6 +262,51 @@ describe("operator command workflow", () => {
       result
     );
   });
+
+  it("refreshes authoritative state when an evidence result slot was completed concurrently", async () => {
+    const request = deferredRequest();
+    const environment = relayEnvironment(request.fetch);
+    const authoritativeRefresh = vi.fn();
+
+    const { result } = renderHook(
+      () => useAcceptEvidenceCommand(authoritativeRefresh),
+      { wrapper: relayWrapper(environment) }
+    );
+
+    act(() => {
+      result.current.submit({
+        acceptancePolicyBasis: "operator_review",
+        body: "Evidence body",
+        evidenceCandidateId: "candidate-1",
+        idempotencyKey: "accept-conflict",
+        result: "passed",
+        title: "Accepted evidence"
+      });
+    });
+
+    act(() => {
+      const source = {
+        errors: [
+          {
+            message: "The verification result slot was already completed.",
+            extensions: { code: "verification_result_slot_conflict" }
+          }
+        ]
+      };
+
+      request.reject(
+        new GraphQLResponseError(
+          source.errors[0].message,
+          source,
+          200,
+          "OperatorAcceptEvidenceMutation"
+        )
+      );
+    });
+
+    await waitFor(() => expect(result.current.state.status).toBe("conflict"));
+    expect(authoritativeRefresh).toHaveBeenCalledOnce();
+  });
 });
 
 async function expectCommandSuccess<TInput, TResult>(
@@ -308,6 +354,7 @@ async function expectCommandSuccess<TInput, TResult>(
 
 function deferredRequest() {
   let resolveResponse: (response: GraphQLResponse) => void = () => undefined;
+  let rejectResponse: (error: Error) => void = () => undefined;
   let name: string | null = null;
   let variables: Variables | null = null;
 
@@ -315,8 +362,9 @@ function deferredRequest() {
     fetch(request: { name: string }, nextVariables: Variables) {
       name = request.name;
       variables = nextVariables;
-      return new Promise<GraphQLResponse>(resolve => {
+      return new Promise<GraphQLResponse>((resolve, reject) => {
         resolveResponse = resolve;
+        rejectResponse = reject;
       });
     },
     get name() {
@@ -327,6 +375,9 @@ function deferredRequest() {
     },
     resolve(response: GraphQLResponse) {
       resolveResponse(response);
+    },
+    reject(error: Error) {
+      rejectResponse(error);
     }
   };
 }
