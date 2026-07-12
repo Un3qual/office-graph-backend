@@ -154,6 +154,47 @@ export const OperatorRunStateFragment = graphql`
       }
       targetIds { type id }
     }
+    commandOptions {
+      observation {
+        key
+        label
+        runId
+        verificationCheckId
+        sourceGraphItemId
+        observationSourceKind
+        observationSourceIdentity
+        freshnessState
+        trustBasis
+      }
+      evidenceCandidate {
+        key
+        label
+        workRunId
+        verificationCheckId
+        executionObservationId
+        sourceKind
+        sourceIdentity
+        freshnessState
+        trustBasis
+        sensitivity
+      }
+      evidenceAcceptance {
+        key
+        label
+        evidenceCandidateId
+        result
+        acceptancePolicyBasis
+      }
+      waiver {
+        key
+        label
+        runId
+        runRequiredCheckId
+        expectedExecutionState
+        expectedVerificationState
+        policyBasis
+      }
+    }
     sourceWatermark
     packet {
       id

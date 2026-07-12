@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0901ffcd5d01a6570fcb8d4ede4114ec>>
+ * @generated SignedSource<<0dfd3037bfdaa4c3e060b65df3229eae>>
  * @lightSyntaxTransform
  */
 
@@ -28,6 +28,47 @@ export type OperatorRunStateFragment$data = {
       readonly type: string;
     }>;
   }>;
+  readonly commandOptions: {
+    readonly evidenceAcceptance: ReadonlyArray<{
+      readonly acceptancePolicyBasis: string;
+      readonly evidenceCandidateId: string;
+      readonly key: string;
+      readonly label: string;
+      readonly result: string;
+    }>;
+    readonly evidenceCandidate: ReadonlyArray<{
+      readonly executionObservationId: string;
+      readonly freshnessState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly sensitivity: string;
+      readonly sourceIdentity: string;
+      readonly sourceKind: string;
+      readonly trustBasis: string;
+      readonly verificationCheckId: string;
+      readonly workRunId: string;
+    }>;
+    readonly observation: ReadonlyArray<{
+      readonly freshnessState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly observationSourceIdentity: string;
+      readonly observationSourceKind: string;
+      readonly runId: string;
+      readonly sourceGraphItemId: string;
+      readonly trustBasis: string;
+      readonly verificationCheckId: string;
+    }>;
+    readonly waiver: ReadonlyArray<{
+      readonly expectedExecutionState: string;
+      readonly expectedVerificationState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly policyBasis: string;
+      readonly runId: string;
+      readonly runRequiredCheckId: string;
+    }>;
+  };
   readonly evidenceCandidates: ReadonlyArray<{
     readonly claim: string;
     readonly executionObservationId: string | null | undefined;
@@ -109,6 +150,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "0d19e6b73fe4c73735a088fa95e9ad78";
+(node as any).hash = "96d6248e3167326cafd46f3faa55b1d1";
 
 export default node;

@@ -64,6 +64,7 @@ defmodule OfficeGraph.Projections.RunState do
       status: status,
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
+      command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
       source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
         id: summary.packet.id,
@@ -135,6 +136,127 @@ defmodule OfficeGraph.Projections.RunState do
         end),
       missing_evidence: Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
     }
+  end
+
+  defp command_options(summary, evidence_candidates, verification_checks_by_id) do
+    %{
+      observation: observation_options(summary, verification_checks_by_id),
+      evidence_candidate: evidence_candidate_options(summary, verification_checks_by_id),
+      evidence_acceptance:
+        evidence_acceptance_options(summary, evidence_candidates, verification_checks_by_id),
+      waiver: waiver_options(summary, verification_checks_by_id)
+    }
+  end
+
+  defp observation_options(summary, verification_checks_by_id) do
+    check_ids = MapSet.new(checks_needing_observations(summary))
+
+    summary.required_checks
+    |> Enum.filter(&MapSet.member?(check_ids, &1.verification_check_id))
+    |> Enum.flat_map(fn required_check ->
+      case Map.get(verification_checks_by_id, required_check.verification_check_id) do
+        %{id: check_id, graph_item_id: graph_item_id, title: title}
+        when is_binary(graph_item_id) and is_binary(title) ->
+          [
+            %{
+              key: required_check.id,
+              label: title,
+              run_id: summary.run.id,
+              verification_check_id: check_id,
+              source_graph_item_id: graph_item_id,
+              observation_source_kind: "human",
+              observation_source_identity: "operator-console",
+              freshness_state: "fresh",
+              trust_basis: "owner_attested"
+            }
+          ]
+
+        _missing_or_redacted ->
+          []
+      end
+    end)
+  end
+
+  defp evidence_candidate_options(summary, verification_checks_by_id) do
+    summary
+    |> candidate_eligible_observations()
+    |> Enum.flat_map(fn observation ->
+      case Map.get(verification_checks_by_id, observation.verification_check_id) do
+        %{id: check_id, title: title} when is_binary(title) ->
+          [
+            %{
+              key: observation.id,
+              label: title,
+              work_run_id: summary.run.id,
+              verification_check_id: check_id,
+              execution_observation_id: observation.id,
+              source_kind: observation.source_kind,
+              source_identity: observation.source_identity,
+              freshness_state: observation.freshness_state,
+              trust_basis: observation.trust_basis,
+              sensitivity: "internal"
+            }
+          ]
+
+        _missing_or_redacted ->
+          []
+      end
+    end)
+    |> Enum.filter(&complete_string_option?/1)
+  end
+
+  defp evidence_acceptance_options(summary, evidence_candidates, verification_checks_by_id) do
+    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
+
+    evidence_candidates
+    |> Enum.filter(&acceptable_pending_candidate?(&1, missing_check_ids))
+    |> Enum.flat_map(fn candidate ->
+      case Map.get(verification_checks_by_id, candidate.verification_check_id) do
+        %{title: title} when is_binary(title) ->
+          [
+            %{
+              key: candidate.id,
+              label: title,
+              evidence_candidate_id: candidate.id,
+              result: "passed",
+              acceptance_policy_basis: "owner_acceptance"
+            }
+          ]
+
+        _missing_or_redacted ->
+          []
+      end
+    end)
+    |> Enum.filter(&complete_string_option?/1)
+  end
+
+  defp waiver_options(summary, verification_checks_by_id) do
+    summary
+    |> pending_required_checks()
+    |> Enum.flat_map(fn required_check ->
+      case Map.get(verification_checks_by_id, required_check.verification_check_id) do
+        %{title: title} when is_binary(title) ->
+          [
+            %{
+              key: required_check.id,
+              label: title,
+              run_id: summary.run.id,
+              run_required_check_id: required_check.id,
+              expected_execution_state: summary.run.execution_state,
+              expected_verification_state: summary.run.verification_state,
+              policy_basis: "owner_exception"
+            }
+          ]
+
+        _missing_or_redacted ->
+          []
+      end
+    end)
+    |> Enum.filter(&complete_string_option?/1)
+  end
+
+  defp complete_string_option?(option) do
+    Enum.all?(option, fn {_key, value} -> is_binary(value) and String.trim(value) != "" end)
   end
 
   defp run_status(summary, _evidence_candidates)

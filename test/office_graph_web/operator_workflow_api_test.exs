@@ -559,6 +559,95 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert result["targetGraphItemId"] == verification_check.graph_item_id
   end
 
+  test "run state projects complete typed options for each stable command choice", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, run_result} =
+      OperatorCommandFixtures.create_ready_run(
+        bootstrap.session,
+        [first_check, second_check],
+        %{
+          title: "Multi-check option packet",
+          objective: "Project complete command options.",
+          context_summary: "Two checks prove option identity stays paired.",
+          requirements: "Do not join command inputs in the browser.",
+          success_criteria: "Every option is complete.",
+          autonomy_posture: "human_supervised"
+        },
+        %{
+          source_surface: "operator_option_projection_test",
+          reason: "Exercise typed option projection.",
+          authority_posture: "human_supervised"
+        },
+        attach_packet_version?: true
+      )
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, first_check, key: "graphql-options")
+
+    {:ok, candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        first_check,
+        observation_result.observation,
+        key: "graphql-options"
+      )
+
+    options =
+      graphql(
+        conn,
+        """
+        query RunOptions($id: ID!) {
+          operatorRunState(id: $id) {
+            commandOptions {
+              observation {
+                key label runId verificationCheckId sourceGraphItemId
+                observationSourceKind observationSourceIdentity freshnessState trustBasis
+              }
+              evidenceCandidate {
+                key label workRunId verificationCheckId executionObservationId
+                sourceKind sourceIdentity freshnessState trustBasis sensitivity
+              }
+              evidenceAcceptance {
+                key label evidenceCandidateId result acceptancePolicyBasis
+              }
+              waiver {
+                key label runId runRequiredCheckId expectedExecutionState
+                expectedVerificationState policyBasis
+              }
+            }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunState"
+      )["commandOptions"]
+
+    assert Enum.map(options["observation"], & &1["verificationCheckId"]) == [second_check.id]
+    assert [observation_option] = options["observation"]
+    assert observation_option["sourceGraphItemId"] == second_check.graph_item_id
+    assert observation_option["observationSourceKind"] == "human"
+    assert observation_option["observationSourceIdentity"] == "operator-console"
+    assert observation_option["freshnessState"] == "fresh"
+    assert observation_option["trustBasis"] == "owner_attested"
+
+    assert [candidate_option] = options["evidenceCandidate"]
+    assert candidate_option["verificationCheckId"] == first_check.id
+    assert candidate_option["executionObservationId"] == observation_result.observation.id
+    assert candidate_option["sourceIdentity"] == observation_result.observation.source_identity
+    assert candidate_option["sensitivity"] == "internal"
+
+    assert [%{"evidenceCandidateId" => candidate_id, "result" => "passed"} = accept_option] =
+             options["evidenceAcceptance"]
+
+    assert candidate_id == candidate.id
+    assert accept_option["acceptancePolicyBasis"] == "owner_acceptance"
+    assert Enum.all?(options["waiver"], &(&1["policyBasis"] == "owner_exception"))
+  end
+
   test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

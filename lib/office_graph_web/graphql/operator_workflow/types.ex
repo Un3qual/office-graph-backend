@@ -253,11 +253,67 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :reason, non_null(:string)
   end
 
+  object :operator_observation_command_option do
+    field :key, non_null(:id)
+    field :label, non_null(:string)
+    field :run_id, non_null(:id)
+    field :verification_check_id, non_null(:id)
+    field :source_graph_item_id, non_null(:id)
+    field :observation_source_kind, non_null(:string)
+    field :observation_source_identity, non_null(:string)
+    field :freshness_state, non_null(:string)
+    field :trust_basis, non_null(:string)
+  end
+
+  object :operator_evidence_candidate_command_option do
+    field :key, non_null(:id)
+    field :label, non_null(:string)
+    field :work_run_id, non_null(:id)
+    field :verification_check_id, non_null(:id)
+    field :execution_observation_id, non_null(:id)
+    field :source_kind, non_null(:string)
+    field :source_identity, non_null(:string)
+    field :freshness_state, non_null(:string)
+    field :trust_basis, non_null(:string)
+    field :sensitivity, non_null(:string)
+  end
+
+  object :operator_evidence_acceptance_command_option do
+    field :key, non_null(:id)
+    field :label, non_null(:string)
+    field :evidence_candidate_id, non_null(:id)
+    field :result, non_null(:string)
+    field :acceptance_policy_basis, non_null(:string)
+  end
+
+  object :operator_waiver_command_option do
+    field :key, non_null(:id)
+    field :label, non_null(:string)
+    field :run_id, non_null(:id)
+    field :run_required_check_id, non_null(:id)
+    field :expected_execution_state, non_null(:string)
+    field :expected_verification_state, non_null(:string)
+    field :policy_basis, non_null(:string)
+  end
+
+  object :operator_run_command_options do
+    field :observation, non_null(list_of(non_null(:operator_observation_command_option)))
+
+    field :evidence_candidate,
+          non_null(list_of(non_null(:operator_evidence_candidate_command_option)))
+
+    field :evidence_acceptance,
+          non_null(list_of(non_null(:operator_evidence_acceptance_command_option)))
+
+    field :waiver, non_null(list_of(non_null(:operator_waiver_command_option)))
+  end
+
   object :operator_run_state do
     field :type, non_null(:string)
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
+    field :command_options, non_null(:operator_run_command_options)
     field :source_watermark, :id
     field :packet, non_null(:operator_packet_ref)
     field :packet_version, non_null(:operator_packet_version_ref)

@@ -1368,11 +1368,62 @@ type OperatorMissingEvidence {
   reason: String!
 }
 
+type OperatorObservationCommandOption {
+  key: ID!
+  label: String!
+  runId: ID!
+  verificationCheckId: ID!
+  sourceGraphItemId: ID!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+}
+
+type OperatorEvidenceCandidateCommandOption {
+  key: ID!
+  label: String!
+  workRunId: ID!
+  verificationCheckId: ID!
+  executionObservationId: ID!
+  sourceKind: String!
+  sourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  sensitivity: String!
+}
+
+type OperatorEvidenceAcceptanceCommandOption {
+  key: ID!
+  label: String!
+  evidenceCandidateId: ID!
+  result: String!
+  acceptancePolicyBasis: String!
+}
+
+type OperatorWaiverCommandOption {
+  key: ID!
+  label: String!
+  runId: ID!
+  runRequiredCheckId: ID!
+  expectedExecutionState: String!
+  expectedVerificationState: String!
+  policyBasis: String!
+}
+
+type OperatorRunCommandOptions {
+  observation: [OperatorObservationCommandOption!]!
+  evidenceCandidate: [OperatorEvidenceCandidateCommandOption!]!
+  evidenceAcceptance: [OperatorEvidenceAcceptanceCommandOption!]!
+  waiver: [OperatorWaiverCommandOption!]!
+}
+
 type OperatorRunState {
   type: String!
   status: String!
   allowedNextActions: [String!]!
   commandAffordances: [OperatorCommandAffordance!]!
+  commandOptions: OperatorRunCommandOptions!
   sourceWatermark: ID
   packet: OperatorPacketRef!
   packetVersion: OperatorPacketVersionRef!

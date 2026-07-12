@@ -1439,6 +1439,104 @@ describe("operator route", () => {
       }));
   });
 
+  it("uses complete typed options when parallel run collections are redacted", async () => {
+    const runState = operatorRunState({
+      requiredChecks: [],
+      observations: [],
+      commandAffordances: [
+        enabledCommandAffordance("record_execution_observation"),
+        enabledCommandAffordance("create_evidence_candidate")
+      ],
+      commandOptions: {
+        observation: [
+          observationCommandOption({
+            key: "required_2",
+            label: "Payroll import check",
+            verificationCheckId: "check_2",
+            sourceGraphItemId: "graph_2"
+          })
+        ],
+        evidenceCandidate: [
+          evidenceCandidateCommandOption({
+            key: "observation_2",
+            label: "Payroll import evidence",
+            verificationCheckId: "check_2",
+            executionObservationId: "observation_2",
+            sourceIdentity: "manual:approved-source"
+          })
+        ],
+        evidenceAcceptance: [],
+        waiver: []
+      }
+    });
+    const network = operatorCommandNetwork(runState);
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("option", { name: "Payroll import check" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Observation outcome"), {
+      target: { value: "failed" }
+    });
+    fireEvent.change(screen.getByLabelText("Observation rationale"), {
+      target: { value: "The approved option failed." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record execution observation" }));
+
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation")).toMatchObject({
+        input: {
+          runId: "run_1",
+          verificationCheckId: "check_2",
+          sourceGraphItemId: "graph_2",
+          observationSourceKind: "human",
+          observationSourceIdentity: "operator-console",
+          freshnessState: "fresh",
+          trustBasis: "owner_attested"
+        }
+      })
+    );
+
+    expect(screen.getByRole("option", { name: "Payroll import evidence" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Evidence claim"), {
+      target: { value: "Approved evidence option." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create evidence candidate" }));
+
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation")).toMatchObject({
+        input: {
+          workRunId: "run_1",
+          verificationCheckId: "check_2",
+          executionObservationId: "observation_2",
+          sourceKind: "human",
+          sourceIdentity: "manual:approved-source",
+          freshnessState: "fresh",
+          trustBasis: "owner_attested",
+          sensitivity: "internal"
+        }
+      })
+    );
+  });
+
+  it("disables commands whose projected typed option is malformed", async () => {
+    const runState = operatorRunState({
+      commandAffordances: [enabledCommandAffordance("record_execution_observation")],
+      commandOptions: {
+        observation: [observationCommandOption({ sourceGraphItemId: "" })],
+        evidenceCandidate: [],
+        evidenceAcceptance: [],
+        waiver: []
+      }
+    });
+
+    renderWithRelay(<OperatorRoute />, operatorCommandNetwork(runState));
+
+    fireEvent.change(await screen.findByLabelText("Observation rationale"), {
+      target: { value: "Malformed projected option must stay disabled." }
+    });
+    expect(screen.getByRole("button", { name: "Record execution observation" })).toBeDisabled();
+  });
+
   it("does not synthesize run start from an inbox-only affordance", async () => {
     const workflowItem = operatorWorkflowItem({
       commandAffordances: [
@@ -1786,6 +1884,30 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         decisionLinks: []
       }
     ],
+    commandOptions: {
+      observation: [observationCommandOption()],
+      evidenceCandidate: [evidenceCandidateCommandOption()],
+      evidenceAcceptance: [
+        {
+          key: "candidate_1",
+          label: "Run console verification",
+          evidenceCandidateId: "candidate_1",
+          result: "passed",
+          acceptancePolicyBasis: "owner_acceptance"
+        }
+      ],
+      waiver: [
+        {
+          key: "required_1",
+          label: "Run console verification",
+          runId: "run_1",
+          runRequiredCheckId: "required_1",
+          expectedExecutionState: "completed",
+          expectedVerificationState: "pending",
+          policyBasis: "owner_exception"
+        }
+      ]
+    },
     sourceWatermark: "run_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
     packetVersion: {
@@ -1846,6 +1968,39 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
   };
 }
 
+function observationCommandOption(overrides: Partial<ObservationCommandOptionPayload> = {}) {
+  return {
+    key: "required_1",
+    label: "Run console verification",
+    runId: "run_1",
+    verificationCheckId: "check_1",
+    sourceGraphItemId: "graph_1",
+    observationSourceKind: "human",
+    observationSourceIdentity: "operator-console",
+    freshnessState: "fresh",
+    trustBasis: "owner_attested",
+    ...overrides
+  };
+}
+
+function evidenceCandidateCommandOption(
+  overrides: Partial<EvidenceCandidateCommandOptionPayload> = {}
+) {
+  return {
+    key: "observation_1",
+    label: "Run console verification",
+    workRunId: "run_1",
+    verificationCheckId: "check_1",
+    executionObservationId: "observation_1",
+    sourceKind: "human",
+    sourceIdentity: "manual:operator-console",
+    freshnessState: "fresh",
+    trustBasis: "owner_attested",
+    sensitivity: "internal",
+    ...overrides
+  };
+}
+
 type OperatorWorkflowItemPayload = {
   id: string;
   status: string;
@@ -1884,7 +2039,68 @@ type OperatorPacketReadinessPayload = {
 type OperatorRunStatePayload = {
   allowedNextActions: string[];
   commandAffordances: CommandAffordancePayload[];
+  commandOptions: {
+    observation: ObservationCommandOptionPayload[];
+    evidenceCandidate: EvidenceCandidateCommandOptionPayload[];
+    evidenceAcceptance: Array<{
+      key: string;
+      label: string;
+      evidenceCandidateId: string;
+      result: string;
+      acceptancePolicyBasis: string;
+    }>;
+    waiver: Array<{
+      key: string;
+      label: string;
+      runId: string;
+      runRequiredCheckId: string;
+      expectedExecutionState: string;
+      expectedVerificationState: string;
+      policyBasis: string;
+    }>;
+  };
+  requiredChecks: Array<{
+    id: string;
+    graphItemId: string | null;
+    verificationCheckId: string | null;
+    state: string;
+  }>;
+  observations: Array<{
+    id: string;
+    verificationCheckId: string | null;
+    graphItemId: string | null;
+    normalizedStatus: string;
+    freshnessState: string;
+    trustBasis: string;
+    sourceKind: string;
+    sourceIdentity: string;
+  }>;
   status: string;
+};
+
+type ObservationCommandOptionPayload = {
+  key: string;
+  label: string;
+  runId: string;
+  verificationCheckId: string;
+  sourceGraphItemId: string;
+  observationSourceKind: string;
+  observationSourceIdentity: string;
+  freshnessState: string;
+  trustBasis: string;
+};
+
+type EvidenceCandidateCommandOptionPayload = {
+  key: string;
+  label: string;
+  workRunId: string;
+  verificationCheckId: string;
+  executionObservationId: string;
+  sourceKind: string;
+  sourceIdentity: string;
+  freshnessState: string;
+  trustBasis: string;
+  sensitivity: string;
 };
 
 type CommandAffordancePayload = {

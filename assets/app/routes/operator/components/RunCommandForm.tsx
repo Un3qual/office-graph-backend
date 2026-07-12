@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
 import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, defaultValue, enabledAffordance, submissionIdentity, targetValues } from "../commandFormSupport";
+import { commandFeedback, enabledAffordance, submissionIdentity } from "../commandFormSupport";
 import { useRecordExecutionObservationCommand } from "../commandWorkflow";
 import type { OperatorRunState } from "../workflow";
 
@@ -13,20 +13,37 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
 
   if (!affordance) return null;
 
-  const verificationCheckIds = targetValues(affordance, "verification_check");
-  const sourceGraphItemIdForCheck = (verificationCheckId: string) =>
-    runState.requiredChecks.find(check => check.verificationCheckId === verificationCheckId)?.graphItemId ?? "";
+  const options = runState.commandOptions.observation.filter((option) =>
+    completeOption(option, [
+      "key",
+      "label",
+      "runId",
+      "verificationCheckId",
+      "sourceGraphItemId",
+      "observationSourceKind",
+      "observationSourceIdentity",
+      "freshnessState",
+      "trustBasis"
+    ])
+  );
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const outcome = String(form.get("observationOutcome") ?? "");
+    const option = options.find(({ key }) => key === form.get("observationOptionKey"));
+    if (!option) return;
     const input = {
-      runId: defaultValue(affordance, "run_id") || runState.run.id,
-      verificationCheckId: String(form.get("verificationCheckId") ?? ""),
-      sourceGraphItemId: sourceGraphItemIdForCheck(String(form.get("verificationCheckId") ?? "")), observedStatus: outcome, normalizedStatus: outcome,
-      observationRationale: rationale.trim(), observationSourceKind: "human",
-      observationSourceIdentity: "operator-console", freshnessState: "fresh", trustBasis: "owner_attested"
+      runId: option.runId,
+      verificationCheckId: option.verificationCheckId,
+      sourceGraphItemId: option.sourceGraphItemId,
+      observedStatus: outcome,
+      normalizedStatus: outcome,
+      observationRationale: rationale.trim(),
+      observationSourceKind: option.observationSourceKind,
+      observationSourceIdentity: option.observationSourceIdentity,
+      freshnessState: option.freshnessState,
+      trustBasis: option.trustBasis
     };
     attempt.current = submissionIdentity(attempt.current, input);
     command.submit({ ...input, idempotencyKey: attempt.current.key, observationIdempotencyKey: `observation:${attempt.current.key}` });
@@ -34,8 +51,8 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
 
   return <form className="operator-command-form" onSubmit={submit}>
     <label htmlFor="verification-check">Verification check</label>
-    <select defaultValue={verificationCheckIds[0] ?? ""} id="verification-check" name="verificationCheckId">
-      {verificationCheckIds.map(id => <option key={id} value={id}>{id}</option>)}
+    <select defaultValue={options[0]?.key ?? ""} id="verification-check" name="observationOptionKey">
+      {options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
     </select>
     <label htmlFor="observation-outcome">Observation outcome</label>
     <select defaultValue="succeeded" id="observation-outcome" name="observationOutcome">
@@ -43,7 +60,12 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
       <option value="failed">Failed</option>
     </select>
     <label htmlFor="observation-rationale">Observation rationale</label><textarea id="observation-rationale" onChange={event => setRationale(event.target.value)} value={rationale} />
-    <Button isDisabled={command.state.status === "pending" || !rationale.trim() || verificationCheckIds.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
+    <Button isDisabled={command.state.status === "pending" || !rationale.trim() || options.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
     <FormFeedback feedback={commandFeedback(command.state)} />
   </form>;
+}
+
+function completeOption(option: object, fields: string[]) {
+  const values = option as Record<string, unknown>;
+  return fields.every((field) => typeof values[field] === "string" && values[field] !== "");
 }
