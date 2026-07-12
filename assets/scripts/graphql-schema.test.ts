@@ -65,10 +65,13 @@ fi
   );
   chmodSync(fakeMix, 0o755);
 
+  const environment = { ...process.env };
+  delete environment.OFFICE_GRAPH_SCHEMA_PRECOMPILED;
+
   const result = spawnSync(process.execPath, [schemaScript, "--check"], {
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...environment,
       ...extraEnvironment,
       FAKE_MIX_LOG: logPath,
       FAKE_SCHEMA_PATH: schemaPath,
