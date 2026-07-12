@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<73d806f561db86a53b1af16b6bbec150>>
+ * @generated SignedSource<<531272aeb1de0c68901cdecfc5ed8c8c>>
  * @lightSyntaxTransform
  */
 
@@ -46,7 +46,7 @@ export type PacketsWorkspaceDetailQuery$data = {
       readonly autonomyPosture: string;
       readonly contextSummary: string;
       readonly id: string;
-      readonly insertedAt: any;
+      readonly insertedAt: string;
       readonly lifecycleState: string;
       readonly objective: string;
       readonly operationId: string;

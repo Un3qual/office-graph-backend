@@ -1452,7 +1452,7 @@ describe("operator route", () => {
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
-    fireEvent.change(await screen.findByLabelText("Evidence candidate"), {
+    fireEvent.change(await screen.findByLabelText("Suggested evidence"), {
       target: { value: "candidate_2" }
     });
     fireEvent.change(screen.getByLabelText("Evidence title"), {
@@ -1542,7 +1542,7 @@ describe("operator route", () => {
     });
 
     renderWithRelay(<OperatorRoute />, network);
-    fireEvent.change(await screen.findByLabelText("Evidence candidate"), {
+    fireEvent.change(await screen.findByLabelText("Suggested evidence"), {
       target: { value: "candidate_2" }
     });
     fireEvent.change(screen.getByLabelText("Evidence title"), {
@@ -1554,7 +1554,7 @@ describe("operator route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
     await waitFor(() => expect(runReads).toBe(2));
-    await waitFor(() => expect(screen.getByLabelText("Evidence candidate")).toHaveValue("candidate_1"));
+    await waitFor(() => expect(screen.getByLabelText("Suggested evidence")).toHaveValue("candidate_1"));
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
     await waitFor(() => {
@@ -1611,7 +1611,7 @@ describe("operator route", () => {
     fireEvent.change(screen.getByLabelText("Evidence claim"), {
       target: { value: "The second check passed." }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create evidence candidate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest evidence" }));
 
     await waitFor(() => expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation"))
       .toMatchObject({
@@ -1808,7 +1808,7 @@ describe("operator route", () => {
     fireEvent.change(screen.getByLabelText("Evidence claim"), {
       target: { value: "Approved evidence option." }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create evidence candidate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest evidence" }));
 
     await waitFor(() =>
       expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation")).toMatchObject({
@@ -1922,7 +1922,7 @@ describe("operator route", () => {
 
     expect(await screen.findByRole("button", { name: "Record execution observation" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create evidence candidate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Suggest evidence" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Waive verification check" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accept evidence" })).not.toBeInTheDocument();
   });

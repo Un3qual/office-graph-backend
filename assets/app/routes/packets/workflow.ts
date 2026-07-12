@@ -108,7 +108,7 @@ export function usePacketWorkspaceDetail(
     edge?.node ? [edge.node] : []
   );
 
-  return {
+  const detail: PacketWorkspaceDetail = {
     ...workspace,
     versions,
     versionPageInfo: workspace.versionHistory?.pageInfo ?? {
@@ -117,7 +117,9 @@ export function usePacketWorkspaceDetail(
       startCursor: null,
       endCursor: null
     }
-  } as PacketWorkspaceDetail;
+  };
+
+  return detail;
 }
 
 export type PacketsWorkflowState = ReturnType<typeof usePacketsWorkflow>;
@@ -184,9 +186,9 @@ function packetRowsFromRelayConnection(
     }
 
     return [
-      readInlineData(
+      readInlineData<PacketsRoutePacketFragment$key>(
         PacketsRoutePacketFragment,
-        edge.node as PacketsRoutePacketFragment$key
+        edge.node
       )
     ];
   });

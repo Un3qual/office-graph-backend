@@ -5,7 +5,7 @@ import { PacketDetail } from "./components/PacketDetail";
 import { PacketCreateForm } from "./components/PacketCreateForm";
 import { PacketList, PacketListFallback } from "./components/PacketList";
 import { PacketsLayout } from "./components/PacketsLayout";
-import type { PacketRow } from "./types";
+import type { PacketRow, PacketsPage } from "./types";
 import { usePacketWorkspaceDetail } from "./workflow";
 
 type Props = {
@@ -97,7 +97,7 @@ function LoadedPacketDetail({
   onRefresh: () => void;
   packet: PacketRow;
 }) {
-  const [versionPage, setVersionPage] = useState({ first: 2, after: null as string | null });
+  const [versionPage, setVersionPage] = useState<PacketsPage>({ first: 2, after: null });
   const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([]);
   const workspace = usePacketWorkspaceDetail(packet.id, versionPage, fetchKey);
   const nextCursor = workspace.versionPageInfo.endCursor ?? null;

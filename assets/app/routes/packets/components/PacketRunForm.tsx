@@ -1,4 +1,5 @@
 import { useRef, type FormEvent } from "react";
+import { Link } from "react-router";
 import { Button } from "../../../../src/ui/Button";
 import { CommandFieldError, CommandFormFeedback } from "../../../relay/CommandFormFeedback";
 import {
@@ -108,9 +109,9 @@ export function PacketRunForm({ onRefresh, workspace }: Props) {
           <p>
             Execution {command.state.result.run.executionState}; verification {command.state.result.run.verificationState}.
           </p>
-          <a href={`/operator?runId=${encodeURIComponent(command.state.result.run.id)}`}>
+          <Link to={`/operator?runId=${encodeURIComponent(command.state.result.run.id)}`}>
             Open run {command.state.result.run.id}
-          </a>
+          </Link>
         </section>
       ) : null}
     </section>

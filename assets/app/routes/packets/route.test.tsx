@@ -228,6 +228,8 @@ describe("packet workspace route", () => {
     expect(selectedRow).toHaveTextContent("Updated Jul 9, 2026, 7:45 PM UTC");
     expect(detail).toHaveTextContent("version_current_7");
     expect(detail).toHaveTextContent("operation_sync_3");
+    expect(screen.getByText("Work packet workspace")).toBeInTheDocument();
+    expect(screen.queryByText("Read-only queue")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute("href", "/operator");
     expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute("href", "/packets");
     expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute(
@@ -668,6 +670,7 @@ describe("packet workspace route", () => {
 
     const runLink = await screen.findByRole("link", { name: /Open run run_1/i });
     expect(runLink).toHaveAttribute("href", "/operator?runId=run_1");
+    expect(runLink).toHaveAttribute("data-discover", "true");
     expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent(
       "Execution pending"
     );

@@ -26,8 +26,16 @@ describe("Relay compiler workflow", () => {
       schema: "./schema.graphql",
       language: "typescript",
       artifactDirectory: "./app/relay/__generated__",
-      eagerEsModules: true
+      eagerEsModules: true,
+      customScalarTypes: { DateTime: "string" }
     });
+
+    expect(
+      readGenerated(
+        join(assetsRoot, "app/relay/__generated__"),
+        "PacketsRoutePacketFragment.graphql.ts"
+      )
+    ).toContain("readonly updatedAt: string;");
   });
 
   it("extracts the schema without starting the OTP application or mixing compile logs into SDL", () => {

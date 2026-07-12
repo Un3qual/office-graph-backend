@@ -110,11 +110,11 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
       <label htmlFor="evidence-claim">Evidence claim</label>
       <textarea {...commandFieldErrorProps(candidate.state, "create-evidence", "claim")} id="evidence-claim" name="claim" onChange={event => setClaim(event.target.value)} value={claim} />
       <CommandFieldError controlName="claim" scope="create-evidence" state={candidate.state} />
-      <Button isDisabled={candidate.state.status === "pending" || !claim.trim() || candidateOptions.length === 0} type="submit" variant="primary">{candidate.state.status === "pending" ? "Creating evidence candidate" : "Create evidence candidate"}</Button>
+      <Button isDisabled={candidate.state.status === "pending" || !claim.trim() || candidateOptions.length === 0} type="submit" variant="primary">{candidate.state.status === "pending" ? "Suggesting evidence" : "Suggest evidence"}</Button>
       <CommandFormFeedback formRef={candidateFormRef} scope="create-evidence" state={candidate.state} />
     </form> : null}
     {acceptAffordance ? <form className="operator-command-form" onSubmit={submitAccept} ref={acceptFormRef}>
-      <label htmlFor="evidence-candidate">Evidence candidate</label>
+      <label htmlFor="evidence-candidate">Suggested evidence</label>
       <select {...commandFieldErrorProps(accept.state, "accept-evidence", "evidenceCandidateId")} id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={currentCandidateId}>
         {acceptOptions.map(option => <option key={option.key} value={option.evidenceCandidateId}>{option.label}</option>)}
       </select>
@@ -151,8 +151,11 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
 }
 
 function completeOption(option: object, fields: string[]) {
-  const values = option as Record<string, unknown>;
-  return fields.every((field) => usableProjectionValue(values[field]));
+  return fields.every((field) => usableProjectionValue(objectValue(option, field)));
+}
+
+function objectValue(value: object, field: string): unknown {
+  return Object.getOwnPropertyDescriptor(value, field)?.value;
 }
 
 function usableProjectionValue(value: unknown) {

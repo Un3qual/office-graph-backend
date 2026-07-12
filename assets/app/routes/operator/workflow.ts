@@ -126,9 +126,9 @@ function workflowConnectionFromRelay(
     }
 
     return [
-      readInlineData(
+      readInlineData<OperatorWorkflowItemFragment$key>(
         OperatorWorkflowItemFragment,
-        edge.node as OperatorWorkflowItemFragment$key
+        edge.node
       )
     ];
   });
@@ -152,9 +152,9 @@ function runStateFromRelay(
     throw new Error("The GraphQL operator run state projection was empty.");
   }
 
-  return readInlineData(
+  return readInlineData<OperatorRunStateFragment$key>(
     OperatorRunStateFragment,
-    data.operatorRunState as OperatorRunStateFragment$key
+    data.operatorRunState
   );
 }
 
@@ -165,9 +165,9 @@ function packetReadinessFromRelay(
     throw new Error("The GraphQL packet readiness projection was empty.");
   }
 
-  return readInlineData(
+  return readInlineData<OperatorPacketReadinessFragment$key>(
     OperatorPacketReadinessFragment,
-    data.operatorPacketReadiness as OperatorPacketReadinessFragment$key
+    data.operatorPacketReadiness
   );
 }
 

@@ -83,24 +83,28 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
 }
 
 function completeOption(option: object, fields: string[]) {
-  const values = option as Record<string, unknown>;
-  if (!fields.every((field) => usableProjectionValue(values[field])) ||
-      !Array.isArray(values.outcomes) || values.outcomes.length === 0) return false;
+  const outcomesValue = objectValue(option, "outcomes");
+  if (!fields.every((field) => usableProjectionValue(objectValue(option, field))) ||
+      !Array.isArray(outcomesValue) || outcomesValue.length === 0) return false;
 
-  const outcomes = values.outcomes;
+  const outcomes: unknown[] = outcomesValue;
   const keys = outcomes.map(outcome =>
     typeof outcome === "object" && outcome !== null
-      ? (outcome as Record<string, unknown>).key
+      ? objectValue(outcome, "key")
       : null
   );
 
   return new Set(keys).size === keys.length &&
-    keys.includes(values.defaultOutcomeKey) && outcomes.every(outcome =>
+    keys.includes(objectValue(option, "defaultOutcomeKey")) && outcomes.every(outcome =>
       typeof outcome === "object" && outcome !== null &&
       ["key", "label", "observedStatus", "normalizedStatus"].every(field =>
-        usableProjectionValue((outcome as Record<string, unknown>)[field])
+        usableProjectionValue(objectValue(outcome, field))
       )
     );
+}
+
+function objectValue(value: object, field: string): unknown {
+  return Object.getOwnPropertyDescriptor(value, field)?.value;
 }
 
 function usableProjectionValue(value: unknown) {

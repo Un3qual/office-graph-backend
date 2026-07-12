@@ -118,7 +118,7 @@ function PacketListFrame({
     <section aria-label="Packet queue" className="packet-list-pane">
       <header className="packet-pane-header">
         <div>
-          <p className="eyebrow">Read-only queue</p>
+          <p className="eyebrow">Work packet workspace</p>
           <h2>Packets</h2>
         </div>
         <span>{rowCount} rows</span>

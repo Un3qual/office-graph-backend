@@ -174,11 +174,11 @@ function PagedCommandForms({
   runId: string;
   runState: OperatorRunState;
 }) {
-  const [cursors, setCursors] = useState({
-    observation: [null] as Array<string | null>,
-    evidenceCandidate: [null] as Array<string | null>,
-    evidenceAcceptance: [null] as Array<string | null>,
-    waiver: [null] as Array<string | null>
+  const [cursors, setCursors] = useState<Record<CommandOptionKind, Array<string | null>>>({
+    observation: [null],
+    evidenceCandidate: [null],
+    evidenceAcceptance: [null],
+    waiver: [null]
   });
   const summary = runState.commandOptionSummary;
   const overflow = {
@@ -224,7 +224,7 @@ function PagedCommandForms({
   const evidenceCandidate = page("evidenceCandidate", data.evidenceCandidate);
   const evidenceAcceptance = page("evidenceAcceptance", data.evidenceAcceptance);
   const waiver = page("waiver", data.waiver);
-  const pagedRunState = {
+  const pagedRunState: OperatorRunState = {
     ...runState,
     commandOptions: {
       observation: overflow.observation ? observation.options.flatMap(choice => choice.observation ? [choice.observation] : []) : runState.commandOptions.observation,
@@ -232,26 +232,29 @@ function PagedCommandForms({
       evidenceAcceptance: overflow.evidenceAcceptance ? evidenceAcceptance.options.flatMap(choice => choice.evidenceAcceptance ? [choice.evidenceAcceptance] : []) : runState.commandOptions.evidenceAcceptance,
       waiver: overflow.waiver ? waiver.options.flatMap(choice => choice.waiver ? [choice.waiver] : []) : runState.commandOptions.waiver
     }
-  } as OperatorRunState;
+  };
 
   return <>
     <RunCommandForm onRefresh={onRefresh} runState={pagedRunState} />
     {overflow.observation ? <ChoicePagination label="observation choices" page={observation} /> : null}
     <EvidenceCommandForm onRefresh={onRefresh} runState={pagedRunState} />
-    {overflow.evidenceCandidate ? <ChoicePagination label="evidence candidate choices" page={evidenceCandidate} /> : null}
+    {overflow.evidenceCandidate ? <ChoicePagination label="suggested evidence choices" page={evidenceCandidate} /> : null}
     {overflow.evidenceAcceptance ? <ChoicePagination label="evidence acceptance choices" page={evidenceAcceptance} /> : null}
     {overflow.waiver ? <ChoicePagination label="waiver choices" page={waiver} /> : null}
   </>;
 }
 
+type CommandOptionKind = "observation" | "evidenceCandidate" | "evidenceAcceptance" | "waiver";
 type OptionConnection = NonNullable<OperatorRunCommandOptionPageOperation["response"]["observation"]>;
 type ChoicePage = { hasNext: boolean; hasPrevious: boolean; next: () => void; previous: () => void };
 
 function commandOptionPageData(connection: OptionConnection | null | undefined) {
   if (!connection) return { options: [], hasNext: false, hasPrevious: false, endCursor: null };
-  const data: OperatorRunCommandOptionPageConnectionFragment$data = readInlineData(
+  const data: OperatorRunCommandOptionPageConnectionFragment$data = readInlineData<
+    OperatorRunCommandOptionPageConnectionFragment$key
+  >(
     OperatorRunCommandOptionPageConnectionFragment,
-    connection as OperatorRunCommandOptionPageConnectionFragment$key
+    connection
   );
   return {
     options: (data.edges ?? []).flatMap(edge => edge?.node ? [edge.node] : []),
