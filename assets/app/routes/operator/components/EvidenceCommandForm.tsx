@@ -18,6 +18,7 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [evidenceResult, setEvidenceResult] = useState("");
   const [waiverReason, setWaiverReason] = useState("");
+  const [selectedWaiverKey, setSelectedWaiverKey] = useState("");
   const [policyBasis, setPolicyBasis] = useState("");
   const candidateAffordance = enabledAffordance(runState.commandAffordances, "create_evidence_candidate");
   const acceptAffordance = enabledAffordance(runState.commandAffordances, "accept_evidence");
@@ -43,6 +44,8 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
       "expectedVerificationState", "policyBasis"
     ])
   );
+  const currentWaiverOption =
+    waiverOptions.find(({ key }) => key === selectedWaiverKey) ?? waiverOptions[0];
   const currentResult = evidenceResult || currentAcceptOption?.result || "";
 
   const submitCandidate = (event: FormEvent<HTMLFormElement>) => {
@@ -81,8 +84,7 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const submitWaive = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!waiveAffordance) return;
-    const optionKey = new FormData(event.currentTarget).get("waiverOptionKey");
-    const option = waiverOptions.find(({ key }) => key === optionKey);
+    const option = currentWaiverOption;
     if (!option) return;
     const input = {
       runId: option.runId,
@@ -123,11 +125,14 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
     </form> : null}
     {waiveAffordance ? <form className="operator-command-form" onSubmit={submitWaive}>
       <label htmlFor="required-check">Required check</label>
-      <select defaultValue={waiverOptions[0]?.key ?? ""} id="required-check" name="waiverOptionKey">
+      <select id="required-check" name="waiverOptionKey" onChange={event => {
+        setSelectedWaiverKey(event.target.value);
+        setPolicyBasis("");
+      }} value={currentWaiverOption?.key ?? ""}>
         {waiverOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
       </select>
       <label htmlFor="waiver-reason">Waiver reason</label><textarea id="waiver-reason" onChange={event => setWaiverReason(event.target.value)} value={waiverReason} />
-      <label htmlFor="waiver-policy">Policy basis</label><input id="waiver-policy" onChange={event => setPolicyBasis(event.target.value)} value={policyBasis || waiverOptions[0]?.policyBasis || ""} />
+      <label htmlFor="waiver-policy">Policy basis</label><input id="waiver-policy" onChange={event => setPolicyBasis(event.target.value)} value={policyBasis || currentWaiverOption?.policyBasis || ""} />
       <Button isDisabled={waive.state.status === "pending" || !waiverReason.trim() || waiverOptions.length === 0} type="submit" variant="primary">{waive.state.status === "pending" ? "Waiving verification check" : "Waive verification check"}</Button>
       <FormFeedback feedback={commandFeedback(waive.state)} />
     </form> : null}

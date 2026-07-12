@@ -1412,7 +1412,7 @@ describe("operator route", () => {
             runRequiredCheckId: "required_2",
             expectedExecutionState: "completed",
             expectedVerificationState: "pending",
-            policyBasis: "owner_exception"
+            policyBasis: "security_exception"
           }
         ]
       },
@@ -1431,13 +1431,16 @@ describe("operator route", () => {
     fireEvent.change(await screen.findByLabelText("Required check"), {
       target: { value: "required_2" }
     });
+    expect(screen.getByLabelText("Policy basis")).toHaveValue("security_exception");
     fireEvent.change(screen.getByLabelText("Waiver reason"), {
       target: { value: "Approved exception for the second check." }
     });
     fireEvent.click(screen.getByRole("button", { name: "Waive verification check" }));
 
     await waitFor(() => expect(lastVariablesFor(network, "OperatorWaiveVerificationCheckMutation"))
-      .toMatchObject({ input: { runRequiredCheckId: "required_2" } }));
+      .toMatchObject({
+        input: { runRequiredCheckId: "required_2", policyBasis: "security_exception" }
+      }));
   });
 
   it("records the operator-selected check and failed outcome", async () => {
