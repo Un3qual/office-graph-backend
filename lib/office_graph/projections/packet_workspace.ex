@@ -3,6 +3,7 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Projections.CommandAffordance
+  alias OfficeGraph.Runs
   alias OfficeGraph.Runs.Run
 
   alias OfficeGraph.WorkGraph.VerificationCheck
@@ -195,7 +196,7 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
           packet,
           current_version,
           blockers,
-          Enum.find(current_version_runs, &active_run?/1)
+          Enum.find(current_version_runs, &Runs.active_run?/1)
         )
 
     workspace = %{
@@ -395,12 +396,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
           )
         ]
     end
-  end
-
-  defp active_run?(run) do
-    run.state not in ["failed", "verified"] and
-      run.aggregate_state not in ["failed", "verified"] and
-      run.verification_state not in ["failed", "verified"]
   end
 
   defp run_start_input_defaults(current_version) do

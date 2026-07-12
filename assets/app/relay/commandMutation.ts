@@ -55,6 +55,7 @@ type SafePayloadError = {
 };
 
 const conflictCodes = new Set([
+  "active_work_run",
   "idempotency_conflict",
   "invalid_proposed_change_set",
   "invalid_proposed_change_status",

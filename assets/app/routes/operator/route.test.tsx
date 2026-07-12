@@ -814,7 +814,7 @@ describe("operator route", () => {
     expect(await screen.findByRole("button", { name: /evt_new/i })).toBeInTheDocument();
   });
 
-  it("returns to the first inbox page and selects a newly submitted intake", async () => {
+  it("leaves a linked run, returns to the first inbox page, and selects a newly submitted intake", async () => {
     let submitted = false;
     const firstItem = operatorWorkflowItem();
     const secondItem = operatorWorkflowItem({
@@ -862,7 +862,7 @@ describe("operator route", () => {
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
-    renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network, "/operator?runId=run_linked");
     await screen.findByRole("button", { name: /evt_1/i });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByRole("button", { name: /evt_2/i });

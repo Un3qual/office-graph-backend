@@ -40,9 +40,18 @@ export default function OperatorRoute() {
   });
   const [requestedSelectedId, setRequestedSelectedId] = useState<string | null>(null);
 
+  const leaveLinkedRun = () => {
+    if (linkedRunId) {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("runId");
+      setSearchParams(nextSearchParams, { replace: true });
+    }
+  };
+
   const handleManualIntakeAuthoritativeChange = (normalizedEventId?: string) => {
     if (normalizedEventId) {
       setRequestedSelectedId(normalizedEventId);
+      leaveLinkedRun();
       setNavigation({
         page: defaultOperatorInboxPage,
         previousCursors: []
@@ -54,12 +63,7 @@ export default function OperatorRoute() {
 
   const selectItem = (id: string) => {
     setRequestedSelectedId(id);
-
-    if (linkedRunId) {
-      const nextSearchParams = new URLSearchParams(searchParams);
-      nextSearchParams.delete("runId");
-      setSearchParams(nextSearchParams, { replace: true });
-    }
+    leaveLinkedRun();
   };
 
   const loadNextPage = (nextCursor: string) => {

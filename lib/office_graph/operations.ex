@@ -84,6 +84,20 @@ defmodule OfficeGraph.Operations do
     end
   end
 
+  def lock_scoped_target(resource, session_context, id) do
+    resource
+    |> Ash.Query.filter(
+      id == ^id and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      result -> result
+    end
+  end
+
   def lock_operation(operation_id) do
     OperationCorrelation
     |> Ash.Query.filter(id == ^operation_id)

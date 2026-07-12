@@ -189,8 +189,9 @@ describe("packet workspace route", () => {
     expect(screen.getAllByText("Human supervised")).toHaveLength(2);
   });
 
-  it("creates a packet, refreshes the list, and selects its immutable current version", async () => {
+  it("creates a packet, selects it, and starts a new attempt after success", async () => {
     let created = false;
+    const idempotencyKeys: string[] = [];
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
         return packetConnectionResponse(
@@ -231,6 +232,7 @@ describe("packet workspace route", () => {
       }
 
       expect(request.name).toBe("PacketsCreateWorkPacketMutation");
+      idempotencyKeys.push(variables.input.idempotencyKey);
       expect(variables.input).toMatchObject({
         title: "Created packet",
         objective: "Ship the packet workspace",
@@ -302,6 +304,11 @@ describe("packet workspace route", () => {
       );
     });
     expect(await screen.findByText("Current version 1")).toBeInTheDocument();
+
+    fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
+
+    await waitFor(() => expect(idempotencyKeys).toHaveLength(2));
+    expect(idempotencyKeys[1]).not.toBe(idempotencyKeys[0]);
   });
 
   it("loads and selects a newly created packet outside the first page", async () => {

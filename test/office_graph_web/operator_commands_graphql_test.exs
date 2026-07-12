@@ -286,8 +286,28 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       authorityPosture: "human_supervised"
     }
 
+    stale_run =
+      raw_command(
+        conn,
+        :start_work_run,
+        run_input
+        |> Map.put(:idempotencyKey, unique_key("stale-run"))
+        |> Map.put(:packetVersionId, packet["packetVersion"]["id"])
+      )
+
+    assert [%{"extensions" => %{"code" => "stale_packet_version"}}] = stale_run["errors"]
+
     started = command(conn, :start_work_run, run_input)
     assert_payload(started, "start_work_run", ["work_run", "run_required_check"])
+
+    duplicate_run =
+      raw_command(
+        conn,
+        :start_work_run,
+        Map.put(run_input, :idempotencyKey, unique_key("active-run"))
+      )
+
+    assert [%{"extensions" => %{"code" => "active_work_run"}}] = duplicate_run["errors"]
 
     first_required_check =
       Enum.find(started["requiredChecks"], &(&1["verificationCheckId"] == first_check["id"]))

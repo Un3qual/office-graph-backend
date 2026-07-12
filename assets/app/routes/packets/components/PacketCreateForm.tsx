@@ -14,6 +14,7 @@ export function PacketCreateForm({ onCreated, onRefresh }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const command = useCreateWorkPacketCommand(success => {
     if (success) {
+      attempt.current = null;
       onCreated(success.operationId);
     }
     onRefresh();

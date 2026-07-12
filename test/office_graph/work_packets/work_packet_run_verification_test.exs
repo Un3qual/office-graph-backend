@@ -1069,15 +1069,46 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
         idempotency_key: "reject-superseded-ready-run-version"
       )
 
-    assert {:error, error} =
+    assert {:error, {:stale_packet_version, packet_id, current_version_id}} =
              Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
                source_surface: "test",
                reason: "A superseded ready version must not start.",
                authority_posture: "human_supervised"
              })
 
-    assert Exception.message(error) =~
-             "work_packet_version_id must reference the current packet version"
+    assert packet_id == packet_result.packet.id
+    assert current_version_id == revised.version.id
+  end
+
+  test "work run start rejects a second active run for the current packet version" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, packet_result} = create_ready_packet(bootstrap.session, [verification_check])
+
+    {:ok, first_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "active-run-first"
+      )
+
+    attrs = %{
+      source_surface: "test",
+      reason: "Only one active run may execute this packet version.",
+      authority_posture: "human_supervised"
+    }
+
+    assert {:ok, first_result} =
+             Runs.start_run(bootstrap.session, first_operation, packet_result.version, attrs)
+
+    {:ok, second_operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "active-run-second"
+      )
+
+    assert {:error, {:active_work_run, packet_version_id, active_run_id}} =
+             Runs.start_run(bootstrap.session, second_operation, packet_result.version, attrs)
+
+    assert packet_version_id == packet_result.version.id
+    assert active_run_id == first_result.run.id
   end
 
   test "work run start rejects packet versions whose checks are already satisfied" do
