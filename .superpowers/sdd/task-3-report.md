@@ -146,6 +146,7 @@ Output: format and compile exited 0; OpenSpec reported `Change 'harden-project-q
 - `739b626` — `refresh after evidence command conflicts`
 - `3ce75d9` — `close compact error metadata leaks`
 - `bc8c1e7` — `make command metadata encoding total`
+- `ca89c44` — `register safe command error metadata`
 
 The OpenSpec/report checkpoint is committed separately after this report.
 
@@ -242,6 +243,79 @@ Output:
 - `tsc --noEmit` exited 0.
 - OpenSpec reported `Change 'harden-project-quality' is valid`.
 - `git diff --check` exited 0.
+- Independent re-review: Ready `Yes`, with no Critical, Important, or Minor findings.
+
+## Positive Registry Follow-up
+
+A later independent review showed that a lowercase shape plus blocked fragments was still a denylist: compact values and keys such as `adaptertimeout`, `databasecredentials`, `runtimefailure`, `sqlstate23505`, `selectcredentials`, and `officegraphrepo` could pass. This follow-up removes that heuristic design entirely.
+
+### Positive-registry RED evidence
+
+Command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix format test/office_graph_web/operator_command_semantics_test.exs && \
+   mix test test/office_graph_web/operator_command_semantics_test.exs'
+```
+
+Output: `Result: 5/10 passed`, with five expected failures:
+
+- Compact unknown values and binary keys crossed both adapters.
+- Unknown tuple/map/list/ordinary-struct reasons retained data instead of collapsing.
+- `passsed` was echoed as an invalid evidence result.
+- An unexpected change type echoed `adaptertimeout`.
+- Compact unknown field names were accepted.
+
+Canonical UUID RED command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix test test/office_graph_web/operator_command_semantics_test.exs'
+```
+
+Output: `Result: 10/11 passed`; canonical UUIDv7 `019f579b-957f-7143-bb93-6a56051f6602` was incorrectly redacted because the first UUID registry restricted versions to 1-5.
+
+### Positive-registry GREEN implementation
+
+- Root metadata is dispatched only by exact registered keys.
+- ID metadata accepts only canonical lowercase 8-4-4-4-12 UUID shape, without restricting UUID version or variant.
+- Execution state, verification state, evidence result, proposal change type, and field metadata use exact positive registries.
+- The field registry is sourced from the shared command parser, plus an explicit small set of query/request fields.
+- Proposal errors accept only exact simple reason tokens and exact tuple shapes. UUID, UUID-list, and proposal-change-type values are recursively validated under their registered context; opaque internal/unknown values become `invalid`.
+- Unknown strings, atoms, maps, lists, tuples, ordinary structs, exception structs, values, and keys fail closed regardless of casing or separators.
+- The 22-outcome parity table asserts the intended metadata for every real classifier case; unsupported evidence text now becomes `invalid`.
+
+### Positive-registry final GREEN verification
+
+Command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc '
+  mix format --check-formatted
+  mix compile --warnings-as-errors
+  mix credo --strict
+  export MIX_ENV=test MIX_TEST_PARTITION=_task3
+  mix test test/office_graph_web/operator_command_semantics_test.exs \
+    test/office_graph_web/operator_commands_graphql_test.exs \
+    test/office_graph_web/operator_commands_json_test.exs
+  cd assets
+  pnpm exec vitest run app/relay/commandMutation.test.tsx \
+    app/routes/operator/commandWorkflow.test.tsx
+  pnpm typecheck
+  cd ..
+  openspec validate harden-project-quality --strict
+  git diff --check
+'
+```
+
+Output:
+
+- Format and warnings-as-errors compile passed.
+- Credo checked 192 source files and found no issues.
+- Backend semantics/GraphQL/JSON suite: `Result: 31 passed`.
+- Frontend focused suite: `2 passed (2)` files, `23 passed (23)` tests.
+- TypeScript, strict OpenSpec, and diff checks exited 0.
 - Independent re-review: Ready `Yes`, with no Critical, Important, or Minor findings.
 
 ## Concerns
