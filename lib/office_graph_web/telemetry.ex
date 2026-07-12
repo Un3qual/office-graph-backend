@@ -75,12 +75,28 @@ defmodule OfficeGraphWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # Durable job metrics. The tag mapper deliberately ignores args and tenant scope.
+      summary("oban.job.stop.duration",
+        tags: [:worker, :queue, :state, :attempt],
+        tag_values: &durable_job_tags/1,
+        unit: {:native, :millisecond}
+      ),
+      summary("oban.job.exception.duration",
+        tags: [:worker, :queue, :state, :attempt],
+        tag_values: &durable_job_tags/1,
+        unit: {:native, :millisecond}
+      ),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
       summary("vm.total_run_queue_lengths.io")
     ]
+  end
+
+  defp durable_job_tags(%{job: job, state: state}) do
+    %{worker: job.worker, queue: job.queue, state: state, attempt: job.attempt}
   end
 
   defp periodic_measurements do

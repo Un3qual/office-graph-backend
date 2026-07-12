@@ -12,8 +12,21 @@ defmodule OfficeGraph.DurableDelivery do
     ],
     exports: [DomainEvent, ProjectionInvalidation, TerminalJob]
 
-  alias OfficeGraph.DurableDelivery.{DispatchEventWorker, DomainEvent, EventRequest}
+  alias OfficeGraph.DurableDelivery.{
+    DispatchEventWorker,
+    DomainEvent,
+    EventRequest,
+    ProjectionInvalidation,
+    Subscriptions,
+    TerminalJob
+  }
+
   alias OfficeGraph.Repo
+
+  import Ash.Expr
+  import Ecto.Query
+
+  require Ash.Query
 
   def record_and_enqueue(session_context, operation, attrs) do
     with {:ok, request} <- EventRequest.new(session_context, operation, attrs) do
@@ -21,7 +34,97 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  def dispatch(_event_id), do: :ok
+  def subscribe(session_context, organization_id, workspace_id) do
+    Subscriptions.subscribe(session_context, organization_id, workspace_id)
+  end
+
+  def list_terminal_jobs(session_context, opts \\ []) do
+    with :ok <- authorize_terminal_read(session_context) do
+      limit = opts |> Keyword.get(:limit, 50) |> normalize_limit()
+
+      jobs =
+        Oban.Job
+        |> where(
+          [job],
+          job.state in ["cancelled", "discarded"] and
+            fragment("?->>'organization_id'", job.args) == ^session_context.organization_id and
+            fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id
+        )
+        |> order_by([job],
+          desc:
+            fragment(
+              "COALESCE(?, ?, ?, ?)",
+              job.cancelled_at,
+              job.discarded_at,
+              job.attempted_at,
+              job.inserted_at
+            ),
+          desc: job.id
+        )
+        |> limit(^limit)
+        |> Repo.all()
+
+      failure_codes = failure_codes_by_event(jobs)
+
+      {:ok,
+       Enum.map(jobs, fn job ->
+         %TerminalJob{
+           id: job.id,
+           worker: job.worker,
+           queue: job.queue,
+           state: job.state,
+           attempt: job.attempt,
+           max_attempts: job.max_attempts,
+           failure_code: Map.get(failure_codes, job.args["event_id"]),
+           attempted_at: job.attempted_at,
+           cancelled_at: job.cancelled_at,
+           discarded_at: job.discarded_at
+         }
+       end)}
+    end
+  end
+
+  def dispatch(event_id) when is_binary(event_id) do
+    case Ash.get(DomainEvent, event_id, not_found_error?: false) do
+      {:ok, nil} ->
+        {:error, {:terminal, :event_not_found}}
+
+      {:ok, %{delivery_state: "pending"} = event} ->
+        dispatch_pending(event)
+
+      {:ok, %{delivery_state: "dispatched"}} ->
+        :ok
+
+      {:ok, %{delivery_state: "failed", failure_code: code}} ->
+        {:error, {:terminal, code || "delivery_failed"}}
+
+      {:error, _error} ->
+        {:error, {:retryable, :event_read_failed}}
+    end
+  end
+
+  def dispatch(_event_id), do: {:error, {:terminal, :invalid_event_id}}
+
+  def mark_failed(event_id, failure_code) do
+    failure_code =
+      OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
+
+    with {:ok, event} <- Ash.get(DomainEvent, event_id),
+         {:ok, _failed} <-
+           Ash.update(
+             event,
+             %{
+               delivery_state: "failed",
+               failure_code: failure_code,
+               failed_at: DateTime.utc_now()
+             },
+             action: :mark_failed
+           ) do
+      :ok
+    else
+      _other -> :ok
+    end
+  end
 
   defp record_and_enqueue_request(request) do
     with {:ok, event} <- create_or_replay_event(request),
@@ -77,6 +180,54 @@ defmodule OfficeGraph.DurableDelivery do
     }
     |> DispatchEventWorker.new()
     |> Oban.insert()
+  end
+
+  defp authorize_terminal_read(session_context) do
+    with true <- is_map(session_context),
+         :ok <- OfficeGraph.Identity.validate_session_context(session_context),
+         :ok <-
+           OfficeGraph.Authorization.authorize_projection(
+             session_context,
+             :durable_delivery_read,
+             organization_id: session_context.organization_id
+           ) do
+      :ok
+    else
+      _other -> {:error, :forbidden}
+    end
+  end
+
+  defp normalize_limit(limit) when is_integer(limit), do: min(max(limit, 1), 100)
+  defp normalize_limit(_limit), do: 50
+
+  defp failure_codes_by_event(jobs) do
+    event_ids = jobs |> Enum.map(& &1.args["event_id"]) |> Enum.reject(&is_nil/1)
+
+    DomainEvent
+    |> Ash.Query.filter(id in ^event_ids)
+    |> Ash.read!()
+    |> Map.new(&{&1.id, &1.failure_code})
+  end
+
+  defp dispatch_pending(event) do
+    event
+    |> Ash.Changeset.for_update(:mark_dispatched, %{
+      delivery_state: "dispatched",
+      dispatched_at: DateTime.utc_now(),
+      failure_code: nil,
+      failed_at: nil
+    })
+    |> Ash.Changeset.filter(expr(delivery_state == "pending"))
+    |> Ash.update()
+    |> case do
+      {:ok, dispatched} ->
+        dispatched
+        |> ProjectionInvalidation.from_event()
+        |> Subscriptions.broadcast()
+
+      {:error, _error} ->
+        dispatch(event.id)
+    end
   end
 
   defp transaction(fun) do

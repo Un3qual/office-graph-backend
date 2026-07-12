@@ -14,4 +14,17 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidation do
     :workspace_id
   ]
   defstruct @enforce_keys
+
+  def from_event(event) do
+    struct!(__MODULE__,
+      event_id: event.id,
+      event_kind: event.event_kind,
+      subject_kind: event.subject_kind,
+      subject_id: event.subject_id,
+      subject_version: event.subject_version,
+      operation_id: event.operation_id,
+      organization_id: event.organization_id,
+      workspace_id: event.workspace_id
+    )
+  end
 end

@@ -21,6 +21,7 @@ defmodule OfficeGraph.Authorization do
 
   @owner_capabilities %{
     skeleton_read: "skeleton.read",
+    durable_delivery_read: "durable_delivery.read",
     manual_intake_submit: "manual_intake.submit",
     proposed_change_apply: "proposed_change.apply",
     evidence_link: "evidence.link",

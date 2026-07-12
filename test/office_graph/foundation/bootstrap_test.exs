@@ -33,6 +33,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       assert first.session.organization_id == first.organization.id
       assert MapSet.member?(first.session.capabilities, "skeleton.read")
       assert MapSet.member?(first.session.capabilities, "verification.waive")
+      assert MapSet.member?(first.session.capabilities, "durable_delivery.read")
 
       assert Ash.get!(OfficeGraph.Tenancy.Organization, first.organization.id, authorize?: false)
       assert Ash.get!(OfficeGraph.Tenancy.Workspace, first.workspace.id, authorize?: false)
