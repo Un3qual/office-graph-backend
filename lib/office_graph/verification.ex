@@ -468,10 +468,10 @@ defmodule OfficeGraph.Verification do
 
     result = attrs[:result] || "passed"
     validate_evidence_result!(result)
+    preflight_result_slot!(work_run, candidate.verification_check_id)
     validate_work_run_acceptance_open!(work_run)
     validate_runless_result_allowed!(work_run, candidate, result)
     validate_passed_result_allowed!(result, candidate, work_run, observation)
-    preflight_result_slot!(work_run, candidate.verification_check_id)
     prepare_runless_completion!(session_context, operation, verification_check, work_run, result)
 
     document = create_document!(session_context, operation, attrs[:body] || "")

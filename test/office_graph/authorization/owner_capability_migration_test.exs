@@ -103,6 +103,31 @@ defmodule OfficeGraph.Authorization.OwnerCapabilityMigrationTest do
       log: false
     )
 
+    {:ok, post_up_role} =
+      Ash.create(
+        Role,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          key: "post-backfill-auditor",
+          name: "Post Backfill Auditor"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    {:ok, post_up_grant} =
+      Ash.create(
+        RoleCapability,
+        %{
+          id: Ecto.UUID.generate(),
+          role_id: post_up_role.id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
     Ecto.Migration.Runner.run(
       Repo,
       Repo.config(),
@@ -118,6 +143,9 @@ defmodule OfficeGraph.Authorization.OwnerCapabilityMigrationTest do
 
     assert Ash.get!(RoleCapability, non_owner_grant.id, authorize?: false).id ==
              non_owner_grant.id
+
+    assert Ash.get!(RoleCapability, post_up_grant.id, authorize?: false).id ==
+             post_up_grant.id
 
     assert RoleCapability
            |> Ash.Query.filter(role_id == ^owner_role.id and capability_id == ^capability.id)

@@ -3262,7 +3262,9 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
 
     run_id = accepted.work_run.id
 
-    assert {:error, {:work_run_already_verified, ^run_id}} =
+    check_id = verification_check.id
+
+    assert {:error, {:verification_result_slot_conflict, ^run_id, ^check_id}} =
              accept_candidate(bootstrap.session, stale_candidate,
                key: "stale-failed-candidate-after-verification",
                result: "failed"
@@ -3788,47 +3790,110 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
     assert required_check.state == "pending"
   end
 
-  test "a second failed candidate for one run and check returns a stable slot conflict" do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+  test "every duplicate result combination returns the stable slot conflict without partial evidence" do
+    for {first_result, second_result} <- [
+          {"passed", "passed"},
+          {"passed", "failed"},
+          {"failed", "passed"},
+          {"failed", "failed"}
+        ] do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+      {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+      key = "duplicate-result-slot-#{first_result}-#{second_result}"
 
-    {:ok, observation_result} =
-      record_observation(bootstrap.session, run_result.run, verification_check,
-        key: "duplicate-failed-result-slot"
+      {:ok, observation_result} =
+        record_observation(bootstrap.session, run_result.run, verification_check, key: key)
+
+      {:ok, first_candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          observation_result.observation,
+          key: "#{key}-first"
+        )
+
+      {:ok, second_candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          observation_result.observation,
+          key: "#{key}-second"
+        )
+
+      assert {:ok, _accepted} =
+               accept_candidate(bootstrap.session, first_candidate,
+                 key: "#{key}-first",
+                 result: first_result
+               )
+
+      run_id = run_result.run.id
+      check_id = verification_check.id
+
+      assert {:error, {:verification_result_slot_conflict, ^run_id, ^check_id}} =
+               accept_candidate(bootstrap.session, second_candidate,
+                 key: "#{key}-second",
+                 result: second_result
+               )
+
+      refute accepted_evidence_for_candidate?(second_candidate.id)
+
+      assert 1 ==
+               VerificationResult
+               |> Ash.Query.filter(work_run_id == ^run_id and verification_check_id == ^check_id)
+               |> Ash.read!(authorize?: false)
+               |> length()
+    end
+  end
+
+  test "a result for a different check preserves terminal run validation" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    {:ok, first_observation} =
+      record_observation(bootstrap.session, run_result.run, first_check,
+        key: "different-slot-first"
+      )
+
+    {:ok, second_observation} =
+      record_observation(bootstrap.session, first_observation.run, second_check,
+        key: "different-slot-second"
       )
 
     {:ok, first_candidate} =
       create_evidence_candidate(
         bootstrap.session,
-        run_result.run,
-        verification_check,
-        observation_result.observation,
-        key: "duplicate-failed-result-slot-first"
+        second_observation.run,
+        first_check,
+        first_observation.observation,
+        key: "different-slot-first"
       )
 
     {:ok, second_candidate} =
       create_evidence_candidate(
         bootstrap.session,
-        run_result.run,
-        verification_check,
-        observation_result.observation,
-        key: "duplicate-failed-result-slot-second"
+        second_observation.run,
+        second_check,
+        second_observation.observation,
+        key: "different-slot-second"
       )
 
-    assert {:ok, _accepted} =
+    assert {:ok, accepted} =
              accept_candidate(bootstrap.session, first_candidate,
-               key: "duplicate-failed-result-slot-first",
+               key: "different-slot-first",
                result: "failed"
              )
 
-    run_id = run_result.run.id
-    check_id = verification_check.id
+    run_id = accepted.work_run.id
 
-    assert {:error, {:verification_result_slot_conflict, ^run_id, ^check_id}} =
+    assert {:error, {:work_run_already_failed, ^run_id}} =
              accept_candidate(bootstrap.session, second_candidate,
-               key: "duplicate-failed-result-slot-second",
-               result: "failed"
+               key: "different-slot-second",
+               result: "passed"
              )
 
     refute accepted_evidence_for_candidate?(second_candidate.id)
