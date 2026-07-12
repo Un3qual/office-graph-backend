@@ -29,10 +29,16 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
   test "boundary compiler is part of the backend verification path" do
     project_config = Mix.Project.config()
+    aliases = project_config[:aliases]
 
     assert :boundary in project_config[:compilers]
-    assert project_config[:aliases][:"boundary.check"] == ["compile --force --warnings-as-errors"]
-    assert "boundary.check" in project_config[:aliases][:verify]
+    assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
+    assert "boundary.check" in aliases[:verify]
+    assert "hex.audit" in aliases[:verify]
+    assert "spec.verify" in aliases[:verify]
+    assert "frontend.verify.precompiled" in aliases[:verify]
+    assert "hex.audit" in aliases[:precommit]
+    assert "spec.verify" in aliases[:precommit]
   end
 
   test "public context modules declare boundary contracts" do
@@ -58,5 +64,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
       end)
 
     assert missing_modules == []
+  end
+
+  test "verification waiver execution has a focused internal owner" do
+    waiver = Module.concat(OfficeGraph.Verification, Waiver)
+
+    assert Code.ensure_loaded?(waiver)
+    assert function_exported?(waiver, :execute, 5)
   end
 end

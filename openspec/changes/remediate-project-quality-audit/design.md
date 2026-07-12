@@ -45,7 +45,7 @@ The alternative was to remove schema compilation unconditionally, which would ma
 - **A transient advisory-service outage could fail local verification** → `mix hex.audit` is intentionally a trust gate; failures remain visible rather than silently bypassed.
 - **Skipping compilation could validate stale beams** → only the parent Mix gate sets the flag, immediately after warnings-as-errors compilation; standalone schema checks still compile.
 - **Moving transaction helpers could alter exception behavior** → add an architecture regression first, retain existing public behavior tests, and run focused waiver/evidence suites before the full gate.
-- **A broad dependency update could introduce unrelated behavior** → update only Postgrex from 0.22.2 to 0.22.3.
+- **A broad dependency update could introduce unrelated behavior** → update only Postgrex from 0.22.2 to 0.22.3 and the required transitive `db_connection` patch from 2.10.1 to 2.10.2.
 
 ## Migration Plan
 

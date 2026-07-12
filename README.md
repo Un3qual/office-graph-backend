@@ -65,7 +65,7 @@ docker compose up -d postgres
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
 ```
 
-Run the current backend baseline gate:
+Run individual project gates:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command mix compile --warnings-as-errors
@@ -74,12 +74,16 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix bou
 nix --extra-experimental-features 'nix-command flakes' develop --command mix static.analysis
 nix --extra-experimental-features 'nix-command flakes' develop --command mix typecheck
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
+nix --extra-experimental-features 'nix-command flakes' develop --command mix hex.audit
+nix --extra-experimental-features 'nix-command flakes' develop --command mix frontend.verify
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
 
-Or run the same gate as one command:
+Or run the full project gate as one command. The historical script name remains
+for compatibility, but it now delegates to the authoritative `mix verify`
+alias:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
