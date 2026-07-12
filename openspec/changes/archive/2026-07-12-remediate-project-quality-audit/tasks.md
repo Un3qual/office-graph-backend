@@ -18,4 +18,4 @@
 - [x] 3.1 Remove the resolved dated code-review handoff and verify no live documentation references it.
 - [x] 3.2 Run the complete project verification, strict OpenSpec validation, advisory audit, and diff checks.
 - [x] 3.3 Archive the completed OpenSpec change and validate the resulting specs strictly.
-- [ ] 3.4 Commit and publish a ready-for-review PR stacked on `codex/archive-operator-command-loop`.
+- [x] 3.4 Commit and publish a ready-for-review PR stacked on `codex/archive-operator-command-loop`.
