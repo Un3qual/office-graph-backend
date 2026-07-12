@@ -97,7 +97,7 @@ defmodule OfficeGraph.MixProject do
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
-      "dependency.audit": ["hex.audit", "cmd --cd assets pnpm audit --prod"],
+      "dependency.audit": ["cmd mix hex.audit", "cmd --cd assets pnpm audit --prod"],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
         "assets.setup",

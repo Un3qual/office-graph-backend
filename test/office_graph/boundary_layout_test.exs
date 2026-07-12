@@ -1,8 +1,6 @@
 defmodule OfficeGraph.BoundaryLayoutTest do
   use ExUnit.Case, async: true
 
-  import ExUnit.CaptureIO
-
   @public_contexts [
     OfficeGraph.Foundation,
     OfficeGraph.Identity,
@@ -36,7 +34,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert :boundary in project_config[:compilers]
     assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
     assert "boundary.check" in aliases[:verify]
-    assert aliases[:"dependency.audit"] == ["hex.audit", "cmd --cd assets pnpm audit --prod"]
+
+    assert aliases[:"dependency.audit"] == [
+             "cmd mix hex.audit",
+             "cmd --cd assets pnpm audit --prod"
+           ]
+
     assert "dependency.audit" in aliases[:verify]
     assert "spec.verify" in aliases[:verify]
     assert "frontend.verify.precompiled" in aliases[:verify]
@@ -77,12 +80,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
   end
 
   test "module graph has no compile-time dependency cycles" do
-    cycles =
-      capture_io(fn ->
-        Mix.Task.reenable("xref")
-        Mix.Task.run("xref", ["graph", "--format", "cycles"])
-      end)
+    mix = System.find_executable("mix")
 
+    {cycles, exit_status} =
+      System.cmd(mix, ["xref", "graph", "--format", "cycles"], stderr_to_stdout: true)
+
+    assert exit_status == 0, cycles
     refute cycles =~ " compile)", cycles
   end
 end
