@@ -2,7 +2,7 @@
 
 ## Status
 
-`DONE_WITH_CONCERNS`
+`DONE`
 
 Task 3 implementation is complete. OpenSpec tasks 4.1-4.3 are checked; no other task was changed.
 
@@ -145,14 +145,107 @@ Output: format and compile exited 0; OpenSpec reported `Change 'harden-project-q
 - `df080c3` — `unify operator command semantics`
 - `739b626` — `refresh after evidence command conflicts`
 - `3ce75d9` — `close compact error metadata leaks`
+- `bc8c1e7` — `make command metadata encoding total`
 
 The OpenSpec/report checkpoint is committed separately after this report.
 
+## Independent Review Follow-up
+
+The independent review requested five additional guarantees: a non-bypassable public metadata allowlist, safe retention for arbitrary tuples and ordinary structs, total malformed field/changeset handling, complete adapter parity including fields/fallbacks, and explicit mixed atom/string input precedence.
+
+### Follow-up RED evidence
+
+Command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix format test/office_graph_web/operator_command_semantics_test.exs && \
+   mix test test/office_graph_web/operator_command_semantics_test.exs'
+```
+
+Observed `Result: 4/7 passed`, three expected failures:
+
+- `PostgrexError`, `DBConnection.ConnectionError`, `EctoQueryError`, `SELECT_credentials`, and unsafe binary keys crossed both adapters.
+- A tuple-valued field raised `Protocol.UndefinedError` through `String.Chars.to_string/1`.
+- A present false atom key incorrectly fell through to the valid string-key sibling.
+
+Context-aware unsafe tuple RED:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix test test/office_graph_web/operator_command_semantics_test.exs:159'
+```
+
+Observed `Result: 0/1 passed`: `{:adapter_error, "timeout"}` retained `timeout` after its kind became `internal`.
+
+Lower SQL/framework token and malformed-container RED:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix test test/office_graph_web/operator_command_semantics_test.exs'
+```
+
+Observed `Result: 6/8 passed`, two expected failures:
+
+- Lowercase `delete`, `update_credentials`, `drop_table`, `ash_forbidden`, and `ecto_constraint` remained public.
+- `%Ash.Changeset{errors: :invalid}` raised `Protocol.UndefinedError` through `Enum.map/2`; improper error tails were likewise not total.
+
+Canonical public token preservation RED:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix test test/office_graph_web/operator_command_semantics_test.exs:159'
+```
+
+Observed `Result: 0/1 passed`: the SQL-leading rule over-redacted `create_signal`, `create_task`, `create_review_finding`, and `create_verification_check`.
+
+### Follow-up GREEN implementation
+
+- Binary values and keys must first satisfy a closed lowercase token grammar; module-shaped casing/dots and unsafe separators fail closed.
+- Contextual segment checks reject framework/adapter/error markers and leading SQL statements. The four canonical proposal change types have an exact closed allowlist, while `create_table` remains invalid.
+- Unsafe `{kind, value}` pairs collapse both kind and value; other tuple arities become recursively sanitized arrays.
+- Ordinary structs retain recursively safe fields without module identity; exception structs collapse to `invalid`.
+- Unsafe map keys collapse deterministically to an `invalid` entry, while safe UUIDs/tokens/numbers/booleans/nil remain available.
+- Field encoding no longer calls `to_string/1` on arbitrary terms. Changeset and nested-forbidden traversal handle non-list and improper containers without raising.
+- Input lookup now uses explicit key presence, with atom keys taking precedence even when their value is false or nil.
+- Adapter parity covers fields, Ash changesets, nested forbidden errors, and generic fallback envelopes.
+
+### Final GREEN verification
+
+Command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc '
+  mix format --check-formatted
+  mix compile --warnings-as-errors
+  mix credo --strict
+  export MIX_ENV=test MIX_TEST_PARTITION=_task3
+  mix test test/office_graph_web/operator_command_semantics_test.exs \
+    test/office_graph_web/operator_commands_graphql_test.exs \
+    test/office_graph_web/operator_commands_json_test.exs
+  cd assets
+  pnpm exec vitest run app/relay/commandMutation.test.tsx \
+    app/routes/operator/commandWorkflow.test.tsx
+  pnpm typecheck
+  cd ..
+  openspec validate harden-project-quality --strict
+  git diff --check
+'
+```
+
+Output:
+
+- Format and warnings-as-errors compile passed.
+- Credo checked 192 source files and found no issues.
+- Backend shared/GraphQL/JSON suite: `Result: 28 passed`.
+- Frontend focused suite: `2 passed (2)` files, `23 passed (23)` tests.
+- `tsc --noEmit` exited 0.
+- OpenSpec reported `Change 'harden-project-quality' is valid`.
+- `git diff --check` exited 0.
+- Independent re-review: Ready `Yes`, with no Critical, Important, or Minor findings.
+
 ## Concerns
 
-- `mix credo --strict` is not green because of two pre-existing warnings in Task-2-owned files outside this task's allowed edit scope:
-  - `lib/office_graph/work_graph/changes/validate_same_scope_references.ex:149`
-  - `lib/office_graph/runs/changes/validate_run_required_check_contract.ex:200`
-  Both warnings report Logger metadata keys `field`/`error` are absent from Logger configuration.
+- The prior Task-2 Credo warnings were resolved separately by commit `4938995`; Task 3 did not modify those files. Final `mix credo --strict` is clean.
 - One non-partitioned focused backend run observed unrelated `runless-completion-race` rows from a concurrently running suite and failed a global snapshot assertion. The same 24 tests passed in the dedicated `_task3` partition; this is shared-database interference, not a Task 3 product failure.
 - No push was performed.
