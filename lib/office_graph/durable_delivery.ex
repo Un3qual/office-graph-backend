@@ -72,12 +72,13 @@ defmodule OfficeGraph.DurableDelivery do
         |> limit(^limit)
         |> Repo.all()
 
-      failure_codes = failure_codes_by_event(jobs)
+      failure_codes = failure_codes_by_event(jobs, session_context)
 
       {:ok,
        Enum.map(jobs, fn job ->
          failure_code =
-           Map.get(failure_codes, job.args["event_id"]) || terminal_failure_code(job)
+           Map.get(failure_codes, normalized_event_id(job.args["event_id"])) ||
+             terminal_failure_code(job)
 
          %TerminalJob{
            id: job.id,
@@ -96,23 +97,31 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   def dispatch(event_id) when is_binary(event_id),
-    do: dispatch_safely(event_id, nil, Subscriptions)
+    do: dispatch_validated(event_id, nil, Subscriptions)
 
   def dispatch(_event_id), do: {:error, {:terminal, :invalid_event_id}}
 
   @doc false
-  def dispatch(event_id, broadcaster) when is_binary(event_id) and is_atom(broadcaster) do
-    dispatch_safely(event_id, nil, broadcaster)
-  end
+  def dispatch(event_id, broadcaster) when is_binary(event_id) and is_atom(broadcaster),
+    do: dispatch_validated(event_id, nil, broadcaster)
 
   def dispatch(
         event_id,
         %{organization_id: organization_id, workspace_id: workspace_id} = scope
       )
-      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id),
-      do: dispatch_safely(event_id, scope, Subscriptions)
+      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id) do
+    dispatch_validated(event_id, scope, Subscriptions)
+  end
 
   def dispatch(_event_id, _broadcaster), do: {:error, {:terminal, :invalid_event_id}}
+
+  defp dispatch_validated(event_id, expected_scope, broadcaster) do
+    if valid_event_id?(event_id) do
+      dispatch_safely(event_id, expected_scope, broadcaster)
+    else
+      {:error, {:terminal, :invalid_event_id}}
+    end
+  end
 
   defp dispatch_safely(event_id, expected_scope, broadcaster) do
     case transaction(fn -> dispatch_locked(event_id, expected_scope, broadcaster) end) do
@@ -289,7 +298,7 @@ defmodule OfficeGraph.DurableDelivery do
   defp normalize_limit(limit) when is_integer(limit), do: min(max(limit, 1), 100)
   defp normalize_limit(_limit), do: 50
 
-  defp failure_codes_by_event(jobs) do
+  defp failure_codes_by_event(jobs, session_context) do
     event_ids =
       jobs
       |> Enum.flat_map(fn job ->
@@ -306,7 +315,11 @@ defmodule OfficeGraph.DurableDelivery do
       %{}
     else
       DomainEvent
-      |> Ash.Query.filter(id in ^event_ids)
+      |> Ash.Query.filter(
+        id in ^event_ids and
+          organization_id == ^session_context.organization_id and
+          workspace_id == ^session_context.workspace_id
+      )
       |> Ash.read!()
       |> Map.new(&{&1.id, &1.failure_code})
     end
@@ -317,6 +330,13 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   defp terminal_failure_code(_job), do: nil
+
+  defp normalized_event_id(event_id) do
+    case Ecto.UUID.cast(event_id) do
+      {:ok, normalized} -> normalized
+      :error -> nil
+    end
+  end
 
   defp valid_event_id?(event_id), do: match?({:ok, _event_id}, Ecto.UUID.cast(event_id))
 

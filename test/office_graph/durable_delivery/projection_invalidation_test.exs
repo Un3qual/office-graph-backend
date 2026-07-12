@@ -184,6 +184,9 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
   test "dispatch rejects an invalid event id without entering the retry path" do
     assert {:error, {:terminal, :invalid_event_id}} = DurableDelivery.dispatch(:not_an_event_id)
+
+    assert {:error, {:terminal, :invalid_event_id}} =
+             DurableDelivery.dispatch("not-a-uuid")
   end
 
   for {broadcaster, failure_kind} <- [
@@ -269,7 +272,15 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     """)
 
     [job] = jobs_for_event(event.id)
-    exhausted_job = %{job | attempt: job.max_attempts}
+
+    exhausted_job =
+      job
+      |> Ecto.Changeset.change(%{
+        state: "executing",
+        attempt: job.max_attempts,
+        attempted_at: DateTime.utc_now()
+      })
+      |> Repo.update!()
 
     assert {:snooze, 5} = DispatchEventWorker.perform(exhausted_job)
 

@@ -86,6 +86,13 @@ without exposing internal exceptions as product data.
 - **THEN** subsequent terminal-history reads MUST recheck current grants and
   fail closed
 
+#### Scenario: Existing owners upgrade to durable delivery
+
+- **WHEN** durable delivery is deployed to an organization whose owner roles
+  predate the durable-delivery read capability
+- **THEN** the upgrade MUST grant that capability to those existing owner roles
+  without requiring the local bootstrap workflow to run again
+
 #### Scenario: A delivery job carries the wrong scope
 
 - **WHEN** a delivery job's organization or workspace does not match its event

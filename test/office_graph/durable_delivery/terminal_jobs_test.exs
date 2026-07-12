@@ -68,6 +68,41 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     assert %{failure_code: "event_not_found"} = Enum.find(summaries, &(&1.id == job.id))
   end
 
+  test "does not trust failure state from an event outside the authorized scope" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, other_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Other Terminal Organization",
+        organization_slug: "other-terminal-organization",
+        workspace_name: "Other Terminal Workspace",
+        workspace_slug: "other-terminal-workspace",
+        initiative_name: "Other Terminal Initiative",
+        initiative_slug: "other-terminal-initiative",
+        owner_email: "other-terminal-owner@example.test",
+        owner_name: "Other Terminal Owner"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(other_scope.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(other_scope.session, operation, %{
+               event_key: "test:cross-scope-terminal-summary",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    :ok = DurableDelivery.mark_failed(event.id, "other_scope_secret")
+    job = insert_terminal_job(bootstrap, event.id, "event_scope_mismatch")
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+
+    assert %{failure_code: "event_scope_mismatch"} =
+             Enum.find(summaries, &(&1.id == job.id))
+  end
+
   test "ignores malformed event ids when assembling terminal summaries" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
