@@ -16,7 +16,7 @@
 ## 4. Authorized Projection Invalidation
 
 - [x] 4.1 Add failing subscriber and dispatcher tests, then implement the typed projection-invalidation envelope, fail-closed session/scope subscription, post-commit PubSub delivery, duplicate-dispatch suppression, and authoritative-refetch hints.
-- [ ] 4.2 Add failing integration tests, then record and enqueue `manual_intake.accepted` inside first-acceptance persistence while keeping operation replay and transaction rollback free of duplicate events or jobs.
+- [x] 4.2 Add failing integration tests, then record and enqueue `manual_intake.accepted` inside first-acceptance persistence while keeping operation replay and transaction rollback free of duplicate events or jobs.
 
 ## 5. Verification And Completion
 
