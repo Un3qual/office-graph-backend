@@ -147,6 +147,7 @@ Output: format and compile exited 0; OpenSpec reported `Change 'harden-project-q
 - `3ce75d9` — `close compact error metadata leaks`
 - `bc8c1e7` — `make command metadata encoding total`
 - `ca89c44` — `register safe command error metadata`
+- `a9873a0` — `fail closed unknown proposal reasons`
 
 The OpenSpec/report checkpoint is committed separately after this report.
 
@@ -317,6 +318,40 @@ Output:
 - Frontend focused suite: `2 passed (2)` files, `23 passed (23)` tests.
 - TypeScript, strict OpenSpec, and diff checks exited 0.
 - Independent re-review: Ready `Yes`, with no Critical, Important, or Minor findings.
+
+## Scalar Reason Fail-closed Follow-up
+
+The final review found that integer, float, boolean, and nil proposal reasons still bypassed the positive reason registry through a scalar passthrough, even though no registered proposal reason uses those shapes.
+
+RED command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
+  'mix format test/office_graph_web/operator_command_semantics_test.exs && \
+   mix test test/office_graph_web/operator_command_semantics_test.exs'
+```
+
+Output: `Result: 10/11 passed`; `{:invalid_proposed_change_set, 42}` returned `%{reason: 42}` instead of `%{reason: "invalid"}`. The same table covers `3.14`, `true`, `false`, and `nil` through the classifier and both adapters.
+
+GREEN implementation: removed the unregistered scalar reason clause. All unknown scalar and container shapes now use the same `invalid` fallback; exact registered reason tokens and tuple shapes are unchanged.
+
+GREEN command:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc '
+  mix format --check-formatted
+  mix compile --warnings-as-errors
+  mix credo --strict
+  export MIX_ENV=test MIX_TEST_PARTITION=_task3
+  mix test test/office_graph_web/operator_command_semantics_test.exs \
+    test/office_graph_web/operator_commands_graphql_test.exs \
+    test/office_graph_web/operator_commands_json_test.exs
+  openspec validate harden-project-quality --strict
+  git diff --check
+'
+```
+
+Output: format and compile passed; Credo checked 192 files with no issues; backend semantics/GraphQL/JSON suite reported `Result: 31 passed`; strict OpenSpec validation and diff check passed.
 
 ## Concerns
 
