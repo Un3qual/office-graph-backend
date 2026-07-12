@@ -85,6 +85,11 @@ export const OperatorWorkflowItemFragment = graphql`
       targetGraphItemId
       relationshipType
     }
+    relationshipSummary {
+      graphLinks
+      graphRelationships
+      hasMore
+    }
     auditTrace {
       operationId
       resourceCount
@@ -194,6 +199,15 @@ export const OperatorRunStateFragment = graphql`
         expectedVerificationState
         policyBasis
       }
+    }
+    childSummary {
+      requiredChecks
+      observations
+      evidenceCandidates
+      evidenceItems
+      verificationResults
+      missingEvidence
+      hasMore
     }
     sourceWatermark
     packet {

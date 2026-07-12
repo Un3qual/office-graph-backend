@@ -32,6 +32,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   }
   @default_operator_inbox_limit 50
   @max_operator_inbox_limit 100
+  @relationship_summary_limit 20
 
   def manual_intake_affordance(session_context) do
     affordance =
@@ -84,9 +85,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   end
 
   defp read_intake_rows_page(session_context, opts) do
-    limit = page_limit(opts)
-
-    with :ok <- authorize_read(session_context),
+    with {:ok, limit} <- page_limit(opts),
+         :ok <- authorize_read(session_context),
          {:ok, cursor} <- page_cursor(opts),
          {:ok, events} <- read_intake_events(session_context, limit, cursor),
          page_events = Enum.take(events, limit),
@@ -130,9 +130,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   end
 
   defp page_limit(opts) do
-    opts
-    |> option(:limit, @default_operator_inbox_limit)
-    |> bounded_integer(@default_operator_inbox_limit, 1, @max_operator_inbox_limit)
+    case option(opts, :limit, @default_operator_inbox_limit) do
+      value when is_integer(value) and value < 0 -> {:error, {:invalid_field, :first}}
+      value when is_integer(value) -> {:ok, Kernel.min(value, @max_operator_inbox_limit)}
+      _other -> {:ok, @default_operator_inbox_limit}
+    end
   end
 
   defp page_cursor(opts), do: decode_cursor(option(opts, :after_cursor, nil))
@@ -173,16 +175,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     |> Enum.zip(events)
     |> Enum.map(fn {row, event} -> {row, cursor: encode_cursor(event)} end)
   end
-
-  defp bounded_integer(value, _default, min, max) when is_integer(value) do
-    value
-    |> max(min)
-    |> clamp_max(max)
-  end
-
-  defp bounded_integer(_value, default, _min, _max), do: default
-
-  defp clamp_max(value, max), do: Kernel.min(value, max)
 
   defp read_intake_event(session_context, id) do
     NormalizedIntakeEvent
@@ -265,6 +257,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       )
 
     title = proposed_change_title(proposed_changes, event.source_identity)
+    graph_relationships = applied_projection.graph_relationships
 
     %{
       type: "operator_workflow_item",
@@ -287,8 +280,15 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       command_affordances: command_affordances,
       operation_watermark: event.operation_id,
       source_watermark: event.operation_id,
-      graph_links: graph_links,
-      graph_relationships: applied_projection.graph_relationships,
+      graph_links: Enum.take(graph_links, @relationship_summary_limit),
+      graph_relationships: Enum.take(graph_relationships, @relationship_summary_limit),
+      relationship_summary: %{
+        graph_links: length(graph_links),
+        graph_relationships: length(graph_relationships),
+        has_more:
+          length(graph_links) > @relationship_summary_limit or
+            length(graph_relationships) > @relationship_summary_limit
+      },
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
     }

@@ -477,6 +477,47 @@ describe("packet workspace route", () => {
     expect(history).toHaveTextContent("Version 2");
   });
 
+  it("loads packet version history incrementally", async () => {
+    const versionTwo = packetVersion({ id: "version_2", versionNumber: 2, title: "Second" });
+    const versionThree = packetVersion({ id: "version_3", versionNumber: 3, title: "Third" });
+    let detailPage = 1;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        if (variables.versionAfter === "version_cursor_2") {
+          detailPage = 2;
+          return packetWorkspaceResponse(
+            workspace({ versions: [versionThree] }),
+            { hasNextPage: false, hasPreviousPage: true, startCursor: "version_cursor_3", endCursor: "version_cursor_3" }
+          );
+        }
+
+        return packetWorkspaceResponse(
+          workspace({ versions: [packetVersion(), versionTwo] }),
+          { hasNextPage: true, hasPreviousPage: false, startCursor: "version_cursor_1", endCursor: "version_cursor_2" }
+        );
+      }
+
+      throw new Error(`Unexpected request ${request.name}`);
+    });
+
+    renderWithRelay(network);
+
+    expect(await screen.findByText("Version 2")).toBeInTheDocument();
+    expect(screen.queryByText("Version 3")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next versions" }));
+
+    expect(await screen.findByText("Version 3")).toBeInTheDocument();
+    expect(detailPage).toBe(2);
+    expect(lastVariablesFor(network, "PacketsWorkspaceDetailQuery")).toMatchObject({
+      versionFirst: 2,
+      versionAfter: "version_cursor_2"
+    });
+  });
+
   it("refreshes authoritative packet data after a stale version conflict", async () => {
     let detail = workspace();
     let conflicted = false;
@@ -911,8 +952,29 @@ function packetWorkspaceNetwork(detail: ReturnType<typeof workspace>) {
   );
 }
 
-function packetWorkspaceResponse(detail: ReturnType<typeof workspace>): GraphQLResponse {
-  return { data: { operatorPacketWorkspace: detail } };
+function packetWorkspaceResponse(
+  detail: ReturnType<typeof workspace>,
+  pageInfo = {
+    hasNextPage: false,
+    hasPreviousPage: false,
+    startCursor: detail.versions[0]?.id ?? null,
+    endCursor: detail.versions.at(-1)?.id ?? null
+  }
+): GraphQLResponse {
+  return {
+    data: {
+      operatorPacketWorkspace: {
+        ...detail,
+        versionHistory: {
+          edges: detail.versions.map((version, index) => ({
+            cursor: `${pageInfo.startCursor ?? "version"}:${index}`,
+            node: version
+          })),
+          pageInfo
+        }
+      }
+    }
+  };
 }
 
 function runStartResponse(runId: string, operationId: string): GraphQLResponse {

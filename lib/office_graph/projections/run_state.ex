@@ -9,6 +9,8 @@ defmodule OfficeGraph.Projections.RunState do
 
   require Ash.Query
 
+  @child_summary_limit 20
+
   def operator_run_state(session_context, run_id) do
     with {:ok, summary} <- Runs.get_summary(session_context, run_id),
          {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id),
@@ -65,6 +67,8 @@ defmodule OfficeGraph.Projections.RunState do
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
       command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
+      activity: run_activity(summary, evidence_candidates, verification_checks_by_id),
+      child_summary: child_summary(summary, evidence_candidates),
       source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
         id: summary.packet.id,
@@ -84,7 +88,9 @@ defmodule OfficeGraph.Projections.RunState do
         verification_state: summary.run.verification_state
       },
       required_checks:
-        Enum.map(summary.required_checks, fn required_check ->
+        summary.required_checks
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(fn required_check ->
           %{
             id: required_check.id,
             verification_check_id: required_check.verification_check_id,
@@ -97,7 +103,9 @@ defmodule OfficeGraph.Projections.RunState do
           }
         end),
       observations:
-        Enum.map(summary.observations, fn observation ->
+        summary.observations
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(fn observation ->
           %{
             id: observation.id,
             verification_check_id: observation.verification_check_id,
@@ -109,9 +117,14 @@ defmodule OfficeGraph.Projections.RunState do
             source_identity: observation.source_identity
           }
         end),
-      evidence_candidates: Enum.map(evidence_candidates, &evidence_candidate_projection/1),
+      evidence_candidates:
+        evidence_candidates
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(&evidence_candidate_projection/1),
       evidence_items:
-        Enum.map(summary.evidence_items, fn evidence_item ->
+        summary.evidence_items
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(fn evidence_item ->
           %{
             id: evidence_item.id,
             state: evidence_item.state,
@@ -120,7 +133,9 @@ defmodule OfficeGraph.Projections.RunState do
           }
         end),
       verification_results:
-        Enum.map(summary.verification_results, fn result ->
+        summary.verification_results
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(fn result ->
           %{
             id: result.id,
             result: result.result,
@@ -134,8 +149,90 @@ defmodule OfficeGraph.Projections.RunState do
             work_packet_version_id: result.work_packet_version_id
           }
         end),
-      missing_evidence: Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
+      missing_evidence:
+        summary.missing_evidence
+        |> Enum.take(@child_summary_limit)
+        |> Enum.map(&missing_evidence_projection/1)
     }
+  end
+
+  defp child_summary(summary, evidence_candidates) do
+    counts = %{
+      required_checks: length(summary.required_checks),
+      observations: length(summary.observations),
+      evidence_candidates: length(evidence_candidates),
+      evidence_items: length(summary.evidence_items),
+      verification_results: length(summary.verification_results),
+      missing_evidence: length(summary.missing_evidence)
+    }
+
+    Map.put(
+      counts,
+      :has_more?,
+      Enum.any?(counts, fn {_kind, count} -> count > @child_summary_limit end)
+    )
+  end
+
+  defp run_activity(summary, evidence_candidates, verification_checks_by_id) do
+    required =
+      Enum.map(summary.required_checks, fn check ->
+        verification_check = Map.get(verification_checks_by_id, check.verification_check_id)
+
+        activity_item(
+          "required_check",
+          check.id,
+          verification_check && verification_check.title,
+          check.state
+        )
+      end)
+
+    observations =
+      Enum.map(summary.observations, fn observation ->
+        activity_item(
+          "observation",
+          observation.id,
+          observation.source_identity,
+          observation.normalized_status
+        )
+      end)
+
+    candidates =
+      Enum.map(evidence_candidates, fn candidate ->
+        activity_item(
+          "evidence_candidate",
+          candidate.id,
+          candidate.claim,
+          candidate.candidate_state
+        )
+      end)
+
+    evidence_items =
+      Enum.map(summary.evidence_items, fn item ->
+        activity_item("evidence_item", item.id, "Accepted evidence", item.state)
+      end)
+
+    results =
+      Enum.map(summary.verification_results, fn result ->
+        activity_item("verification_result", result.id, result.policy_basis, result.result)
+      end)
+
+    missing =
+      Enum.map(summary.missing_evidence, fn item ->
+        verification_check = Map.get(verification_checks_by_id, item.verification_check_id)
+
+        activity_item(
+          "missing_evidence",
+          item.verification_check_id,
+          verification_check && verification_check.title,
+          item.reason
+        )
+      end)
+
+    required ++ observations ++ candidates ++ evidence_items ++ results ++ missing
+  end
+
+  defp activity_item(kind, id, title, status) do
+    %{kind: kind, stable_id: id, title: title || kind, status: status}
   end
 
   defp command_options(summary, evidence_candidates, verification_checks_by_id) do

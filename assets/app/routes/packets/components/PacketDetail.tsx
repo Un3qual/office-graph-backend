@@ -7,12 +7,20 @@ import { PacketEditor } from "./PacketEditor";
 import { PacketRunForm } from "./PacketRunForm";
 
 type Props = {
+  onNextVersions?: () => void;
+  onPreviousVersions?: () => void;
   onRefresh?: () => void;
   packet: PacketRow | null;
   workspace?: PacketWorkspaceDetail | null;
 };
 
-export function PacketDetail({ onRefresh, packet, workspace = null }: Props) {
+export function PacketDetail({
+  onNextVersions,
+  onPreviousVersions,
+  onRefresh,
+  packet,
+  workspace = null
+}: Props) {
   const canCreateVersion = workspace?.commandAffordances.some(
     affordance => affordance.identity === "create_work_packet_version" && affordance.state === "enabled"
   ) ?? false;
@@ -73,6 +81,22 @@ export function PacketDetail({ onRefresh, packet, workspace = null }: Props) {
                     </li>
                   ))}
                 </ol>
+                <div aria-label="Version history pagination">
+                  <button
+                    disabled={!workspace.versionPageInfo.hasPreviousPage}
+                    onClick={onPreviousVersions}
+                    type="button"
+                  >
+                    Previous versions
+                  </button>
+                  <button
+                    disabled={!workspace.versionPageInfo.hasNextPage}
+                    onClick={onNextVersions}
+                    type="button"
+                  >
+                    Next versions
+                  </button>
+                </div>
               </section>
               {onRefresh && canCreateVersion ? <PacketEditor onRefresh={onRefresh} workspace={workspace} /> : null}
               {onRefresh ? <PacketRunForm onRefresh={onRefresh} workspace={workspace} /> : null}

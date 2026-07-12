@@ -1197,6 +1197,19 @@ describe("operator route", () => {
     const runState = {
       ...base,
       evidenceCandidates: [...base.evidenceCandidates, secondCandidate],
+      commandOptions: {
+        ...base.commandOptions,
+        evidenceAcceptance: [
+          ...base.commandOptions.evidenceAcceptance,
+          {
+            key: "candidate_2",
+            label: secondCandidate.claim,
+            evidenceCandidateId: "candidate_2",
+            result: "passed",
+            acceptancePolicyBasis: "owner_acceptance"
+          }
+        ]
+      },
       commandAffordances: [
         enabledCommandAffordance("accept_evidence", [], [
           { type: "work_run", id: "run_1" },
@@ -1239,6 +1252,19 @@ describe("operator route", () => {
     const initialState = {
       ...base,
       evidenceCandidates: [...base.evidenceCandidates, secondCandidate],
+      commandOptions: {
+        ...base.commandOptions,
+        evidenceAcceptance: [
+          ...base.commandOptions.evidenceAcceptance,
+          {
+            key: "candidate_2",
+            label: secondCandidate.claim,
+            evidenceCandidateId: "candidate_2",
+            result: "passed",
+            acceptancePolicyBasis: "owner_acceptance"
+          }
+        ]
+      },
       commandAffordances: [
         enabledCommandAffordance("accept_evidence", [], [
           { type: "work_run", id: "run_1" },
@@ -1321,6 +1347,18 @@ describe("operator route", () => {
     const runState = {
       ...base,
       observations: [...base.observations, secondObservation],
+      commandOptions: {
+        ...base.commandOptions,
+        evidenceCandidate: [
+          ...base.commandOptions.evidenceCandidate,
+          evidenceCandidateCommandOption({
+            key: "observation_2",
+            label: "Second observation",
+            verificationCheckId: "check_2",
+            executionObservationId: "observation_2"
+          })
+        ]
+      },
       missingEvidence: [
         ...base.missingEvidence,
         { verificationCheckId: "check_2", reason: "missing" }
@@ -1363,6 +1401,21 @@ describe("operator route", () => {
     const runState = {
       ...base,
       requiredChecks: [...base.requiredChecks, secondCheck],
+      commandOptions: {
+        ...base.commandOptions,
+        waiver: [
+          ...base.commandOptions.waiver,
+          {
+            key: "required_2",
+            label: "Second required check",
+            runId: "run_1",
+            runRequiredCheckId: "required_2",
+            expectedExecutionState: "completed",
+            expectedVerificationState: "pending",
+            policyBasis: "owner_exception"
+          }
+        ]
+      },
       commandAffordances: [
         enabledCommandAffordance("waive_verification_check", [
           { field: "run_id", value: "run_1", values: [] },
@@ -1404,6 +1457,18 @@ describe("operator route", () => {
           state: "open"
         }
       ],
+      commandOptions: {
+        ...base.commandOptions,
+        observation: [
+          ...base.commandOptions.observation,
+          observationCommandOption({
+            key: "required_2",
+            label: "Second verification check",
+            verificationCheckId: "check_2",
+            sourceGraphItemId: "graph_2"
+          })
+        ]
+      },
       commandAffordances: [
         enabledCommandAffordance("record_execution_observation", [
           { field: "run_id", value: "run_1", values: [] }
@@ -1418,7 +1483,7 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Verification check"), {
-      target: { value: "check_2" }
+      target: { value: "required_2" }
     });
     fireEvent.change(screen.getByLabelText("Observation outcome"), {
       target: { value: "failed" }
@@ -1712,6 +1777,7 @@ function deferredGraphQLResponse() {
 }
 
 function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = {}) {
+  const title = overrides.title ?? overrides.normalizedEventId ?? "evt_1";
   const graphLinks = overrides.graphLinks ?? [
     {
       type: "verification_check",
@@ -1739,8 +1805,8 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     typedId: { type: "normalized_intake_event", id: "evt_1" },
     normalizedEventId: "evt_1",
     duplicateOfId: null,
-    title: "Run console verification",
-    sourceSummary: "manual:operator-console · Run console verification",
+    title,
+    sourceSummary: `manual:operator-console · ${title}`,
     proposedActionPreviews: [
       { action: "create_signal", title: "Run console verification", status: "pending" }
     ],
@@ -1759,6 +1825,11 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     sourceWatermark: "op_123",
     graphLinks,
     graphRelationships: [],
+    relationshipSummary: {
+      graphLinks: graphLinks.length,
+      graphRelationships: 0,
+      hasMore: false
+    },
     auditTrace: { operationId: null, resourceCount: 0, resources: [] },
     revisionTrace: { operationId: "operation_1", resourceCount: 2, resources: [] },
     ...overrides
@@ -1866,7 +1937,7 @@ function operatorPacketReadiness(overrides: Partial<OperatorPacketReadinessPaylo
 }
 
 function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
-  return {
+  const state = {
     type: "operator_run_state",
     status: "awaiting_evidence_acceptance",
     allowedNextActions: ["accept_evidence"],
@@ -1907,6 +1978,15 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
           policyBasis: "owner_exception"
         }
       ]
+    },
+    childSummary: {
+      requiredChecks: 1,
+      observations: 1,
+      evidenceCandidates: 1,
+      evidenceItems: 0,
+      verificationResults: 1,
+      missingEvidence: 1,
+      hasMore: false
     },
     sourceWatermark: "run_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
@@ -1966,6 +2046,60 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
     missingEvidence: [{ verificationCheckId: "check_1", reason: "missing_accepted_evidence" }],
     ...overrides
   };
+
+  if (overrides.commandOptions) {
+    return state;
+  }
+
+  return {
+    ...state,
+    commandOptions: {
+      observation: state.requiredChecks.flatMap((check) =>
+        check.verificationCheckId && check.graphItemId
+          ? [
+              observationCommandOption({
+                key: check.id,
+                label: check.verificationCheckId,
+                verificationCheckId: check.verificationCheckId,
+                sourceGraphItemId: check.graphItemId
+              })
+            ]
+          : []
+      ),
+      evidenceCandidate: state.observations.flatMap((observation) =>
+        observation.verificationCheckId
+          ? [
+              evidenceCandidateCommandOption({
+                key: observation.id,
+                label: observation.id,
+                verificationCheckId: observation.verificationCheckId,
+                executionObservationId: observation.id,
+                sourceKind: observation.sourceKind,
+                sourceIdentity: observation.sourceIdentity,
+                freshnessState: observation.freshnessState,
+                trustBasis: observation.trustBasis
+              })
+            ]
+          : []
+      ),
+      evidenceAcceptance: state.evidenceCandidates.map((candidate) => ({
+        key: candidate.id,
+        label: candidate.claim,
+        evidenceCandidateId: candidate.id,
+        result: "passed",
+        acceptancePolicyBasis: "owner_acceptance"
+      })),
+      waiver: state.requiredChecks.map((check) => ({
+        key: check.id,
+        label: check.verificationCheckId ?? check.id,
+        runId: state.run.id,
+        runRequiredCheckId: check.id,
+        expectedExecutionState: state.run.executionState,
+        expectedVerificationState: state.run.verificationState,
+        policyBasis: "owner_exception"
+      }))
+    }
+  };
 }
 
 function observationCommandOption(overrides: Partial<ObservationCommandOptionPayload> = {}) {
@@ -2019,6 +2153,17 @@ type OperatorWorkflowItemPayload = {
     title: string;
     state: string | null;
   }>;
+  graphRelationships: Array<{
+    id: string;
+    sourceGraphItemId: string;
+    targetGraphItemId: string;
+    relationshipType: string;
+  }>;
+  relationshipSummary: {
+    graphLinks: number;
+    graphRelationships: number;
+    hasMore: boolean;
+  };
 };
 
 type OperatorWorkflowPageInfoPayload = {
@@ -2058,6 +2203,15 @@ type OperatorRunStatePayload = {
       expectedVerificationState: string;
       policyBasis: string;
     }>;
+  };
+  childSummary: {
+    requiredChecks: number;
+    observations: number;
+    evidenceCandidates: number;
+    evidenceItems: number;
+    verificationResults: number;
+    missingEvidence: number;
+    hasMore: boolean;
   };
   requiredChecks: Array<{
     id: string;

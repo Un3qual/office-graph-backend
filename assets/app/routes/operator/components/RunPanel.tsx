@@ -37,6 +37,10 @@ export function RunPanel({ runId, runState, state }: Props) {
               ["Execution", formatLabel(runState.run.executionState)],
               ["Verification", formatLabel(runState.run.verificationState)],
               [
+                "Run activity",
+                `${runState.childSummary.requiredChecks} checks · ${runState.childSummary.observations} observations · ${runState.childSummary.evidenceCandidates} evidence suggestions${runState.childSummary.hasMore ? " · more available" : ""}`
+              ],
+              [
                 "Required checks",
                 runState.requiredChecks
                   .map(

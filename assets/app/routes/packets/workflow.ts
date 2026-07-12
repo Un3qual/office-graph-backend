@@ -92,14 +92,32 @@ export function usePacketsWorkflow({
   };
 }
 
-export function usePacketWorkspaceDetail(packetId: string, fetchKey?: number) {
+export function usePacketWorkspaceDetail(
+  packetId: string,
+  versionPage: PacketsPage,
+  fetchKey?: number
+) {
   const data = useLazyLoadQuery<PacketsWorkspaceDetailOperation>(
     PacketsWorkspaceDetailQuery,
-    { id: packetId },
+    { id: packetId, versionFirst: versionPage.first, versionAfter: versionPage.after },
     { fetchKey, fetchPolicy: "network-only" }
   );
 
-  return data.operatorPacketWorkspace as PacketWorkspaceDetail;
+  const workspace = data.operatorPacketWorkspace;
+  const versions = (workspace.versionHistory?.edges ?? []).flatMap((edge) =>
+    edge?.node ? [edge.node] : []
+  );
+
+  return {
+    ...workspace,
+    versions,
+    versionPageInfo: workspace.versionHistory?.pageInfo ?? {
+      hasNextPage: false,
+      hasPreviousPage: false,
+      startCursor: null,
+      endCursor: null
+    }
+  } as PacketWorkspaceDetail;
 }
 
 export type PacketsWorkflowState = ReturnType<typeof usePacketsWorkflow>;

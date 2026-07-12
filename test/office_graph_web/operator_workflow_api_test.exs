@@ -12,39 +12,6 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
-  @inbox_query """
-  query Inbox($limit: Int, $afterCursor: String) {
-    operatorInbox(limit: $limit, afterCursor: $afterCursor) {
-      empty
-      hasMore
-      limit
-      nextCursor
-      afterCursor
-      sourceWatermark
-      rows {
-        normalizedEventId
-        status
-        allowedNextActions
-        commandAffordances {
-          identity
-          state
-          reasonCodes
-          blockerReasons
-          safeExplanation
-          requiredFields
-          inputDefaults { field value values }
-          targetIds { type id }
-          traceLinks { type id }
-          decisionLinks { type id }
-        }
-        blockerReasons
-        source { identity replayIdentity outcome }
-        proposedChangeStatus { pending applied rejected total }
-      }
-    }
-  }
-  """
-
   @relay_inbox_query """
   query RelayInbox($first: Int!, $after: String) {
     operatorWorkflowItems(first: $first, after: $after) {
@@ -63,6 +30,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           sourceSummary
           proposedActionPreviews { action title status }
           status
+          blockerReasons
+          source { identity replayIdentity outcome }
+          proposedChangeStatus { pending applied rejected total }
           allowedNextActions
           commandAffordances {
             identity
@@ -87,23 +57,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     {:ok, intake} = submit_manual_intake(bootstrap.session, "graphql-inbox")
     {:ok, _newer_intake} = submit_manual_intake(bootstrap.session, "graphql-inbox-newer")
 
-    inbox = graphql(conn, @inbox_query, %{limit: 1}, "operatorInbox")
-
-    assert inbox["empty"] == false
-    assert inbox["hasMore"] == true
-    assert inbox["limit"] == 1
-    assert is_binary(inbox["nextCursor"])
-    assert inbox["afterCursor"] == nil
+    inbox = graphql(conn, @relay_inbox_query, %{first: 1}, "operatorWorkflowItems")
+    assert inbox["pageInfo"]["hasNextPage"] == true
 
     next_inbox =
-      graphql(conn, @inbox_query, %{limit: 1, afterCursor: inbox["nextCursor"]}, "operatorInbox")
+      graphql(
+        conn,
+        @relay_inbox_query,
+        %{first: 1, after: inbox["pageInfo"]["endCursor"]},
+        "operatorWorkflowItems"
+      )
 
-    assert next_inbox["empty"] == false
-    assert next_inbox["hasMore"] == false
-    assert next_inbox["limit"] == 1
-    assert next_inbox["nextCursor"] == nil
-    assert next_inbox["afterCursor"] == inbox["nextCursor"]
-    assert [row] = next_inbox["rows"]
+    assert next_inbox["pageInfo"]["hasNextPage"] == false
+    assert [%{"node" => row}] = next_inbox["edges"]
     assert row["normalizedEventId"] == intake.normalized_event.id
     assert row["status"] == "pending_triage"
     assert row["allowedNextActions"] == ["apply_proposed_changes"]
@@ -301,6 +267,39 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert node["id"] == second_node["id"]
     assert node["normalizedEventId"] == older_intake.normalized_event.id
     assert node["status"] == "pending_triage"
+  end
+
+  test "Relay pagination preserves zero edges and rejects negative first", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, _intake} = submit_manual_intake(bootstrap.session, "relay-edge-semantics")
+
+    zero_page = graphql(conn, @relay_inbox_query, %{first: 0}, "operatorWorkflowItems")
+    assert zero_page["edges"] == []
+    assert zero_page["pageInfo"]["hasNextPage"] == true
+    assert zero_page["pageInfo"]["hasPreviousPage"] == false
+    assert zero_page["pageInfo"]["startCursor"] == nil
+    assert zero_page["pageInfo"]["endCursor"] == nil
+
+    response =
+      conn
+      |> post(~p"/graphql", %{query: @relay_inbox_query, variables: %{first: -1}})
+      |> json_response(200)
+
+    assert [%{"message" => "A field has an invalid value."}] = response["errors"]
+    refute get_in(response, ["data", "operatorWorkflowItems"])
+  end
+
+  test "schema omits the retired operatorInbox field", %{conn: conn} do
+    response =
+      conn
+      |> post(~p"/graphql", %{
+        query: "{ __type(name: \"RootQueryType\") { fields { name } } }"
+      })
+      |> json_response(200)
+
+    assert response["errors"] in [nil, []]
+    fields = get_in(response, ["data", "__type", "fields"])
+    refute Enum.any?(fields, &(&1["name"] == "operatorInbox"))
   end
 
   test "pending rows from one source expose distinct safe summaries and proposal previews", %{
@@ -602,6 +601,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         """
         query RunOptions($id: ID!) {
           operatorRunState(id: $id) {
+            childSummary {
+              requiredChecks observations evidenceCandidates evidenceItems
+              verificationResults missingEvidence hasMore
+            }
+            activity(first: 2) {
+              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+              edges { node { kind stableId title status } }
+            }
             commandOptions {
               observation {
                 key label runId verificationCheckId sourceGraphItemId
@@ -624,7 +631,40 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         """,
         %{id: run_result.run.id},
         "operatorRunState"
-      )["commandOptions"]
+      )
+
+    child_summary = options["childSummary"]
+    assert child_summary["requiredChecks"] == 2
+    assert child_summary["observations"] == 1
+    assert child_summary["evidenceCandidates"] == 1
+    assert child_summary["hasMore"] == false
+
+    first_activity = options["activity"]
+    assert length(first_activity["edges"]) == 2
+    assert first_activity["pageInfo"]["hasNextPage"] == true
+    assert first_activity["pageInfo"]["hasPreviousPage"] == false
+
+    second_activity =
+      graphql(
+        conn,
+        """
+        query RunActivity($id: ID!, $after: String) {
+          operatorRunState(id: $id) {
+            activity(first: 2, after: $after) {
+              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+              edges { node { kind stableId title status } }
+            }
+          }
+        }
+        """,
+        %{id: run_result.run.id, after: first_activity["pageInfo"]["endCursor"]},
+        "operatorRunState"
+      )["activity"]
+
+    assert length(second_activity["edges"]) == 2
+    assert second_activity["pageInfo"]["hasPreviousPage"] == true
+
+    options = options["commandOptions"]
 
     assert Enum.map(options["observation"], & &1["verificationCheckId"]) == [second_check.id]
     assert [observation_option] = options["observation"]
@@ -694,6 +734,28 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         version_attrs
       )
 
+    third_attrs = %{
+      version_attrs
+      | expected_current_version_id: version_result.version.id,
+        title: "Packet workspace version three"
+    }
+
+    {:ok, third_operation} =
+      Operations.start_command(
+        bootstrap.session,
+        :work_packet_version_create,
+        "packet-workspace-version-three",
+        Map.put(third_attrs, :packet_id, packet_result.packet.id)
+      )
+
+    {:ok, third_version_result} =
+      WorkPackets.create_version(
+        bootstrap.session,
+        third_operation,
+        version_result.packet,
+        third_attrs
+      )
+
     relay_packet_id =
       Absinthe.Relay.Node.to_global_id(
         :work_packet,
@@ -705,7 +767,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       graphql(
         conn,
         """
-        query PacketWorkspace($id: ID!) {
+        query PacketWorkspace($id: ID!, $first: Int!, $after: String) {
           operatorPacketWorkspace(id: $id) {
             sourceWatermark
             ready
@@ -728,12 +790,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               operationId
               insertedAt
             }
-            versions {
-              id
-              versionNumber
-              title
-              sourceGraphItemIds
-              verificationCheckIds
+            versionHistory(first: $first, after: $after) {
+              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+              edges {
+                node {
+                  id
+                  versionNumber
+                  title
+                  sourceGraphItemIds
+                  verificationCheckIds
+                }
+              }
             }
             commandAffordances {
               identity
@@ -747,7 +814,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: relay_packet_id},
+        %{id: relay_packet_id, first: 2},
         "operatorPacketWorkspace"
       )
 
@@ -756,22 +823,55 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert workspace["status"] == "ready_for_run"
     assert workspace["blockerReasons"] == []
     assert workspace["allowedNextActions"] == ["create_work_packet_version", "start_work_run"]
-    assert workspace["packet"]["currentVersionId"] == version_result.version.id
-    assert workspace["packet"]["title"] == "Packet workspace version two"
-    assert workspace["currentVersion"]["id"] == version_result.version.id
-    assert workspace["currentVersion"]["versionNumber"] == 2
+    assert workspace["packet"]["currentVersionId"] == third_version_result.version.id
+    assert workspace["packet"]["title"] == "Packet workspace version three"
+    assert workspace["currentVersion"]["id"] == third_version_result.version.id
+    assert workspace["currentVersion"]["versionNumber"] == 3
     assert workspace["currentVersion"]["sourceGraphItemIds"] == [verification_check.graph_item_id]
     assert workspace["currentVersion"]["verificationCheckIds"] == [verification_check.id]
 
-    assert Enum.map(workspace["versions"], & &1["id"]) == [
+    assert workspace["versionHistory"]["pageInfo"]["hasNextPage"] == true
+    assert workspace["versionHistory"]["pageInfo"]["hasPreviousPage"] == false
+    first_versions = Enum.map(workspace["versionHistory"]["edges"], & &1["node"])
+
+    assert Enum.map(first_versions, & &1["id"]) == [
              packet_result.version.id,
              version_result.version.id
            ]
 
-    assert Enum.map(workspace["versions"], & &1["title"]) == [
+    assert Enum.map(first_versions, & &1["title"]) == [
              "Packet workspace version one",
              "Packet workspace version two"
            ]
+
+    second_workspace =
+      graphql(
+        conn,
+        """
+        query PacketWorkspacePage($id: ID!, $first: Int!, $after: String) {
+          operatorPacketWorkspace(id: $id) {
+            versionHistory(first: $first, after: $after) {
+              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+              edges { node { id versionNumber title } }
+            }
+          }
+        }
+        """,
+        %{
+          id: relay_packet_id,
+          first: 2,
+          after: workspace["versionHistory"]["pageInfo"]["endCursor"]
+        },
+        "operatorPacketWorkspace"
+      )
+
+    assert second_workspace["versionHistory"]["pageInfo"]["hasNextPage"] == false
+    assert second_workspace["versionHistory"]["pageInfo"]["hasPreviousPage"] == true
+
+    assert [%{"node" => %{"id" => third_id, "versionNumber" => 3}}] =
+             second_workspace["versionHistory"]["edges"]
+
+    assert third_id == third_version_result.version.id
 
     assert [create_version, start_run] = workspace["commandAffordances"]
     assert create_version["identity"] == "create_work_packet_version"
@@ -782,11 +882,11 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert %{
              "field" => "packet_version_id",
-             "value" => version_result.version.id,
+             "value" => third_version_result.version.id,
              "values" => []
            } in start_run["inputDefaults"]
 
-    assert %{"type" => "work_packet_version", "id" => version_result.version.id} in start_run[
+    assert %{"type" => "work_packet_version", "id" => third_version_result.version.id} in start_run[
              "targetIds"
            ]
   end
@@ -902,16 +1002,16 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         |> graphql(
           """
           query Inbox {
-            operatorInbox {
-              rows { normalizedEventId }
+            operatorWorkflowItems(first: 10) {
+              edges { node { normalizedEventId } }
             }
           }
           """,
           %{},
-          "operatorInbox"
+          "operatorWorkflowItems"
         )
 
-      assert [%{"normalizedEventId" => ^event_id}] = response["rows"]
+      assert [%{"node" => %{"normalizedEventId" => ^event_id}}] = response["edges"]
     end)
   end
 
@@ -928,28 +1028,31 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         |> graphql(
           """
           query Inbox {
-            operatorInbox {
-              rows {
-                normalizedEventId
-                status
-                allowedNextActions
-                commandAffordances {
-                  identity
-                  state
-                  reasonCodes
-                  blockerReasons
-                  safeExplanation
-                  targetIds { type id }
+            operatorWorkflowItems(first: 10) {
+              edges {
+                node {
+                  normalizedEventId
+                  status
+                  allowedNextActions
+                  commandAffordances {
+                    identity
+                    state
+                    reasonCodes
+                    blockerReasons
+                    safeExplanation
+                    targetIds { type id }
+                  }
                 }
               }
             }
           }
           """,
           %{},
-          "operatorInbox"
+          "operatorWorkflowItems"
         )
 
-      assert row = Enum.find(inbox["rows"], &(&1["normalizedEventId"] == event_id))
+      rows = Enum.map(inbox["edges"], & &1["node"])
+      assert row = Enum.find(rows, &(&1["normalizedEventId"] == event_id))
       assert row["status"] == "pending_triage"
       assert row["allowedNextActions"] == []
 

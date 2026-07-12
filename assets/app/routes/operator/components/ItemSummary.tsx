@@ -61,7 +61,7 @@ export function ItemSummary({ item }: Props) {
               ],
               ["Blockers", listText(item.blockerReasons)],
               ["Suggestions", proposedChangeText(item)],
-              ["Graph links", item.graphLinks.map((link) => link.title).join(", ") || "None"],
+              ["Graph links", graphLinkSummary(item)],
               ["Audit trace", traceText(item.auditTrace.operationId, item.auditTrace.resourceCount)],
               [
                 "Revision trace",
@@ -73,6 +73,13 @@ export function ItemSummary({ item }: Props) {
       ) : null}
     </section>
   );
+}
+
+function graphLinkSummary(item: OperatorWorkflowItem) {
+  const labels = item.graphLinks.map((link) => link.title).join(", ") || "None";
+  const summary = item.relationshipSummary;
+  const counts = `${summary.graphLinks} links, ${summary.graphRelationships} relationships`;
+  return summary.hasMore ? `${labels} (${counts}; more available)` : `${labels} (${counts})`;
 }
 
 function proposedChangeText(item: OperatorWorkflowItem) {

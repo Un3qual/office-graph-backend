@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0dfd3037bfdaa4c3e060b65df3229eae>>
+ * @generated SignedSource<<90738891f763ff2c30d12c76ca621276>>
  * @lightSyntaxTransform
  */
 
@@ -11,6 +11,15 @@ import { ReaderInlineDataFragment } from 'relay-runtime';
 import { FragmentRefs } from "relay-runtime";
 export type OperatorRunStateFragment$data = {
   readonly allowedNextActions: ReadonlyArray<string>;
+  readonly childSummary: {
+    readonly evidenceCandidates: number;
+    readonly evidenceItems: number;
+    readonly hasMore: boolean;
+    readonly missingEvidence: number;
+    readonly observations: number;
+    readonly requiredChecks: number;
+    readonly verificationResults: number;
+  };
   readonly commandAffordances: ReadonlyArray<{
     readonly blockerReasons: ReadonlyArray<string>;
     readonly identity: string;
@@ -150,6 +159,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "96d6248e3167326cafd46f3faa55b1d1";
+(node as any).hash = "3867909db506f130b59f905535f6f553";
 
 export default node;

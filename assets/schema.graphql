@@ -776,7 +776,6 @@ interface Node {
 
 type RootQueryType {
   health: String!
-  operatorInbox(limit: Int, afterCursor: String): OperatorInbox!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
@@ -1176,6 +1175,12 @@ type OperatorCommandInputDefault {
   values: [String!]!
 }
 
+type OperatorRelationshipSummary {
+  graphLinks: Int!
+  graphRelationships: Int!
+  hasMore: Boolean!
+}
+
 type OperatorWorkflowItem implements Node {
   "The ID of an object"
   id: ID!
@@ -1216,6 +1221,8 @@ type OperatorWorkflowItem implements Node {
 
   graphRelationships: [OperatorGraphRelationship!]!
 
+  relationshipSummary: OperatorRelationshipSummary!
+
   auditTrace: OperatorTrace!
 
   revisionTrace: OperatorTrace!
@@ -1224,17 +1231,6 @@ type OperatorWorkflowItem implements Node {
 type OperatorWorkflowItemConnection {
   pageInfo: PageInfo!
   edges: [OperatorWorkflowItemEdge]
-}
-
-type OperatorInbox {
-  type: String!
-  empty: Boolean!
-  hasMore: Boolean!
-  limit: Int!
-  nextCursor: String
-  afterCursor: String
-  sourceWatermark: ID
-  rows: [OperatorWorkflowItem!]!
 }
 
 type OperatorRequiredCheck {
@@ -1287,6 +1283,11 @@ type OperatorPacketWorkspaceVersion {
   insertedAt: DateTime!
 }
 
+type OperatorPacketWorkspaceVersionConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorPacketWorkspaceVersionEdge]
+}
+
 type OperatorPacketWorkspace {
   type: String!
   sourceWatermark: ID!
@@ -1297,7 +1298,7 @@ type OperatorPacketWorkspace {
   commandAffordances: [OperatorCommandAffordance!]!
   packet: OperatorPacketWorkspacePacket!
   currentVersion: OperatorPacketWorkspaceVersion!
-  versions: [OperatorPacketWorkspaceVersion!]!
+  versionHistory(after: String, first: Int!): OperatorPacketWorkspaceVersionConnection
 }
 
 type OperatorRunRef {
@@ -1368,6 +1369,28 @@ type OperatorMissingEvidence {
   reason: String!
 }
 
+type OperatorRunActivity {
+  kind: String!
+  stableId: ID!
+  title: String!
+  status: String!
+}
+
+type OperatorRunActivityConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRunActivityEdge]
+}
+
+type OperatorRunChildSummary {
+  requiredChecks: Int!
+  observations: Int!
+  evidenceCandidates: Int!
+  evidenceItems: Int!
+  verificationResults: Int!
+  missingEvidence: Int!
+  hasMore: Boolean!
+}
+
 type OperatorObservationCommandOption {
   key: ID!
   label: String!
@@ -1424,6 +1447,8 @@ type OperatorRunState {
   allowedNextActions: [String!]!
   commandAffordances: [OperatorCommandAffordance!]!
   commandOptions: OperatorRunCommandOptions!
+  childSummary: OperatorRunChildSummary!
+  activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
   packet: OperatorPacketRef!
   packetVersion: OperatorPacketVersionRef!
@@ -1468,6 +1493,16 @@ type PageInfo {
 
   "When paginating forwards, the cursor to continue."
   endCursor: String
+}
+
+type OperatorRunActivityEdge {
+  node: OperatorRunActivity
+  cursor: String
+}
+
+type OperatorPacketWorkspaceVersionEdge {
+  node: OperatorPacketWorkspaceVersion
+  cursor: String
 }
 
 type OperatorWorkflowItemEdge {

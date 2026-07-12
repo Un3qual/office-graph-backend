@@ -1,5 +1,6 @@
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { Button } from "../../../src/ui/Button";
+import { useState } from "react";
 import { PacketDetail } from "./components/PacketDetail";
 import { PacketCreateForm } from "./components/PacketCreateForm";
 import { PacketList, PacketListFallback } from "./components/PacketList";
@@ -62,6 +63,7 @@ export function PacketWorkspace({
             >
               <LoadedPacketDetail
                 fetchKey={fetchKey}
+                key={selectedPacket.id}
                 onRefresh={onRefresh}
                 packet={selectedPacket}
               />
@@ -95,11 +97,29 @@ function LoadedPacketDetail({
   onRefresh: () => void;
   packet: PacketRow;
 }) {
-  const workspace = usePacketWorkspaceDetail(packet.id, fetchKey);
+  const [versionPage, setVersionPage] = useState({ first: 2, after: null as string | null });
+  const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([]);
+  const workspace = usePacketWorkspaceDetail(packet.id, versionPage, fetchKey);
+  const nextCursor = workspace.versionPageInfo.endCursor ?? null;
+
+  const loadNextVersions = () => {
+    if (!workspace.versionPageInfo.hasNextPage || !nextCursor) return;
+    setPreviousCursors((cursors) => [...cursors, versionPage.after]);
+    setVersionPage((page) => ({ ...page, after: nextCursor }));
+  };
+
+  const loadPreviousVersions = () => {
+    const previous = previousCursors.at(-1);
+    if (previous === undefined) return;
+    setPreviousCursors((cursors) => cursors.slice(0, -1));
+    setVersionPage((page) => ({ ...page, after: previous }));
+  };
 
   return (
     <PacketDetail
       key={`${workspace.packet.id}:${workspace.currentVersion.id}`}
+      onNextVersions={loadNextVersions}
+      onPreviousVersions={loadPreviousVersions}
       onRefresh={onRefresh}
       packet={packet}
       workspace={workspace}

@@ -2,6 +2,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   use Absinthe.Schema.Notation
   use Absinthe.Relay.Schema.Notation, :modern
 
+  alias Absinthe.Relay.Connection
+
   object :operator_typed_id do
     field :type, non_null(:string)
     field :id, non_null(:id)
@@ -66,6 +68,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :values, non_null(list_of(non_null(:string)))
   end
 
+  object :operator_relationship_summary do
+    field :graph_links, non_null(:integer)
+    field :graph_relationships, non_null(:integer)
+    field :has_more, non_null(:boolean)
+  end
+
   node object(:operator_workflow_item,
          id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_workflow_item_id/2
        ) do
@@ -90,29 +98,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_watermark, :id
     field :graph_links, non_null(list_of(non_null(:operator_graph_link)))
     field :graph_relationships, non_null(list_of(non_null(:operator_graph_relationship)))
+    field :relationship_summary, non_null(:operator_relationship_summary)
     field :audit_trace, non_null(:operator_trace)
     field :revision_trace, non_null(:operator_trace)
   end
 
   connection(node_type: :operator_workflow_item)
-
-  object :operator_inbox do
-    field :type, non_null(:string)
-
-    field :empty, non_null(:boolean) do
-      resolve(fn inbox, _, _ -> {:ok, Map.fetch!(inbox, :empty?)} end)
-    end
-
-    field :has_more, non_null(:boolean) do
-      resolve(fn inbox, _, _ -> {:ok, Map.fetch!(inbox, :has_more?)} end)
-    end
-
-    field :limit, non_null(:integer)
-    field :next_cursor, :string
-    field :after_cursor, :string
-    field :source_watermark, :id
-    field :rows, non_null(list_of(non_null(:operator_workflow_item)))
-  end
 
   object :operator_required_check do
     field :id, non_null(:id)
@@ -168,6 +159,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :inserted_at, non_null(:datetime)
   end
 
+  connection(node_type: :operator_packet_workspace_version)
+
   object :operator_packet_workspace do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
@@ -182,7 +175,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :packet, non_null(:operator_packet_workspace_packet)
     field :current_version, non_null(:operator_packet_workspace_version)
-    field :versions, non_null(list_of(non_null(:operator_packet_workspace_version)))
+
+    connection field :version_history,
+                 node_type: :operator_packet_workspace_version,
+                 paginate: :forward do
+      resolve(fn
+        %{first: first}, _resolution when is_integer(first) and first < 0 ->
+          {:error, "A field has an invalid value."}
+
+        args, %{source: workspace} ->
+          Connection.from_list(workspace.versions, args)
+      end)
+    end
   end
 
   object :operator_run_ref do
@@ -253,6 +257,28 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :reason, non_null(:string)
   end
 
+  object :operator_run_activity do
+    field :kind, non_null(:string)
+    field :stable_id, non_null(:id)
+    field :title, non_null(:string)
+    field :status, non_null(:string)
+  end
+
+  connection(node_type: :operator_run_activity)
+
+  object :operator_run_child_summary do
+    field :required_checks, non_null(:integer)
+    field :observations, non_null(:integer)
+    field :evidence_candidates, non_null(:integer)
+    field :evidence_items, non_null(:integer)
+    field :verification_results, non_null(:integer)
+    field :missing_evidence, non_null(:integer)
+
+    field :has_more, non_null(:boolean) do
+      resolve(fn summary, _, _ -> {:ok, Map.fetch!(summary, :has_more?)} end)
+    end
+  end
+
   object :operator_observation_command_option do
     field :key, non_null(:id)
     field :label, non_null(:string)
@@ -314,6 +340,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :command_options, non_null(:operator_run_command_options)
+    field :child_summary, non_null(:operator_run_child_summary)
+
+    connection field :activity, node_type: :operator_run_activity, paginate: :forward do
+      resolve(fn
+        %{first: first}, _resolution when is_integer(first) and first < 0 ->
+          {:error, "A field has an invalid value."}
+
+        args, %{source: run_state} ->
+          Connection.from_list(run_state.activity, args)
+      end)
+    end
+
     field :source_watermark, :id
     field :packet, non_null(:operator_packet_ref)
     field :packet_version, non_null(:operator_packet_version_ref)

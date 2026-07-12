@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<f2e926ea871aa6d42895d8d11358a375>>
+ * @generated SignedSource<<5b3290d85a3733edce88dd0be71886f6>>
  * @lightSyntaxTransform
  */
 
@@ -62,6 +62,11 @@ export type OperatorWorkflowItemFragment$data = {
     readonly total: number;
   };
   readonly reasonCodes: ReadonlyArray<string>;
+  readonly relationshipSummary: {
+    readonly graphLinks: number;
+    readonly graphRelationships: number;
+    readonly hasMore: boolean;
+  };
   readonly revisionTrace: {
     readonly operationId: string | null | undefined;
     readonly resourceCount: number;
@@ -92,6 +97,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorWorkflowItemFragment"
 };
 
-(node as any).hash = "8a5ff6f8759f0694e4380d54a96a9a2e";
+(node as any).hash = "ac544194f0bdbc71801a84fa439351d5";
 
 export default node;
