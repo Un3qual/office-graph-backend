@@ -214,6 +214,30 @@ describe("fetchGraphQL", () => {
     expect(observer.error).not.toHaveBeenCalled();
     expect(observer.complete).not.toHaveBeenCalled();
   });
+
+  it("clears the request timeout on disposal when fetch ignores abort", () => {
+    vi.useFakeTimers();
+    let observedSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_path: string, init?: RequestInit) => {
+        observedSignal = init?.signal ?? undefined;
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+
+    const subscription = executeGraphQL(request("IgnoredAbortQuery"), {}).subscribe({
+      next: vi.fn(),
+      error: vi.fn(),
+      complete: vi.fn(),
+    });
+
+    expect(vi.getTimerCount()).toBe(1);
+    subscription.unsubscribe();
+
+    expect(observedSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 function request(name: string): RequestParameters {

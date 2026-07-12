@@ -67,6 +67,10 @@ describe("packet workspace route", () => {
         {
           errors: [
             {
+              message: "Choose an allowed autonomy posture.",
+              extensions: { code: "validation_failed", field: "autonomy_posture" },
+            },
+            {
               message: "Add current product context.",
               extensions: { code: "validation_failed", field: "context_summary" },
             },

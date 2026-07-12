@@ -38,10 +38,13 @@ async function fetchGraphQLWithSignal(
   }
 
   const controller = new AbortController();
-  const abortDisposedRequest = () => controller.abort(disposalSignal?.reason);
+  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_FETCH_TIMEOUT_MS);
+  const abortDisposedRequest = () => {
+    clearTimeout(timeoutId);
+    controller.abort(disposalSignal?.reason);
+  };
   disposalSignal?.addEventListener("abort", abortDisposedRequest, { once: true });
   if (disposalSignal?.aborted) abortDisposedRequest();
-  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_FETCH_TIMEOUT_MS);
 
   try {
     const response = await fetch("/graphql", {

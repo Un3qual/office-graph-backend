@@ -16,10 +16,10 @@ describe("frontend static verification", () => {
 
     expect(packageJson.devDependencies["@biomejs/biome"]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(packageJson.scripts.lint).toBe(
-      "biome lint app/relay/*.ts app/routes src scripts *.ts *.json",
+      "biome lint app/relay app/routes src scripts *.ts *.json",
     );
     expect(packageJson.scripts["format:check"]).toBe(
-      "biome format app/relay/*.ts app/routes src scripts *.ts *.json",
+      "biome format app/relay app/routes src scripts *.ts *.json",
     );
     expect(packageJson.scripts.verify).toContain("pnpm run lint && pnpm run format:check");
     expect(biome.files.includes).toEqual(

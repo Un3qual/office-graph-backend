@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -54,14 +54,32 @@ describe("shared UI import boundaries", () => {
     ]);
   });
 
+  it("rejects normalized relative boundaries and every executable dependency form", () => {
+    const source = `
+      import relay = require("relay-runtime");
+      export * from "./nested/../../../app/relay/environment";
+      const literal = import("../../app/" + "relay/fetchGraphQL");
+      const template = import(\`../../app/relay/commandMutation\`);
+      const unknown = import(runtimeTarget);
+      const query = graphql\`query SharedQuery { node { id } }\`;
+    `;
+
+    expect(boundaryOffenders(source, join(sharedUiRoot, "fixture.tsx"))).toEqual([
+      "relay-runtime",
+      "app/relay/environment",
+      "app/relay/fetchGraphQL",
+      "app/relay/commandMutation",
+      "<non-static dynamic import>",
+      "graphql`",
+    ]);
+  });
+
   it("keeps shared UI independent from routes, Relay documents, and product command logic", () => {
     const offenders = sharedUiSourceFiles().flatMap((file) => {
       const source = readFileSync(file, "utf8");
-      const imports = moduleSpecifiers(source, file);
-
-      return imports
-        .filter((specifier) => forbiddenImportPatterns.some((pattern) => pattern.test(specifier)))
-        .map((specifier) => `${formatPath(file)} imports ${specifier}`);
+      return boundaryOffenders(source, file).map(
+        (specifier) => `${formatPath(file)} imports ${specifier}`,
+      );
     });
 
     expect(offenders).toEqual([]);
@@ -118,20 +136,25 @@ export function moduleSpecifiers(source: string, filename: string) {
     filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 
-  const addStringLiteral = (node: ts.Node | undefined) => {
-    if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
+  const addStaticSpecifier = (node: ts.Expression | undefined, failClosed = false) => {
+    const specifier = node ? staticStringValue(node) : null;
+    if (specifier !== null) {
+      specifiers.push(specifier);
+    } else if (failClosed) {
+      specifiers.push("<non-static dynamic import>");
+    }
   };
 
   const visit = (node: ts.Node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      addStringLiteral(node.moduleSpecifier);
+      addStaticSpecifier(node.moduleSpecifier);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      addStringLiteral(node.arguments[0]);
+      addStaticSpecifier(node.arguments[0], true);
     } else if (
       ts.isImportEqualsDeclaration(node) &&
       ts.isExternalModuleReference(node.moduleReference)
     ) {
-      addStringLiteral(node.moduleReference.expression);
+      addStaticSpecifier(node.moduleReference.expression);
     } else if (
       ts.isTaggedTemplateExpression(node) &&
       ts.isIdentifier(node.tag) &&
@@ -146,6 +169,44 @@ export function moduleSpecifiers(source: string, filename: string) {
   visit(sourceFile);
 
   return specifiers;
+}
+
+export function boundaryOffenders(source: string, filename: string) {
+  return moduleSpecifiers(source, filename)
+    .map((specifier) => normalizeSpecifier(specifier, filename))
+    .filter(
+      (specifier) =>
+        specifier === "graphql`" ||
+        specifier === "<non-static dynamic import>" ||
+        forbiddenImportPatterns.some((pattern) => pattern.test(specifier)),
+    );
+}
+
+function staticStringValue(expression: ts.Expression): string | null {
+  if (ts.isStringLiteralLike(expression)) {
+    return expression.text;
+  }
+
+  if (ts.isParenthesizedExpression(expression)) {
+    return staticStringValue(expression.expression);
+  }
+
+  if (
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.PlusToken
+  ) {
+    const left = staticStringValue(expression.left);
+    const right = staticStringValue(expression.right);
+    return left === null || right === null ? null : left + right;
+  }
+
+  return null;
+}
+
+function normalizeSpecifier(specifier: string, filename: string) {
+  if (!specifier.startsWith(".")) return specifier;
+
+  return relative(assetsRoot, resolve(dirname(filename), specifier)).replaceAll("\\", "/");
 }
 
 function formatPath(path: string) {

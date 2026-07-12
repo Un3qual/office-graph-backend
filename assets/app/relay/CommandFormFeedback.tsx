@@ -1,11 +1,14 @@
 import { useLayoutEffect, type RefObject } from "react";
 import { FormFeedback } from "../../src/ui/FormFeedback";
-import type { CommandMutationState } from "./commandMutation";
+import type {
+  CommandFieldError as CommandFieldErrorValue,
+  CommandMutationState,
+} from "./commandMutation";
 import {
   commandFeedback,
   commandFieldErrorId,
   commandFieldErrors,
-  commandFieldName
+  commandFieldName,
 } from "./commandFormSupport";
 
 type FeedbackProps<TResult> = {
@@ -14,12 +17,18 @@ type FeedbackProps<TResult> = {
   readonly state: CommandMutationState<TResult>;
 };
 
+const EMPTY_FIELD_ERRORS: readonly CommandFieldErrorValue[] = Object.freeze([]);
+
+export function commandFieldErrorsForState<TResult>(state: CommandMutationState<TResult>) {
+  return state.status === "field-error" ? state.fields : EMPTY_FIELD_ERRORS;
+}
+
 export function CommandFormFeedback<TResult>({
   formRef,
   pendingMessage = null,
-  state
+  state,
 }: FeedbackProps<TResult>) {
-  const fieldErrors = state.status === "field-error" ? state.fields : [];
+  const fieldErrors = commandFieldErrorsForState(state);
 
   useLayoutEffect(() => {
     if (fieldErrors.length === 0) return;
@@ -27,19 +36,18 @@ export function CommandFormFeedback<TResult>({
     const controls = Array.from(formRef.current?.elements ?? []);
     const firstInvalidControl = fieldErrors
       .map(({ field }) => commandFieldName(field))
-      .map((name) => controls.find((control) => control.getAttribute("name") === name))
-      .find((control): control is HTMLElement => control instanceof HTMLElement);
+      .map((name) =>
+        controls.find(
+          (control) => control.getAttribute("name") === name && isEditableInvalidControl(control),
+        ),
+      )
+      .find((control): control is EditableFormControl => isEditableInvalidControl(control));
 
     firstInvalidControl?.focus();
   }, [fieldErrors, formRef]);
 
   if (fieldErrors.length === 0) {
-    return (
-      <FormFeedback
-        feedback={commandFeedback(state)}
-        pendingMessage={pendingMessage}
-      />
-    );
+    return <FormFeedback feedback={commandFeedback(state)} pendingMessage={pendingMessage} />;
   }
 
   return (
@@ -54,6 +62,35 @@ export function CommandFormFeedback<TResult>({
   );
 }
 
+type EditableFormControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+function isEditableInvalidControl(control: Element | undefined): control is EditableFormControl {
+  if (
+    !control ||
+    control.getAttribute("aria-invalid") !== "true" ||
+    control.getAttribute("aria-disabled") === "true" ||
+    control.closest("[hidden], [inert], [aria-hidden='true']") ||
+    control.matches(":disabled") ||
+    (control instanceof HTMLElement && control.hasAttribute("tabindex") && control.tabIndex < 0)
+  ) {
+    return false;
+  }
+
+  if (control instanceof HTMLInputElement) {
+    return (
+      !control.disabled &&
+      !control.readOnly &&
+      !["hidden", "button", "submit", "reset", "image"].includes(control.type)
+    );
+  }
+
+  if (control instanceof HTMLTextAreaElement) {
+    return !control.disabled && !control.readOnly;
+  }
+
+  return control instanceof HTMLSelectElement && !control.disabled;
+}
+
 type FieldErrorProps<TResult> = {
   readonly controlName: string;
   readonly scope: string;
@@ -63,16 +100,13 @@ type FieldErrorProps<TResult> = {
 export function CommandFieldError<TResult>({
   controlName,
   scope,
-  state
+  state,
 }: FieldErrorProps<TResult>) {
   const errors = commandFieldErrors(state, controlName);
   if (errors.length === 0) return null;
 
   return (
-    <span
-      className="ui-field-error"
-      id={commandFieldErrorId(scope, controlName)}
-    >
+    <span className="ui-field-error" id={commandFieldErrorId(scope, controlName)}>
       {errors.map(({ message }) => message).join(" ")}
     </span>
   );
