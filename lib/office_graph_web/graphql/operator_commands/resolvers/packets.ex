@@ -4,7 +4,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
   alias OfficeGraph.Operations
   alias OfficeGraph.WorkPackets
   alias OfficeGraphWeb.GraphQL.Common.Errors
-  alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def create(%{input: input}, resolution) do

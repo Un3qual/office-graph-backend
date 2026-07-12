@@ -4,7 +4,8 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.PacketsController do
   alias OfficeGraph.Operations
   alias OfficeGraph.WorkPackets
   alias OfficeGraphWeb.JsonApi.Common.Errors
-  alias OfficeGraphWeb.JsonApi.OperatorCommands.{Input, Serializer}
+  alias OfficeGraphWeb.JsonApi.OperatorCommands.Serializer
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def create_work_packet(conn, params) do

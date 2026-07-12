@@ -4,7 +4,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Runs do
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
   alias OfficeGraphWeb.GraphQL.Common.Errors
-  alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def start(%{input: input}, resolution) do

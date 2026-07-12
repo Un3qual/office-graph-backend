@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
+defmodule OfficeGraphWeb.OperatorCommands.Input do
   @moduledoc false
 
   @fields %{
@@ -89,7 +89,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
     ]
   }
 
-  def parse(command, params) do
+  def parse(command, params) when is_map(params) do
     @fields
     |> Map.fetch!(command)
     |> Enum.reduce_while({:ok, %{}}, fn {key, type}, {:ok, parsed} ->
@@ -100,13 +100,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
     end)
   end
 
-  defp required(params, key, :string) do
-    required_string(params, key, &String.trim/1)
-  end
-
-  defp required(params, key, :raw_string) do
-    required_string(params, key, &Function.identity/1)
-  end
+  defp required(params, key, :string), do: required_string(params, key, &String.trim/1)
+  defp required(params, key, :raw_string), do: required_string(params, key, &Function.identity/1)
 
   defp required(params, key, :uuid) do
     with {:ok, value} <- required(params, key, :string),
@@ -119,7 +114,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
   end
 
   defp required(params, key, {:list, type}) do
-    case Map.get(params, key) || Map.get(params, to_string(key)) do
+    case fetch(params, key) do
       values when is_list(values) -> parse_list(values, key, type)
       nil -> {:error, {:missing_field, key}}
       _other -> {:error, {:invalid_field, key}}
@@ -127,7 +122,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
   end
 
   defp required_string(params, key, return_value) do
-    case Map.get(params, key) || Map.get(params, to_string(key)) do
+    case fetch(params, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, {:missing_field, key}}
@@ -155,4 +150,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Input do
       error -> error
     end
   end
+
+  defp fetch(params, key), do: Map.get(params, key) || Map.get(params, to_string(key))
 end

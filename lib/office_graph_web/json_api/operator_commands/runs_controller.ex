@@ -4,7 +4,8 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.RunsController do
   alias OfficeGraph.Operations
   alias OfficeGraph.Runs
   alias OfficeGraphWeb.JsonApi.Common.Errors
-  alias OfficeGraphWeb.JsonApi.OperatorCommands.{Input, Serializer}
+  alias OfficeGraphWeb.JsonApi.OperatorCommands.Serializer
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def start_work_run(conn, params) do
