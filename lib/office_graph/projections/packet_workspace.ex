@@ -3,6 +3,7 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Projections.CommandAffordance
+  alias OfficeGraph.Runs.Run
 
   alias OfficeGraph.WorkGraph.VerificationCheck
 
@@ -49,7 +50,9 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          {:ok, required_checks} <- read_required_checks(session_context, versions),
          {:ok, current_version} <- current_version(packet, versions),
          {:ok, verification_checks} <-
-           read_verification_checks(session_context, current_version, required_checks) do
+           read_verification_checks(session_context, current_version, required_checks),
+         {:ok, current_version_runs} <-
+           read_current_version_runs(session_context, current_version.id) do
       {:ok,
        build_workspace(
          session_context,
@@ -58,7 +61,8 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          versions,
          source_references,
          required_checks,
-         verification_checks
+         verification_checks,
+         current_version_runs
        )}
     end
   end
@@ -147,6 +151,17 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     |> Ash.read(authorize?: false)
   end
 
+  defp read_current_version_runs(session_context, current_version_id) do
+    Run
+    |> Ash.Query.filter(
+      work_packet_version_id == ^current_version_id and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(actor: session_context)
+  end
+
   defp build_workspace(
          session_context,
          packet,
@@ -154,7 +169,8 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          versions,
          source_references,
          required_checks,
-         verification_checks
+         verification_checks,
+         current_version_runs
        ) do
     source_ids = ids_for_version(source_references, current_version.id, :graph_item_id)
 
@@ -174,7 +190,13 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
     command_affordances =
       version_create_affordance(session_context, packet, current_version, source_ids, check_ids) ++
-        run_start_affordances(session_context, packet, current_version, blockers)
+        run_start_affordances(
+          session_context,
+          packet,
+          current_version,
+          blockers,
+          Enum.find(current_version_runs, &active_run?/1)
+        )
 
     workspace = %{
       type: "operator_packet_workspace",
@@ -311,12 +333,35 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     end
   end
 
-  defp run_start_affordances(session_context, packet, current_version, blockers) do
+  defp run_start_affordances(
+         session_context,
+         packet,
+         current_version,
+         blockers,
+         active_run
+       ) do
     cond do
       not CommandAffordance.authorized?(session_context, :work_run_start) ->
         [
           CommandAffordance.policy_restricted("start_work_run",
             required_fields: @run_required_fields
+          )
+        ]
+
+      blockers == [] and not is_nil(active_run) ->
+        [
+          CommandAffordance.disabled(
+            "start_work_run",
+            "Wait for the current packet version's active run to finish.",
+            reason_codes: ["active_work_run"],
+            blocker_reasons: ["active_work_run"],
+            required_fields: @run_required_fields,
+            input_defaults: run_start_input_defaults(current_version),
+            target_ids: [
+              CommandAffordance.target_id("work_packet", packet.id),
+              CommandAffordance.target_id("work_packet_version", current_version.id),
+              CommandAffordance.target_id("work_run", active_run.id)
+            ]
           )
         ]
 
@@ -350,6 +395,12 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
           )
         ]
     end
+  end
+
+  defp active_run?(run) do
+    run.state not in ["failed", "verified"] and
+      run.aggregate_state not in ["failed", "verified"] and
+      run.verification_state not in ["failed", "verified"]
   end
 
   defp run_start_input_defaults(current_version) do

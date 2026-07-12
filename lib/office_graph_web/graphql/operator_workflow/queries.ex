@@ -91,7 +91,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
       resolve(fn %{id: id}, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, workspace} <- Projections.packet_workspace(session_context, id) do
+             {:ok, packet_id} <- normalize_work_packet_id(id),
+             {:ok, workspace} <- Projections.packet_workspace(session_context, packet_id) do
           {:ok, workspace}
         else
           error -> Errors.to_absinthe(error)
@@ -156,4 +157,17 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
   defp normalize_list(nil), do: []
   defp normalize_list(list) when is_list(list), do: list
+
+  defp normalize_work_packet_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, _id} ->
+        {:ok, id}
+
+      :error ->
+        case Absinthe.Relay.Node.from_global_id(id, OfficeGraphWeb.GraphQL.Schema) do
+          {:ok, %{type: :work_packet, id: packet_id}} -> {:ok, packet_id}
+          _other -> {:error, {:invalid_field, :id}}
+        end
+    end
+  end
 end

@@ -561,6 +561,13 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         version_attrs
       )
 
+    relay_packet_id =
+      Absinthe.Relay.Node.to_global_id(
+        :work_packet,
+        packet_result.packet.id,
+        OfficeGraphWeb.GraphQL.Schema
+      )
+
     workspace =
       graphql(
         conn,
@@ -607,7 +614,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: packet_result.packet.id},
+        %{id: relay_packet_id},
         "operatorPacketWorkspace"
       )
 

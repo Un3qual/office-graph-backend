@@ -693,6 +693,45 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert restricted_start.input_defaults == []
   end
 
+  test "packet workspace disables run start while the current version has an active run" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_result} =
+      OperatorCommandFixtures.create_ready_packet(
+        bootstrap.session,
+        [verification_check],
+        %{
+          title: "Active run packet",
+          objective: "Prevent duplicate active runs.",
+          context_summary: "The current version already has a run.",
+          requirements: "Keep one active run per packet version.",
+          success_criteria: "Run start is unavailable until the run finishes.",
+          autonomy_posture: "human_supervised"
+        }
+      )
+
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :work_run_start, [])
+
+    assert {:ok, _run_result} =
+             Runs.start_run(bootstrap.session, operation, packet_result.version, %{
+               source_surface: "packet_workspace",
+               reason: "Start the current packet version.",
+               authority_posture: "human_supervised"
+             })
+
+    assert {:ok, workspace} =
+             Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
+
+    assert workspace.ready?
+    assert workspace.allowed_next_actions == ["create_work_packet_version"]
+    assert [_create_version, start_run] = workspace.command_affordances
+    assert start_run.identity == "start_work_run"
+    assert start_run.state == "disabled"
+    assert start_run.reason_codes == ["active_work_run"]
+    assert start_run.blocker_reasons == ["active_work_run"]
+  end
+
   test "packet workspace normalizes source-check mismatch blockers" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -1091,11 +1130,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       create_candidate =
         Enum.find(run_state.command_affordances, &(&1.identity == "create_evidence_candidate"))
 
-      if create_candidate do
-        assert packet_default_values(create_candidate, "execution_observation_id") == []
-        assert packet_default_values(create_candidate, "verification_check_id") == []
-      else
+      if run_state.status == "failed" do
+        assert is_nil(create_candidate)
         assert run_state.status == "failed"
+      else
+        assert is_nil(create_candidate)
+
+        assert Enum.any?(
+                 run_state.command_affordances,
+                 &(&1.identity == "record_execution_observation" and &1.state == "enabled")
+               )
       end
     end
   end
@@ -1125,6 +1169,26 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         key: "partial-multi-check-first",
         result: "passed"
       )
+
+    assert {:ok, remaining_execution} =
+             Projections.operator_run_state(bootstrap.session, accepted.work_run.id)
+
+    assert remaining_execution.status == "awaiting_evidence"
+
+    assert remaining_execution.allowed_next_actions == [
+             "record_execution_observation",
+             "waive_verification_check"
+           ]
+
+    record_observation =
+      Enum.find(
+        remaining_execution.command_affordances,
+        &(&1.identity == "record_execution_observation")
+      )
+
+    assert record_observation.state == "enabled"
+    assert %{type: "verification_check", id: second_check.id} in record_observation.target_ids
+    refute %{type: "verification_check", id: first_check.id} in record_observation.target_ids
 
     {:ok, second_observation} =
       record_observation(bootstrap.session, accepted.work_run, second_check,

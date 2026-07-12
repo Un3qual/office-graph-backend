@@ -16,6 +16,7 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
+  const [evidenceResult, setEvidenceResult] = useState("passed");
   const [waiverReason, setWaiverReason] = useState("");
   const [policyBasis, setPolicyBasis] = useState("owner_exception");
   const candidateAffordance = enabledAffordance(runState.commandAffordances, "create_evidence_candidate");
@@ -24,6 +25,9 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const acceptableCandidateIds = acceptAffordance
     ? targetValues(acceptAffordance, "evidence_candidate")
     : [];
+  const currentCandidateId = acceptableCandidateIds.includes(selectedCandidateId)
+    ? selectedCandidateId
+    : acceptableCandidateIds[0] ?? "";
   const candidateObservationIds = candidateAffordance
     ? defaultValues(candidateAffordance, "execution_observation_id")
     : [];
@@ -60,8 +64,8 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
     event.preventDefault();
     if (!acceptAffordance) return;
     const input = {
-      evidenceCandidateId: selectedCandidateId || acceptableCandidateIds[0] || "",
-      title: title.trim(), body: body.trim(), result: "passed", acceptancePolicyBasis: "owner_acceptance"
+      evidenceCandidateId: currentCandidateId,
+      title: title.trim(), body: body.trim(), result: evidenceResult, acceptancePolicyBasis: "owner_acceptance"
     };
     acceptAttempt.current = submissionIdentity(acceptAttempt.current, input);
     accept.submit({ ...input, idempotencyKey: acceptAttempt.current.key });
@@ -94,8 +98,13 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
     </form> : null}
     {acceptAffordance ? <form className="operator-command-form" onSubmit={submitAccept}>
       <label htmlFor="evidence-candidate">Evidence candidate</label>
-      <select id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={selectedCandidateId || acceptableCandidateIds[0] || ""}>
+      <select id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={currentCandidateId}>
         {acceptableCandidateIds.map(id => <option key={id} value={id}>{id}</option>)}
+      </select>
+      <label htmlFor="evidence-result">Evidence result</label>
+      <select id="evidence-result" name="evidenceResult" onChange={event => setEvidenceResult(event.target.value)} value={evidenceResult}>
+        <option value="passed">Passed</option>
+        <option value="failed">Failed</option>
       </select>
       <label htmlFor="evidence-title">Evidence title</label><input id="evidence-title" onChange={event => setTitle(event.target.value)} value={title} />
       <label htmlFor="evidence-body">Evidence body</label><textarea id="evidence-body" onChange={event => setBody(event.target.value)} value={body} />

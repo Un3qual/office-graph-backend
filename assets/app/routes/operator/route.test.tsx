@@ -1050,10 +1050,98 @@ describe("operator route", () => {
     fireEvent.change(screen.getByLabelText("Evidence body"), {
       target: { value: "Accept the affordance-scoped candidate." }
     });
+    fireEvent.change(screen.getByLabelText("Evidence result"), {
+      target: { value: "failed" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
     await waitFor(() => expect(lastVariablesFor(network, "OperatorAcceptEvidenceMutation"))
-      .toMatchObject({ input: { evidenceCandidateId: "candidate_2" } }));
+      .toMatchObject({
+        input: { evidenceCandidateId: "candidate_2", result: "failed" }
+      }));
+  });
+
+  it("falls back to a current candidate after an acceptance refresh", async () => {
+    const base = operatorRunState();
+    const secondCandidate = {
+      ...base.evidenceCandidates[0],
+      id: "candidate_2",
+      verificationCheckId: "check_2",
+      executionObservationId: "observation_2"
+    };
+    const initialState = {
+      ...base,
+      evidenceCandidates: [...base.evidenceCandidates, secondCandidate],
+      commandAffordances: [
+        enabledCommandAffordance("accept_evidence", [], [
+          { type: "work_run", id: "run_1" },
+          { type: "evidence_candidate", id: "candidate_1" },
+          { type: "evidence_candidate", id: "candidate_2" }
+        ])
+      ]
+    };
+    const refreshedState = {
+      ...base,
+      evidenceCandidates: [base.evidenceCandidates[0]],
+      commandAffordances: [
+        enabledCommandAffordance("accept_evidence", [], [
+          { type: "work_run", id: "run_1" },
+          { type: "evidence_candidate", id: "candidate_1" }
+        ])
+      ]
+    };
+    let runReads = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        runReads += 1;
+        return { data: { operatorRunState: runReads === 1 ? initialState : refreshedState } };
+      }
+      if (request.name === "OperatorAcceptEvidenceMutation") {
+        return {
+          data: {
+            acceptEvidence: {
+              command: "accept_evidence",
+              operationId: `operation_accept_${runReads}`,
+              affectedIds: [],
+              evidenceCandidate: { id: "candidate_2", candidateState: "accepted" },
+              evidenceItem: { id: "evidence_2", state: "accepted" },
+              verificationResult: { id: "result_2", result: "passed" },
+              run: { id: "run_1", executionState: "completed", verificationState: "pending" }
+            }
+          }
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Evidence candidate"), {
+      target: { value: "candidate_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Evidence title"), {
+      target: { value: "Candidate refresh" }
+    });
+    fireEvent.change(screen.getByLabelText("Evidence body"), {
+      target: { value: "Use only the current affordance target." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
+
+    await waitFor(() => expect(runReads).toBe(2));
+    await waitFor(() => expect(screen.getByLabelText("Evidence candidate")).toHaveValue("candidate_1"));
+    fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
+
+    await waitFor(() => {
+      const submissions = network.mock.calls.filter(
+        ([request]) => request.name === "OperatorAcceptEvidenceMutation"
+      );
+      expect(submissions).toHaveLength(2);
+      expect(submissions[1]?.[1]).toMatchObject({
+        input: { evidenceCandidateId: "candidate_1" }
+      });
+    });
   });
 
   it("creates evidence from the operator-selected matching observation and check", async () => {
