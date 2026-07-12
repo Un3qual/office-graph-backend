@@ -1,44 +1,74 @@
 import type { PacketWorkspaceVersion } from "../types";
+import { CommandFieldError } from "../../../relay/CommandFormFeedback";
+import { commandFieldErrorProps } from "../../../relay/commandFormSupport";
+import type { CommandMutationState } from "../../../relay/commandMutation";
 
 type Props = {
   readonly titleLabel: string;
   readonly version?: PacketWorkspaceVersion;
+  readonly commandState?: CommandMutationState<unknown>;
+  readonly errorScope?: string;
 };
 
-export function PacketContractFields({ titleLabel, version }: Props) {
+const idleState = { status: "idle" } as const;
+
+export function PacketContractFields({
+  titleLabel,
+  version,
+  commandState = idleState,
+  errorScope = "packet-contract"
+}: Props) {
+  const field = (controlName: string) =>
+    commandFieldErrorProps(commandState, errorScope, controlName);
+  const error = (controlName: string) => (
+    <CommandFieldError
+      controlName={controlName}
+      scope={errorScope}
+      state={commandState}
+    />
+  );
+
   return (
     <div className="packet-contract-fields">
       <label>
         {titleLabel}
-        <input defaultValue={version?.title ?? ""} name="title" required />
+        <input {...field("title")} defaultValue={version?.title ?? ""} name="title" required />
+        {error("title")}
       </label>
       <label>
         Objective
-        <textarea defaultValue={version?.objective ?? ""} name="objective" required />
+        <textarea {...field("objective")} defaultValue={version?.objective ?? ""} name="objective" required />
+        {error("objective")}
       </label>
       <label>
         Context summary
         <textarea
+          {...field("contextSummary")}
           defaultValue={version?.contextSummary ?? ""}
           name="contextSummary"
           required
         />
+        {error("contextSummary")}
       </label>
       <label>
         Requirements
         <textarea
+          {...field("requirements")}
           defaultValue={version?.requirements ?? ""}
           name="requirements"
           required
         />
+        {error("requirements")}
       </label>
       <label>
         Success criteria
         <textarea
+          {...field("successCriteria")}
           defaultValue={version?.successCriteria ?? ""}
           name="successCriteria"
           required
         />
+        {error("successCriteria")}
       </label>
       <div>
         <span>Autonomy posture</span>
@@ -48,18 +78,22 @@ export function PacketContractFields({ titleLabel, version }: Props) {
       <label>
         Source graph item IDs
         <textarea
+          {...field("sourceGraphItemIds")}
           defaultValue={version?.sourceGraphItemIds.join("\n") ?? ""}
           name="sourceGraphItemIds"
           required
         />
+        {error("sourceGraphItemIds")}
       </label>
       <label>
         Verification check IDs
         <textarea
+          {...field("verificationCheckIds")}
           defaultValue={version?.verificationCheckIds.join("\n") ?? ""}
           name="verificationCheckIds"
           required
         />
+        {error("verificationCheckIds")}
       </label>
     </div>
   );

@@ -1,13 +1,14 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
-import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, enabledAffordance, submissionIdentity } from "../commandFormSupport";
+import { CommandFieldError, CommandFormFeedback } from "../../../relay/CommandFormFeedback";
+import { commandFieldErrorProps, enabledAffordance, submissionIdentity } from "../commandFormSupport";
 import { useRecordExecutionObservationCommand } from "../commandWorkflow";
 import type { OperatorRunState } from "../workflow";
 
 export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void; runState: OperatorRunState }) {
   const command = useRecordExecutionObservationCommand(onRefresh);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const [rationale, setRationale] = useState("");
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
   const [selectedOutcomeKey, setSelectedOutcomeKey] = useState("");
@@ -55,7 +56,7 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
     command.submit({ ...input, idempotencyKey: attempt.current.key, observationIdempotencyKey: `observation:${attempt.current.key}` });
   };
 
-  return <form className="operator-command-form" onSubmit={submit}>
+  return <form className="operator-command-form" onSubmit={submit} ref={formRef}>
     <label htmlFor="verification-check">Verification check</label>
     <select id="verification-check" name="observationOptionKey" onChange={event => {
       setSelectedOptionKey(event.target.value);
@@ -67,9 +68,17 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
     <select id="observation-outcome" name="observationOutcomeKey" onChange={event => setSelectedOutcomeKey(event.target.value)} value={currentOutcomeKey}>
       {(currentOption?.outcomes ?? []).map(outcome => <option key={outcome.key} value={outcome.key}>{outcome.label}</option>)}
     </select>
-    <label htmlFor="observation-rationale">Observation rationale</label><textarea id="observation-rationale" onChange={event => setRationale(event.target.value)} value={rationale} />
+    <label htmlFor="observation-rationale">Observation rationale</label>
+    <textarea
+      {...commandFieldErrorProps(command.state, "record-observation", "observationRationale")}
+      id="observation-rationale"
+      name="observationRationale"
+      onChange={event => setRationale(event.target.value)}
+      value={rationale}
+    />
+    <CommandFieldError controlName="observationRationale" scope="record-observation" state={command.state} />
     <Button isDisabled={command.state.status === "pending" || !rationale.trim() || options.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
-    <FormFeedback feedback={commandFeedback(command.state)} />
+    <CommandFormFeedback formRef={formRef} scope="record-observation" state={command.state} />
   </form>;
 }
 

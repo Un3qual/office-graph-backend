@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
-import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, enabledAffordance, submissionIdentity } from "../commandFormSupport";
+import { CommandFieldError, CommandFormFeedback } from "../../../relay/CommandFormFeedback";
+import { commandFieldErrorProps, enabledAffordance, submissionIdentity } from "../commandFormSupport";
 import { useAcceptEvidenceCommand, useCreateEvidenceCandidateCommand, useWaiveVerificationCheckCommand } from "../commandWorkflow";
 import type { OperatorRunState } from "../workflow";
 
@@ -12,6 +12,9 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const candidateAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const acceptAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const waiveAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  const candidateFormRef = useRef<HTMLFormElement>(null);
+  const acceptFormRef = useRef<HTMLFormElement>(null);
+  const waiveFormRef = useRef<HTMLFormElement>(null);
   const [claim, setClaim] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -99,31 +102,37 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
 
   if (!candidateAffordance && !acceptAffordance && !waiveAffordance) return null;
   return <div className="operator-command-stack">
-    {candidateAffordance ? <form className="operator-command-form" onSubmit={submitCandidate}>
+    {candidateAffordance ? <form className="operator-command-form" onSubmit={submitCandidate} ref={candidateFormRef}>
       <label htmlFor="evidence-observation">Evidence observation</label>
       <select defaultValue={candidateOptions[0]?.key ?? ""} id="evidence-observation" name="evidenceCandidateOptionKey">
         {candidateOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
       </select>
-      <label htmlFor="evidence-claim">Evidence claim</label><textarea id="evidence-claim" onChange={event => setClaim(event.target.value)} value={claim} />
+      <label htmlFor="evidence-claim">Evidence claim</label>
+      <textarea {...commandFieldErrorProps(candidate.state, "create-evidence", "claim")} id="evidence-claim" name="claim" onChange={event => setClaim(event.target.value)} value={claim} />
+      <CommandFieldError controlName="claim" scope="create-evidence" state={candidate.state} />
       <Button isDisabled={candidate.state.status === "pending" || !claim.trim() || candidateOptions.length === 0} type="submit" variant="primary">{candidate.state.status === "pending" ? "Creating evidence candidate" : "Create evidence candidate"}</Button>
-      <FormFeedback feedback={commandFeedback(candidate.state)} />
+      <CommandFormFeedback formRef={candidateFormRef} scope="create-evidence" state={candidate.state} />
     </form> : null}
-    {acceptAffordance ? <form className="operator-command-form" onSubmit={submitAccept}>
+    {acceptAffordance ? <form className="operator-command-form" onSubmit={submitAccept} ref={acceptFormRef}>
       <label htmlFor="evidence-candidate">Evidence candidate</label>
-      <select id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={currentCandidateId}>
+      <select {...commandFieldErrorProps(accept.state, "accept-evidence", "evidenceCandidateId")} id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={currentCandidateId}>
         {acceptOptions.map(option => <option key={option.key} value={option.evidenceCandidateId}>{option.label}</option>)}
       </select>
+      <CommandFieldError controlName="evidenceCandidateId" scope="accept-evidence" state={accept.state} />
       <label htmlFor="evidence-result">Evidence result</label>
-      <select id="evidence-result" name="evidenceResult" onChange={event => setEvidenceResult(event.target.value)} value={currentResult}>
+      <select {...commandFieldErrorProps(accept.state, "accept-evidence", "result")} id="evidence-result" name="result" onChange={event => setEvidenceResult(event.target.value)} value={currentResult}>
         <option value="passed">Passed</option>
         <option value="failed">Failed</option>
       </select>
-      <label htmlFor="evidence-title">Evidence title</label><input id="evidence-title" onChange={event => setTitle(event.target.value)} value={title} />
-      <label htmlFor="evidence-body">Evidence body</label><textarea id="evidence-body" onChange={event => setBody(event.target.value)} value={body} />
+      <CommandFieldError controlName="result" scope="accept-evidence" state={accept.state} />
+      <label htmlFor="evidence-title">Evidence title</label><input {...commandFieldErrorProps(accept.state, "accept-evidence", "title")} id="evidence-title" name="title" onChange={event => setTitle(event.target.value)} value={title} />
+      <CommandFieldError controlName="title" scope="accept-evidence" state={accept.state} />
+      <label htmlFor="evidence-body">Evidence body</label><textarea {...commandFieldErrorProps(accept.state, "accept-evidence", "body")} id="evidence-body" name="body" onChange={event => setBody(event.target.value)} value={body} />
+      <CommandFieldError controlName="body" scope="accept-evidence" state={accept.state} />
       <Button isDisabled={accept.state.status === "pending" || !title.trim() || !body.trim() || acceptOptions.length === 0} type="submit" variant="primary">{accept.state.status === "pending" ? "Accepting evidence" : "Accept evidence"}</Button>
-      <FormFeedback feedback={commandFeedback(accept.state)} />
+      <CommandFormFeedback formRef={acceptFormRef} scope="accept-evidence" state={accept.state} />
     </form> : null}
-    {waiveAffordance ? <form className="operator-command-form" onSubmit={submitWaive}>
+    {waiveAffordance ? <form className="operator-command-form" onSubmit={submitWaive} ref={waiveFormRef}>
       <label htmlFor="required-check">Required check</label>
       <select id="required-check" name="waiverOptionKey" onChange={event => {
         setSelectedWaiverKey(event.target.value);
@@ -131,10 +140,12 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
       }} value={currentWaiverOption?.key ?? ""}>
         {waiverOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
       </select>
-      <label htmlFor="waiver-reason">Waiver reason</label><textarea id="waiver-reason" onChange={event => setWaiverReason(event.target.value)} value={waiverReason} />
-      <label htmlFor="waiver-policy">Policy basis</label><input id="waiver-policy" onChange={event => setPolicyBasis(event.target.value)} value={policyBasis || currentWaiverOption?.policyBasis || ""} />
+      <label htmlFor="waiver-reason">Waiver reason</label><textarea {...commandFieldErrorProps(waive.state, "waive-check", "reason")} id="waiver-reason" name="reason" onChange={event => setWaiverReason(event.target.value)} value={waiverReason} />
+      <CommandFieldError controlName="reason" scope="waive-check" state={waive.state} />
+      <label htmlFor="waiver-policy">Policy basis</label><input {...commandFieldErrorProps(waive.state, "waive-check", "policyBasis")} id="waiver-policy" name="policyBasis" onChange={event => setPolicyBasis(event.target.value)} value={policyBasis || currentWaiverOption?.policyBasis || ""} />
+      <CommandFieldError controlName="policyBasis" scope="waive-check" state={waive.state} />
       <Button isDisabled={waive.state.status === "pending" || !waiverReason.trim() || waiverOptions.length === 0} type="submit" variant="primary">{waive.state.status === "pending" ? "Waiving verification check" : "Waive verification check"}</Button>
-      <FormFeedback feedback={commandFeedback(waive.state)} />
+      <CommandFormFeedback formRef={waiveFormRef} scope="waive-check" state={waive.state} />
     </form> : null}
   </div>;
 }

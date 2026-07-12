@@ -1,7 +1,7 @@
 import { useRef, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
-import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, defaultValue, defaultValues, enabledAffordance, submissionIdentity } from "../commandFormSupport";
+import { CommandFormFeedback } from "../../../relay/CommandFormFeedback";
+import { defaultValue, defaultValues, enabledAffordance, submissionIdentity } from "../commandFormSupport";
 import { useApplyProposedChangesCommand, useCreateWorkPacketCommand } from "../commandWorkflow";
 import type { PacketReadinessInput } from "../types";
 import type { OperatorWorkflowItem, PacketReadinessState } from "../workflow";
@@ -18,6 +18,8 @@ export function PacketCommandForm({ item, onRefresh, readiness, readinessInput }
   const create = useCreateWorkPacketCommand(onRefresh);
   const applyAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const createAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  const applyFormRef = useRef<HTMLFormElement>(null);
+  const createFormRef = useRef<HTMLFormElement>(null);
   const applyAffordance = item ? enabledAffordance(item.commandAffordances, "apply_proposed_changes") : null;
   const createAffordance = readiness && !("isDerived" in readiness)
     ? enabledAffordance(readiness.commandAffordances, "create_work_packet")
@@ -39,15 +41,15 @@ export function PacketCommandForm({ item, onRefresh, readiness, readinessInput }
     create.submit({ ...readinessInput, idempotencyKey: createAttempt.current.key });
   };
   return <div className="operator-command-stack">
-    {applyAffordance ? <form className="operator-command-form" onSubmit={submitApply}>
+    {applyAffordance ? <form className="operator-command-form" onSubmit={submitApply} ref={applyFormRef}>
       <p>{applyAffordance.safeExplanation}</p>
       <Button isDisabled={apply.state.status === "pending"} type="submit" variant="primary">{apply.state.status === "pending" ? "Applying proposed changes" : "Apply proposed changes"}</Button>
-      <FormFeedback feedback={commandFeedback(apply.state)} />
+      <CommandFormFeedback formRef={applyFormRef} scope="apply-changes" state={apply.state} />
     </form> : null}
-    {createAffordance && readinessInput ? <form className="operator-command-form" onSubmit={submitCreate}>
+    {createAffordance && readinessInput ? <form className="operator-command-form" onSubmit={submitCreate} ref={createFormRef}>
       <p>{createAffordance.safeExplanation}</p>
       <Button isDisabled={create.state.status === "pending"} type="submit" variant="primary">{create.state.status === "pending" ? "Creating work packet" : "Create work packet"}</Button>
-      <FormFeedback feedback={commandFeedback(create.state)} />
+      <CommandFormFeedback formRef={createFormRef} scope="create-packet" state={create.state} />
     </form> : null}
   </div>;
 }

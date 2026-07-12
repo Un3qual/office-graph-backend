@@ -55,6 +55,56 @@ describe("packet workspace route", () => {
     expect(screen.queryByRole("button", { name: "Create packet" })).not.toBeInTheDocument();
   });
 
+  it("maps every server field error to packet controls and focuses the first invalid field", async () => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([], {}, createPacketAffordance());
+      }
+
+      expect(request.name).toBe("PacketsCreateWorkPacketMutation");
+      throw new GraphQLResponseError(
+        "Packet validation failed.",
+        ({
+          errors: [
+            {
+              message: "Add current product context.",
+              extensions: { code: "validation_failed", field: "context_summary" }
+            },
+            {
+              message: "Describe how completion will be proven.",
+              extensions: { code: "validation_failed", field: "success_criteria" }
+            }
+          ]
+        } as unknown as GraphQLResponse),
+        200,
+        request.name
+      );
+    });
+
+    renderWithRelay(network);
+    const createPacket = within(await screen.findByRole("region", { name: "Create packet" }));
+    const submitButton = createPacket.getByRole("button", { name: "Create packet" });
+
+    fireEvent.submit(submitButton.closest("form")!);
+
+    const context = createPacket.getByLabelText("Context summary");
+    const criteria = createPacket.getByLabelText("Success criteria");
+    await waitFor(() => expect(context).toHaveFocus());
+
+    expect(createPacket.getByRole("alert")).toHaveTextContent("Add current product context.");
+    expect(createPacket.getByRole("alert")).toHaveTextContent(
+      "Describe how completion will be proven."
+    );
+    expect(context).toHaveAttribute("aria-invalid", "true");
+    expect(criteria).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(context.getAttribute("aria-describedby")!)).toHaveTextContent(
+      "Add current product context."
+    );
+    expect(document.getElementById(criteria.getAttribute("aria-describedby")!)).toHaveTextContent(
+      "Describe how completion will be proven."
+    );
+  });
+
   it("renders a safe error without exposing Relay details", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     renderWithRelay(

@@ -1,7 +1,7 @@
 import { useRef, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
-import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, submissionIdentity } from "../../../relay/commandFormSupport";
+import { CommandFormFeedback } from "../../../relay/CommandFormFeedback";
+import { submissionIdentity } from "../../../relay/commandFormSupport";
 import { useCreateWorkPacketCommand } from "../commandWorkflow";
 import { PacketContractFields, packetContractInput } from "./PacketContractFields";
 
@@ -12,6 +12,7 @@ type Props = {
 
 export function PacketCreateForm({ onCreated, onRefresh }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const command = useCreateWorkPacketCommand(success => {
     if (success) {
       attempt.current = null;
@@ -33,18 +34,24 @@ export function PacketCreateForm({ onCreated, onRefresh }: Props) {
         <p className="eyebrow">New contract</p>
         <h2>Create packet</h2>
       </header>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} ref={formRef}>
         <fieldset disabled={command.state.status === "pending"}>
-          <PacketContractFields titleLabel="Packet title" />
+          <PacketContractFields
+            commandState={command.state}
+            errorScope="packet-create"
+            titleLabel="Packet title"
+          />
           <Button type="submit" variant="primary">
             {command.state.status === "pending" ? "Creating packet" : "Create packet"}
           </Button>
         </fieldset>
-        <FormFeedback
-          feedback={commandFeedback(command.state)}
+        <CommandFormFeedback
+          formRef={formRef}
           pendingMessage={
             command.state.status === "pending" ? "Creating the packet contract..." : null
           }
+          scope="packet-create"
+          state={command.state}
         />
         {command.state.status === "success" ? (
           <p className="packet-command-success" role="status">

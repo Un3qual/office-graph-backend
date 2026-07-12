@@ -1,5 +1,8 @@
 export {
   commandFeedback,
+  commandFieldErrorProps,
+  commandFieldErrors,
+  commandFieldName,
   defaultValue,
   defaultValues,
   enabledAffordance,

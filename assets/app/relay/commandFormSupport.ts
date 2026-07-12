@@ -54,6 +54,38 @@ export function commandFeedback<TResult>(
   return null;
 }
 
+export function commandFieldName(serverField: string) {
+  return serverField.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+export function commandFieldErrors<TResult>(
+  state: CommandMutationState<TResult>,
+  controlName: string
+) {
+  return state.status === "field-error"
+    ? state.fields.filter(({ field }) => commandFieldName(field) === controlName)
+    : [];
+}
+
+export function commandFieldErrorId(scope: string, controlName: string) {
+  return `${scope}-${controlName}-error`;
+}
+
+export function commandFieldErrorProps<TResult>(
+  state: CommandMutationState<TResult>,
+  scope: string,
+  controlName: string
+) {
+  const invalid = commandFieldErrors(state, controlName).length > 0;
+
+  return invalid
+    ? {
+        "aria-describedby": commandFieldErrorId(scope, controlName),
+        "aria-invalid": true as const
+      }
+    : {};
+}
+
 export function submissionIdentity(
   previous: { fingerprint: string; key: string } | null,
   input: unknown
