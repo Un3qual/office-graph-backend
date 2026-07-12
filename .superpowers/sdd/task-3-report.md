@@ -40,6 +40,8 @@ nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc \
 
 Observed `Result: 0/1 passed`: tuple map key `{:sql, :key}` raised `Protocol.UndefinedError` for `String.Chars`, proving recursive sanitization also needed total key handling.
 
+Independent review found a second compact-token escape. The same focused test was expanded with `Postgrex.Error`, `Ecto.ConstraintError`, and `SELECT`; RED showed all three unchanged in both public envelopes. Applying the internal-term denylist to compact binary values produced `Result: 1 passed, 3 excluded` for the focused sanitization test.
+
 ### Frontend conflict mapping and authoritative refresh
 
 Command:
@@ -142,6 +144,7 @@ Output: format and compile exited 0; OpenSpec reported `Change 'harden-project-q
 
 - `df080c3` — `unify operator command semantics`
 - `739b626` — `refresh after evidence command conflicts`
+- `3ce75d9` — `close compact error metadata leaks`
 
 The OpenSpec/report checkpoint is committed separately after this report.
 
