@@ -9,7 +9,8 @@ Status: **DONE**
 - Internal run navigation uses React Router. Relay maps `DateTime` to `string`, generated artifacts reflect that type, fragment reads use explicit generics instead of blind casts, and packet/evidence copy uses current product vocabulary.
 - Repository caller evidence proved the operator-only start-run document/hook/test/artifact had no production caller; the packet-owned start-run path remains. The dead path, StyleX runtime/plugin/config/transforms, and legacy style aliases are removed.
 - Shared-UI dependency checks use the TypeScript AST and cover static imports, dynamic imports, import-equals declarations, re-exports, and Relay `graphql` tags without matching comments.
-- Exact Biome `2.2.4` provides source-scoped lint and format checks. Verification covers 85 handwritten frontend files while Relay artifacts, build output, router type output, and dependencies are excluded.
+- Exact Biome `2.2.4` provides source-scoped lint and format checks. Verification passes `app/relay` directly and covers 88 handwritten frontend files while Relay artifacts, build output, router type output, and dependencies are excluded.
+- Review follow-up made invalid-control focus reject hidden, disabled, read-only, inert, ARIA-hidden/disabled, and negative-tab-index controls; made empty field-error state referentially stable; clears request timeouts synchronously on disposal; and fail-closes AST boundary checks for non-static dynamic imports after resolving relative paths.
 
 ## TDD Evidence
 
@@ -25,13 +26,13 @@ Executed inside the pinned Nix shell:
 
 - `pnpm run relay:check`: 22 reader, 17 normalization, 22 operation-text documents valid.
 - `pnpm run typecheck`: passed.
-- `pnpm run lint`: 85 files checked, no findings.
-- `pnpm run format:check`: 85 files checked, no changes required.
-- AST/import-boundary gate: 15/15 tests passed.
-- Full Vitest: 142/142 tests passed across 21 files.
+- `pnpm run lint`: 88 files checked, no findings (`biome lint app/relay app/routes src scripts *.ts *.json`).
+- `pnpm run format:check`: 88 files checked, no changes required.
+- AST/import-boundary gate: 16/16 tests passed.
+- Full Vitest: 146/146 tests passed across 22 files.
 - React Router production client and SSR builds: passed; app-shell asset verification passed.
-- `openspec validate harden-project-quality --strict`: passed before checklist update and scheduled again for final handoff.
-- `git diff --check`: clean before checklist/report update and scheduled again for final handoff.
+- `openspec validate --strict --all`: 96/96 specs and changes passed.
+- `git diff --check`: clean before the report-only handoff update.
 
 ## Commits
 
@@ -40,6 +41,8 @@ Executed inside the pinned Nix shell:
 - `b711528` — client navigation, scalar typing, safe copy, and typed Relay reads
 - `447fad3` — dead frontend/StyleX cleanup, AST boundaries, and static tooling
 - `4c2f826` — align the compiled-query test with paged packet history
+- `d74a344` — complete the OpenSpec checklist and Task 5 report
+- `bbf1383` — fix frontend quality review findings
 
 ## Self-review
 
