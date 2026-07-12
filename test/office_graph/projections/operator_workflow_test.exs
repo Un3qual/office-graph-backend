@@ -276,11 +276,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert length(run_state.evidence_candidates) == 4
     assert length(run_state.evidence_items) == 4
     assert length(run_state.verification_results) == 4
-    assert QueryCounter.source_count(queries, "run_required_checks") <= 1
-    assert QueryCounter.source_count(queries, "execution_observations") <= 1
-    assert QueryCounter.source_count(queries, "evidence_candidates") <= 1
-    assert QueryCounter.source_count(queries, "evidence_items") <= 1
-    assert QueryCounter.source_count(queries, "verification_results") <= 1
+    # One bounded detail query plus one aggregate-count query per child source.
+    assert QueryCounter.source_count(queries, "run_required_checks") <= 2
+    assert QueryCounter.source_count(queries, "execution_observations") <= 2
+    assert QueryCounter.source_count(queries, "evidence_candidates") <= 2
+    assert QueryCounter.source_count(queries, "evidence_items") <= 2
+    assert QueryCounter.source_count(queries, "verification_results") <= 2
   end
 
   test "operator inbox limits the hot path page size and exposes the next cursor" do

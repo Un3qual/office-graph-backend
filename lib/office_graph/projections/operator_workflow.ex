@@ -6,6 +6,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   alias OfficeGraph.Integrations.NormalizedIntakeEvent
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Projections.CommandAffordance
+  alias OfficeGraph.Projections.KeysetCursor
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph.{GraphRelationship, ReviewFinding, Signal, Task, VerificationCheck}
@@ -69,6 +70,33 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          {:ok, event} <- read_intake_event(session_context, normalized_event_id),
          {:ok, [row]} <- build_intake_rows(session_context, [event]) do
       {:ok, row}
+    end
+  end
+
+  def relationship_details_page(session_context, normalized_event_id, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    after_cursor = Keyword.get(opts, :after_cursor)
+
+    with {:ok, row} <- operator_workflow_item(session_context, normalized_event_id),
+         {:ok, after_key} <- decode_relationship_cursor(after_cursor) do
+      details =
+        row.relationship_details
+        |> Enum.sort_by(&{&1.kind, &1.stable_id})
+        |> Enum.drop_while(fn detail ->
+          after_key && {detail.kind, detail.stable_id} <= after_key
+        end)
+
+      page_details = Enum.take(details, limit)
+
+      {:ok,
+       %{
+         edges:
+           Enum.map(page_details, fn detail ->
+             %{node: detail, cursor: KeysetCursor.encode([detail.kind, detail.stable_id])}
+           end),
+         has_next_page?: length(details) > limit,
+         has_previous_page?: not is_nil(after_cursor)
+       }}
     end
   end
 
@@ -256,8 +284,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         applied_projection.audit_trace
       )
 
-    title = proposed_change_title(proposed_changes, event.source_identity)
+    title = proposed_change_title(event.id)
     graph_relationships = applied_projection.graph_relationships
+    relationship_details = relationship_details(graph_links, graph_relationships)
 
     %{
       type: "operator_workflow_item",
@@ -265,7 +294,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       normalized_event_id: event.id,
       duplicate_of_id: event.duplicate_of_id,
       title: title,
-      source_summary: source_summary(event.source_identity, title),
+      source_summary: source_summary(event.id, proposed_changes),
       proposed_action_previews: proposed_action_previews(proposed_changes),
       status: status,
       reason_codes: reason_codes,
@@ -289,32 +318,76 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
           length(graph_links) > @relationship_summary_limit or
             length(graph_relationships) > @relationship_summary_limit
       },
+      relationship_details: relationship_details,
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
     }
   end
 
-  defp proposed_change_title(proposed_changes, fallback) do
-    proposed_changes
-    |> Enum.find(&(&1.change_type == "create_signal"))
-    |> case do
-      %{payload: payload} -> Map.get(payload, "title") || Map.get(payload, :title) || fallback
-      nil -> fallback
-    end
-  end
+  defp proposed_change_title(event_id),
+    do: "Manual intake proposal #{String.slice(event_id, 0, 8)}"
 
-  defp source_summary(source_identity, title), do: "#{source_identity} · #{title}"
+  defp source_summary(event_id, proposed_changes) do
+    count = length(proposed_changes)
+
+    "#{count} proposed #{if(count == 1, do: "change", else: "changes")} · ref #{String.slice(event_id, 0, 8)}"
+  end
 
   defp proposed_action_previews(proposed_changes) do
     Enum.map(proposed_changes, fn proposed_change ->
       %{
         action: proposed_change.change_type,
-        title:
-          Map.get(proposed_change.payload, "title") ||
-            Map.get(proposed_change.payload, :title) || proposed_change.change_type,
+        title: proposed_action_label(proposed_change.change_type),
         status: proposed_change.status
       }
     end)
+  end
+
+  defp proposed_action_label("create_signal"), do: "Proposed signal"
+  defp proposed_action_label("create_task"), do: "Proposed task"
+  defp proposed_action_label("create_review_finding"), do: "Proposed review finding"
+  defp proposed_action_label("create_verification_check"), do: "Proposed verification check"
+  defp proposed_action_label(_unknown), do: "Proposed change"
+
+  defp relationship_details(graph_links, graph_relationships) do
+    link_details =
+      Enum.map(graph_links, fn link ->
+        %{
+          kind: "graph_link",
+          stable_id: "#{link.type}:#{link.id}",
+          title: link.title,
+          status: link.state,
+          source_graph_item_id: link.graph_item_id,
+          target_graph_item_id: nil,
+          relationship_type: link.type
+        }
+      end)
+
+    relationship_details =
+      Enum.map(graph_relationships, fn relationship ->
+        %{
+          kind: "graph_relationship",
+          stable_id: relationship.id,
+          title: relationship.relationship_type,
+          status: nil,
+          source_graph_item_id: relationship.source_graph_item_id,
+          target_graph_item_id: relationship.target_graph_item_id,
+          relationship_type: relationship.relationship_type
+        }
+      end)
+
+    link_details ++ relationship_details
+  end
+
+  defp decode_relationship_cursor(nil), do: {:ok, nil}
+
+  defp decode_relationship_cursor(cursor) do
+    with {:ok, [kind, stable_id]} <- KeysetCursor.decode(cursor, 2),
+         true <- is_binary(kind) and is_binary(stable_id) do
+      {:ok, {kind, stable_id}}
+    else
+      _invalid -> {:error, {:invalid_field, :pagination}}
+    end
   end
 
   defp read_proposed_changes_by_event_id(_session_context, []), do: {:ok, %{}}

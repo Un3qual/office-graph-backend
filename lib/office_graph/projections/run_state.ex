@@ -2,6 +2,8 @@ defmodule OfficeGraph.Projections.RunState do
   @moduledoc false
 
   alias OfficeGraph.Projections.CommandAffordance
+  alias OfficeGraph.Projections.KeysetCursor
+  alias OfficeGraph.{Authorization, Repo}
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph.EvidenceCandidate
@@ -12,10 +14,43 @@ defmodule OfficeGraph.Projections.RunState do
   @child_summary_limit 20
 
   def operator_run_state(session_context, run_id) do
-    with {:ok, summary} <- Runs.get_summary(session_context, run_id),
-         {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id),
+    with {:ok, summary} <-
+           Runs.get_projection_summary(session_context, run_id, @child_summary_limit),
+         {:ok, evidence_candidates} <-
+           read_evidence_candidates(session_context, summary.run.id, @child_summary_limit),
          {:ok, verification_checks} <- read_verification_checks(session_context, summary) do
-      {:ok, build_run_state(session_context, summary, evidence_candidates, verification_checks)}
+      {:ok,
+       build_run_state(
+         session_context,
+         summary,
+         evidence_candidates,
+         verification_checks
+       )}
+    end
+  end
+
+  def activity_page(session_context, run_id, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    after_cursor = Keyword.get(opts, :after_cursor)
+
+    with :ok <-
+           Authorization.authorize_projection(session_context, :skeleton_read,
+             organization_id: session_context.organization_id
+           ),
+         {:ok, after_key} <- decode_activity_cursor(after_cursor),
+         {:ok, %{rows: rows}} <-
+           Repo.query(
+             activity_sql(),
+             activity_params(session_context, run_id, after_key, limit + 1)
+           ) do
+      page_rows = Enum.take(rows, limit)
+
+      {:ok,
+       %{
+         edges: Enum.map(page_rows, &activity_edge/1),
+         has_next_page?: length(rows) > limit,
+         has_previous_page?: not is_nil(after_cursor)
+       }}
     end
   end
 
@@ -33,13 +68,14 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp read_evidence_candidates(session_context, run_id) do
+  defp read_evidence_candidates(session_context, run_id, limit) do
     EvidenceCandidate
     |> Ash.Query.filter(
       work_run_id == ^run_id and organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.limit(limit)
     |> Ash.read(authorize?: false)
   end
 
@@ -54,7 +90,12 @@ defmodule OfficeGraph.Projections.RunState do
     |> Ash.read(actor: session_context)
   end
 
-  defp build_run_state(session_context, summary, evidence_candidates, verification_checks) do
+  defp build_run_state(
+         session_context,
+         summary,
+         evidence_candidates,
+         verification_checks
+       ) do
     status = run_status(summary, evidence_candidates)
     verification_checks_by_id = Map.new(verification_checks, &{&1.id, &1})
 
@@ -67,8 +108,7 @@ defmodule OfficeGraph.Projections.RunState do
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
       command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
-      activity: run_activity(summary, evidence_candidates, verification_checks_by_id),
-      child_summary: child_summary(summary, evidence_candidates),
+      child_summary: child_summary(summary),
       source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
         id: summary.packet.id,
@@ -156,15 +196,8 @@ defmodule OfficeGraph.Projections.RunState do
     }
   end
 
-  defp child_summary(summary, evidence_candidates) do
-    counts = %{
-      required_checks: length(summary.required_checks),
-      observations: length(summary.observations),
-      evidence_candidates: length(evidence_candidates),
-      evidence_items: length(summary.evidence_items),
-      verification_results: length(summary.verification_results),
-      missing_evidence: length(summary.missing_evidence)
-    }
+  defp child_summary(summary) do
+    counts = Map.delete(summary.child_counts, :pending_evidence_candidates)
 
     Map.put(
       counts,
@@ -173,66 +206,78 @@ defmodule OfficeGraph.Projections.RunState do
     )
   end
 
-  defp run_activity(summary, evidence_candidates, verification_checks_by_id) do
-    required =
-      Enum.map(summary.required_checks, fn check ->
-        verification_check = Map.get(verification_checks_by_id, check.verification_check_id)
-
-        activity_item(
-          "required_check",
-          check.id,
-          verification_check && verification_check.title,
-          check.state
-        )
-      end)
-
-    observations =
-      Enum.map(summary.observations, fn observation ->
-        activity_item(
-          "observation",
-          observation.id,
-          observation.source_identity,
-          observation.normalized_status
-        )
-      end)
-
-    candidates =
-      Enum.map(evidence_candidates, fn candidate ->
-        activity_item(
-          "evidence_candidate",
-          candidate.id,
-          candidate.claim,
-          candidate.candidate_state
-        )
-      end)
-
-    evidence_items =
-      Enum.map(summary.evidence_items, fn item ->
-        activity_item("evidence_item", item.id, "Accepted evidence", item.state)
-      end)
-
-    results =
-      Enum.map(summary.verification_results, fn result ->
-        activity_item("verification_result", result.id, result.policy_basis, result.result)
-      end)
-
-    missing =
-      Enum.map(summary.missing_evidence, fn item ->
-        verification_check = Map.get(verification_checks_by_id, item.verification_check_id)
-
-        activity_item(
-          "missing_evidence",
-          item.verification_check_id,
-          verification_check && verification_check.title,
-          item.reason
-        )
-      end)
-
-    required ++ observations ++ candidates ++ evidence_items ++ results ++ missing
+  defp activity_sql do
+    """
+    WITH activity AS (
+      SELECT rrc.inserted_at, 'required_check'::text AS kind, rrc.id AS stable_id,
+             COALESCE(vc.title, 'Required check') AS title, rrc.state AS status
+      FROM run_required_checks rrc
+      LEFT JOIN verification_checks vc ON vc.id = rrc.verification_check_id
+      WHERE rrc.run_id = $1 AND rrc.organization_id = $2 AND rrc.workspace_id = $3
+      UNION ALL
+      SELECT inserted_at, 'observation', id, source_identity, normalized_status
+      FROM execution_observations
+      WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT inserted_at, 'evidence_candidate', id, claim, candidate_state
+      FROM evidence_candidates
+      WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT inserted_at, 'evidence_item', id, title, state
+      FROM evidence_items
+      WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT inserted_at, 'verification_result', id, COALESCE(policy_basis, 'Verification result'), result
+      FROM verification_results
+      WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
+    )
+    SELECT inserted_at, kind, stable_id::text, title, status
+    FROM activity
+    WHERE $4::timestamp IS NULL OR (inserted_at, kind, stable_id) > ($4, $5, $6::uuid)
+    ORDER BY inserted_at ASC, kind ASC, stable_id ASC
+    LIMIT $7
+    """
   end
 
-  defp activity_item(kind, id, title, status) do
-    %{kind: kind, stable_id: id, title: title || kind, status: status}
+  defp activity_params(session_context, run_id, nil, limit),
+    do: [
+      Ecto.UUID.dump!(run_id),
+      Ecto.UUID.dump!(session_context.organization_id),
+      Ecto.UUID.dump!(session_context.workspace_id),
+      nil,
+      "",
+      nil,
+      limit
+    ]
+
+  defp activity_params(session_context, run_id, {inserted_at, kind, id}, limit),
+    do: [
+      Ecto.UUID.dump!(run_id),
+      Ecto.UUID.dump!(session_context.organization_id),
+      Ecto.UUID.dump!(session_context.workspace_id),
+      inserted_at,
+      kind,
+      Ecto.UUID.dump!(id),
+      limit
+    ]
+
+  defp activity_edge([inserted_at, kind, id, title, status]) do
+    %{
+      node: %{kind: kind, stable_id: id, title: title, status: status},
+      cursor: KeysetCursor.encode([NaiveDateTime.to_iso8601(inserted_at), kind, id])
+    }
+  end
+
+  defp decode_activity_cursor(nil), do: {:ok, nil}
+
+  defp decode_activity_cursor(cursor) do
+    with {:ok, [inserted_at, kind, id]} <- KeysetCursor.decode(cursor, 3),
+         {:ok, inserted_at} <- NaiveDateTime.from_iso8601(inserted_at),
+         true <- is_binary(kind) and is_binary(id) do
+      {:ok, {inserted_at, kind, id}}
+    else
+      _invalid -> {:error, {:invalid_field, :pagination}}
+    end
   end
 
   defp command_options(summary, evidence_candidates, verification_checks_by_id) do
@@ -264,7 +309,22 @@ defmodule OfficeGraph.Projections.RunState do
               observation_source_kind: "human",
               observation_source_identity: "operator-console",
               freshness_state: "fresh",
-              trust_basis: "owner_attested"
+              trust_basis: "owner_attested",
+              default_outcome_key: "succeeded",
+              outcomes: [
+                %{
+                  key: "succeeded",
+                  label: "Succeeded",
+                  observed_status: "succeeded",
+                  normalized_status: "succeeded"
+                },
+                %{
+                  key: "failed",
+                  label: "Failed",
+                  observed_status: "failed",
+                  normalized_status: "failed"
+                }
+              ]
             }
           ]
 
@@ -272,6 +332,7 @@ defmodule OfficeGraph.Projections.RunState do
           []
       end
     end)
+    |> Enum.filter(&complete_string_option?/1)
   end
 
   defp evidence_candidate_options(summary, verification_checks_by_id) do
@@ -353,8 +414,18 @@ defmodule OfficeGraph.Projections.RunState do
   end
 
   defp complete_string_option?(option) do
-    Enum.all?(option, fn {_key, value} -> is_binary(value) and String.trim(value) != "" end)
+    Enum.all?(option, fn
+      {:outcomes, outcomes} -> Enum.all?(outcomes, &complete_string_option?/1)
+      {_key, value} -> usable_projection_value?(value)
+    end)
   end
+
+  defp usable_projection_value?(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+    normalized != "" and normalized not in ["[redacted]", "<redacted>", "redacted", "***"]
+  end
+
+  defp usable_projection_value?(_value), do: false
 
   defp run_status(summary, _evidence_candidates)
        when summary.run.verification_state == "verified" or
@@ -367,15 +438,16 @@ defmodule OfficeGraph.Projections.RunState do
     "failed"
   end
 
-  defp run_status(summary, evidence_candidates) do
+  defp run_status(summary, _evidence_candidates) do
     cond do
-      pending_candidate_for_missing_check?(summary, evidence_candidates) ->
+      summary.child_counts.pending_evidence_candidates > 0 and
+          summary.child_counts.missing_evidence > 0 ->
         "awaiting_evidence_acceptance"
 
-      summary.observations != [] and summary.missing_evidence != [] ->
+      summary.child_counts.observations > 0 and summary.child_counts.missing_evidence > 0 ->
         "awaiting_evidence"
 
-      summary.observations == [] ->
+      summary.child_counts.observations == 0 ->
         "awaiting_execution"
 
       true ->
@@ -593,12 +665,6 @@ defmodule OfficeGraph.Projections.RunState do
 
   defp pending_required_checks(summary) do
     Enum.filter(summary.required_checks, &(&1.state == "pending"))
-  end
-
-  defp pending_candidate_for_missing_check?(summary, evidence_candidates) do
-    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
-
-    Enum.any?(evidence_candidates, &acceptable_pending_candidate?(&1, missing_check_ids))
   end
 
   defp run_target_ids(summary) do

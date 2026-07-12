@@ -117,12 +117,20 @@ function RunStatePanels({
 }
 
 function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number; onRefresh: () => void; runId: string }) {
-  const runState = useOperatorRunState(runId, fetchKey);
+  const [activityAfter, setActivityAfter] = useState<string | null>(null);
+  const runState = useOperatorRunState(runId, fetchKey, activityAfter);
   const verification = verificationOutcomeFromRunState(runState);
 
   return (
     <>
-      <RunPanel runId={runId} runState={runState} state="loaded" />
+      <RunPanel
+        onLoadMoreActivity={() =>
+          setActivityAfter(runState.activity?.pageInfo.endCursor ?? null)
+        }
+        runId={runId}
+        runState={runState}
+        state="loaded"
+      />
       <RunCommandForm onRefresh={onRefresh} runState={runState} />
       <VerificationPanel state="loaded" verification={verification} />
       <EvidenceCommandForm onRefresh={onRefresh} runState={runState} />

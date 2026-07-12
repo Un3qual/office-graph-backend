@@ -1,5 +1,6 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
+import { Button } from "../../../../src/ui/Button";
 import {
   commandAffordanceListText,
   formatLabel,
@@ -11,9 +12,10 @@ type Props = {
   runId: string | null;
   runState: OperatorRunState | null;
   state: "empty" | "error" | "loaded" | "loading";
+  onLoadMoreActivity?: () => void;
 };
 
-export function RunPanel({ runId, runState, state }: Props) {
+export function RunPanel({ onLoadMoreActivity, runId, runState, state }: Props) {
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
@@ -67,6 +69,16 @@ export function RunPanel({ runId, runState, state }: Props) {
               ]
             ]}
           />
+          <ul aria-label="Run activity detail">
+            {(runState.activity?.edges ?? []).flatMap(edge => edge?.node ? [
+              <li key={`${edge.node.kind}:${edge.node.stableId}`}>
+                {edge.node.title} · {formatLabel(edge.node.status)}
+              </li>
+            ] : [])}
+          </ul>
+          {runState.activity?.pageInfo.hasNextPage && onLoadMoreActivity ? (
+            <Button onPress={onLoadMoreActivity}>Load more run activity</Button>
+          ) : null}
         </>
       ) : null}
     </Panel>

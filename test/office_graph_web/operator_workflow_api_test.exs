@@ -215,6 +215,46 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert item["auditTrace"]["resourceCount"] == 4
     assert item["revisionTrace"]["resourceCount"] == 4
+
+    first_related =
+      graphql(
+        conn,
+        """
+        query Related($id: ID!, $first: Int!, $after: String) {
+          operatorRelationshipDetails(id: $id, first: $first, after: $after) {
+            edges { cursor node { kind stableId title relationshipType } }
+            pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+          }
+        }
+        """,
+        %{id: intake.normalized_event.id, first: 2},
+        "operatorRelationshipDetails"
+      )
+
+    assert length(first_related["edges"]) == 2
+    assert first_related["pageInfo"]["hasNextPage"] == true
+
+    second_related =
+      graphql(
+        conn,
+        """
+        query RelatedPage($id: ID!, $first: Int!, $after: String) {
+          operatorRelationshipDetails(id: $id, first: $first, after: $after) {
+            edges { cursor node { kind stableId title relationshipType } }
+            pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+          }
+        }
+        """,
+        %{
+          id: intake.normalized_event.id,
+          first: 2,
+          after: first_related["pageInfo"]["endCursor"]
+        },
+        "operatorRelationshipDetails"
+      )
+
+    assert length(second_related["edges"]) == 2
+    assert second_related["pageInfo"]["hasPreviousPage"] == true
   end
 
   test "GraphQL exposes Relay node ids and connection pagination for operator workflow items",
@@ -309,14 +349,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     {:ok, first} =
       submit_manual_intake(bootstrap.session, "safe-summary-first",
-        source_identity: "manual:shared-source",
-        body: "Investigate failed invoice export. SECRET_TOKEN=must-not-leak"
+        source_identity: "SECRET_SOURCE=must-not-leak",
+        body: "SECRET_TOKEN=must-not-leak. Investigate failed invoice export."
       )
 
     {:ok, second} =
       submit_manual_intake(bootstrap.session, "safe-summary-second",
-        source_identity: "manual:shared-source",
-        body: "Review delayed payroll import. PRIVATE_ARCHIVE=must-not-leak"
+        source_identity: "PRIVATE_SOURCE=must-not-leak",
+        body: "PRIVATE_ARCHIVE=must-not-leak. Review delayed payroll import."
       )
 
     page = graphql(conn, @relay_inbox_query, %{first: 10}, "operatorWorkflowItems")
@@ -325,8 +365,12 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     first_row = Enum.find(rows, &(&1["normalizedEventId"] == first.normalized_event.id))
     second_row = Enum.find(rows, &(&1["normalizedEventId"] == second.normalized_event.id))
 
-    assert first_row["title"] == "Investigate failed invoice export"
-    assert second_row["title"] == "Review delayed payroll import"
+    assert first_row["title"] ==
+             "Manual intake proposal #{String.slice(first.normalized_event.id, 0, 8)}"
+
+    assert second_row["title"] ==
+             "Manual intake proposal #{String.slice(second.normalized_event.id, 0, 8)}"
+
     assert first_row["sourceSummary"] != second_row["sourceSummary"]
 
     assert Enum.map(first_row["proposedActionPreviews"], & &1["action"]) == [
@@ -336,9 +380,17 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "create_verification_check"
            ]
 
-    encoded = Jason.encode!(rows)
+    encoded =
+      rows
+      |> Enum.map(&Map.take(&1, ["title", "sourceSummary", "proposedActionPreviews"]))
+      |> Jason.encode!()
+
     refute encoded =~ "SECRET_TOKEN"
     refute encoded =~ "PRIVATE_ARCHIVE"
+    refute encoded =~ "SECRET_SOURCE"
+    refute encoded =~ "PRIVATE_SOURCE"
+    refute encoded =~ "Investigate failed invoice export"
+    refute encoded =~ "Review delayed payroll import"
     refute encoded =~ first.raw_archive.id
     refute encoded =~ second.raw_archive.id
   end
@@ -613,6 +665,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               observation {
                 key label runId verificationCheckId sourceGraphItemId
                 observationSourceKind observationSourceIdentity freshnessState trustBasis
+                defaultOutcomeKey
+                outcomes { key label observedStatus normalizedStatus }
               }
               evidenceCandidate {
                 key label workRunId verificationCheckId executionObservationId
@@ -644,13 +698,18 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert first_activity["pageInfo"]["hasNextPage"] == true
     assert first_activity["pageInfo"]["hasPreviousPage"] == false
 
+    {:ok, inserted_after_cursor} =
+      record_observation(bootstrap.session, run_result.run, second_check,
+        key: "graphql-options-after-cursor"
+      )
+
     second_activity =
       graphql(
         conn,
         """
         query RunActivity($id: ID!, $after: String) {
           operatorRunState(id: $id) {
-            activity(first: 2, after: $after) {
+            activity(first: 10, after: $after) {
               pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
               edges { node { kind stableId title status } }
             }
@@ -661,7 +720,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         "operatorRunState"
       )["activity"]
 
-    assert length(second_activity["edges"]) == 2
+    second_activity_ids = Enum.map(second_activity["edges"], &get_in(&1, ["node", "stableId"]))
+    assert observation_result.observation.id in second_activity_ids
+    assert candidate.id in second_activity_ids
+    assert inserted_after_cursor.observation.id in second_activity_ids
     assert second_activity["pageInfo"]["hasPreviousPage"] == true
 
     options = options["commandOptions"]
@@ -673,6 +735,22 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert observation_option["observationSourceIdentity"] == "operator-console"
     assert observation_option["freshnessState"] == "fresh"
     assert observation_option["trustBasis"] == "owner_attested"
+    assert observation_option["defaultOutcomeKey"] == "succeeded"
+
+    assert observation_option["outcomes"] == [
+             %{
+               "key" => "succeeded",
+               "label" => "Succeeded",
+               "observedStatus" => "succeeded",
+               "normalizedStatus" => "succeeded"
+             },
+             %{
+               "key" => "failed",
+               "label" => "Failed",
+               "observedStatus" => "failed",
+               "normalizedStatus" => "failed"
+             }
+           ]
 
     assert [candidate_option] = options["evidenceCandidate"]
     assert candidate_option["verificationCheckId"] == first_check.id
@@ -686,6 +764,39 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert candidate_id == candidate.id
     assert accept_option["acceptancePolicyBasis"] == "owner_acceptance"
     assert Enum.all?(options["waiver"], &(&1["policyBasis"] == "owner_exception"))
+  end
+
+  test "run state rejects trim-blank and redaction sentinel command options", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    OfficeGraph.Repo.query!(
+      "UPDATE verification_checks SET title = '  [REDACTED]  ' WHERE id = $1",
+      [Ecto.UUID.dump!(verification_check.id)]
+    )
+
+    state =
+      graphql(
+        conn,
+        """
+        query RedactedOptions($id: ID!) {
+          operatorRunState(id: $id) {
+            commandOptions {
+              observation { key label sourceGraphItemId defaultOutcomeKey }
+              evidenceCandidate { key label sourceIdentity }
+              evidenceAcceptance { key label evidenceCandidateId }
+              waiver { key label runRequiredCheckId policyBasis }
+            }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunState"
+      )
+
+    assert state["commandOptions"]["observation"] == []
+    assert state["commandOptions"]["waiver"] == []
   end
 
   test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do

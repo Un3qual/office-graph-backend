@@ -88,7 +88,11 @@ describe("operator route", () => {
       const runCall = network.mock.calls.find(
         ([request]) => request.name === "OperatorRunStateQuery"
       );
-      expect(runCall?.[1]).toEqual({ id: "run_linked" });
+      expect(runCall?.[1]).toEqual({
+        id: "run_linked",
+        activityFirst: 5,
+        activityAfter: null
+      });
     });
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
@@ -104,6 +108,76 @@ describe("operator route", () => {
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
       "No packet readiness selected"
     );
+  });
+
+  it("loads the next stable run activity page from the product fragment", async () => {
+    const firstState = operatorRunState({
+      activity: {
+        edges: [
+          {
+            cursor: "activity_cursor_1",
+            node: {
+              kind: "required_check",
+              stableId: "required_1",
+              title: "Initial required check",
+              status: "open"
+            }
+          }
+        ],
+        pageInfo: {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: "activity_cursor_1",
+          endCursor: "activity_cursor_1"
+        }
+      }
+    });
+    const secondState = operatorRunState({
+      activity: {
+        edges: [
+          {
+            cursor: "activity_cursor_2",
+            node: {
+              kind: "observation",
+              stableId: "observation_2",
+              title: "Later observation",
+              status: "succeeded"
+            }
+          }
+        ],
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: true,
+          startCursor: "activity_cursor_2",
+          endCursor: "activity_cursor_2"
+        }
+      }
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem()], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        return {
+          data: {
+            operatorRunState:
+              variables.activityAfter === "activity_cursor_1" ? secondState : firstState
+          }
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByText(/Initial required check/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more run activity" }));
+
+    expect(await screen.findByText(/Later observation/)).toBeInTheDocument();
+    expect(lastVariablesFor(network, "OperatorRunStateQuery")).toMatchObject({
+      activityAfter: "activity_cursor_1",
+      activityFirst: 5
+    });
   });
 
   it("validates locally derived packet readiness before exposing backend commands", async () => {
@@ -377,11 +451,11 @@ describe("operator route", () => {
       id: "operator_workflow_item_summary_1",
       normalizedEventId: "evt_summary_1",
       typedId: { type: "normalized_intake_event", id: "evt_summary_1" },
-      title: "Investigate invoice export",
-      sourceSummary: "manual:shared-source · Investigate invoice export",
+      title: "Manual intake proposal evt_summ",
+      sourceSummary: "2 proposed changes · ref evt_summ",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Investigate invoice export", status: "pending" },
-        { action: "create_task", title: "Investigate invoice export", status: "pending" }
+        { action: "create_signal", title: "Proposed signal", status: "pending" },
+        { action: "create_task", title: "Proposed task", status: "pending" }
       ],
       source: {
         identity: "manual:shared-source",
@@ -393,10 +467,10 @@ describe("operator route", () => {
       id: "operator_workflow_item_summary_2",
       normalizedEventId: "evt_summary_2",
       typedId: { type: "normalized_intake_event", id: "evt_summary_2" },
-      title: "Review payroll import",
-      sourceSummary: "manual:shared-source · Review payroll import",
+      title: "Manual intake proposal evt_summ",
+      sourceSummary: "1 proposed change · ref evt_summ",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Review payroll import", status: "pending" }
+        { action: "create_signal", title: "Proposed signal", status: "pending" }
       ],
       source: {
         identity: "manual:shared-source",
@@ -410,11 +484,77 @@ describe("operator route", () => {
       createOperatorNetwork({ workflowItems: [firstItem, secondItem] })
     );
 
-    expect(await screen.findByRole("button", { name: /Investigate invoice export/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Review payroll import/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "Create signal: Investigate invoice export"
+    expect(await screen.findByRole("button", { name: /2 proposed changes/i })).toHaveTextContent(
+      "2 proposed changes · ref evt_summ"
     );
+    expect(screen.getByRole("button", { name: /1 proposed change/i })).toHaveTextContent(
+      "1 proposed change · ref evt_summ"
+    );
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "Create signal: Proposed signal"
+    );
+    expect(document.body).not.toHaveTextContent("SECRET_TOKEN");
+  });
+
+  it("loads bounded relationship overflow detail", async () => {
+    const item = operatorWorkflowItem({
+      relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true }
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([item], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+      if (request.name === "OperatorRelationshipDetailsQuery") {
+        const secondPage = variables.after === "relationship_cursor_1";
+        return {
+          data: {
+            operatorRelationshipDetails: {
+              edges: [
+                {
+                  cursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1",
+                  node: secondPage
+                    ? {
+                        kind: "graph_relationship",
+                        stableId: "relationship_2",
+                        title: "Second relationship",
+                        status: null,
+                        relationshipType: "depends_on"
+                      }
+                    : {
+                        kind: "graph_link",
+                        stableId: "task:task_1",
+                        title: "First related task",
+                        status: "open",
+                        relationshipType: "task"
+                      }
+                }
+              ],
+              pageInfo: {
+                hasNextPage: !secondPage,
+                hasPreviousPage: secondPage,
+                startCursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1",
+                endCursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1"
+              }
+            }
+          }
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByText(/First related task/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more relationships" }));
+    expect(await screen.findByText(/Second relationship/)).toBeInTheDocument();
+    expect(lastVariablesFor(network, "OperatorRelationshipDetailsQuery")).toMatchObject({
+      id: "evt_1",
+      first: 5,
+      after: "relationship_cursor_1"
+    });
   });
 
   it("returns to the previous inbox page when the next page fails", async () => {
@@ -1468,7 +1608,16 @@ describe("operator route", () => {
             key: "required_2",
             label: "Second verification check",
             verificationCheckId: "check_2",
-            sourceGraphItemId: "graph_2"
+            sourceGraphItemId: "graph_2",
+            defaultOutcomeKey: "degraded",
+            outcomes: [
+              {
+                key: "degraded",
+                label: "Needs attention",
+                observedStatus: "failed",
+                normalizedStatus: "attention_required"
+              }
+            ]
           })
         ]
       },
@@ -1489,7 +1638,7 @@ describe("operator route", () => {
       target: { value: "required_2" }
     });
     fireEvent.change(screen.getByLabelText("Observation outcome"), {
-      target: { value: "failed" }
+      target: { value: "degraded" }
     });
     fireEvent.change(screen.getByLabelText("Observation rationale"), {
       target: { value: "The second check failed." }
@@ -1502,7 +1651,7 @@ describe("operator route", () => {
           verificationCheckId: "check_2",
           sourceGraphItemId: "graph_2",
           observedStatus: "failed",
-          normalizedStatus: "failed"
+          normalizedStatus: "attention_required"
         }
       }));
   });
@@ -1590,7 +1739,7 @@ describe("operator route", () => {
     const runState = operatorRunState({
       commandAffordances: [enabledCommandAffordance("record_execution_observation")],
       commandOptions: {
-        observation: [observationCommandOption({ sourceGraphItemId: "" })],
+        observation: [observationCommandOption({ sourceGraphItemId: "  [REDACTED]  " })],
         evidenceCandidate: [],
         evidenceAcceptance: [],
         waiver: []
@@ -1991,6 +2140,25 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
       missingEvidence: 1,
       hasMore: false
     },
+    activity: {
+      edges: [
+        {
+          cursor: "activity_cursor_1",
+          node: {
+            kind: "required_check",
+            stableId: "required_1",
+            title: "Run console verification",
+            status: "open"
+          }
+        }
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        hasPreviousPage: false,
+        startCursor: "activity_cursor_1",
+        endCursor: "activity_cursor_1"
+      }
+    },
     sourceWatermark: "run_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
     packetVersion: {
@@ -2116,6 +2284,21 @@ function observationCommandOption(overrides: Partial<ObservationCommandOptionPay
     observationSourceIdentity: "operator-console",
     freshnessState: "fresh",
     trustBasis: "owner_attested",
+    defaultOutcomeKey: "succeeded",
+    outcomes: [
+      {
+        key: "succeeded",
+        label: "Succeeded",
+        observedStatus: "succeeded",
+        normalizedStatus: "succeeded"
+      },
+      {
+        key: "failed",
+        label: "Failed",
+        observedStatus: "failed",
+        normalizedStatus: "failed"
+      }
+    ],
     ...overrides
   };
 }
@@ -2216,6 +2399,13 @@ type OperatorRunStatePayload = {
     missingEvidence: number;
     hasMore: boolean;
   };
+  activity: {
+    edges: Array<{
+      cursor: string;
+      node: { kind: string; stableId: string; title: string; status: string };
+    }>;
+    pageInfo: OperatorWorkflowPageInfoPayload;
+  };
   requiredChecks: Array<{
     id: string;
     graphItemId: string | null;
@@ -2245,6 +2435,13 @@ type ObservationCommandOptionPayload = {
   observationSourceIdentity: string;
   freshnessState: string;
   trustBasis: string;
+  defaultOutcomeKey: string;
+  outcomes: Array<{
+    key: string;
+    label: string;
+    observedStatus: string;
+    normalizedStatus: string;
+  }>;
 };
 
 type EvidenceCandidateCommandOptionPayload = {

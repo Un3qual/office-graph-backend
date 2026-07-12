@@ -56,6 +56,36 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
 
+    connection field :operator_relationship_details,
+                 node_type: :operator_relationship_detail,
+                 paginate: :forward do
+      arg(:id, non_null(:id))
+
+      resolve(fn args, resolution ->
+        with :ok <- validate_first(args),
+             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, :forward, limit} <- Connection.limit(args, 100),
+             {:ok, page} <-
+               Projections.operator_relationship_details_page(session_context, args.id,
+                 limit: limit,
+                 after_cursor: Map.get(args, :after)
+               ) do
+          {:ok,
+           %{
+             edges: page.edges,
+             page_info: %{
+               has_next_page: page.has_next_page?,
+               has_previous_page: page.has_previous_page?,
+               start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+               end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+             }
+           }}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :operator_packet_readiness, non_null(:operator_packet_readiness) do
       arg(:input, non_null(:operator_packet_readiness_input))
 

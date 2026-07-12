@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<90738891f763ff2c30d12c76ca621276>>
+ * @generated SignedSource<<4bd021d03e397cf4e49627f2cf85ba9c>>
  * @lightSyntaxTransform
  */
 
@@ -10,6 +10,23 @@
 import { ReaderInlineDataFragment } from 'relay-runtime';
 import { FragmentRefs } from "relay-runtime";
 export type OperatorRunStateFragment$data = {
+  readonly activity: {
+    readonly edges: ReadonlyArray<{
+      readonly cursor: string | null | undefined;
+      readonly node: {
+        readonly kind: string;
+        readonly stableId: string;
+        readonly status: string;
+        readonly title: string;
+      } | null | undefined;
+    } | null | undefined> | null | undefined;
+    readonly pageInfo: {
+      readonly endCursor: string | null | undefined;
+      readonly hasNextPage: boolean;
+      readonly hasPreviousPage: boolean;
+      readonly startCursor: string | null | undefined;
+    };
+  } | null | undefined;
   readonly allowedNextActions: ReadonlyArray<string>;
   readonly childSummary: {
     readonly evidenceCandidates: number;
@@ -58,11 +75,18 @@ export type OperatorRunStateFragment$data = {
       readonly workRunId: string;
     }>;
     readonly observation: ReadonlyArray<{
+      readonly defaultOutcomeKey: string;
       readonly freshnessState: string;
       readonly key: string;
       readonly label: string;
       readonly observationSourceIdentity: string;
       readonly observationSourceKind: string;
+      readonly outcomes: ReadonlyArray<{
+        readonly key: string;
+        readonly label: string;
+        readonly normalizedStatus: string;
+        readonly observedStatus: string;
+      }>;
       readonly runId: string;
       readonly sourceGraphItemId: string;
       readonly trustBasis: string;
@@ -159,6 +183,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "3867909db506f130b59f905535f6f553";
+(node as any).hash = "379ff9276b85ef001522f48eb7218dea";
 
 export default node;

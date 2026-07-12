@@ -101,6 +101,18 @@ export const OperatorWorkflowItemFragment = graphql`
   }
 `;
 
+export const OperatorRelationshipDetailsQuery = graphql`
+  query OperatorRelationshipDetailsQuery($id: ID!, $first: Int!, $after: String) {
+    operatorRelationshipDetails(id: $id, first: $first, after: $after) {
+      edges {
+        cursor
+        node { kind stableId title status relationshipType }
+      }
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+    }
+  }
+`;
+
 export const OperatorPacketReadinessFragment = graphql`
   fragment OperatorPacketReadinessFragment on OperatorPacketReadiness @inline {
     type
@@ -141,7 +153,12 @@ export const OperatorPacketReadinessQuery = graphql`
 `;
 
 export const OperatorRunStateFragment = graphql`
-  fragment OperatorRunStateFragment on OperatorRunState @inline {
+  fragment OperatorRunStateFragment on OperatorRunState
+  @inline
+  @argumentDefinitions(
+    activityFirst: { type: "Int!", defaultValue: 5 }
+    activityAfter: { type: "String" }
+  ) {
     type
     status
     allowedNextActions
@@ -170,6 +187,13 @@ export const OperatorRunStateFragment = graphql`
         observationSourceIdentity
         freshnessState
         trustBasis
+        defaultOutcomeKey
+        outcomes {
+          key
+          label
+          observedStatus
+          normalizedStatus
+        }
       }
       evidenceCandidate {
         key
@@ -208,6 +232,13 @@ export const OperatorRunStateFragment = graphql`
       verificationResults
       missingEvidence
       hasMore
+    }
+    activity(first: $activityFirst, after: $activityAfter) {
+      edges {
+        cursor
+        node { kind stableId title status }
+      }
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
     sourceWatermark
     packet {
@@ -280,9 +311,10 @@ export const OperatorRunStateFragment = graphql`
 `;
 
 export const OperatorRunStateQuery = graphql`
-  query OperatorRunStateQuery($id: ID!) {
+  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String) {
     operatorRunState(id: $id) {
       ...OperatorRunStateFragment
+        @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
     }
   }
 `;

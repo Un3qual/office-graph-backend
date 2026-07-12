@@ -778,6 +778,7 @@ type RootQueryType {
   health: String!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
+  operatorRelationshipDetails(after: String, first: Int!, id: ID!): OperatorRelationshipDetailConnection
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
   operatorPacketWorkspace(id: ID!): OperatorPacketWorkspace!
   operatorPacketCreateAffordance: OperatorCommandAffordance!
@@ -1233,6 +1234,21 @@ type OperatorWorkflowItemConnection {
   edges: [OperatorWorkflowItemEdge]
 }
 
+type OperatorRelationshipDetail {
+  kind: String!
+  stableId: ID!
+  title: String!
+  status: String
+  sourceGraphItemId: ID
+  targetGraphItemId: ID
+  relationshipType: String!
+}
+
+type OperatorRelationshipDetailConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRelationshipDetailEdge]
+}
+
 type OperatorRequiredCheck {
   id: ID!
   graphItemId: ID
@@ -1401,6 +1417,15 @@ type OperatorObservationCommandOption {
   observationSourceIdentity: String!
   freshnessState: String!
   trustBasis: String!
+  defaultOutcomeKey: String!
+  outcomes: [OperatorObservationOutcomeOption!]!
+}
+
+type OperatorObservationOutcomeOption {
+  key: String!
+  label: String!
+  observedStatus: String!
+  normalizedStatus: String!
 }
 
 type OperatorEvidenceCandidateCommandOption {
@@ -1502,6 +1527,11 @@ type OperatorRunActivityEdge {
 
 type OperatorPacketWorkspaceVersionEdge {
   node: OperatorPacketWorkspaceVersion
+  cursor: String
+}
+
+type OperatorRelationshipDetailEdge {
+  node: OperatorRelationshipDetail
   cursor: String
 }
 

@@ -24,11 +24,26 @@ defmodule OfficeGraph.Projections do
   defdelegate operator_inbox(session_context, opts), to: OperatorWorkflow
   defdelegate operator_workflow_items_page(session_context, opts), to: OperatorWorkflow
   defdelegate operator_workflow_item(session_context, normalized_event_id), to: OperatorWorkflow
+
+  defdelegate operator_relationship_details_page(session_context, normalized_event_id, opts),
+    to: OperatorWorkflow,
+    as: :relationship_details_page
+
   defdelegate manual_intake_affordance(session_context), to: OperatorWorkflow
   defdelegate packet_readiness(session_context, attrs), to: PacketReadiness
   defdelegate packet_workspace(session_context, packet_id), to: PacketWorkspace
+
+  defdelegate packet_version_history_page(session_context, packet_id, opts),
+    to: PacketWorkspace,
+    as: :version_history_page
+
   defdelegate packet_create_affordance(session_context), to: PacketWorkspace
   defdelegate operator_run_state(session_context, run_id), to: RunState
+
+  defdelegate operator_run_activity_page(session_context, run_id, opts),
+    to: RunState,
+    as: :activity_page
+
   defdelegate verification_outcome(session_context, run_id), to: RunState
 
   def graphql_node_type(value) do

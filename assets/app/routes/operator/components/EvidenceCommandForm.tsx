@@ -141,5 +141,11 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
 
 function completeOption(option: object, fields: string[]) {
   const values = option as Record<string, unknown>;
-  return fields.every((field) => typeof values[field] === "string" && values[field] !== "");
+  return fields.every((field) => usableProjectionValue(values[field]));
+}
+
+function usableProjectionValue(value: unknown) {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && !["[redacted]", "<redacted>", "redacted", "***"].includes(normalized);
 }

@@ -3,6 +3,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   use Absinthe.Relay.Schema.Notation, :modern
 
   alias Absinthe.Relay.Connection
+  alias OfficeGraph.Projections
+  alias OfficeGraphWeb.GraphQL.Common.Errors
+  alias OfficeGraphWeb.RequestSession
 
   object :operator_typed_id do
     field :type, non_null(:string)
@@ -105,6 +108,18 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   connection(node_type: :operator_workflow_item)
 
+  object :operator_relationship_detail do
+    field :kind, non_null(:string)
+    field :stable_id, non_null(:id)
+    field :title, non_null(:string)
+    field :status, :string
+    field :source_graph_item_id, :id
+    field :target_graph_item_id, :id
+    field :relationship_type, non_null(:string)
+  end
+
+  connection(node_type: :operator_relationship_detail)
+
   object :operator_required_check do
     field :id, non_null(:id)
     field :graph_item_id, :id
@@ -183,8 +198,27 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
         %{first: first}, _resolution when is_integer(first) and first < 0 ->
           {:error, "A field has an invalid value."}
 
-        args, %{source: workspace} ->
-          Connection.from_list(workspace.versions, args)
+        args, %{source: workspace} = resolution ->
+          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+               {:ok, :forward, limit} <- Connection.limit(args, 100),
+               {:ok, page} <-
+                 Projections.packet_version_history_page(session_context, workspace.packet.id,
+                   limit: limit,
+                   after_cursor: Map.get(args, :after)
+                 ) do
+            {:ok,
+             %{
+               edges: page.edges,
+               page_info: %{
+                 has_next_page: page.has_next_page?,
+                 has_previous_page: page.has_previous_page?,
+                 start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+                 end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+               }
+             }}
+          else
+            error -> Errors.to_absinthe(error)
+          end
       end)
     end
   end
@@ -289,6 +323,15 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :observation_source_identity, non_null(:string)
     field :freshness_state, non_null(:string)
     field :trust_basis, non_null(:string)
+    field :default_outcome_key, non_null(:string)
+    field :outcomes, non_null(list_of(non_null(:operator_observation_outcome_option)))
+  end
+
+  object :operator_observation_outcome_option do
+    field :key, non_null(:string)
+    field :label, non_null(:string)
+    field :observed_status, non_null(:string)
+    field :normalized_status, non_null(:string)
   end
 
   object :operator_evidence_candidate_command_option do
@@ -347,8 +390,27 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
         %{first: first}, _resolution when is_integer(first) and first < 0 ->
           {:error, "A field has an invalid value."}
 
-        args, %{source: run_state} ->
-          Connection.from_list(run_state.activity, args)
+        args, %{source: run_state} = resolution ->
+          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+               {:ok, :forward, limit} <- Connection.limit(args, 100),
+               {:ok, page} <-
+                 Projections.operator_run_activity_page(session_context, run_state.run.id,
+                   limit: limit,
+                   after_cursor: Map.get(args, :after)
+                 ) do
+            {:ok,
+             %{
+               edges: page.edges,
+               page_info: %{
+                 has_next_page: page.has_next_page?,
+                 has_previous_page: page.has_previous_page?,
+                 start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+                 end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+               }
+             }}
+          else
+            error -> Errors.to_absinthe(error)
+          end
       end)
     end
 

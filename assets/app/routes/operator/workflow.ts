@@ -96,10 +96,14 @@ export function useValidatedPacketReadiness(input: PacketReadinessInput, fetchKe
   return packetReadinessFromRelay(data);
 }
 
-export function useOperatorRunState(runId: string, fetchKey?: number) {
+export function useOperatorRunState(
+  runId: string,
+  fetchKey?: number,
+  activityAfter: string | null = null
+) {
   const data = useLazyLoadQuery<OperatorRunStateOperation>(
     OperatorRunStateQuery,
-    { id: runId },
+    { id: runId, activityFirst: 5, activityAfter },
     { fetchKey, fetchPolicy: "network-only" }
   );
 

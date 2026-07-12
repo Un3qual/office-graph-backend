@@ -214,6 +214,36 @@ defmodule OfficeGraph.Runs do
     end
   end
 
+  def get_projection_summary(session_context, run_id, limit)
+      when is_integer(limit) and limit > 0 do
+    with :ok <-
+           Authorization.authorize(session_context, :skeleton_read,
+             organization_id: session_context.organization_id
+           ),
+         {:ok, run} <- fetch_scoped(Run, session_context, run_id),
+         {:ok, packet} <- fetch_scoped(WorkPacket, session_context, run.work_packet_id),
+         {:ok, packet_version} <-
+           fetch_scoped(WorkPacketVersion, session_context, run.work_packet_version_id),
+         {:ok, required_checks} <- read_run_required_checks(run, limit),
+         {:ok, observations} <- read_observations(run, limit),
+         {:ok, evidence_items} <- read_evidence_items(run, limit),
+         {:ok, verification_results} <- read_verification_results(run, limit),
+         {:ok, child_counts} <- projection_child_counts(run) do
+      {:ok,
+       %{
+         packet: packet,
+         packet_version: packet_version,
+         run: run,
+         required_checks: required_checks,
+         observations: observations,
+         evidence_items: evidence_items,
+         verification_results: verification_results,
+         missing_evidence: missing_evidence(required_checks, verification_results),
+         child_counts: child_counts
+       }}
+    end
+  end
+
   defp create_observation(session_context, operation, run, attrs) do
     attrs = normalize_observation_attrs(attrs)
 
@@ -751,6 +781,17 @@ defmodule OfficeGraph.Runs do
     |> Ash.read(authorize?: false)
   end
 
+  defp read_run_required_checks(%Run{} = run, limit) do
+    RunRequiredCheck
+    |> Ash.Query.filter(
+      run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(authorize?: false)
+  end
+
   defp read_observations(%Run{} = run) do
     ExecutionObservation
     |> Ash.Query.filter(
@@ -758,6 +799,17 @@ defmodule OfficeGraph.Runs do
         workspace_id == ^run.workspace_id
     )
     |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_observations(%Run{} = run, limit) do
+    ExecutionObservation
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.Query.limit(limit)
     |> Ash.read(authorize?: false)
   end
 
@@ -771,6 +823,17 @@ defmodule OfficeGraph.Runs do
     |> Ash.read(authorize?: false)
   end
 
+  defp read_evidence_items(%Run{} = run, limit) do
+    EvidenceItem
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(authorize?: false)
+  end
+
   defp read_verification_results(%Run{} = run) do
     VerificationResult
     |> Ash.Query.filter(
@@ -779,6 +842,70 @@ defmodule OfficeGraph.Runs do
     )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(authorize?: false)
+  end
+
+  defp read_verification_results(%Run{} = run, limit) do
+    VerificationResult
+    |> Ash.Query.filter(
+      work_run_id == ^run.id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp projection_child_counts(%Run{} = run) do
+    sql = """
+    SELECT
+      (SELECT count(*) FROM run_required_checks WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3),
+      (SELECT count(*) FROM execution_observations WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3),
+      (SELECT count(*) FROM evidence_candidates WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3),
+      (SELECT count(*) FROM evidence_items WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3),
+      (SELECT count(*) FROM verification_results WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3),
+      (SELECT count(*) FROM run_required_checks WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3 AND state = 'pending'),
+      (SELECT count(*)
+       FROM evidence_candidates ec
+       WHERE ec.work_run_id = $1
+         AND ec.organization_id = $2
+         AND ec.workspace_id = $3
+         AND ec.candidate_state = 'candidate'
+         AND ec.freshness_state = 'fresh'
+         AND ec.trust_basis IN ('owner_attested', 'signed_provider_payload')
+         AND EXISTS (
+           SELECT 1 FROM run_required_checks rrc
+           WHERE rrc.run_id = $1
+             AND rrc.organization_id = $2
+             AND rrc.workspace_id = $3
+             AND rrc.state = 'pending'
+             AND rrc.verification_check_id = ec.verification_check_id
+         ))
+    """
+
+    params = [
+      Ecto.UUID.dump!(run.id),
+      Ecto.UUID.dump!(run.organization_id),
+      Ecto.UUID.dump!(run.workspace_id)
+    ]
+
+    with {:ok,
+          %{
+            rows: [
+              [required, observations, candidates, items, results, missing, pending_candidates]
+            ]
+          }} <-
+           Repo.query(sql, params) do
+      {:ok,
+       %{
+         required_checks: required,
+         observations: observations,
+         evidence_candidates: candidates,
+         evidence_items: items,
+         verification_results: results,
+         missing_evidence: missing,
+         pending_evidence_candidates: pending_candidates
+       }}
+    end
   end
 
   defp missing_evidence(required_checks, verification_results) do
