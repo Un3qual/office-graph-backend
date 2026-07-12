@@ -2,12 +2,27 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
-  alias OfficeGraph.DurableDelivery.DispatchEventWorker
+  alias OfficeGraph.DurableDelivery.{DispatchEventWorker, DomainEvent}
+
+  defmodule RejectingBroadcaster do
+    def broadcast(invalidation) do
+      {:ok, event} = Ash.get(DomainEvent, invalidation.event_id)
+      send(self(), {:delivery_state_during_broadcast, event.delivery_state})
+      {:error, :unavailable}
+    end
+  end
 
   test "authorized same-scope subscribers receive one bounded invalidation" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
     subject_id = Ecto.UUID.generate()
+
+    assert :ok =
+             DurableDelivery.subscribe(
+               bootstrap.session,
+               bootstrap.organization.id,
+               bootstrap.workspace.id
+             )
 
     assert :ok =
              DurableDelivery.subscribe(
@@ -58,9 +73,68 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
              )
   end
 
+  test "subscription stops forwarding when its session is revoked" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, operation} =
+             Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:revoked-invalidation",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    assert :ok =
+             DurableDelivery.subscribe(
+               bootstrap.session,
+               bootstrap.organization.id,
+               bootstrap.workspace.id
+             )
+
+    revoke_session!(bootstrap.session.session_id)
+
+    [job] = jobs_for_event(event.id)
+    assert :ok = DispatchEventWorker.perform(job)
+
+    refute_receive {:projection_invalidated, _invalidation}
+  end
+
+  test "dispatch keeps an event pending until its invalidation is accepted" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:rejected-invalidation",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    result = DurableDelivery.dispatch(event.id, RejectingBroadcaster)
+
+    assert {:error, {:retryable, :projection_broadcast_failed}} = result
+    assert_received {:delivery_state_during_broadcast, "pending"}
+
+    assert {:ok, %{delivery_state: "pending", dispatched_at: nil}} =
+             Ash.get(DomainEvent, event.id)
+  end
+
   defp jobs_for_event(event_id) do
     Oban.Job
     |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
     |> Repo.all()
+  end
+
+  defp revoke_session!(session_id) do
+    now = DateTime.utc_now()
+
+    Repo.query!(
+      "UPDATE sessions SET revoked_at = $1, updated_at = $1 WHERE id = $2",
+      [now, Ecto.UUID.dump!(session_id)]
+    )
   end
 end

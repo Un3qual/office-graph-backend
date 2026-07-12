@@ -32,7 +32,7 @@ config :office_graph,
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],
-  plugins: [Oban.Plugins.Pruner]
+  plugins: [{Oban.Plugins.Pruner, max_age: 30 * 24 * 60 * 60}]
 
 # Configure the endpoint
 config :office_graph, OfficeGraphWeb.Endpoint,

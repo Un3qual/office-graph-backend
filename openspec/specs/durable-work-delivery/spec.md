@@ -55,7 +55,14 @@ without exposing internal exceptions as product data.
 - **WHEN** a worker returns a classified terminal failure or exhausts its
   bounded attempt budget
 - **THEN** the job MUST stop retrying and a scoped operator read MUST expose its
-  stable state, safe reason, attempts, queue, worker, and timestamps
+  stable state, safe reason, attempts, queue, worker, and timestamps throughout
+  the configured operator-history retention window
+
+#### Scenario: Terminal history is pruned
+
+- **WHEN** terminal jobs age beyond the configured operator-history retention
+  window
+- **THEN** Office Graph MAY prune them to keep infrastructure storage bounded
 
 ### Requirement: Durable Work Emits Operational Telemetry
 
@@ -67,4 +74,3 @@ including raw arguments or tenant-sensitive data.
 - **WHEN** an Oban job succeeds, fails, retries, is cancelled, or is discarded
 - **THEN** telemetry MUST expose worker, queue, state, attempt, and duration
   metadata sufficient for operational metrics
-

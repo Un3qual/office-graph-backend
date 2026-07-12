@@ -14,6 +14,19 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     assert config[:plugins] == false
   end
 
+  test "production retains terminal jobs for the operator history window" do
+    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    oban_config = production_config[:office_graph][Oban]
+
+    assert {Oban.Plugins.Pruner, pruner_options} =
+             Enum.find(oban_config[:plugins], fn
+               {plugin, _options} -> plugin == Oban.Plugins.Pruner
+               plugin -> plugin == Oban.Plugins.Pruner
+             end)
+
+    assert pruner_options[:max_age] == 30 * 24 * 60 * 60
+  end
+
   test "durable runtime tables preserve typed event and job state" do
     assert table_exists?("oban_jobs")
     assert table_exists?("domain_events")

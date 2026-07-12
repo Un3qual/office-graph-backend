@@ -23,7 +23,6 @@ defmodule OfficeGraph.DurableDelivery do
 
   alias OfficeGraph.Repo
 
-  import Ash.Expr
   import Ecto.Query
 
   require Ash.Query
@@ -36,6 +35,15 @@ defmodule OfficeGraph.DurableDelivery do
 
   def subscribe(session_context, organization_id, workspace_id) do
     Subscriptions.subscribe(session_context, organization_id, workspace_id)
+  end
+
+  @doc false
+  def subscription_children do
+    [
+      {Registry, keys: :unique, name: OfficeGraph.DurableDelivery.SubscriptionRegistry},
+      {DynamicSupervisor,
+       strategy: :one_for_one, name: OfficeGraph.DurableDelivery.SubscriptionSupervisor}
+    ]
   end
 
   def list_terminal_jobs(session_context, opts \\ []) do
@@ -84,13 +92,25 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  def dispatch(event_id) when is_binary(event_id) do
-    case Ash.get(DomainEvent, event_id, not_found_error?: false) do
+  def dispatch(event_id), do: dispatch(event_id, Subscriptions)
+
+  @doc false
+  def dispatch(event_id, broadcaster) when is_binary(event_id) and is_atom(broadcaster) do
+    case transaction(fn -> dispatch_locked(event_id, broadcaster) end) do
+      {:ok, result} -> result
+      {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
+    end
+  end
+
+  def dispatch(_event_id, _broadcaster), do: {:error, {:terminal, :invalid_event_id}}
+
+  defp dispatch_locked(event_id, broadcaster) do
+    case read_event_for_dispatch(event_id) do
       {:ok, nil} ->
         {:error, {:terminal, :event_not_found}}
 
       {:ok, %{delivery_state: "pending"} = event} ->
-        dispatch_pending(event)
+        dispatch_pending(event, broadcaster)
 
       {:ok, %{delivery_state: "dispatched"}} ->
         :ok
@@ -102,8 +122,6 @@ defmodule OfficeGraph.DurableDelivery do
         {:error, {:retryable, :event_read_failed}}
     end
   end
-
-  def dispatch(_event_id), do: {:error, {:terminal, :invalid_event_id}}
 
   def mark_failed(event_id, failure_code) do
     failure_code =
@@ -209,7 +227,24 @@ defmodule OfficeGraph.DurableDelivery do
     |> Map.new(&{&1.id, &1.failure_code})
   end
 
-  defp dispatch_pending(event) do
+  defp read_event_for_dispatch(event_id) do
+    DomainEvent
+    |> Ash.Query.filter(id == ^event_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one()
+  end
+
+  defp dispatch_pending(event, broadcaster) do
+    invalidation = ProjectionInvalidation.from_event(event)
+
+    case broadcaster.broadcast(invalidation) do
+      :ok -> mark_dispatched(event)
+      {:error, _error} -> {:error, {:retryable, :projection_broadcast_failed}}
+      _other -> {:error, {:retryable, :projection_broadcast_failed}}
+    end
+  end
+
+  defp mark_dispatched(event) do
     event
     |> Ash.Changeset.for_update(:mark_dispatched, %{
       delivery_state: "dispatched",
@@ -217,16 +252,10 @@ defmodule OfficeGraph.DurableDelivery do
       failure_code: nil,
       failed_at: nil
     })
-    |> Ash.Changeset.filter(expr(delivery_state == "pending"))
-    |> Ash.update()
+    |> Ash.update(return_notifications?: true)
     |> case do
-      {:ok, dispatched} ->
-        dispatched
-        |> ProjectionInvalidation.from_event()
-        |> Subscriptions.broadcast()
-
-      {:error, _error} ->
-        dispatch(event.id)
+      {:ok, _dispatched, _notifications} -> :ok
+      {:error, _error} -> {:error, {:retryable, :event_update_failed}}
     end
   end
 
