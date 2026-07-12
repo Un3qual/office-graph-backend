@@ -263,3 +263,56 @@ git diff --check
 ```
 
 Results: backend projection/API 45 passed (seed 493226); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.
+
+## Fourth Independent Review Remediation
+
+Status: DONE
+
+### Batched relationship projection at scale
+
+- Removed the per-row `relationship_counts!` call. One requested-events CTE now computes an exact count map for every event on the inbox page, including zero-detail rows.
+- A 50-row telemetry regression observed 50 raw relationship CTE calls before the fix and exactly one after it.
+- Base run summaries now use `row_number()` partitioned by packet-version ID and retain at most 21 runs per linked version. A regression creates an older linked row followed by 21 newer runs and proves the older row still retains its run link.
+
+### One canonical packet-link contract
+
+- Both base and detail paths require source intersection and bidirectional equality between the packet version's complete required-check set and the applied event's verification-check set. Source-only and superset-check matches are rejected.
+- The batched base reader loads all required checks for candidate versions in one query before applying exact-set equality, so hidden extra checks cannot be mistaken for an exact match.
+- Relationship detail, aggregate counts, and base links agree in a mixed same-workspace packet fixture: only the canonical packet/run contributes to 6 links and 3 relationships.
+- `graph_relationships` has no tenant columns. The canonical CTE documents and enforces the available storage boundary by joining both endpoint `graph_items` under the requested organization/workspace. A deliberately inserted cross-tenant endpoint relation is excluded.
+- Relationship window totals are computed before cursor filtering, so page-two totals remain identical to page one.
+
+### Exact option totals and truthful affordance metadata
+
+- Every option query projects `count(*) over ()` before its `LIMIT`; the run-state summary reads one eligible typed row plus its exact filtered total instead of reporting a capped 21.
+- The same first eligible typed option now supplies command defaults and targets. Compact first-20 summaries no longer provide potentially unrelated verification-check, observation, candidate, or waiver identifiers.
+- A 25-check regression proves an exact summary of 25, page sizes of 20 and 5, terminal `hasNextPage: false`, and a sole valid final-row affordance whose default and targets match the paged option.
+
+### RED and GREEN evidence
+
+Initial focused RED:
+
+- 50-row inbox: 50 relationship CTE calls instead of 1.
+- Per-version run bound: the older workflow row lost its run link after 21 newer runs.
+- Mixed packet predicate: base/detail counted 10 links instead of the canonical 6.
+- Exact option summary: 25 eligible choices were reported as 21.
+
+Focused GREEN: all four regressions passed. Strengthening the mixed-packet assertion then exposed that the base reader loaded only applied check links and therefore still admitted a superset packet; loading every check for candidate versions in the same bounded query resolved that discrepancy. The canonical predicate and existing query-budget regressions then passed 2/2.
+
+### Final fourth-review gate
+
+```sh
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test test/office_graph_web/operator_workflow_api_test.exs \
+  test/office_graph/projections/operator_workflow_test.exs
+pnpm --dir assets run relay:check
+pnpm --dir assets run typecheck
+pnpm --dir assets exec vitest run app/routes/operator/route.test.tsx \
+  app/routes/packets/route.test.tsx --reporter=dot
+pnpm --dir assets run build
+openspec validate harden-project-quality --strict
+git diff --check
+```
+
+Results: backend projection/API 47 passed (seed 205015); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.

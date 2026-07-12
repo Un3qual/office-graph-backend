@@ -15,6 +15,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   alias OfficeGraph.SessionCaseHelpers
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkPackets
 
   test "operator inbox exposes pending manual intake as actionable triage" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -174,7 +175,10 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert length(relationship_page.edges) == 2
 
     detail_queries =
-      Enum.filter(relationship_queries, &String.contains?(&1.query || "", "WITH applied_links"))
+      Enum.filter(
+        relationship_queries,
+        &String.contains?(&1.query || "", "graph_relationships gr")
+      )
 
     assert length(detail_queries) == 1
     assert String.contains?(hd(detail_queries).query, "graph_relationships")
@@ -253,6 +257,27 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert QueryCounter.source_count(queries, "work_packet_version_required_checks") <= 1
     assert QueryCounter.source_count(queries, "work_packet_version_sources") <= 1
     assert QueryCounter.source_count(queries, "runs") <= 1
+  end
+
+  @tag timeout: 120_000
+  test "operator inbox batches exact relationship counts across fifty rows" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    for index <- 1..50 do
+      {:ok, _intake} = submit_manual_intake(bootstrap.session, "batched-counts-#{index}")
+    end
+
+    {{:ok, inbox}, queries} =
+      QueryCounter.count(fn -> Projections.operator_inbox(bootstrap.session, limit: 50) end)
+
+    assert length(inbox.rows) == 50
+
+    relationship_projection_queries =
+      Enum.filter(queries, fn query ->
+        String.contains?(query.query || "", "graph_relationships gr")
+      end)
+
+    assert length(relationship_projection_queries) == 1
   end
 
   test "operator run state query count stays bounded across child collections" do
@@ -396,8 +421,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
   @tag timeout: 120_000
   test "relationship detail pages more than twenty scoped workflow links without loading history" do
-    key = "paged-workflow-links"
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, older_intake} = submit_manual_intake(bootstrap.session, "older-bounded-workflow-row")
+    {:ok, older_applied} = apply_changes(bootstrap.session, older_intake.proposed_changes)
+    {:ok, older_run} = create_ready_run(bootstrap.session, older_applied.verification_check)
+
+    key = "paged-workflow-links"
     {:ok, intake} = submit_manual_intake(bootstrap.session, key)
     {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
     {:ok, first_run} = create_ready_run(bootstrap.session, applied.verification_check)
@@ -432,6 +461,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     {:ok, other_check} = create_required_verification_check(other_scope.session)
     {:ok, other_run} = create_ready_run(other_scope.session, other_check)
+    cross_tenant_relationship_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO graph_relationships
+        (id, source_item_id, target_item_id, relationship_type, inserted_at, updated_at)
+      VALUES ($1, $2, $3, 'cross_tenant_probe', now(), now())
+      """,
+      [
+        Ecto.UUID.dump!(cross_tenant_relationship_id),
+        Ecto.UUID.dump!(applied.signal.graph_item_id),
+        Ecto.UUID.dump!(other_check.graph_item_id)
+      ]
+    )
 
     assert {:ok, detail} =
              Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
@@ -440,6 +483,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert detail.relationship_summary.graph_relationships == 3
     assert detail.relationship_summary.has_more
     assert length(detail.graph_links) == 20
+
+    assert {:ok, inbox} = Projections.operator_inbox(bootstrap.session)
+
+    assert older_row =
+             Enum.find(inbox.rows, &(&1.normalized_event_id == older_intake.normalized_event.id))
+
+    assert Enum.any?(
+             older_row.graph_links,
+             &(&1.type == "work_run" and &1.id == older_run.run.id)
+           )
 
     assert {:ok, first_page} =
              Projections.operator_relationship_details_page(
@@ -451,6 +504,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert first_page.has_next_page?
     assert length(first_page.edges) == 20
+    assert first_page.graph_link_count == 26
+    assert first_page.graph_relationship_count == 3
 
     assert {:ok, second_page} =
              Projections.operator_relationship_details_page(
@@ -461,8 +516,87 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              )
 
     all_ids = Enum.map(first_page.edges ++ second_page.edges, & &1.node.stable_id)
+    assert second_page.graph_link_count == 26
+    assert second_page.graph_relationship_count == 3
     assert Enum.all?(runs, &("work_run:#{&1.id}" in all_ids))
     refute "work_run:#{other_run.run.id}" in all_ids
+    refute cross_tenant_relationship_id in all_ids
+  end
+
+  test "relationship base and detail use the canonical packet link predicate" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "canonical-packet-links")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+    {:ok, canonical} = create_ready_run(bootstrap.session, applied.verification_check)
+    {:ok, other_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, wrong_set_packet} =
+      create_packet_with_sources_and_checks(
+        bootstrap.session,
+        "wrong-check-set",
+        [applied.verification_check.graph_item_id, other_check.graph_item_id],
+        [other_check.id]
+      )
+
+    {:ok, wrong_set_run} =
+      start_run_for_packet_version(bootstrap.session, wrong_set_packet.version, "wrong-check-set")
+
+    {:ok, superset_packet} =
+      create_packet_with_sources_and_checks(
+        bootstrap.session,
+        "superset-check-set",
+        [applied.verification_check.graph_item_id, other_check.graph_item_id],
+        [applied.verification_check.id, other_check.id]
+      )
+
+    {:ok, superset_run} =
+      start_run_for_packet_version(
+        bootstrap.session,
+        superset_packet.version,
+        "superset-check-set"
+      )
+
+    assert {:ok, base} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert base.relationship_summary == %{
+             graph_links: 6,
+             graph_relationships: 3,
+             has_more: false
+           }
+
+    base_link_ids = Enum.map(base.graph_links, &"#{&1.type}:#{&1.id}")
+    assert "work_packet:#{canonical.packet_version.work_packet_id}" in base_link_ids
+    assert "work_run:#{canonical.run.id}" in base_link_ids
+    refute "work_packet:#{wrong_set_packet.version.work_packet_id}" in base_link_ids
+    refute "work_run:#{wrong_set_run.run.id}" in base_link_ids
+    refute "work_packet:#{superset_packet.version.work_packet_id}" in base_link_ids
+    refute "work_run:#{superset_run.run.id}" in base_link_ids
+
+    assert {:ok, page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    ids = Enum.map(page.edges, & &1.node.stable_id)
+    assert "work_packet:#{canonical.packet_version.work_packet_id}" in ids
+    assert "work_run:#{canonical.run.id}" in ids
+    refute "work_packet:#{wrong_set_packet.version.work_packet_id}" in ids
+    refute "work_run:#{wrong_set_run.run.id}" in ids
+    refute "work_packet:#{superset_packet.version.work_packet_id}" in ids
+    refute "work_run:#{superset_run.run.id}" in ids
+
+    detail_link_ids =
+      page.edges
+      |> Enum.filter(&(&1.node.kind == "graph_link"))
+      |> Enum.map(& &1.node.stable_id)
+
+    assert Enum.sort(detail_link_ids) == Enum.sort(base_link_ids)
+    assert page.graph_link_count == base.relationship_summary.graph_links
+    assert page.graph_relationship_count == base.relationship_summary.graph_relationships
   end
 
   test "directly satisfied checks complete the operator workflow item" do
@@ -1562,6 +1696,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
       source_surface: "test",
       reason: "Retry ready packet.",
       authority_posture: "human_supervised"
+    })
+  end
+
+  defp create_packet_with_sources_and_checks(session, key, source_ids, check_ids) do
+    {:ok, operation} =
+      Operations.start_operation(session, :work_packet_create,
+        idempotency_key: "work-packet-operation:#{key}"
+      )
+
+    WorkPackets.create_packet(session, operation, %{
+      title: "Packet #{key}",
+      objective: "Exercise canonical packet linking.",
+      context_summary: "Packet-link predicate coverage.",
+      requirements: "Match sources and exact verification checks.",
+      success_criteria: "Only canonical packets are linked.",
+      autonomy_posture: "human_supervised",
+      source_graph_item_ids: source_ids,
+      verification_check_ids: check_ids
     })
   end
 

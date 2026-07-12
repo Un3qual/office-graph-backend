@@ -872,7 +872,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
     checks =
-      Enum.map(1..21, fn _index ->
+      Enum.map(1..25, fn _index ->
         {:ok, check} = create_required_verification_check(bootstrap.session)
         check
       end)
@@ -884,7 +884,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         %{
           title: "Paged command choices",
           objective: "Reach every valid command choice.",
-          context_summary: "Twenty-one checks require bounded choice paging.",
+          context_summary: "Twenty-five checks require bounded choice paging.",
           requirements: "No valid choice may be hidden.",
           success_criteria: "The final choice is reachable.",
           autonomy_posture: "human_supervised"
@@ -902,6 +902,11 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       state: operatorRunState(id: $id) {
         commandOptionsOverflow
         commandOptionSummary { observation evidenceCandidate evidenceAcceptance waiver }
+        commandAffordances {
+          identity
+          inputDefaults { field value values }
+          targetIds { type id }
+        }
       }
       optionPage: operatorRunCommandOptionPage(
         id: $id, kind: "observation", first: $first, after: $after
@@ -923,7 +928,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert first_response["errors"] in [nil, []]
     first = first_response["data"]
     assert first["state"]["commandOptionsOverflow"] == true
-    assert first["state"]["commandOptionSummary"]["observation"] == 21
+    assert first["state"]["commandOptionSummary"]["observation"] == 25
     assert length(first["optionPage"]["edges"]) == 20
     assert first["optionPage"]["pageInfo"]["hasNextPage"] == true
 
@@ -943,14 +948,16 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         response["data"]
       end)
 
-    assert [%{"node" => %{"observation" => %{"verificationCheckId" => last_check_id}}}] =
-             second["optionPage"]["edges"]
+    assert length(second["optionPage"]["edges"]) == 5
+    assert second["optionPage"]["pageInfo"]["hasNextPage"] == false
 
-    assert last_check_id == List.last(checks).id
+    assert List.last(second["optionPage"]["edges"])["node"]["observation"]["verificationCheckId"] ==
+             List.last(checks).id
+
     assert second["optionPage"]["pageInfo"]["hasPreviousPage"] == true
 
     checks
-    |> Enum.take(20)
+    |> Enum.take(24)
     |> Enum.each(fn check ->
       OfficeGraph.Repo.query!(
         "UPDATE verification_checks SET title = '  [REDACTED]  ' WHERE id = $1",
@@ -967,6 +974,11 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             allowedNextActions
             commandOptions { observation { key } }
             commandOptionSummary { observation }
+            commandAffordances {
+              identity
+              inputDefaults { field value values }
+              targetIds { type id }
+            }
           }
         }
         """,
@@ -977,6 +989,21 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert compact_invalid["commandOptions"]["observation"] == []
     assert compact_invalid["commandOptionSummary"]["observation"] == 1
     assert "record_execution_observation" in compact_invalid["allowedNextActions"]
+
+    record_observation_affordance =
+      Enum.find(
+        compact_invalid["commandAffordances"],
+        &(&1["identity"] == "record_execution_observation")
+      )
+
+    assert record_observation_affordance["inputDefaults"] == [
+             %{"field" => "run_id", "value" => run_result.run.id, "values" => []}
+           ]
+
+    assert record_observation_affordance["targetIds"] == [
+             %{"type" => "work_run", "id" => run_result.run.id},
+             %{"type" => "verification_check", "id" => List.last(checks).id}
+           ]
 
     only_valid =
       graphql(
@@ -1079,7 +1106,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         "operatorVerificationOutcome"
       )
 
-    assert length(outcome["verificationResults"]) == 21
+    assert length(outcome["verificationResults"]) == 25
     assert outcome["missingEvidence"] == []
   end
 

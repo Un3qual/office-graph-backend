@@ -19,7 +19,7 @@ defmodule OfficeGraph.Projections.RunState do
          {:ok, evidence_candidates} <-
            read_evidence_candidates(session_context, summary.run.id, @child_summary_limit),
          {:ok, verification_checks} <- read_verification_checks(session_context, summary),
-         {:ok, command_option_summary} <-
+         {:ok, command_option_insights} <-
            read_command_option_summary(session_context, summary.run.id) do
       {:ok,
        build_run_state(
@@ -27,7 +27,7 @@ defmodule OfficeGraph.Projections.RunState do
          summary,
          evidence_candidates,
          verification_checks,
-         command_option_summary
+         command_option_insights
        )}
     end
   end
@@ -100,21 +100,28 @@ defmodule OfficeGraph.Projections.RunState do
                session_context,
                run_id,
                nil,
-               @child_summary_limit + 1
+               1
              )
            ) do
         {:ok, %{rows: rows}} ->
-          valid_count =
-            rows
-            |> Enum.map(&command_option_choice(kind, &1))
-            |> Enum.count(& &1)
-
-          {:cont, {:ok, Map.put(counts, String.to_existing_atom(kind), valid_count)}}
+          insight = command_option_insight(kind, rows)
+          {:cont, {:ok, Map.put(counts, String.to_existing_atom(kind), insight)}}
 
         {:error, error} ->
           {:halt, {:error, error}}
       end
     end)
+  end
+
+  defp command_option_insight(_kind, []), do: %{count: 0, option: nil}
+
+  defp command_option_insight(kind, [row | _rest]) do
+    choice = command_option_choice(kind, row)
+
+    %{
+      count: List.last(row),
+      option: choice && Map.get(choice, String.to_existing_atom(kind))
+    }
   end
 
   def verification_outcome(session_context, run_id) do
@@ -185,10 +192,16 @@ defmodule OfficeGraph.Projections.RunState do
          summary,
          evidence_candidates,
          verification_checks,
-         command_option_summary
+         command_option_insights
        ) do
+    command_option_summary =
+      Map.new(command_option_insights, fn {kind, insight} -> {kind, insight.count} end)
+
+    command_option_choices =
+      Map.new(command_option_insights, fn {kind, insight} -> {kind, insight.option} end)
+
     command_option_availability =
-      Map.new(command_option_summary, fn {kind, count} -> {kind, count > 0} end)
+      Map.new(command_option_choices, fn {kind, option} -> {kind, not is_nil(option)} end)
 
     status = run_status(summary, command_option_availability)
     verification_checks_by_id = Map.new(verification_checks, &{&1.id, &1})
@@ -199,7 +212,7 @@ defmodule OfficeGraph.Projections.RunState do
         status,
         summary,
         evidence_candidates,
-        command_option_availability
+        command_option_choices
       )
 
     %{
@@ -316,7 +329,7 @@ defmodule OfficeGraph.Projections.RunState do
     """
     SELECT rrc.inserted_at, rrc.id::text, vc.title, r.id::text, vc.id::text,
            vc.graph_item_id::text, NULL, NULL, NULL, NULL, NULL, NULL,
-           r.execution_state, r.verification_state
+           r.execution_state, r.verification_state, count(*) OVER ()
     FROM run_required_checks rrc
     JOIN runs r ON r.id = rrc.run_id AND r.organization_id = $2 AND r.workspace_id = $3
     JOIN verification_checks vc ON vc.id = rrc.verification_check_id
@@ -342,7 +355,7 @@ defmodule OfficeGraph.Projections.RunState do
     """
     SELECT rrc.inserted_at, rrc.id::text, vc.title, r.id::text, vc.id::text,
            vc.graph_item_id::text, NULL, NULL, NULL, NULL, NULL, NULL,
-           r.execution_state, r.verification_state
+           r.execution_state, r.verification_state, count(*) OVER ()
     FROM run_required_checks rrc
     JOIN runs r ON r.id = rrc.run_id AND r.organization_id = $2 AND r.workspace_id = $3
     JOIN verification_checks vc ON vc.id = rrc.verification_check_id
@@ -365,7 +378,7 @@ defmodule OfficeGraph.Projections.RunState do
     SELECT eo.inserted_at, eo.id::text, vc.title, r.id::text, vc.id::text,
            eo.graph_item_id::text, eo.source_kind, eo.source_identity,
            eo.freshness_state, eo.trust_basis, 'internal', eo.id::text,
-           r.execution_state, r.verification_state
+           r.execution_state, r.verification_state, count(*) OVER ()
     FROM execution_observations eo
     JOIN runs r ON r.id = eo.work_run_id AND r.organization_id = $2 AND r.workspace_id = $3
     JOIN verification_checks vc ON vc.id = eo.verification_check_id
@@ -392,7 +405,7 @@ defmodule OfficeGraph.Projections.RunState do
     SELECT ec.inserted_at, ec.id::text, vc.title, r.id::text, vc.id::text,
            NULL, ec.source_kind, ec.source_identity, ec.freshness_state, ec.trust_basis,
            ec.sensitivity, ec.execution_observation_id::text, r.execution_state,
-           r.verification_state
+           r.verification_state, count(*) OVER ()
     FROM evidence_candidates ec
     JOIN runs r ON r.id = ec.work_run_id AND r.organization_id = $2 AND r.workspace_id = $3
     JOIN verification_checks vc ON vc.id = ec.verification_check_id
@@ -438,7 +451,8 @@ defmodule OfficeGraph.Projections.RunState do
          sensitivity,
          observation_id,
          execution_state,
-         verification_state
+         verification_state,
+         _total_count
        ]) do
     base = %{
       kind: kind,
@@ -494,6 +508,8 @@ defmodule OfficeGraph.Projections.RunState do
             key: key,
             label: label,
             evidence_candidate_id: key,
+            work_run_id: run_id,
+            verification_check_id: check_id,
             result: "passed",
             acceptance_policy_basis: "owner_acceptance"
           })
@@ -887,24 +903,20 @@ defmodule OfficeGraph.Projections.RunState do
        ),
        do: []
 
-  defp record_observation_affordance(_session_context, _summary, false), do: []
+  defp record_observation_affordance(_session_context, _summary, nil), do: []
 
-  defp record_observation_affordance(session_context, summary, true) do
-    check_ids = checks_needing_observations(summary)
-
+  defp record_observation_affordance(session_context, _summary, option) do
     if CommandAffordance.authorized?(session_context, :execution_observation_record) do
       [
         CommandAffordance.enabled(
           "record_execution_observation",
           "Record execution observations for this run.",
           required_fields: CommandAffordance.observation_required_fields(),
-          input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
-          target_ids:
-            [CommandAffordance.target_id("work_run", summary.run.id)] ++
-              Enum.map(
-                check_ids,
-                &CommandAffordance.target_id("verification_check", &1)
-              )
+          input_defaults: [CommandAffordance.input_default("run_id", option.run_id)],
+          target_ids: [
+            CommandAffordance.target_id("work_run", option.run_id),
+            CommandAffordance.target_id("verification_check", option.verification_check_id)
+          ]
         )
       ]
     else
@@ -912,9 +924,9 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp create_evidence_candidate_affordance(_session_context, _summary, false), do: []
+  defp create_evidence_candidate_affordance(_session_context, _summary, nil), do: []
 
-  defp create_evidence_candidate_affordance(session_context, summary, true) do
+  defp create_evidence_candidate_affordance(session_context, _summary, option) do
     if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
       [
         CommandAffordance.enabled(
@@ -931,8 +943,15 @@ defmodule OfficeGraph.Projections.RunState do
             "trust_basis",
             "sensitivity"
           ],
-          input_defaults: candidate_input_defaults(summary),
-          target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
+          input_defaults: candidate_input_defaults(option),
+          target_ids: [
+            CommandAffordance.target_id("work_run", option.work_run_id),
+            CommandAffordance.target_id("verification_check", option.verification_check_id),
+            CommandAffordance.target_id(
+              "execution_observation",
+              option.execution_observation_id
+            )
+          ]
         )
       ]
     else
@@ -940,10 +959,10 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp accept_evidence_affordance(_session_context, _summary, _evidence_candidates, false),
+  defp accept_evidence_affordance(_session_context, _summary, _evidence_candidates, nil),
     do: []
 
-  defp accept_evidence_affordance(session_context, summary, evidence_candidates, true) do
+  defp accept_evidence_affordance(session_context, _summary, _evidence_candidates, option) do
     if CommandAffordance.authorized?(session_context, :evidence_accept) do
       [
         CommandAffordance.enabled(
@@ -956,9 +975,11 @@ defmodule OfficeGraph.Projections.RunState do
             "result",
             "acceptance_policy_basis"
           ],
-          target_ids:
-            run_target_ids(summary) ++
-              acceptable_candidate_target_ids(summary, evidence_candidates)
+          target_ids: [
+            CommandAffordance.target_id("work_run", option.work_run_id),
+            CommandAffordance.target_id("verification_check", option.verification_check_id),
+            CommandAffordance.target_id("evidence_candidate", option.evidence_candidate_id)
+          ]
         )
       ]
     else
@@ -966,27 +987,18 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp candidate_input_defaults(summary) do
-    eligible_observations = candidate_eligible_observations(summary)
-
-    eligible_check_ids =
-      eligible_observations
-      |> Enum.map(& &1.verification_check_id)
-      |> MapSet.new()
-
+  defp candidate_input_defaults(option) do
     [
-      CommandAffordance.input_default("work_run_id", summary.run.id),
+      CommandAffordance.input_default("work_run_id", option.work_run_id),
       CommandAffordance.input_default(
         "verification_check_id",
-        summary.missing_evidence
-        |> Enum.map(& &1.verification_check_id)
-        |> Enum.filter(&MapSet.member?(eligible_check_ids, &1))
+        [option.verification_check_id]
       ),
       CommandAffordance.input_default(
         "execution_observation_id",
-        Enum.map(eligible_observations, & &1.id)
+        [option.execution_observation_id]
       ),
-      CommandAffordance.input_default("sensitivity", "internal")
+      CommandAffordance.input_default("sensitivity", option.sensitivity)
     ]
   end
 
@@ -1011,9 +1023,9 @@ defmodule OfficeGraph.Projections.RunState do
     |> Enum.reject(&MapSet.member?(observed_check_ids, &1))
   end
 
-  defp waive_verification_check_affordance(_session_context, _summary, false), do: []
+  defp waive_verification_check_affordance(_session_context, _summary, nil), do: []
 
-  defp waive_verification_check_affordance(session_context, summary, true) do
+  defp waive_verification_check_affordance(session_context, _summary, option) do
     if CommandAffordance.authorized?(session_context, :verification_waive) do
       [
         CommandAffordance.enabled(
@@ -1027,8 +1039,11 @@ defmodule OfficeGraph.Projections.RunState do
             "reason",
             "policy_basis"
           ],
-          input_defaults: waiver_input_defaults(summary),
-          target_ids: waiver_target_ids(summary)
+          input_defaults: waiver_input_defaults(option),
+          target_ids: [
+            CommandAffordance.target_id("work_run", option.run_id),
+            CommandAffordance.target_id("run_required_check", option.run_required_check_id)
+          ]
         )
       ]
     else
@@ -1036,59 +1051,26 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp waiver_input_defaults(summary) do
+  defp waiver_input_defaults(option) do
     [
-      CommandAffordance.input_default("run_id", summary.run.id),
+      CommandAffordance.input_default("run_id", option.run_id),
       CommandAffordance.input_default(
         "run_required_check_id",
-        Enum.map(pending_required_checks(summary), & &1.id)
+        [option.run_required_check_id]
       ),
       CommandAffordance.input_default(
         "expected_execution_state",
-        summary.run.execution_state
+        option.expected_execution_state
       ),
       CommandAffordance.input_default(
         "expected_verification_state",
-        summary.run.verification_state
+        option.expected_verification_state
       )
     ]
   end
 
-  defp waiver_target_ids(summary) do
-    [CommandAffordance.target_id("work_run", summary.run.id)] ++
-      Enum.map(
-        pending_required_checks(summary),
-        &CommandAffordance.target_id("run_required_check", &1.id)
-      )
-  end
-
   defp pending_required_checks(summary) do
     Enum.filter(summary.required_checks, &(&1.state == "pending"))
-  end
-
-  defp run_target_ids(summary) do
-    check_targets =
-      Enum.map(summary.missing_evidence, fn missing ->
-        CommandAffordance.target_id("verification_check", missing.verification_check_id)
-      end)
-
-    [CommandAffordance.target_id("work_run", summary.run.id) | check_targets]
-    |> CommandAffordance.compact_target_ids()
-  end
-
-  defp observation_target_ids(summary) do
-    summary.observations
-    |> Enum.map(&CommandAffordance.target_id("execution_observation", &1.id))
-    |> CommandAffordance.compact_target_ids()
-  end
-
-  defp acceptable_candidate_target_ids(summary, evidence_candidates) do
-    missing_check_ids = MapSet.new(summary.missing_evidence, & &1.verification_check_id)
-
-    evidence_candidates
-    |> Enum.filter(&acceptable_pending_candidate?(&1, missing_check_ids))
-    |> Enum.map(&CommandAffordance.target_id("evidence_candidate", &1.id))
-    |> CommandAffordance.compact_target_ids()
   end
 
   defp acceptable_pending_candidate?(candidate, missing_check_ids) do
