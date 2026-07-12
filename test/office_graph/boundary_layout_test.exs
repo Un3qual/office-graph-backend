@@ -41,4 +41,22 @@ defmodule OfficeGraph.BoundaryLayoutTest do
       assert Keyword.has_key?(context.__info__(:attributes), Boundary)
     end
   end
+
+  test "architecture layers name only loadable concrete modules" do
+    {reach_config, _bindings} = Code.eval_file(".reach.exs")
+
+    missing_modules =
+      reach_config
+      |> Keyword.fetch!(:layers)
+      |> Keyword.values()
+      |> List.flatten()
+      |> Enum.reject(&String.contains?(&1, "*"))
+      |> Enum.reject(fn module_name ->
+        module_name
+        |> then(&Module.concat([&1]))
+        |> Code.ensure_loaded?()
+      end)
+
+    assert missing_modules == []
+  end
 end

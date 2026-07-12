@@ -24,7 +24,6 @@
       "OfficeGraph.Operations",
       "OfficeGraph.Operations.*",
       "OfficeGraph.OrderedPlacement",
-      "OfficeGraph.PacketRunVerification",
       "OfficeGraph.Projections",
       "OfficeGraph.Projections.*",
       "OfficeGraph.ProposedChanges",
