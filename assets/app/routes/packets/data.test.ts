@@ -20,7 +20,7 @@ describe("packet route Relay data", () => {
 
     for (const field of [
       "currentVersion",
-      "versions",
+      "versionHistory",
       "sourceGraphItemIds",
       "verificationCheckIds",
       "commandAffordances",
