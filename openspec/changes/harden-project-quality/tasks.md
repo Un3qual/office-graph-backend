@@ -19,9 +19,9 @@
 
 ## 4. Shared Command Semantics
 
-- [ ] 4.1 Replace the duplicate GraphQL/JSON command input parsers with one transport-neutral parser and preserve transport integration tests.
-- [ ] 4.2 Replace divergent error classifiers with one safe registry, add every public conflict/validation outcome, recursively sanitize metadata, and table-drive GraphQL/JSON parity.
-- [ ] 4.3 Teach the frontend conflict registry to refresh authoritative state for the shared concurrency outcomes.
+- [x] 4.1 Replace the duplicate GraphQL/JSON command input parsers with one transport-neutral parser and preserve transport integration tests.
+- [x] 4.2 Replace divergent error classifiers with one safe registry, add every public conflict/validation outcome, recursively sanitize metadata, and table-drive GraphQL/JSON parity.
+- [x] 4.3 Teach the frontend conflict registry to refresh authoritative state for the shared concurrency outcomes.
 
 ## 5. Operator Projection And API Safety
 
