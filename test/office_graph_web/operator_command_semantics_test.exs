@@ -253,6 +253,11 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
       id = Ecto.UUID.generate()
 
       reasons = [
+        42,
+        3.14,
+        true,
+        false,
+        nil,
         {id, :pending, "adaptertimeout"},
         %{id: id, state: :pending},
         [id, :pending],

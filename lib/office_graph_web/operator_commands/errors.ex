@@ -304,9 +304,6 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   defp sanitize_enum(_value, _allowed), do: "invalid"
 
-  defp sanitize_reason(value) when is_number(value) or is_boolean(value) or is_nil(value),
-    do: value
-
   defp sanitize_reason(value) when is_atom(value) do
     value
     |> Atom.to_string()
