@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { commitMutation, useRelayEnvironment } from "react-relay";
-import type {
-  Disposable,
-  GraphQLTaggedNode,
-  MutationParameters
-} from "relay-runtime";
+import type { Disposable, GraphQLTaggedNode, MutationParameters } from "relay-runtime";
 import { GraphQLResponseError } from "./fetchGraphQL";
 
 export type CommandAffectedId = {
@@ -31,16 +27,10 @@ export type CommandMutationSuccess<TResult> = {
   readonly result: TResult;
 };
 
-export type CommandMutationConfig<
-  TMutation extends MutationParameters,
-  TInput,
-  TResult
-> = {
+export type CommandMutationConfig<TMutation extends MutationParameters, TInput, TResult> = {
   readonly mutation: GraphQLTaggedNode;
   readonly toVariables: (input: TInput) => TMutation["variables"];
-  readonly mapSuccess: (
-    response: TMutation["response"]
-  ) => CommandMutationSuccess<TResult>;
+  readonly mapSuccess: (response: TMutation["response"]) => CommandMutationSuccess<TResult>;
 };
 
 export type CommandMutationController<TInput, TResult> = {
@@ -65,22 +55,18 @@ const conflictCodes = new Set([
   "packet_version_not_ready",
   "stale_packet_version",
   "stale_run_state",
-  "verification_result_slot_conflict"
+  "verification_result_slot_conflict",
 ]);
 
 const unknownFailure = {
   status: "error",
   code: "unknown",
-  message: "Unable to complete this action. Try again."
+  message: "Unable to complete this action. Try again.",
 } as const;
 
-export function useCommandMutation<
-  TMutation extends MutationParameters,
-  TInput,
-  TResult
->(
+export function useCommandMutation<TMutation extends MutationParameters, TInput, TResult>(
   config: CommandMutationConfig<TMutation, TInput, TResult>,
-  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void,
 ): CommandMutationController<TInput, TResult> {
   const environment = useRelayEnvironment();
   const activeRequest = useRef<Disposable | null>(null);
@@ -129,12 +115,12 @@ export function useCommandMutation<
           const nextState = mapCommandFailure(error);
           setState(nextState);
           if (nextState.status === "conflict") authoritativeChange.current?.();
-        }
+        },
       });
 
       return true;
     },
-    [config, environment]
+    [config, environment],
   );
 
   useEffect(() => {
@@ -149,33 +135,31 @@ export function commandMutationSuccess<TResult>(
     readonly affectedIds: readonly CommandAffectedId[];
     readonly operationId: string;
   },
-  result: TResult
+  result: TResult,
 ): CommandMutationSuccess<TResult> {
   return {
     operationId: payload.operationId,
     affectedIds: payload.affectedIds,
-    result
+    result,
   };
 }
 
 export function mapCommandFailure(
-  failure: Error
+  failure: Error,
 ): Exclude<CommandMutationState<never>, { status: "idle" | "pending" | "success" }> {
   if (!(failure instanceof GraphQLResponseError)) {
     return unknownFailure;
   }
 
   const errors =
-    !Array.isArray(failure.source) && "errors" in failure.source
-      ? failure.source.errors
-      : null;
+    !Array.isArray(failure.source) && "errors" in failure.source ? failure.source.errors : null;
   return errors && errors.length > 0 ? mapPayloadErrors(errors) : unknownFailure;
 }
 
 function mapPayloadErrors(
-  errors: readonly SafePayloadError[]
+  errors: readonly SafePayloadError[],
 ): Exclude<CommandMutationState<never>, { status: "idle" | "pending" | "success" }> {
-  const fields = errors.flatMap(payloadError => {
+  const fields = errors.flatMap((payloadError) => {
     const extensions = payloadError.extensions;
     const field = extensions?.field;
 

@@ -15,7 +15,7 @@ describe("Relay compiler workflow", () => {
     expect(packageJson.scripts["relay:schema"]).toBe("node scripts/graphql-schema.mjs --write");
     expect(packageJson.scripts.relay).toBe("pnpm run relay:schema && relay-compiler --noWatchman");
     expect(packageJson.scripts["relay:check"]).toBe(
-      "node scripts/graphql-schema.mjs --check && relay-compiler --noWatchman --validate"
+      "node scripts/graphql-schema.mjs --check && relay-compiler --noWatchman --validate",
     );
     expect(packageJson.scripts.verify).toContain("pnpm run relay:check");
 
@@ -27,14 +27,14 @@ describe("Relay compiler workflow", () => {
       language: "typescript",
       artifactDirectory: "./app/relay/__generated__",
       eagerEsModules: true,
-      customScalarTypes: { DateTime: "string" }
+      customScalarTypes: { DateTime: "string" },
     });
 
     expect(
       readGenerated(
         join(assetsRoot, "app/relay/__generated__"),
-        "PacketsRoutePacketFragment.graphql.ts"
-      )
+        "PacketsRoutePacketFragment.graphql.ts",
+      ),
     ).toContain("readonly updatedAt: string;");
   });
 
@@ -42,9 +42,7 @@ describe("Relay compiler workflow", () => {
     const schemaScript = readFileSync(join(assetsRoot, "scripts/graphql-schema.mjs"), "utf8");
 
     expect(schemaScript).toContain('["compile", "--quiet"]');
-    expect(schemaScript).toContain(
-      '["run", "--no-start", "--no-compile", "-e", schemaExpression]'
-    );
+    expect(schemaScript).toContain('["run", "--no-start", "--no-compile", "-e", schemaExpression]');
   });
 
   it("keeps route-owned operator GraphQL documents near the route", () => {
@@ -65,16 +63,16 @@ describe("Relay compiler workflow", () => {
     const generatedDir = join(assetsRoot, "app/relay/__generated__");
 
     expect(readGenerated(generatedDir, "OperatorWorkflowRouteQuery.graphql.ts")).toContain(
-      "export type OperatorWorkflowRouteQuery$data"
+      "export type OperatorWorkflowRouteQuery$data",
     );
     expect(readGenerated(generatedDir, "OperatorWorkflowItemFragment.graphql.ts")).toContain(
-      "export type OperatorWorkflowItemFragment$key"
+      "export type OperatorWorkflowItemFragment$key",
     );
     expect(readGenerated(generatedDir, "OperatorPacketReadinessQuery.graphql.ts")).toContain(
-      "export type OperatorPacketReadinessQuery$data"
+      "export type OperatorPacketReadinessQuery$data",
     );
     expect(readGenerated(generatedDir, "OperatorRunStateQuery.graphql.ts")).toContain(
-      "export type OperatorRunStateQuery$data"
+      "export type OperatorRunStateQuery$data",
     );
   });
 });

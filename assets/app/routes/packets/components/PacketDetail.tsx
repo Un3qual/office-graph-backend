@@ -19,11 +19,13 @@ export function PacketDetail({
   onPreviousVersions,
   onRefresh,
   packet,
-  workspace = null
+  workspace = null,
 }: Props) {
-  const canCreateVersion = workspace?.commandAffordances.some(
-    affordance => affordance.identity === "create_work_packet_version" && affordance.state === "enabled"
-  ) ?? false;
+  const canCreateVersion =
+    workspace?.commandAffordances.some(
+      (affordance) =>
+        affordance.identity === "create_work_packet_version" && affordance.state === "enabled",
+    ) ?? false;
   return (
     <section aria-label="Packet detail" className="packet-detail-pane">
       {packet ? (
@@ -43,9 +45,7 @@ export function PacketDetail({
             <div>
               <dt>Updated</dt>
               <dd>
-                <time dateTime={packet.updatedAt}>
-                  {formatPacketUpdatedAt(packet.updatedAt)}
-                </time>
+                <time dateTime={packet.updatedAt}>{formatPacketUpdatedAt(packet.updatedAt)}</time>
               </dd>
             </div>
             <div>
@@ -63,17 +63,29 @@ export function PacketDetail({
                 <p className="eyebrow">Execution contract</p>
                 <h3>Current version {workspace.currentVersion.versionNumber}</h3>
                 <dl className="packet-contract-detail-list">
-                  <div><dt>Objective</dt><dd>{workspace.currentVersion.objective}</dd></div>
-                  <div><dt>Context</dt><dd>{workspace.currentVersion.contextSummary}</dd></div>
-                  <div><dt>Requirements</dt><dd>{workspace.currentVersion.requirements}</dd></div>
-                  <div><dt>Success criteria</dt><dd>{workspace.currentVersion.successCriteria}</dd></div>
+                  <div>
+                    <dt>Objective</dt>
+                    <dd>{workspace.currentVersion.objective}</dd>
+                  </div>
+                  <div>
+                    <dt>Context</dt>
+                    <dd>{workspace.currentVersion.contextSummary}</dd>
+                  </div>
+                  <div>
+                    <dt>Requirements</dt>
+                    <dd>{workspace.currentVersion.requirements}</dd>
+                  </div>
+                  <div>
+                    <dt>Success criteria</dt>
+                    <dd>{workspace.currentVersion.successCriteria}</dd>
+                  </div>
                 </dl>
               </section>
               <section aria-label="Version history" className="packet-version-history">
                 <p className="eyebrow">Immutable history</p>
                 <h3>Versions</h3>
                 <ol>
-                  {workspace.versions.map(version => (
+                  {workspace.versions.map((version) => (
                     <li data-current={version.id === workspace.currentVersion.id} key={version.id}>
                       <strong>Version {version.versionNumber}</strong>
                       <span>{version.title}</span>
@@ -98,7 +110,9 @@ export function PacketDetail({
                   </button>
                 </div>
               </section>
-              {onRefresh && canCreateVersion ? <PacketEditor onRefresh={onRefresh} workspace={workspace} /> : null}
+              {onRefresh && canCreateVersion ? (
+                <PacketEditor onRefresh={onRefresh} workspace={workspace} />
+              ) : null}
               {onRefresh ? <PacketRunForm onRefresh={onRefresh} workspace={workspace} /> : null}
             </div>
           ) : null}

@@ -8,7 +8,7 @@ import {
   RecordSource,
   Store,
   type FetchFunction,
-  type GraphQLResponse
+  type GraphQLResponse,
 } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
@@ -36,14 +36,14 @@ describe("operator route", () => {
     expect(screen.getByRole("heading", { name: "Operator Console" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Loading inbox...");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "No item selected"
+      "No item selected",
     );
   });
 
   it("renders the operator workbench from Relay projection data", async () => {
     const network = createOperatorNetwork({
       workflowItems: [operatorWorkflowItem()],
-      runState: operatorRunState()
+      runState: operatorRunState(),
     });
 
     renderWithRelay(<OperatorRoute />, network);
@@ -56,21 +56,21 @@ describe("operator route", () => {
     });
     expect(screen.getByRole("region", { name: "Inbox" })).toHaveTextContent("Ready for packet");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "normalized_intake_event: evt_1"
+      "normalized_intake_event: evt_1",
     );
     expect(await screen.findByText("Prepare packet context")).toBeInTheDocument();
     const readinessCall = network.mock.calls.find(
-      ([request]) => request.name === "OperatorPacketReadinessQuery"
+      ([request]) => request.name === "OperatorPacketReadinessQuery",
     );
 
     expect(readinessCall).toBeUndefined();
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
       expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
-        "Owner acceptance"
+        "Owner acceptance",
       );
     });
   });
@@ -79,34 +79,32 @@ describe("operator route", () => {
     const runState = operatorRunState();
     const network = createOperatorNetwork({
       workflowItems: [operatorWorkflowItem()],
-      runState: { ...runState, run: { ...runState.run, id: "run_linked" } }
+      runState: { ...runState, run: { ...runState.run, id: "run_linked" } },
     });
 
     renderWithRelay(<OperatorRoute />, network, "/operator?runId=run_linked");
 
     await waitFor(() => {
       const runCall = network.mock.calls.find(
-        ([request]) => request.name === "OperatorRunStateQuery"
+        ([request]) => request.name === "OperatorRunStateQuery",
       );
       expect(runCall?.[1]).toEqual({
         id: "run_linked",
         activityFirst: 5,
-        activityAfter: null
+        activityAfter: null,
       });
     });
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
     });
-    expect(screen.getByRole("button", { name: /evt_1/i })).not.toHaveAttribute(
-      "aria-current"
-    );
+    expect(screen.getByRole("button", { name: /evt_1/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "No item selected"
+      "No item selected",
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "No packet readiness selected"
+      "No packet readiness selected",
     );
   });
 
@@ -120,17 +118,17 @@ describe("operator route", () => {
               kind: "required_check",
               stableId: "required_1",
               title: "Initial required check",
-              status: "open"
-            }
-          }
+              status: "open",
+            },
+          },
         ],
         pageInfo: {
           hasNextPage: true,
           hasPreviousPage: false,
           startCursor: "activity_cursor_1",
-          endCursor: "activity_cursor_1"
-        }
-      }
+          endCursor: "activity_cursor_1",
+        },
+      },
     });
     const secondState = operatorRunState({
       activity: {
@@ -141,17 +139,17 @@ describe("operator route", () => {
               kind: "observation",
               stableId: "observation_2",
               title: "Later observation",
-              status: "succeeded"
-            }
-          }
+              status: "succeeded",
+            },
+          },
         ],
         pageInfo: {
           hasNextPage: false,
           hasPreviousPage: true,
           startCursor: "activity_cursor_2",
-          endCursor: "activity_cursor_2"
-        }
-      }
+          endCursor: "activity_cursor_2",
+        },
+      },
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -161,8 +159,8 @@ describe("operator route", () => {
         return {
           data: {
             operatorRunState:
-              variables.activityAfter === "activity_cursor_1" ? secondState : firstState
-          }
+              variables.activityAfter === "activity_cursor_1" ? secondState : firstState,
+          },
         };
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -176,7 +174,7 @@ describe("operator route", () => {
     expect(await screen.findByText(/Later observation/)).toBeInTheDocument();
     expect(lastVariablesFor(network, "OperatorRunStateQuery")).toMatchObject({
       activityAfter: "activity_cursor_1",
-      activityFirst: 5
+      activityFirst: 5,
     });
   });
 
@@ -193,9 +191,9 @@ describe("operator route", () => {
           id: "run_2",
           graphItemId: null,
           title: "Second run",
-          state: "running"
-        }
-      ]
+          state: "running",
+        },
+      ],
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -208,11 +206,13 @@ describe("operator route", () => {
             observation: 21,
             evidenceCandidate: 1,
             evidenceAcceptance: 1,
-            waiver: 1
+            waiver: 1,
           },
-          commandAffordances: [enabledCommandAffordance("record_execution_observation")]
+          commandAffordances: [enabledCommandAffordance("record_execution_observation")],
         });
-        return { data: { operatorRunState: { ...state, run: { ...state.run, id: variables.id } } } };
+        return {
+          data: { operatorRunState: { ...state, run: { ...state.run, id: variables.id } } },
+        };
       }
       if (request.name === "OperatorRunCommandOptionPageQuery") {
         const secondPage = variables.observationAfter === "option_cursor_1";
@@ -223,25 +223,25 @@ describe("operator route", () => {
               node: {
                 observation: observationCommandOption({
                   key: secondPage ? "required_21" : "required_1",
-                  label: secondPage ? "Twenty-first check" : "First check"
+                  label: secondPage ? "Twenty-first check" : "First check",
                 }),
                 evidenceCandidate: null,
                 evidenceAcceptance: null,
-                waiver: null
-              }
-            }
+                waiver: null,
+              },
+            },
           ],
           pageInfo: {
             hasNextPage: !secondPage,
             hasPreviousPage: secondPage,
             startCursor: secondPage ? "option_cursor_2" : "option_cursor_1",
-            endCursor: secondPage ? "option_cursor_2" : "option_cursor_1"
-          }
+            endCursor: secondPage ? "option_cursor_2" : "option_cursor_1",
+          },
         };
         return {
           data: {
-            observation: connection
-          }
+            observation: connection,
+          },
         };
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -258,15 +258,14 @@ describe("operator route", () => {
     await waitFor(() => {
       const observationCalls = network.mock.calls.filter(
         ([request, variables]) =>
-          request.name === "OperatorRunCommandOptionPageQuery" &&
-          variables.id === "run_2"
+          request.name === "OperatorRunCommandOptionPageQuery" && variables.id === "run_2",
       );
       expect(observationCalls.at(-1)?.[1]).toMatchObject({
         observationAfter: null,
         loadObservation: true,
         loadEvidenceCandidate: false,
         loadEvidenceAcceptance: false,
-        loadWaiver: false
+        loadWaiver: false,
       });
     });
   });
@@ -291,17 +290,16 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByText("Prepare packet context")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Blocked"
-    );
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent("Blocked");
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
-    expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
-      .toBe(false);
+    expect(
+      network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"),
+    ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
 
     await waitFor(() => {
       const readinessCall = network.mock.calls.find(
-        ([request]) => request.name === "OperatorPacketReadinessQuery"
+        ([request]) => request.name === "OperatorPacketReadinessQuery",
       );
 
       expect(readinessCall?.[1]).toEqual({
@@ -313,16 +311,16 @@ describe("operator route", () => {
           successCriteria: "Run console verification",
           autonomyPosture: "human_supervised",
           sourceGraphItemIds: ["graph_1"],
-          verificationCheckIds: ["check_1"]
-        }
+          verificationCheckIds: ["check_1"],
+        },
       });
     });
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Backend readiness"
+        "Backend readiness",
       );
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Create work packet"
+        "Create work packet",
       );
     });
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
@@ -357,18 +355,18 @@ describe("operator route", () => {
     expect(screen.getByRole("button", { name: "Validating readiness" })).toBeDisabled();
     expect(selectedRow).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "normalized_intake_event: evt_1"
+      "normalized_intake_event: evt_1",
     );
 
     await act(async () => {
       readinessResponse.resolve({
-        data: { operatorPacketReadiness: operatorPacketReadiness() }
+        data: { operatorPacketReadiness: operatorPacketReadiness() },
       });
     });
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Backend readiness"
+        "Backend readiness",
       );
     });
   });
@@ -404,12 +402,12 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Unable to validate packet readiness."
+        "Unable to validate packet readiness.",
       );
     });
     expect(selectedRow).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "normalized_intake_event: evt_1"
+      "normalized_intake_event: evt_1",
     );
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(document.body).not.toHaveTextContent("readiness_9");
@@ -418,7 +416,7 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Backend readiness"
+        "Backend readiness",
       );
     });
     expect(readinessReads).toBe(2);
@@ -454,16 +452,14 @@ describe("operator route", () => {
       vi.fn().mockResolvedValue(
         Response.json({
           data: { operatorWorkflowItems: null },
-          errors: [{ message: "Operator workflow access is forbidden" }]
-        })
-      )
+          errors: [{ message: "Operator workflow access is forbidden" }],
+        }),
+      ),
     );
 
     renderWithRelay(<OperatorRoute />, fetchGraphQL);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load operator inbox."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load operator inbox.");
     expect(document.body).not.toHaveTextContent("Operator workflow access is forbidden");
     expect(screen.queryByText("No operator workflow items.")).not.toBeInTheDocument();
   });
@@ -478,8 +474,8 @@ describe("operator route", () => {
       source: {
         identity: "manual:operator-console-2",
         replayIdentity: "paste:operator-console-2",
-        outcome: "accepted"
-      }
+        outcome: "accepted",
+      },
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -489,7 +485,7 @@ describe("operator route", () => {
               hasNextPage: true,
               hasPreviousPage: false,
               startCursor: "cursor_1",
-              endCursor: "cursor_1"
+              endCursor: "cursor_1",
             });
       }
 
@@ -507,31 +503,33 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading inbox...");
     expect(screen.queryByRole("button", { name: /evt_1/i })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "No item selected"
+      "No item selected",
     );
 
     nextPage.resolve(
-      workflowConnectionResponse([secondItem], { after: "cursor_1" }, {
-        hasNextPage: false,
-        hasPreviousPage: true,
-        startCursor: "cursor_2",
-        endCursor: "cursor_2"
-      })
+      workflowConnectionResponse(
+        [secondItem],
+        { after: "cursor_1" },
+        {
+          hasNextPage: false,
+          hasPreviousPage: true,
+          startCursor: "cursor_2",
+          endCursor: "cursor_2",
+        },
+      ),
     );
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /evt_1/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /evt_2/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
       expect(screen.getByLabelText("Inbox pagination")).toHaveTextContent("1 row");
     });
@@ -545,14 +543,18 @@ describe("operator route", () => {
       title: "Manual intake proposal evt_summary_1",
       sourceSummary: "2 proposed changes · ref evt_summary_1",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Proposed signal · ref evt_summary_1", status: "pending" },
-        { action: "create_task", title: "Proposed task · ref evt_summary_1", status: "pending" }
+        {
+          action: "create_signal",
+          title: "Proposed signal · ref evt_summary_1",
+          status: "pending",
+        },
+        { action: "create_task", title: "Proposed task · ref evt_summary_1", status: "pending" },
       ],
       source: {
         identity: "manual:shared-source",
         replayIdentity: "paste:summary-1",
-        outcome: "accepted"
-      }
+        outcome: "accepted",
+      },
     });
     const secondItem = operatorWorkflowItem({
       id: "operator_workflow_item_summary_2",
@@ -561,35 +563,39 @@ describe("operator route", () => {
       title: "Manual intake proposal evt_summary_2",
       sourceSummary: "1 proposed change · ref evt_summary_2",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Proposed signal · ref evt_summary_2", status: "pending" }
+        {
+          action: "create_signal",
+          title: "Proposed signal · ref evt_summary_2",
+          status: "pending",
+        },
       ],
       source: {
         identity: "manual:shared-source",
         replayIdentity: "paste:summary-2",
-        outcome: "accepted"
-      }
+        outcome: "accepted",
+      },
     });
 
     renderWithRelay(
       <OperatorRoute />,
-      createOperatorNetwork({ workflowItems: [firstItem, secondItem] })
+      createOperatorNetwork({ workflowItems: [firstItem, secondItem] }),
     );
 
     expect(await screen.findByRole("button", { name: /2 proposed changes/i })).toHaveTextContent(
-      "2 proposed changes · ref evt_summary_1"
+      "2 proposed changes · ref evt_summary_1",
     );
     expect(screen.getByRole("button", { name: /1 proposed change/i })).toHaveTextContent(
-      "1 proposed change · ref evt_summary_2"
+      "1 proposed change · ref evt_summary_2",
     );
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "Create signal: Proposed signal · ref evt_summary_1"
+      "Create signal: Proposed signal · ref evt_summary_1",
     );
     expect(document.body).not.toHaveTextContent("SECRET_TOKEN");
   });
 
   it("loads bounded relationship overflow detail", async () => {
     const item = operatorWorkflowItem({
-      relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true }
+      relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -612,25 +618,25 @@ describe("operator route", () => {
                         stableId: "relationship_2",
                         title: "Second relationship",
                         status: null,
-                        relationshipType: "depends_on"
+                        relationshipType: "depends_on",
                       }
                     : {
                         kind: "graph_link",
                         stableId: "task:task_1",
                         title: "First related task",
                         status: "open",
-                        relationshipType: "task"
-                      }
-                }
+                        relationshipType: "task",
+                      },
+                },
               ],
               pageInfo: {
                 hasNextPage: !secondPage,
                 hasPreviousPage: secondPage,
                 startCursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1",
-                endCursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1"
-              }
-            }
-          }
+                endCursor: secondPage ? "relationship_cursor_2" : "relationship_cursor_1",
+              },
+            },
+          },
         };
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -644,7 +650,7 @@ describe("operator route", () => {
     expect(lastVariablesFor(network, "OperatorRelationshipDetailsQuery")).toMatchObject({
       id: "evt_1",
       first: 5,
-      after: "relationship_cursor_1"
+      after: "relationship_cursor_1",
     });
   });
 
@@ -660,7 +666,7 @@ describe("operator route", () => {
           hasNextPage: true,
           hasPreviousPage: false,
           startCursor: "cursor_1",
-          endCursor: "cursor_1"
+          endCursor: "cursor_1",
         });
       }
 
@@ -674,14 +680,10 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByRole("button", { name: /evt_1/i })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load operator inbox."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load operator inbox.");
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
 
@@ -689,13 +691,13 @@ describe("operator route", () => {
 
     await waitFor(() => {
       const workflowCalls = network.mock.calls.filter(
-        ([request]) => request.name === "OperatorWorkflowRouteQuery"
+        ([request]) => request.name === "OperatorWorkflowRouteQuery",
       );
 
       expect(workflowCalls.at(-1)?.[1]).toEqual({ first: 50, after: null });
       expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });
@@ -709,9 +711,7 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, network);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load operator inbox."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load operator inbox.");
     expect(document.body).not.toHaveTextContent("GraphQL unavailable");
     expect(document.body).not.toHaveTextContent("secret_alpha");
   });
@@ -748,7 +748,7 @@ describe("operator route", () => {
       source: {
         identity: "manual:operator-console-2",
         replayIdentity: "paste:operator-console-2",
-        outcome: "accepted"
+        outcome: "accepted",
       },
       graphLinks: [
         {
@@ -756,12 +756,12 @@ describe("operator route", () => {
           id: "check_2",
           graphItemId: "graph_2",
           title: "Review second packet",
-          state: "required"
-        }
-      ]
+          state: "required",
+        },
+      ],
     });
     const network = createOperatorNetwork({
-      workflowItems: [operatorWorkflowItem(), secondItem]
+      workflowItems: [operatorWorkflowItem(), secondItem],
     });
 
     renderWithRelay(<OperatorRoute />, network);
@@ -772,10 +772,10 @@ describe("operator route", () => {
     await waitFor(() => {
       expect(secondRow).toHaveAttribute("aria-current", "true");
       expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-        "normalized_intake_event: evt_2"
+        "normalized_intake_event: evt_2",
       );
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Review second packet"
+        "Review second packet",
       );
     });
   });
@@ -792,16 +792,16 @@ describe("operator route", () => {
           id: "check_2",
           graphItemId: "graph_2",
           title: "Review second packet",
-          state: "required"
+          state: "required",
         },
         {
           type: "work_run",
           id: "run_2",
           graphItemId: null,
           title: "Second verification run",
-          state: "running"
-        }
-      ]
+          state: "running",
+        },
+      ],
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -825,10 +825,10 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Run console verification"
+        "Run console verification",
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
     });
 
@@ -837,34 +837,34 @@ describe("operator route", () => {
     await waitFor(() => {
       expect(secondRow).toHaveAttribute("aria-current", "true");
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Review second packet"
+        "Review second packet",
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Loading run state..."
+        "Loading run state...",
       );
       expect(screen.getByRole("region", { name: "Run State" })).not.toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
       expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
-        "Loading verification..."
+        "Loading verification...",
       );
       expect(screen.getByRole("region", { name: "Verification" })).not.toHaveTextContent(
-        "Owner acceptance"
+        "Owner acceptance",
       );
       expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-        "normalized_intake_event: evt_2"
+        "normalized_intake_event: evt_2",
       );
     });
 
     secondRunState.resolve({
       data: {
-        operatorRunState: operatorRunState({ status: "verified" })
-      }
+        operatorRunState: operatorRunState({ status: "verified" }),
+      },
     });
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "Review second packet"
+        "Review second packet",
       );
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
     });
@@ -896,18 +896,18 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Run state unavailable."
+        "Run state unavailable.",
       );
       expect(screen.getByRole("region", { name: "Verification" })).toHaveTextContent(
-        "Verification unavailable."
+        "Verification unavailable.",
       );
     });
     expect(selectedRow).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "normalized_intake_event: evt_1"
+      "normalized_intake_event: evt_1",
     );
     expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-      "Prepare packet context"
+      "Prepare packet context",
     );
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(document.body).not.toHaveTextContent("run_9");
@@ -916,7 +916,7 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
     });
     expect(runReads).toBe(2);
@@ -934,7 +934,7 @@ describe("operator route", () => {
         inputDefaults: [],
         targetIds: [],
         traceLinks: [],
-        decisionLinks: []
+        decisionLinks: [],
       },
       {
         identity: "accept_evidence",
@@ -946,7 +946,7 @@ describe("operator route", () => {
         inputDefaults: [],
         targetIds: [],
         traceLinks: [],
-        decisionLinks: []
+        decisionLinks: [],
       },
       {
         identity: "delete_restricted_packet",
@@ -958,7 +958,7 @@ describe("operator route", () => {
         inputDefaults: [],
         targetIds: [],
         traceLinks: [],
-        decisionLinks: []
+        decisionLinks: [],
       },
       {
         identity: "inspect_vip_target",
@@ -970,24 +970,24 @@ describe("operator route", () => {
         inputDefaults: [],
         targetIds: [],
         traceLinks: [],
-        decisionLinks: []
-      }
+        decisionLinks: [],
+      },
     ];
     const network = createOperatorNetwork({
       workflowItems: [
         operatorWorkflowItem({
           allowedNextActions: ["legacy_sensitive_fallback"],
-          commandAffordances: sensitiveAffordances
-        })
+          commandAffordances: sensitiveAffordances,
+        }),
       ],
       readiness: operatorPacketReadiness({
         allowedNextActions: ["legacy_sensitive_readiness_fallback"],
-        commandAffordances: sensitiveAffordances
+        commandAffordances: sensitiveAffordances,
       }),
       runState: operatorRunState({
         allowedNextActions: ["legacy_sensitive_run_fallback"],
-        commandAffordances: sensitiveAffordances
-      })
+        commandAffordances: sensitiveAffordances,
+      }),
     });
 
     renderWithRelay(<OperatorRoute />, network);
@@ -998,7 +998,7 @@ describe("operator route", () => {
     await waitFor(() => {
       expect(itemDetail).toHaveTextContent("Commands");
       expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
-        "Awaiting evidence acceptance"
+        "Awaiting evidence acceptance",
       );
     });
 
@@ -1030,8 +1030,13 @@ describe("operator route", () => {
         return workflowConnectionResponse(
           workflowReads === 1
             ? []
-            : [operatorWorkflowItem({ id: "operator_workflow_item_new", normalizedEventId: "evt_new" })],
-          variables
+            : [
+                operatorWorkflowItem({
+                  id: "operator_workflow_item_new",
+                  normalizedEventId: "evt_new",
+                }),
+              ],
+          variables,
         );
       }
 
@@ -1054,17 +1059,23 @@ describe("operator route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submitting intake" }));
 
     expect(screen.getByRole("button", { name: "Submitting intake" })).toBeDisabled();
-    await waitFor(() => expect(
-      network.mock.calls.filter(([request]) => request.name === "OperatorSubmitManualIntakeMutation")
-    ).toHaveLength(1));
+    await waitFor(() =>
+      expect(
+        network.mock.calls.filter(
+          ([request]) => request.name === "OperatorSubmitManualIntakeMutation",
+        ),
+      ).toHaveLength(1),
+    );
     expect(
-      network.mock.calls.find(([request]) => request.name === "OperatorSubmitManualIntakeMutation")?.[1]
+      network.mock.calls.find(
+        ([request]) => request.name === "OperatorSubmitManualIntakeMutation",
+      )?.[1],
     ).toMatchObject({
       input: {
         body: "Investigate the failed deployment",
         replayIdentity: expect.stringMatching(/^operator:/),
-        sourceIdentity: "manual:operator-console"
-      }
+        sourceIdentity: "manual:operator-console",
+      },
     });
 
     await act(async () => {
@@ -1075,9 +1086,9 @@ describe("operator route", () => {
             operationId: "operation_intake_1",
             affectedIds: [{ type: "normalized_intake_event", id: "evt_new" }],
             normalizedEventId: "evt_new",
-            proposedChangeIds: ["change_1"]
-          }
-        }
+            proposedChangeIds: ["change_1"],
+          },
+        },
       });
     });
 
@@ -1091,12 +1102,12 @@ describe("operator route", () => {
     const secondItem = operatorWorkflowItem({
       id: "operator_workflow_item_2",
       normalizedEventId: "evt_2",
-      typedId: { type: "normalized_intake_event", id: "evt_2" }
+      typedId: { type: "normalized_intake_event", id: "evt_2" },
     });
     const newItem = operatorWorkflowItem({
       id: "operator_workflow_item_new",
       normalizedEventId: "evt_new",
-      typedId: { type: "normalized_intake_event", id: "evt_new" }
+      typedId: { type: "normalized_intake_event", id: "evt_new" },
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
@@ -1107,7 +1118,7 @@ describe("operator route", () => {
         return workflowConnectionResponse(
           submitted ? [newItem, firstItem] : [firstItem],
           variables,
-          submitted ? {} : { hasNextPage: true, endCursor: "cursor_1" }
+          submitted ? {} : { hasNextPage: true, endCursor: "cursor_1" },
         );
       }
 
@@ -1120,9 +1131,9 @@ describe("operator route", () => {
               operationId: "operation_intake_new",
               affectedIds: [{ type: "normalized_intake_event", id: "evt_new" }],
               normalizedEventId: "evt_new",
-              proposedChangeIds: ["change_new"]
-            }
-          }
+              proposedChangeIds: ["change_new"],
+            },
+          },
         };
       }
 
@@ -1139,7 +1150,7 @@ describe("operator route", () => {
     await screen.findByRole("button", { name: /evt_2/i });
 
     fireEvent.change(screen.getByLabelText("Manual intake"), {
-      target: { value: "Investigate the new deployment failure" }
+      target: { value: "Investigate the new deployment failure" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
 
@@ -1147,7 +1158,7 @@ describe("operator route", () => {
     await waitFor(() => expect(newRow).toHaveAttribute("aria-current", "true"));
     expect(lastVariablesFor(network, "OperatorWorkflowRouteQuery")).toEqual({
       first: 50,
-      after: null
+      after: null,
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
@@ -1155,10 +1166,15 @@ describe("operator route", () => {
   it("hides manual intake when the backend affordance is restricted", async () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
-        return workflowConnectionResponse([], variables, {}, {
-          ...enabledCommandAffordance("submit_manual_intake"),
-          state: "hidden"
-        });
+        return workflowConnectionResponse(
+          [],
+          variables,
+          {},
+          {
+            ...enabledCommandAffordance("submit_manual_intake"),
+            state: "hidden",
+          },
+        );
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
@@ -1171,23 +1187,23 @@ describe("operator route", () => {
 
   it("recovers when manual replay identity preparation fails", async () => {
     vi.stubGlobal("crypto", {
-      subtle: { digest: vi.fn().mockRejectedValue(new Error("digest unavailable")) }
+      subtle: { digest: vi.fn().mockRejectedValue(new Error("digest unavailable")) },
     });
     const network = createOperatorNetwork({ workflowItems: [] });
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Manual intake"), {
-      target: { value: "Investigate the deployment" }
+      target: { value: "Investigate the deployment" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to prepare manual intake. Try again."
+      "Unable to prepare manual intake. Try again.",
     );
     expect(screen.getByRole("button", { name: "Submit intake" })).toBeEnabled();
-    expect(network.mock.calls.some(([request]) =>
-      request.name === "OperatorSubmitManualIntakeMutation"
-    )).toBe(false);
+    expect(
+      network.mock.calls.some(([request]) => request.name === "OperatorSubmitManualIntakeMutation"),
+    ).toBe(false);
   });
 
   it("refreshes after a manual-intake replay conflict and keeps the explicit retry form", async () => {
@@ -1199,20 +1215,28 @@ describe("operator route", () => {
         if (workflowReads === 2) return refreshResponse.promise;
         return workflowConnectionResponse([], variables);
       }
-      if (request.name === "OperatorSubmitManualIntakeMutation") throw new GraphQLResponseError(
-        "This intake was already accepted. Refresh and retry if the source changed.",
-        { errors: [{
-          message: "This intake was already accepted. Refresh and retry if the source changed.",
-          extensions: { code: "manual_intake_replay_conflict" }
-        } as never] },
-        409,
-        request.name
-      );
+      if (request.name === "OperatorSubmitManualIntakeMutation")
+        throw new GraphQLResponseError(
+          "This intake was already accepted. Refresh and retry if the source changed.",
+          {
+            errors: [
+              {
+                message:
+                  "This intake was already accepted. Refresh and retry if the source changed.",
+                extensions: { code: "manual_intake_replay_conflict" },
+              } as never,
+            ],
+          },
+          409,
+          request.name,
+        );
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
     renderWithRelay(<OperatorRoute />, network);
-    fireEvent.change(await screen.findByLabelText("Manual intake"), { target: { value: "Duplicate deployment report" } });
+    fireEvent.change(await screen.findByLabelText("Manual intake"), {
+      target: { value: "Duplicate deployment report" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This intake was already accepted");
@@ -1235,21 +1259,24 @@ describe("operator route", () => {
       requiredFields: ["normalized_event_id", "proposed_change_ids"],
       inputDefaults: [
         { field: "normalized_event_id", value: "evt_1", values: [] },
-        { field: "proposed_change_ids", value: null, values: ["change_1", "change_2"] }
+        { field: "proposed_change_ids", value: null, values: ["change_1", "change_2"] },
       ],
       targetIds: [{ type: "normalized_intake_event", id: "evt_1" }],
       traceLinks: [],
-      decisionLinks: []
+      decisionLinks: [],
     };
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
-        return workflowConnectionResponse([
-          operatorWorkflowItem({
-            status: "pending_triage",
-            allowedNextActions: ["apply_proposed_changes"],
-            commandAffordances: [proposalAffordance]
-          })
-        ], variables);
+        return workflowConnectionResponse(
+          [
+            operatorWorkflowItem({
+              status: "pending_triage",
+              allowedNextActions: ["apply_proposed_changes"],
+              commandAffordances: [proposalAffordance],
+            }),
+          ],
+          variables,
+        );
       }
 
       if (request.name === "OperatorRunStateQuery") {
@@ -1266,9 +1293,9 @@ describe("operator route", () => {
               signal: { id: "signal_1" },
               task: { id: "task_1" },
               reviewFinding: { id: "finding_1" },
-              verificationCheck: { id: "check_1", graphItemId: "graph_1" }
-            }
-          }
+              verificationCheck: { id: "check_1", graphItemId: "graph_1" },
+            },
+          },
         };
       }
 
@@ -1281,12 +1308,14 @@ describe("operator route", () => {
 
     await waitFor(() => {
       expect(
-        network.mock.calls.find(([request]) => request.name === "OperatorApplyProposedChangesMutation")?.[1]
+        network.mock.calls.find(
+          ([request]) => request.name === "OperatorApplyProposedChangesMutation",
+        )?.[1],
       ).toMatchObject({
         input: {
           normalizedEventId: "evt_1",
-          proposedChangeIds: ["change_1", "change_2"]
-        }
+          proposedChangeIds: ["change_1", "change_2"],
+        },
       });
     });
   });
@@ -1296,43 +1325,56 @@ describe("operator route", () => {
     let packetCreated = false;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
-        return workflowConnectionResponse([
-          packetCreated
-            ? operatorWorkflowItem({
-                status: "packet_created",
-                allowedNextActions: [],
-                commandAffordances: [],
-                graphLinks: [
-                  ...operatorWorkflowItem().graphLinks,
-                  {
-                    type: "work_packet",
-                    id: "packet_1",
-                    graphItemId: null,
-                    title: "Run console verification",
-                    state: "ready"
-                  }
-                ]
-              })
-            : operatorWorkflowItem()
-        ], variables);
+        return workflowConnectionResponse(
+          [
+            packetCreated
+              ? operatorWorkflowItem({
+                  status: "packet_created",
+                  allowedNextActions: [],
+                  commandAffordances: [],
+                  graphLinks: [
+                    ...operatorWorkflowItem().graphLinks,
+                    {
+                      type: "work_packet",
+                      id: "packet_1",
+                      graphItemId: null,
+                      title: "Run console verification",
+                      state: "ready",
+                    },
+                  ],
+                })
+              : operatorWorkflowItem(),
+          ],
+          variables,
+        );
       }
-      if (request.name === "OperatorRunStateQuery") return { data: { operatorRunState: operatorRunState() } };
+      if (request.name === "OperatorRunStateQuery")
+        return { data: { operatorRunState: operatorRunState() } };
       if (request.name === "OperatorPacketReadinessQuery") {
         readinessReads += 1;
         return {
           data: {
-            operatorPacketReadiness: operatorPacketReadiness()
-          }
+            operatorPacketReadiness: operatorPacketReadiness(),
+          },
         };
       }
       if (request.name === "OperatorCreateWorkPacketMutation") {
         packetCreated = true;
         return {
-          data: { createWorkPacket: {
-            command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
-            packet: { id: "packet_1", currentVersionId: "version_1", title: "Run console verification", state: "draft" },
-            packetVersion: { id: "version_1", versionNumber: 1, lifecycleState: "draft" }
-          } }
+          data: {
+            createWorkPacket: {
+              command: "create_work_packet",
+              operationId: "operation_packet_1",
+              affectedIds: [],
+              packet: {
+                id: "packet_1",
+                currentVersionId: "version_1",
+                title: "Run console verification",
+                state: "draft",
+              },
+              packetVersion: { id: "version_1", versionNumber: 1, lifecycleState: "draft" },
+            },
+          },
         };
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -1344,17 +1386,23 @@ describe("operator route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
     fireEvent.click(await screen.findByRole("button", { name: "Create work packet" }));
 
-    await waitFor(() => expect(
-      network.mock.calls.find(([request]) => request.name === "OperatorCreateWorkPacketMutation")?.[1]
-    ).toMatchObject({ input: {
-      title: "Run console verification",
-      objective: "Run console verification",
-      sourceGraphItemIds: ["graph_1"],
-      verificationCheckIds: ["check_1"]
-    } }));
+    await waitFor(() =>
+      expect(
+        network.mock.calls.find(
+          ([request]) => request.name === "OperatorCreateWorkPacketMutation",
+        )?.[1],
+      ).toMatchObject({
+        input: {
+          title: "Run console verification",
+          objective: "Run console verification",
+          sourceGraphItemIds: ["graph_1"],
+          verificationCheckIds: ["check_1"],
+        },
+      }),
+    );
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
-        "No packet readiness selected"
+        "No packet readiness selected",
       );
     });
     expect(readinessReads).toBe(1);
@@ -1380,37 +1428,52 @@ describe("operator route", () => {
                 : operatorRunState({
                     status: "verified",
                     allowedNextActions: [],
-                    commandAffordances: []
-                  })
-          }
+                    commandAffordances: [],
+                  }),
+          },
         };
       }
-      if (request.name === "OperatorAcceptEvidenceMutation") return {
-        data: { acceptEvidence: {
-          command: "accept_evidence", operationId: "operation_accept_1", affectedIds: [],
-          evidenceCandidate: { id: "candidate_1", candidateState: "accepted" },
-          evidenceItem: { id: "evidence_1", state: "accepted" },
-          verificationResult: { id: "result_1", result: "passed" },
-          run: { id: "run_1", executionState: "completed", verificationState: "passed" }
-        } }
-      };
+      if (request.name === "OperatorAcceptEvidenceMutation")
+        return {
+          data: {
+            acceptEvidence: {
+              command: "accept_evidence",
+              operationId: "operation_accept_1",
+              affectedIds: [],
+              evidenceCandidate: { id: "candidate_1", candidateState: "accepted" },
+              evidenceItem: { id: "evidence_1", state: "accepted" },
+              verificationResult: { id: "result_1", result: "passed" },
+              run: { id: "run_1", executionState: "completed", verificationState: "passed" },
+            },
+          },
+        };
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
     });
 
     renderWithRelay(<OperatorRoute />, network);
-    fireEvent.change(await screen.findByLabelText("Evidence title"), { target: { value: "Deployment verified" } });
-    fireEvent.change(screen.getByLabelText("Evidence body"), { target: { value: "The deployment completed successfully." } });
+    fireEvent.change(await screen.findByLabelText("Evidence title"), {
+      target: { value: "Deployment verified" },
+    });
+    fireEvent.change(screen.getByLabelText("Evidence body"), {
+      target: { value: "The deployment completed successfully." },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
-    await waitFor(() => expect(
-      network.mock.calls.find(([request]) => request.name === "OperatorAcceptEvidenceMutation")?.[1]
-    ).toMatchObject({ input: {
-      evidenceCandidateId: "candidate_1",
-      title: "Deployment verified",
-      body: "The deployment completed successfully.",
-      result: "passed",
-      acceptancePolicyBasis: "owner_acceptance"
-    } }));
+    await waitFor(() =>
+      expect(
+        network.mock.calls.find(
+          ([request]) => request.name === "OperatorAcceptEvidenceMutation",
+        )?.[1],
+      ).toMatchObject({
+        input: {
+          evidenceCandidateId: "candidate_1",
+          title: "Deployment verified",
+          body: "The deployment completed successfully.",
+          result: "passed",
+          acceptancePolicyBasis: "owner_acceptance",
+        },
+      }),
+    );
     await waitFor(() => expect(runReads).toBe(2));
     await waitFor(() => expect(workflowReads).toBe(2));
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
@@ -1423,7 +1486,7 @@ describe("operator route", () => {
       ...base.evidenceCandidates[0],
       id: "candidate_2",
       verificationCheckId: "check_2",
-      executionObservationId: "observation_2"
+      executionObservationId: "observation_2",
     };
     const runState = {
       ...base,
@@ -1437,39 +1500,44 @@ describe("operator route", () => {
             label: secondCandidate.claim,
             evidenceCandidateId: "candidate_2",
             result: "passed",
-            acceptancePolicyBasis: "owner_acceptance"
-          }
-        ]
+            acceptancePolicyBasis: "owner_acceptance",
+          },
+        ],
       },
       commandAffordances: [
-        enabledCommandAffordance("accept_evidence", [], [
-          { type: "work_run", id: "run_1" },
-          { type: "evidence_candidate", id: "candidate_1" },
-          { type: "evidence_candidate", id: "candidate_2" }
-        ])
-      ]
+        enabledCommandAffordance(
+          "accept_evidence",
+          [],
+          [
+            { type: "work_run", id: "run_1" },
+            { type: "evidence_candidate", id: "candidate_1" },
+            { type: "evidence_candidate", id: "candidate_2" },
+          ],
+        ),
+      ],
     };
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Suggested evidence"), {
-      target: { value: "candidate_2" }
+      target: { value: "candidate_2" },
     });
     fireEvent.change(screen.getByLabelText("Evidence title"), {
-      target: { value: "Second candidate" }
+      target: { value: "Second candidate" },
     });
     fireEvent.change(screen.getByLabelText("Evidence body"), {
-      target: { value: "Accept the affordance-scoped candidate." }
+      target: { value: "Accept the affordance-scoped candidate." },
     });
     fireEvent.change(screen.getByLabelText("Evidence result"), {
-      target: { value: "failed" }
+      target: { value: "failed" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
-    await waitFor(() => expect(lastVariablesFor(network, "OperatorAcceptEvidenceMutation"))
-      .toMatchObject({
-        input: { evidenceCandidateId: "candidate_2", result: "failed" }
-      }));
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorAcceptEvidenceMutation")).toMatchObject({
+        input: { evidenceCandidateId: "candidate_2", result: "failed" },
+      }),
+    );
   });
 
   it("falls back to a current candidate after an acceptance refresh", async () => {
@@ -1478,7 +1546,7 @@ describe("operator route", () => {
       ...base.evidenceCandidates[0],
       id: "candidate_2",
       verificationCheckId: "check_2",
-      executionObservationId: "observation_2"
+      executionObservationId: "observation_2",
     };
     const initialState = {
       ...base,
@@ -1492,27 +1560,35 @@ describe("operator route", () => {
             label: secondCandidate.claim,
             evidenceCandidateId: "candidate_2",
             result: "passed",
-            acceptancePolicyBasis: "owner_acceptance"
-          }
-        ]
+            acceptancePolicyBasis: "owner_acceptance",
+          },
+        ],
       },
       commandAffordances: [
-        enabledCommandAffordance("accept_evidence", [], [
-          { type: "work_run", id: "run_1" },
-          { type: "evidence_candidate", id: "candidate_1" },
-          { type: "evidence_candidate", id: "candidate_2" }
-        ])
-      ]
+        enabledCommandAffordance(
+          "accept_evidence",
+          [],
+          [
+            { type: "work_run", id: "run_1" },
+            { type: "evidence_candidate", id: "candidate_1" },
+            { type: "evidence_candidate", id: "candidate_2" },
+          ],
+        ),
+      ],
     };
     const refreshedState = {
       ...base,
       evidenceCandidates: [base.evidenceCandidates[0]],
       commandAffordances: [
-        enabledCommandAffordance("accept_evidence", [], [
-          { type: "work_run", id: "run_1" },
-          { type: "evidence_candidate", id: "candidate_1" }
-        ])
-      ]
+        enabledCommandAffordance(
+          "accept_evidence",
+          [],
+          [
+            { type: "work_run", id: "run_1" },
+            { type: "evidence_candidate", id: "candidate_1" },
+          ],
+        ),
+      ],
     };
     let runReads = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
@@ -1533,9 +1609,9 @@ describe("operator route", () => {
               evidenceCandidate: { id: "candidate_2", candidateState: "accepted" },
               evidenceItem: { id: "evidence_2", state: "accepted" },
               verificationResult: { id: "result_2", result: "passed" },
-              run: { id: "run_1", executionState: "completed", verificationState: "pending" }
-            }
-          }
+              run: { id: "run_1", executionState: "completed", verificationState: "pending" },
+            },
+          },
         };
       }
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -1543,27 +1619,29 @@ describe("operator route", () => {
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Suggested evidence"), {
-      target: { value: "candidate_2" }
+      target: { value: "candidate_2" },
     });
     fireEvent.change(screen.getByLabelText("Evidence title"), {
-      target: { value: "Candidate refresh" }
+      target: { value: "Candidate refresh" },
     });
     fireEvent.change(screen.getByLabelText("Evidence body"), {
-      target: { value: "Use only the current affordance target." }
+      target: { value: "Use only the current affordance target." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
     await waitFor(() => expect(runReads).toBe(2));
-    await waitFor(() => expect(screen.getByLabelText("Suggested evidence")).toHaveValue("candidate_1"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Suggested evidence")).toHaveValue("candidate_1"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Accept evidence" }));
 
     await waitFor(() => {
       const submissions = network.mock.calls.filter(
-        ([request]) => request.name === "OperatorAcceptEvidenceMutation"
+        ([request]) => request.name === "OperatorAcceptEvidenceMutation",
       );
       expect(submissions).toHaveLength(2);
       expect(submissions[1]?.[1]).toMatchObject({
-        input: { evidenceCandidateId: "candidate_1" }
+        input: { evidenceCandidateId: "candidate_1" },
       });
     });
   });
@@ -1573,7 +1651,7 @@ describe("operator route", () => {
     const secondObservation = {
       ...base.observations[0],
       id: "observation_2",
-      verificationCheckId: "check_2"
+      verificationCheckId: "check_2",
     };
     const runState = {
       ...base,
@@ -1586,40 +1664,45 @@ describe("operator route", () => {
             key: "observation_2",
             label: "Second observation",
             verificationCheckId: "check_2",
-            executionObservationId: "observation_2"
-          })
-        ]
+            executionObservationId: "observation_2",
+          }),
+        ],
       },
       missingEvidence: [
         ...base.missingEvidence,
-        { verificationCheckId: "check_2", reason: "missing" }
+        { verificationCheckId: "check_2", reason: "missing" },
       ],
       commandAffordances: [
         enabledCommandAffordance("create_evidence_candidate", [
           { field: "work_run_id", value: "run_1", values: [] },
           { field: "verification_check_id", value: null, values: ["check_1", "check_2"] },
-          { field: "execution_observation_id", value: null, values: ["observation_1", "observation_2"] }
-        ])
-      ]
+          {
+            field: "execution_observation_id",
+            value: null,
+            values: ["observation_1", "observation_2"],
+          },
+        ]),
+      ],
     };
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Evidence observation"), {
-      target: { value: "observation_2" }
+      target: { value: "observation_2" },
     });
     fireEvent.change(screen.getByLabelText("Evidence claim"), {
-      target: { value: "The second check passed." }
+      target: { value: "The second check passed." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Suggest evidence" }));
 
-    await waitFor(() => expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation"))
-      .toMatchObject({
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation")).toMatchObject({
         input: {
           executionObservationId: "observation_2",
-          verificationCheckId: "check_2"
-        }
-      }));
+          verificationCheckId: "check_2",
+        },
+      }),
+    );
   });
 
   it("waives the operator-selected required check", async () => {
@@ -1627,7 +1710,7 @@ describe("operator route", () => {
     const secondCheck = {
       ...base.requiredChecks[0],
       id: "required_2",
-      verificationCheckId: "check_2"
+      verificationCheckId: "check_2",
     };
     const runState = {
       ...base,
@@ -1643,35 +1726,36 @@ describe("operator route", () => {
             runRequiredCheckId: "required_2",
             expectedExecutionState: "completed",
             expectedVerificationState: "pending",
-            policyBasis: "security_exception"
-          }
-        ]
+            policyBasis: "security_exception",
+          },
+        ],
       },
       commandAffordances: [
         enabledCommandAffordance("waive_verification_check", [
           { field: "run_id", value: "run_1", values: [] },
           { field: "run_required_check_id", value: null, values: ["required_1", "required_2"] },
           { field: "expected_execution_state", value: "completed", values: [] },
-          { field: "expected_verification_state", value: "pending", values: [] }
-        ])
-      ]
+          { field: "expected_verification_state", value: "pending", values: [] },
+        ]),
+      ],
     };
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Required check"), {
-      target: { value: "required_2" }
+      target: { value: "required_2" },
     });
     expect(screen.getByLabelText("Policy basis")).toHaveValue("security_exception");
     fireEvent.change(screen.getByLabelText("Waiver reason"), {
-      target: { value: "Approved exception for the second check." }
+      target: { value: "Approved exception for the second check." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Waive verification check" }));
 
-    await waitFor(() => expect(lastVariablesFor(network, "OperatorWaiveVerificationCheckMutation"))
-      .toMatchObject({
-        input: { runRequiredCheckId: "required_2", policyBasis: "security_exception" }
-      }));
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorWaiveVerificationCheckMutation")).toMatchObject({
+        input: { runRequiredCheckId: "required_2", policyBasis: "security_exception" },
+      }),
+    );
   });
 
   it("records the operator-selected check and failed outcome", async () => {
@@ -1680,7 +1764,7 @@ describe("operator route", () => {
       ...base,
       missingEvidence: [
         ...base.missingEvidence,
-        { verificationCheckId: "check_2", reason: "missing" }
+        { verificationCheckId: "check_2", reason: "missing" },
       ],
       requiredChecks: [
         ...base.requiredChecks,
@@ -1688,8 +1772,8 @@ describe("operator route", () => {
           id: "required_2",
           graphItemId: "graph_2",
           verificationCheckId: "check_2",
-          state: "open"
-        }
+          state: "open",
+        },
       ],
       commandOptions: {
         ...base.commandOptions,
@@ -1706,45 +1790,50 @@ describe("operator route", () => {
                 key: "degraded",
                 label: "Needs attention",
                 observedStatus: "failed",
-                normalizedStatus: "attention_required"
-              }
-            ]
-          })
-        ]
+                normalizedStatus: "attention_required",
+              },
+            ],
+          }),
+        ],
       },
       commandAffordances: [
-        enabledCommandAffordance("record_execution_observation", [
-          { field: "run_id", value: "run_1", values: [] }
-        ], [
-          { type: "work_run", id: "run_1" },
-          { type: "verification_check", id: "check_1" },
-          { type: "verification_check", id: "check_2" }
-        ])
-      ]
+        enabledCommandAffordance(
+          "record_execution_observation",
+          [{ field: "run_id", value: "run_1", values: [] }],
+          [
+            { type: "work_run", id: "run_1" },
+            { type: "verification_check", id: "check_1" },
+            { type: "verification_check", id: "check_2" },
+          ],
+        ),
+      ],
     };
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
     fireEvent.change(await screen.findByLabelText("Verification check"), {
-      target: { value: "required_2" }
+      target: { value: "required_2" },
     });
     fireEvent.change(screen.getByLabelText("Observation outcome"), {
-      target: { value: "degraded" }
+      target: { value: "degraded" },
     });
     fireEvent.change(screen.getByLabelText("Observation rationale"), {
-      target: { value: "The second check failed." }
+      target: { value: "The second check failed." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Record execution observation" }));
 
-    await waitFor(() => expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation"))
-      .toMatchObject({
-        input: {
-          verificationCheckId: "check_2",
-          sourceGraphItemId: "graph_2",
-          observedStatus: "failed",
-          normalizedStatus: "attention_required"
-        }
-      }));
+    await waitFor(() =>
+      expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation")).toMatchObject(
+        {
+          input: {
+            verificationCheckId: "check_2",
+            sourceGraphItemId: "graph_2",
+            observedStatus: "failed",
+            normalizedStatus: "attention_required",
+          },
+        },
+      ),
+    );
   });
 
   it("uses complete typed options when parallel run collections are redacted", async () => {
@@ -1753,7 +1842,7 @@ describe("operator route", () => {
       observations: [],
       commandAffordances: [
         enabledCommandAffordance("record_execution_observation"),
-        enabledCommandAffordance("create_evidence_candidate")
+        enabledCommandAffordance("create_evidence_candidate"),
       ],
       commandOptions: {
         observation: [
@@ -1761,8 +1850,8 @@ describe("operator route", () => {
             key: "required_2",
             label: "Payroll import check",
             verificationCheckId: "check_2",
-            sourceGraphItemId: "graph_2"
-          })
+            sourceGraphItemId: "graph_2",
+          }),
         ],
         evidenceCandidate: [
           evidenceCandidateCommandOption({
@@ -1770,12 +1859,12 @@ describe("operator route", () => {
             label: "Payroll import evidence",
             verificationCheckId: "check_2",
             executionObservationId: "observation_2",
-            sourceIdentity: "manual:approved-source"
-          })
+            sourceIdentity: "manual:approved-source",
+          }),
         ],
         evidenceAcceptance: [],
-        waiver: []
-      }
+        waiver: [],
+      },
     });
     const network = operatorCommandNetwork(runState);
 
@@ -1783,30 +1872,32 @@ describe("operator route", () => {
 
     expect(await screen.findByRole("option", { name: "Payroll import check" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Observation outcome"), {
-      target: { value: "failed" }
+      target: { value: "failed" },
     });
     fireEvent.change(screen.getByLabelText("Observation rationale"), {
-      target: { value: "The approved option failed." }
+      target: { value: "The approved option failed." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Record execution observation" }));
 
     await waitFor(() =>
-      expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation")).toMatchObject({
-        input: {
-          runId: "run_1",
-          verificationCheckId: "check_2",
-          sourceGraphItemId: "graph_2",
-          observationSourceKind: "human",
-          observationSourceIdentity: "operator-console",
-          freshnessState: "fresh",
-          trustBasis: "owner_attested"
-        }
-      })
+      expect(lastVariablesFor(network, "OperatorRecordExecutionObservationMutation")).toMatchObject(
+        {
+          input: {
+            runId: "run_1",
+            verificationCheckId: "check_2",
+            sourceGraphItemId: "graph_2",
+            observationSourceKind: "human",
+            observationSourceIdentity: "operator-console",
+            freshnessState: "fresh",
+            trustBasis: "owner_attested",
+          },
+        },
+      ),
     );
 
     expect(screen.getByRole("option", { name: "Payroll import evidence" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Evidence claim"), {
-      target: { value: "Approved evidence option." }
+      target: { value: "Approved evidence option." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Suggest evidence" }));
 
@@ -1820,9 +1911,9 @@ describe("operator route", () => {
           sourceIdentity: "manual:approved-source",
           freshnessState: "fresh",
           trustBasis: "owner_attested",
-          sensitivity: "internal"
-        }
-      })
+          sensitivity: "internal",
+        },
+      }),
     );
   });
 
@@ -1833,14 +1924,14 @@ describe("operator route", () => {
         observation: [observationCommandOption({ sourceGraphItemId: "  [REDACTED]  " })],
         evidenceCandidate: [],
         evidenceAcceptance: [],
-        waiver: []
-      }
+        waiver: [],
+      },
     });
 
     renderWithRelay(<OperatorRoute />, operatorCommandNetwork(runState));
 
     fireEvent.change(await screen.findByLabelText("Observation rationale"), {
-      target: { value: "Malformed projected option must stay disabled." }
+      target: { value: "Malformed projected option must stay disabled." },
     });
     expect(screen.getByRole("button", { name: "Record execution observation" })).toBeDisabled();
   });
@@ -1850,8 +1941,8 @@ describe("operator route", () => {
       defaultOutcomeKey: "missing",
       outcomes: [
         { key: "same", label: "First", observedStatus: "first", normalizedStatus: "first" },
-        { key: "same", label: "Second", observedStatus: "second", normalizedStatus: "second" }
-      ]
+        { key: "same", label: "Second", observedStatus: "second", normalizedStatus: "second" },
+      ],
     });
     const runState = operatorRunState({
       commandAffordances: [enabledCommandAffordance("record_execution_observation")],
@@ -1859,14 +1950,14 @@ describe("operator route", () => {
         observation: [duplicate],
         evidenceCandidate: [],
         evidenceAcceptance: [],
-        waiver: []
-      }
+        waiver: [],
+      },
     });
 
     renderWithRelay(<OperatorRoute />, operatorCommandNetwork(runState));
 
     fireEvent.change(await screen.findByLabelText("Observation rationale"), {
-      target: { value: "Invalid outcome bundles cannot submit." }
+      target: { value: "Invalid outcome bundles cannot submit." },
     });
     expect(screen.getByRole("button", { name: "Record execution observation" })).toBeDisabled();
   });
@@ -1875,9 +1966,9 @@ describe("operator route", () => {
     const workflowItem = operatorWorkflowItem({
       commandAffordances: [
         enabledCommandAffordance("start_work_run", [
-          { field: "packet_version_id", value: "version_1", values: [] }
-        ])
-      ]
+          { field: "packet_version_id", value: "version_1", values: [] },
+        ]),
+      ],
     });
 
     renderWithRelay(<OperatorRoute />, createOperatorNetwork({ workflowItems: [workflowItem] }));
@@ -1887,40 +1978,60 @@ describe("operator route", () => {
   });
 
   it("renders remaining run forms only from exact enabled affordances", async () => {
-    const enabled = (identity: string, inputDefaults: CommandAffordancePayload["inputDefaults"] = []) => ({
-      identity, state: "enabled", reasonCodes: [], blockerReasons: [],
-      safeExplanation: `${identity} is available.`, requiredFields: [], inputDefaults,
-      targetIds: [], traceLinks: [], decisionLinks: []
+    const enabled = (
+      identity: string,
+      inputDefaults: CommandAffordancePayload["inputDefaults"] = [],
+    ) => ({
+      identity,
+      state: "enabled",
+      reasonCodes: [],
+      blockerReasons: [],
+      safeExplanation: `${identity} is available.`,
+      requiredFields: [],
+      inputDefaults,
+      targetIds: [],
+      traceLinks: [],
+      decisionLinks: [],
     });
     const workflowItem = operatorWorkflowItem({
       commandAffordances: [
         enabled("start_work_run", [
           { field: "packet_version_id", value: "version_1", values: [] },
-          { field: "authority_posture", value: "human_supervised", values: [] }
-        ])
+          { field: "authority_posture", value: "human_supervised", values: [] },
+        ]),
       ],
       graphLinks: [
-        { type: "work_packet_version", id: "version_1", graphItemId: null, title: "Version 1", state: "ready" },
-        { type: "work_run", id: "run_1", graphItemId: null, title: "Run 1", state: "running" }
-      ]
+        {
+          type: "work_packet_version",
+          id: "version_1",
+          graphItemId: null,
+          title: "Version 1",
+          state: "ready",
+        },
+        { type: "work_run", id: "run_1", graphItemId: null, title: "Run 1", state: "running" },
+      ],
     });
-    const runState = operatorRunState({ commandAffordances: [
-      enabled("record_execution_observation", [{ field: "run_id", value: "run_1", values: [] }]),
-      enabled("create_evidence_candidate", [
-        { field: "work_run_id", value: "run_1", values: [] },
-        { field: "verification_check_id", value: null, values: ["check_1"] },
-        { field: "execution_observation_id", value: null, values: ["observation_1"] }
-      ]),
-      enabled("waive_verification_check", [
-        { field: "run_id", value: "run_1", values: [] },
-        { field: "run_required_check_id", value: null, values: ["required_1"] }
-      ])
-    ] });
+    const runState = operatorRunState({
+      commandAffordances: [
+        enabled("record_execution_observation", [{ field: "run_id", value: "run_1", values: [] }]),
+        enabled("create_evidence_candidate", [
+          { field: "work_run_id", value: "run_1", values: [] },
+          { field: "verification_check_id", value: null, values: ["check_1"] },
+          { field: "execution_observation_id", value: null, values: ["observation_1"] },
+        ]),
+        enabled("waive_verification_check", [
+          { field: "run_id", value: "run_1", values: [] },
+          { field: "run_required_check_id", value: null, values: ["required_1"] },
+        ]),
+      ],
+    });
     const network = createOperatorNetwork({ workflowItems: [workflowItem], runState });
 
     renderWithRelay(<OperatorRoute />, network);
 
-    expect(await screen.findByRole("button", { name: "Record execution observation" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Record execution observation" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Suggest evidence" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Waive verification check" })).toBeInTheDocument();
@@ -1944,33 +2055,27 @@ function operatorCommandNetwork(runState: ReturnType<typeof operatorRunState>) {
 }
 
 function lastVariablesFor(network: ReturnType<typeof vi.fn>, requestName: string) {
-  return [...network.mock.calls]
-    .reverse()
-    .find(([request]) => request.name === requestName)?.[1];
+  return [...network.mock.calls].reverse().find(([request]) => request.name === requestName)?.[1];
 }
 
-function renderWithRelay(
-  ui: ReactElement,
-  network: FetchFunction,
-  initialEntry = "/operator"
-) {
+function renderWithRelay(ui: ReactElement, network: FetchFunction, initialEntry = "/operator") {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
-    store: new Store(new RecordSource())
+    store: new Store(new RecordSource()),
   });
 
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 
 function createOperatorNetwork({
   workflowItems,
   readiness,
-  runState
+  runState,
 }: {
   workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null;
   readiness?: ReturnType<typeof operatorPacketReadiness>;
@@ -1984,16 +2089,16 @@ function createOperatorNetwork({
     if (request.name === "OperatorPacketReadinessQuery") {
       return {
         data: {
-          operatorPacketReadiness: readiness ?? operatorPacketReadiness()
-        }
+          operatorPacketReadiness: readiness ?? operatorPacketReadiness(),
+        },
       };
     }
 
     if (request.name === "OperatorRunStateQuery") {
       return {
         data: {
-          operatorRunState: runState ?? operatorRunState()
-        }
+          operatorRunState: runState ?? operatorRunState(),
+        },
       };
     }
 
@@ -2005,14 +2110,16 @@ function workflowConnectionResponse(
   workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null,
   variables: Readonly<Record<string, unknown>>,
   pageInfoOverrides: Partial<OperatorWorkflowPageInfoPayload> = {},
-  manualIntakeAffordance: CommandAffordancePayload = enabledCommandAffordance("submit_manual_intake")
+  manualIntakeAffordance: CommandAffordancePayload = enabledCommandAffordance(
+    "submit_manual_intake",
+  ),
 ): GraphQLResponse {
   if (workflowItems === null) {
     return {
       data: {
         operatorManualIntakeAffordance: manualIntakeAffordance,
-        operatorWorkflowItems: null
-      }
+        operatorWorkflowItems: null,
+      },
     };
   }
 
@@ -2022,17 +2129,17 @@ function workflowConnectionResponse(
       operatorWorkflowItems: {
         edges: workflowItems.map((node, index) => ({
           cursor: `cursor_${index + 1}`,
-          node
+          node,
         })),
         pageInfo: {
           hasNextPage: false,
           hasPreviousPage: Boolean(variables.after),
           startCursor: workflowItems.length > 0 ? "cursor_1" : null,
           endCursor: workflowItems.length > 0 ? `cursor_${workflowItems.length}` : null,
-          ...pageInfoOverrides
-        }
-      }
-    }
+          ...pageInfoOverrides,
+        },
+      },
+    },
   };
 }
 
@@ -2053,18 +2160,18 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
       id: "check_1",
       graphItemId: "graph_1",
       title: "Run console verification",
-      state: "required"
+      state: "required",
     },
     {
       type: "work_run",
       id: "run_1",
       graphItemId: null,
       title: "Console verification run",
-      state: "running"
-    }
+      state: "running",
+    },
   ];
   const commandAffordances = overrides.commandAffordances ?? [
-    preparePacketCommandForGraphLinks(graphLinks)
+    preparePacketCommandForGraphLinks(graphLinks),
   ];
 
   return {
@@ -2077,14 +2184,14 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     title,
     sourceSummary: `manual:operator-console · ${title}`,
     proposedActionPreviews: [
-      { action: "create_signal", title: "Run console verification", status: "pending" }
+      { action: "create_signal", title: "Run console verification", status: "pending" },
     ],
     status: "ready_for_packet",
     reasonCodes: [],
     source: {
       identity: "manual:operator-console",
       replayIdentity: "paste:operator-console",
-      outcome: "accepted"
+      outcome: "accepted",
     },
     proposedChangeStatus: { pending: 4, applied: 0, rejected: 0, total: 4 },
     blockerReasons: [],
@@ -2097,21 +2204,21 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     relationshipSummary: {
       graphLinks: graphLinks.length,
       graphRelationships: 0,
-      hasMore: false
+      hasMore: false,
     },
     auditTrace: { operationId: null, resourceCount: 0, resources: [] },
     revisionTrace: { operationId: "operation_1", resourceCount: 2, resources: [] },
-    ...overrides
+    ...overrides,
   };
 }
 
 function preparePacketCommandForGraphLinks(
-  graphLinks: OperatorWorkflowItemPayload["graphLinks"]
+  graphLinks: OperatorWorkflowItemPayload["graphLinks"],
 ): CommandAffordancePayload {
   const verificationCheck = graphLinks.find((link) => link.type === "verification_check");
   const title = verificationCheck?.title ?? "Run console verification";
   const sourceGraphItemIds = graphLinks.flatMap((link) =>
-    link.graphItemId && link.type !== "work_run" ? [link.graphItemId] : []
+    link.graphItemId && link.type !== "work_run" ? [link.graphItemId] : [],
   );
   const verificationCheckIds = graphLinks
     .filter((link) => link.type === "verification_check")
@@ -2131,7 +2238,7 @@ function preparePacketCommandForGraphLinks(
       "success_criteria",
       "autonomy_posture",
       "source_graph_item_ids",
-      "verification_check_ids"
+      "verification_check_ids",
     ],
     inputDefaults: [
       { field: "title", value: title, values: [] },
@@ -2142,19 +2249,23 @@ function preparePacketCommandForGraphLinks(
       { field: "autonomy_posture", value: "human_supervised", values: [] },
       { field: "source_graph_item_ids", value: null, values: sourceGraphItemIds },
       { field: "verification_check_ids", value: null, values: verificationCheckIds },
-      { field: "primary_source_graph_item_id", value: verificationCheck?.graphItemId ?? null, values: [] },
-      { field: "primary_verification_check_id", value: verificationCheck?.id ?? null, values: [] }
+      {
+        field: "primary_source_graph_item_id",
+        value: verificationCheck?.graphItemId ?? null,
+        values: [],
+      },
+      { field: "primary_verification_check_id", value: verificationCheck?.id ?? null, values: [] },
     ],
     targetIds: verificationCheck ? [{ type: "verification_check", id: verificationCheck.id }] : [],
     traceLinks: [],
-    decisionLinks: []
+    decisionLinks: [],
   };
 }
 
 function enabledCommandAffordance(
   identity: string,
   inputDefaults: CommandAffordancePayload["inputDefaults"] = [],
-  targetIds: CommandAffordancePayload["targetIds"] = []
+  targetIds: CommandAffordancePayload["targetIds"] = [],
 ): CommandAffordancePayload {
   return {
     identity,
@@ -2166,7 +2277,7 @@ function enabledCommandAffordance(
     inputDefaults,
     targetIds,
     traceLinks: [],
-    decisionLinks: []
+    decisionLinks: [],
   };
 }
 
@@ -2187,8 +2298,8 @@ function operatorPacketReadiness(overrides: Partial<OperatorPacketReadinessPaylo
         inputDefaults: [],
         targetIds: [],
         traceLinks: [],
-        decisionLinks: []
-      }
+        decisionLinks: [],
+      },
     ],
     blockerReasons: [],
     sourceLinks: [
@@ -2196,12 +2307,12 @@ function operatorPacketReadiness(overrides: Partial<OperatorPacketReadinessPaylo
         type: "verification_check",
         id: "check_1",
         graphItemId: "graph_1",
-        title: "Run console verification"
-      }
+        title: "Run console verification",
+      },
     ],
     requiredChecks: [{ id: "check_1", graphItemId: "graph_1", state: "required" }],
     sourceWatermark: "op_123",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -2221,8 +2332,8 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         inputDefaults: [],
         targetIds: [{ type: "evidence_candidate", id: "candidate_1" }],
         traceLinks: [],
-        decisionLinks: []
-      }
+        decisionLinks: [],
+      },
     ],
     commandOptions: {
       observation: [observationCommandOption()],
@@ -2233,8 +2344,8 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
           label: "Run console verification",
           evidenceCandidateId: "candidate_1",
           result: "passed",
-          acceptancePolicyBasis: "owner_acceptance"
-        }
+          acceptancePolicyBasis: "owner_acceptance",
+        },
       ],
       waiver: [
         {
@@ -2244,16 +2355,16 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
           runRequiredCheckId: "required_1",
           expectedExecutionState: "completed",
           expectedVerificationState: "pending",
-          policyBasis: "owner_exception"
-        }
-      ]
+          policyBasis: "owner_exception",
+        },
+      ],
     },
     commandOptionsOverflow: false,
     commandOptionSummary: {
       observation: 1,
       evidenceCandidate: 1,
       evidenceAcceptance: 1,
-      waiver: 1
+      waiver: 1,
     },
     childSummary: {
       requiredChecks: 1,
@@ -2262,7 +2373,7 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
       evidenceItems: 0,
       verificationResults: 1,
       missingEvidence: 1,
-      hasMore: false
+      hasMore: false,
     },
     activity: {
       edges: [
@@ -2272,16 +2383,16 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
             kind: "required_check",
             stableId: "required_1",
             title: "Run console verification",
-            status: "open"
-          }
-        }
+            status: "open",
+          },
+        },
       ],
       pageInfo: {
         hasNextPage: false,
         hasPreviousPage: false,
         startCursor: "activity_cursor_1",
-        endCursor: "activity_cursor_1"
-      }
+        endCursor: "activity_cursor_1",
+      },
     },
     sourceWatermark: "run_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
@@ -2289,15 +2400,17 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
       id: "version_1",
       versionNumber: 1,
       lifecycleState: "active",
-      objective: "Verify the operator console renders workflow state."
+      objective: "Verify the operator console renders workflow state.",
     },
     run: {
       id: "run_1",
       aggregateState: "running",
       executionState: "completed",
-      verificationState: "pending"
+      verificationState: "pending",
     },
-    requiredChecks: [{ id: "required_1", graphItemId: "graph_1", verificationCheckId: "check_1", state: "open" }],
+    requiredChecks: [
+      { id: "required_1", graphItemId: "graph_1", verificationCheckId: "check_1", state: "open" },
+    ],
     observations: [
       {
         id: "observation_1",
@@ -2307,8 +2420,8 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         freshnessState: "fresh",
         trustBasis: "owner_attested",
         sourceKind: "human",
-        sourceIdentity: "manual:operator-console"
-      }
+        sourceIdentity: "manual:operator-console",
+      },
     ],
     evidenceCandidates: [
       {
@@ -2320,8 +2433,8 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         freshnessState: "fresh",
         trustBasis: "owner_attested",
         sourceKind: "human",
-        sourceIdentity: "manual:operator-console"
-      }
+        sourceIdentity: "manual:operator-console",
+      },
     ],
     evidenceItems: [],
     verificationResults: [
@@ -2335,11 +2448,11 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         policyBasis: "owner_acceptance",
         targetGraphItemId: "graph_1",
         workRunId: "run_1",
-        workPacketVersionId: "version_1"
-      }
+        workPacketVersionId: "version_1",
+      },
     ],
     missingEvidence: [{ verificationCheckId: "check_1", reason: "missing_accepted_evidence" }],
-    ...overrides
+    ...overrides,
   };
 
   if (overrides.commandOptions) {
@@ -2356,10 +2469,10 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
                 key: check.id,
                 label: check.verificationCheckId,
                 verificationCheckId: check.verificationCheckId,
-                sourceGraphItemId: check.graphItemId
-              })
+                sourceGraphItemId: check.graphItemId,
+              }),
             ]
-          : []
+          : [],
       ),
       evidenceCandidate: state.observations.flatMap((observation) =>
         observation.verificationCheckId
@@ -2372,17 +2485,17 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
                 sourceKind: observation.sourceKind,
                 sourceIdentity: observation.sourceIdentity,
                 freshnessState: observation.freshnessState,
-                trustBasis: observation.trustBasis
-              })
+                trustBasis: observation.trustBasis,
+              }),
             ]
-          : []
+          : [],
       ),
       evidenceAcceptance: state.evidenceCandidates.map((candidate) => ({
         key: candidate.id,
         label: candidate.claim,
         evidenceCandidateId: candidate.id,
         result: "passed",
-        acceptancePolicyBasis: "owner_acceptance"
+        acceptancePolicyBasis: "owner_acceptance",
       })),
       waiver: state.requiredChecks.map((check) => ({
         key: check.id,
@@ -2391,9 +2504,9 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         runRequiredCheckId: check.id,
         expectedExecutionState: state.run.executionState,
         expectedVerificationState: state.run.verificationState,
-        policyBasis: "owner_exception"
-      }))
-    }
+        policyBasis: "owner_exception",
+      })),
+    },
   };
 }
 
@@ -2414,21 +2527,21 @@ function observationCommandOption(overrides: Partial<ObservationCommandOptionPay
         key: "succeeded",
         label: "Succeeded",
         observedStatus: "succeeded",
-        normalizedStatus: "succeeded"
+        normalizedStatus: "succeeded",
       },
       {
         key: "failed",
         label: "Failed",
         observedStatus: "failed",
-        normalizedStatus: "failed"
-      }
+        normalizedStatus: "failed",
+      },
     ],
-    ...overrides
+    ...overrides,
   };
 }
 
 function evidenceCandidateCommandOption(
-  overrides: Partial<EvidenceCandidateCommandOptionPayload> = {}
+  overrides: Partial<EvidenceCandidateCommandOptionPayload> = {},
 ) {
   return {
     key: "observation_1",
@@ -2441,7 +2554,7 @@ function evidenceCandidateCommandOption(
     freshnessState: "fresh",
     trustBasis: "owner_attested",
     sensitivity: "internal",
-    ...overrides
+    ...overrides,
   };
 }
 

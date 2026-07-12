@@ -11,7 +11,7 @@ describe("GraphQL schema generation prerequisites", () => {
     const result = spawnSync(process.execPath, [scriptPath, "--check"], {
       cwd: assetsRoot,
       encoding: "utf8",
-      env: { ...process.env, PATH: "" }
+      env: { ...process.env, PATH: "" },
     });
 
     expect(result.status).toBe(1);

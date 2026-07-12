@@ -10,11 +10,11 @@ import { RunCommandForm } from "./components/RunCommandForm";
 import { PacketCommandForm } from "./components/PacketCommandForm";
 import {
   OperatorRunCommandOptionPageConnectionFragment,
-  OperatorRunCommandOptionPageQuery
+  OperatorRunCommandOptionPageQuery,
 } from "./data";
 import type {
   OperatorRunCommandOptionPageConnectionFragment$data,
-  OperatorRunCommandOptionPageConnectionFragment$key
+  OperatorRunCommandOptionPageConnectionFragment$key,
 } from "../../relay/__generated__/OperatorRunCommandOptionPageConnectionFragment.graphql";
 import type { OperatorRunCommandOptionPageQuery as OperatorRunCommandOptionPageOperation } from "../../relay/__generated__/OperatorRunCommandOptionPageQuery.graphql";
 import { verificationOutcomeFromRunState } from "./derived";
@@ -23,7 +23,7 @@ import {
   type PacketReadinessState,
   type OperatorRunState,
   useOperatorRunState,
-  useValidatedPacketReadiness
+  useValidatedPacketReadiness,
 } from "./workflow";
 
 type Props = {
@@ -41,7 +41,7 @@ export function OperatorInspector({
   readinessInput,
   onRefresh,
   runId,
-  selectedId
+  selectedId,
 }: Props) {
   const [validationRequested, setValidationRequested] = useState(false);
 
@@ -51,15 +51,15 @@ export function OperatorInspector({
         <AsyncBoundary
           errorFallback={<ReadinessPanelError onRetry={onRefresh} />}
           loadingFallback={
-            <ReadinessPanel
-              isValidating
-              readiness={readiness}
-              readinessInput={readinessInput}
-            />
+            <ReadinessPanel isValidating readiness={readiness} readinessInput={readinessInput} />
           }
           resetKey={`${selectedId ?? "none"}:readiness:requested:${fetchKey}`}
         >
-          <ValidatedReadinessPanel fetchKey={fetchKey} input={readinessInput} onRefresh={onRefresh} />
+          <ValidatedReadinessPanel
+            fetchKey={fetchKey}
+            input={readinessInput}
+            onRefresh={onRefresh}
+          />
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
@@ -73,19 +73,34 @@ export function OperatorInspector({
   );
 }
 
-function ValidatedReadinessPanel({ fetchKey, input, onRefresh }: { fetchKey: number; input: PacketReadinessInput; onRefresh: () => void }) {
+function ValidatedReadinessPanel({
+  fetchKey,
+  input,
+  onRefresh,
+}: {
+  fetchKey: number;
+  input: PacketReadinessInput;
+  onRefresh: () => void;
+}) {
   const readiness = useValidatedPacketReadiness(input, fetchKey);
 
-  return <>
-    <ReadinessPanel readiness={readiness} readinessInput={input} />
-    <PacketCommandForm item={null} onRefresh={onRefresh} readiness={readiness} readinessInput={input} />
-  </>;
+  return (
+    <>
+      <ReadinessPanel readiness={readiness} readinessInput={input} />
+      <PacketCommandForm
+        item={null}
+        onRefresh={onRefresh}
+        readiness={readiness}
+        readinessInput={input}
+      />
+    </>
+  );
 }
 
 function RunStatePanels({
   runId,
   onRefresh,
-  selectedId
+  selectedId,
 }: {
   runId: string | null;
   onRefresh: () => void;
@@ -93,7 +108,7 @@ function RunStatePanels({
 }) {
   const [fetchKey, setFetchKey] = useState(0);
   const refresh = useCallback(() => {
-    startTransition(() => setFetchKey(key => key + 1));
+    startTransition(() => setFetchKey((key) => key + 1));
     onRefresh();
   }, [onRefresh]);
   if (!runId) {
@@ -127,7 +142,15 @@ function RunStatePanels({
   );
 }
 
-function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number; onRefresh: () => void; runId: string }) {
+function LoadedRunStatePanels({
+  fetchKey,
+  onRefresh,
+  runId,
+}: {
+  fetchKey: number;
+  onRefresh: () => void;
+  runId: string;
+}) {
   const [activityCursors, setActivityCursors] = useState<Array<string | null>>([null]);
   const activityAfter = activityCursors.at(-1) ?? null;
   const runState = useOperatorRunState(runId, fetchKey, activityAfter);
@@ -138,22 +161,17 @@ function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number
       <RunPanel
         onNextActivityPage={() => {
           const cursor = runState.activity?.pageInfo.endCursor;
-          if (cursor) setActivityCursors(cursors => [...cursors, cursor]);
+          if (cursor) setActivityCursors((cursors) => [...cursors, cursor]);
         }}
         onPreviousActivityPage={() =>
-          setActivityCursors(cursors => cursors.length > 1 ? cursors.slice(0, -1) : cursors)
+          setActivityCursors((cursors) => (cursors.length > 1 ? cursors.slice(0, -1) : cursors))
         }
         runId={runId}
         runState={runState}
         state="loaded"
       />
       {runState.commandOptionsOverflow ? (
-        <PagedCommandForms
-          key={runId}
-          onRefresh={onRefresh}
-          runId={runId}
-          runState={runState}
-        />
+        <PagedCommandForms key={runId} onRefresh={onRefresh} runId={runId} runState={runState} />
       ) : (
         <>
           <RunCommandForm onRefresh={onRefresh} runState={runState} />
@@ -168,7 +186,7 @@ function LoadedRunStatePanels({ fetchKey, onRefresh, runId }: { fetchKey: number
 function PagedCommandForms({
   onRefresh,
   runId,
-  runState
+  runState,
 }: {
   onRefresh: () => void;
   runId: string;
@@ -178,14 +196,14 @@ function PagedCommandForms({
     observation: [null],
     evidenceCandidate: [null],
     evidenceAcceptance: [null],
-    waiver: [null]
+    waiver: [null],
   });
   const summary = runState.commandOptionSummary;
   const overflow = {
     observation: summary.observation > 20,
     evidenceCandidate: summary.evidenceCandidate > 20,
     evidenceAcceptance: summary.evidenceAcceptance > 20,
-    waiver: summary.waiver > 20
+    waiver: summary.waiver > 20,
   };
   const data = useLazyLoadQuery<OperatorRunCommandOptionPageOperation>(
     OperatorRunCommandOptionPageQuery,
@@ -199,13 +217,13 @@ function PagedCommandForms({
       loadObservation: overflow.observation,
       loadEvidenceCandidate: overflow.evidenceCandidate,
       loadEvidenceAcceptance: overflow.evidenceAcceptance,
-      loadWaiver: overflow.waiver
+      loadWaiver: overflow.waiver,
     },
-    { fetchPolicy: "network-only" }
+    { fetchPolicy: "network-only" },
   );
   const page = <K extends keyof typeof cursors>(
     key: K,
-    connection: OptionConnection | null | undefined
+    connection: OptionConnection | null | undefined,
   ) => ({
     ...commandOptionPageData(connection),
     options: commandOptionPageData(connection).options,
@@ -213,12 +231,13 @@ function PagedCommandForms({
     hasPrevious: commandOptionPageData(connection).hasPrevious,
     next: () => {
       const cursor = commandOptionPageData(connection).endCursor;
-      if (cursor) setCursors(current => ({ ...current, [key]: [...current[key], cursor] }));
+      if (cursor) setCursors((current) => ({ ...current, [key]: [...current[key], cursor] }));
     },
-    previous: () => setCursors(current => ({
-      ...current,
-      [key]: current[key].length > 1 ? current[key].slice(0, -1) : current[key]
-    }))
+    previous: () =>
+      setCursors((current) => ({
+        ...current,
+        [key]: current[key].length > 1 ? current[key].slice(0, -1) : current[key],
+      })),
   });
   const observation = page("observation", data.observation);
   const evidenceCandidate = page("evidenceCandidate", data.evidenceCandidate);
@@ -227,46 +246,74 @@ function PagedCommandForms({
   const pagedRunState: OperatorRunState = {
     ...runState,
     commandOptions: {
-      observation: overflow.observation ? observation.options.flatMap(choice => choice.observation ? [choice.observation] : []) : runState.commandOptions.observation,
-      evidenceCandidate: overflow.evidenceCandidate ? evidenceCandidate.options.flatMap(choice => choice.evidenceCandidate ? [choice.evidenceCandidate] : []) : runState.commandOptions.evidenceCandidate,
-      evidenceAcceptance: overflow.evidenceAcceptance ? evidenceAcceptance.options.flatMap(choice => choice.evidenceAcceptance ? [choice.evidenceAcceptance] : []) : runState.commandOptions.evidenceAcceptance,
-      waiver: overflow.waiver ? waiver.options.flatMap(choice => choice.waiver ? [choice.waiver] : []) : runState.commandOptions.waiver
-    }
+      observation: overflow.observation
+        ? observation.options.flatMap((choice) => (choice.observation ? [choice.observation] : []))
+        : runState.commandOptions.observation,
+      evidenceCandidate: overflow.evidenceCandidate
+        ? evidenceCandidate.options.flatMap((choice) =>
+            choice.evidenceCandidate ? [choice.evidenceCandidate] : [],
+          )
+        : runState.commandOptions.evidenceCandidate,
+      evidenceAcceptance: overflow.evidenceAcceptance
+        ? evidenceAcceptance.options.flatMap((choice) =>
+            choice.evidenceAcceptance ? [choice.evidenceAcceptance] : [],
+          )
+        : runState.commandOptions.evidenceAcceptance,
+      waiver: overflow.waiver
+        ? waiver.options.flatMap((choice) => (choice.waiver ? [choice.waiver] : []))
+        : runState.commandOptions.waiver,
+    },
   };
 
-  return <>
-    <RunCommandForm onRefresh={onRefresh} runState={pagedRunState} />
-    {overflow.observation ? <ChoicePagination label="observation choices" page={observation} /> : null}
-    <EvidenceCommandForm onRefresh={onRefresh} runState={pagedRunState} />
-    {overflow.evidenceCandidate ? <ChoicePagination label="suggested evidence choices" page={evidenceCandidate} /> : null}
-    {overflow.evidenceAcceptance ? <ChoicePagination label="evidence acceptance choices" page={evidenceAcceptance} /> : null}
-    {overflow.waiver ? <ChoicePagination label="waiver choices" page={waiver} /> : null}
-  </>;
+  return (
+    <>
+      <RunCommandForm onRefresh={onRefresh} runState={pagedRunState} />
+      {overflow.observation ? (
+        <ChoicePagination label="observation choices" page={observation} />
+      ) : null}
+      <EvidenceCommandForm onRefresh={onRefresh} runState={pagedRunState} />
+      {overflow.evidenceCandidate ? (
+        <ChoicePagination label="suggested evidence choices" page={evidenceCandidate} />
+      ) : null}
+      {overflow.evidenceAcceptance ? (
+        <ChoicePagination label="evidence acceptance choices" page={evidenceAcceptance} />
+      ) : null}
+      {overflow.waiver ? <ChoicePagination label="waiver choices" page={waiver} /> : null}
+    </>
+  );
 }
 
 type CommandOptionKind = "observation" | "evidenceCandidate" | "evidenceAcceptance" | "waiver";
-type OptionConnection = NonNullable<OperatorRunCommandOptionPageOperation["response"]["observation"]>;
-type ChoicePage = { hasNext: boolean; hasPrevious: boolean; next: () => void; previous: () => void };
+type OptionConnection = NonNullable<
+  OperatorRunCommandOptionPageOperation["response"]["observation"]
+>;
+type ChoicePage = {
+  hasNext: boolean;
+  hasPrevious: boolean;
+  next: () => void;
+  previous: () => void;
+};
 
 function commandOptionPageData(connection: OptionConnection | null | undefined) {
   if (!connection) return { options: [], hasNext: false, hasPrevious: false, endCursor: null };
-  const data: OperatorRunCommandOptionPageConnectionFragment$data = readInlineData<
-    OperatorRunCommandOptionPageConnectionFragment$key
-  >(
-    OperatorRunCommandOptionPageConnectionFragment,
-    connection
-  );
+  const data: OperatorRunCommandOptionPageConnectionFragment$data =
+    readInlineData<OperatorRunCommandOptionPageConnectionFragment$key>(
+      OperatorRunCommandOptionPageConnectionFragment,
+      connection,
+    );
   return {
-    options: (data.edges ?? []).flatMap(edge => edge?.node ? [edge.node] : []),
+    options: (data.edges ?? []).flatMap((edge) => (edge?.node ? [edge.node] : [])),
     hasNext: data.pageInfo.hasNextPage,
     hasPrevious: data.pageInfo.hasPreviousPage,
-    endCursor: data.pageInfo.endCursor
+    endCursor: data.pageInfo.endCursor,
   };
 }
 
 function ChoicePagination({ label, page }: { label: string; page: ChoicePage }) {
-  return <div aria-label={`${label} pagination`}>
-    {page.hasPrevious ? <Button onPress={page.previous}>Previous {label}</Button> : null}
-    {page.hasNext ? <Button onPress={page.next}>Next {label}</Button> : null}
-  </div>;
+  return (
+    <div aria-label={`${label} pagination`}>
+      {page.hasPrevious ? <Button onPress={page.previous}>Previous {label}</Button> : null}
+      {page.hasNext ? <Button onPress={page.next}>Next {label}</Button> : null}
+    </div>
+  );
 }

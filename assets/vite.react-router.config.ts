@@ -2,10 +2,9 @@ import * as babel from "@babel/core";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type Plugin } from "vite";
 import { relayBabelPluginConfig } from "./app/relay/babelPluginConfig";
-import { stylexBabelPluginConfig } from "./src/foundation/stylexConfig";
 
 export default defineConfig({
-  plugins: [reactRouter(), officeGraphBabelTransforms()]
+  plugins: [reactRouter(), officeGraphBabelTransforms()],
 });
 
 function officeGraphBabelTransforms(): Plugin {
@@ -27,13 +26,10 @@ function officeGraphBabelTransforms(): Plugin {
         parserOpts: {
           allowAwaitOutsideFunction: true,
           plugins: parserPlugins(filename),
-          sourceType: "module"
+          sourceType: "module",
         },
-        plugins: [
-          relayBabelPluginConfig as babel.PluginItem,
-          stylexBabelPluginConfig as babel.PluginItem
-        ],
-        sourceMaps: true
+        plugins: [relayBabelPluginConfig as babel.PluginItem],
+        sourceMaps: true,
       });
 
       if (!result) {
@@ -42,9 +38,9 @@ function officeGraphBabelTransforms(): Plugin {
 
       return {
         code: result.code ?? code,
-        map: result.map ?? null
+        map: result.map ?? null,
       };
-    }
+    },
   };
 }
 

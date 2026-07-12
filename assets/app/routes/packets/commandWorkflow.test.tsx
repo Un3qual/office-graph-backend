@@ -9,7 +9,7 @@ describe("packet command workflow", () => {
   it("returns the authoritative packet and immutable version result", async () => {
     const environment = new Environment({
       getDataID: () => null,
-      network: Network.create(async request => {
+      network: Network.create(async (request) => {
         expect(request.name).toBe("PacketsCreateWorkPacketVersionMutation");
 
         return {
@@ -19,28 +19,28 @@ describe("packet command workflow", () => {
               operationId: "operation-2",
               affectedIds: [
                 { type: "work_packet", id: "packet-1" },
-                { type: "work_packet_version", id: "version-2" }
+                { type: "work_packet_version", id: "version-2" },
               ],
               packet: {
                 id: "packet-1",
                 currentVersionId: "version-2",
                 title: "Revised packet",
-                state: "ready"
+                state: "ready",
               },
               packetVersion: {
                 id: "version-2",
                 versionNumber: 2,
-                lifecycleState: "ready"
-              }
-            }
-          }
+                lifecycleState: "ready",
+              },
+            },
+          },
         };
       }),
-      store: new Store(new RecordSource())
+      store: new Store(new RecordSource()),
     });
 
     const { result } = renderHook(() => useCreateWorkPacketVersionCommand(), {
-      wrapper: relayWrapper(environment)
+      wrapper: relayWrapper(environment),
     });
 
     act(() => {
@@ -55,7 +55,7 @@ describe("packet command workflow", () => {
         successCriteria: "Version two is current.",
         autonomyPosture: "human_supervised",
         sourceGraphItemIds: ["graph-item-1"],
-        verificationCheckIds: ["check-1"]
+        verificationCheckIds: ["check-1"],
       });
     });
 
@@ -66,21 +66,21 @@ describe("packet command workflow", () => {
       operationId: "operation-2",
       affectedIds: [
         { type: "work_packet", id: "packet-1" },
-        { type: "work_packet_version", id: "version-2" }
+        { type: "work_packet_version", id: "version-2" },
       ],
       result: {
         packet: {
           id: "packet-1",
           currentVersionId: "version-2",
           title: "Revised packet",
-          state: "ready"
+          state: "ready",
         },
         packetVersion: {
           id: "version-2",
           versionNumber: 2,
-          lifecycleState: "ready"
-        }
-      }
+          lifecycleState: "ready",
+        },
+      },
     });
   });
 });
@@ -88,9 +88,7 @@ describe("packet command workflow", () => {
 function relayWrapper(environment: Environment) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <RelayEnvironmentProvider environment={environment}>
-        {children}
-      </RelayEnvironmentProvider>
+      <RelayEnvironmentProvider environment={environment}>{children}</RelayEnvironmentProvider>
     );
   };
 }

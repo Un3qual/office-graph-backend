@@ -1,17 +1,9 @@
 import { startTransition, useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { PacketsRouteQuery } from "./data";
-import {
-  PacketWorkspace,
-  PacketWorkspaceError,
-  PacketWorkspaceLoading
-} from "./PacketWorkspace";
+import { PacketWorkspace, PacketWorkspaceError, PacketWorkspaceLoading } from "./PacketWorkspace";
 import type { PacketsPage } from "./types";
-import {
-  defaultPacketsPage,
-  type PacketSelection,
-  usePacketsWorkflow
-} from "./workflow";
+import { defaultPacketsPage, type PacketSelection, usePacketsWorkflow } from "./workflow";
 
 type PacketNavigation = {
   hasNavigated: boolean;
@@ -34,11 +26,11 @@ export const routeOwnedPacketQuery = PacketsRouteQuery;
 
 export default function PacketsRoute() {
   const [fetchKey, setFetchKey] = useState(0);
-  const refresh = useCallback(() => startTransition(() => setFetchKey(key => key + 1)), []);
+  const refresh = useCallback(() => startTransition(() => setFetchKey((key) => key + 1)), []);
   const [navigation, setNavigation] = useState<PacketNavigation>({
     hasNavigated: false,
     page: defaultPacketsPage,
-    previousCursors: []
+    previousCursors: [],
   });
   const [requestedSelection, setRequestedSelection] = useState<PacketSelection | null>(null);
 
@@ -49,7 +41,7 @@ export default function PacketsRoute() {
       setNavigation({
         hasNavigated: false,
         page: defaultPacketsPage,
-        previousCursors: []
+        previousCursors: [],
       });
     }
   };
@@ -60,7 +52,7 @@ export default function PacketsRoute() {
       hasNavigated: true,
       page: page.after === nextCursor ? page : { ...page, after: nextCursor },
       previousCursors:
-        page.after === nextCursor ? previousCursors : [...previousCursors, page.after]
+        page.after === nextCursor ? previousCursors : [...previousCursors, page.after],
     }));
   };
 
@@ -75,9 +67,9 @@ export default function PacketsRoute() {
         hasNavigated: true,
         page: {
           ...page,
-          after: previousCursors[previousCursors.length - 1] ?? null
+          after: previousCursors[previousCursors.length - 1] ?? null,
         },
-        previousCursors: previousCursors.slice(0, -1)
+        previousCursors: previousCursors.slice(0, -1),
       };
     });
   };
@@ -111,11 +103,5 @@ export default function PacketsRoute() {
 function PacketsRouteContent(props: PacketsRouteContentProps) {
   const workflow = usePacketsWorkflow(props);
 
-  return (
-    <PacketWorkspace
-      {...workflow}
-      fetchKey={props.fetchKey}
-      onRefresh={props.onRefresh}
-    />
-  );
+  return <PacketWorkspace {...workflow} fetchKey={props.fetchKey} onRefresh={props.onRefresh} />;
 }

@@ -16,16 +16,12 @@ export function PacketContractFields({
   titleLabel,
   version,
   commandState = idleState,
-  errorScope = "packet-contract"
+  errorScope = "packet-contract",
 }: Props) {
   const field = (controlName: string) =>
     commandFieldErrorProps(commandState, errorScope, controlName);
   const error = (controlName: string) => (
-    <CommandFieldError
-      controlName={controlName}
-      scope={errorScope}
-      state={commandState}
-    />
+    <CommandFieldError controlName={controlName} scope={errorScope} state={commandState} />
   );
 
   return (
@@ -37,7 +33,12 @@ export function PacketContractFields({
       </label>
       <label>
         Objective
-        <textarea {...field("objective")} defaultValue={version?.objective ?? ""} name="objective" required />
+        <textarea
+          {...field("objective")}
+          defaultValue={version?.objective ?? ""}
+          name="objective"
+          required
+        />
         {error("objective")}
       </label>
       <label>
@@ -73,7 +74,11 @@ export function PacketContractFields({
       <div>
         <span>Autonomy posture</span>
         <span>Human supervised</span>
-        <input name="autonomyPosture" type="hidden" value={version?.autonomyPosture ?? "human_supervised"} />
+        <input
+          name="autonomyPosture"
+          type="hidden"
+          value={version?.autonomyPosture ?? "human_supervised"}
+        />
       </div>
       <label>
         Source graph item IDs
@@ -110,7 +115,7 @@ export function packetContractInput(form: HTMLFormElement) {
     successCriteria: fieldValue(data, "successCriteria"),
     autonomyPosture: fieldValue(data, "autonomyPosture"),
     sourceGraphItemIds: idValues(data, "sourceGraphItemIds"),
-    verificationCheckIds: idValues(data, "verificationCheckIds")
+    verificationCheckIds: idValues(data, "verificationCheckIds"),
   };
 }
 

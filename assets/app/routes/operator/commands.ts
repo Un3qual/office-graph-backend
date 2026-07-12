@@ -65,29 +65,6 @@ export const OperatorCreateWorkPacketMutation = graphql`
   }
 `;
 
-export const OperatorStartWorkRunMutation = graphql`
-  mutation OperatorStartWorkRunMutation($input: StartWorkRunInput!) {
-    startWorkRun(input: $input) {
-      command
-      operationId
-      affectedIds {
-        type
-        id
-      }
-      run {
-        id
-        executionState
-        verificationState
-      }
-      requiredChecks {
-        id
-        verificationCheckId
-        state
-      }
-    }
-  }
-`;
-
 export const OperatorRecordExecutionObservationMutation = graphql`
   mutation OperatorRecordExecutionObservationMutation(
     $input: RecordExecutionObservationInput!

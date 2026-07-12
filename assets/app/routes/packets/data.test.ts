@@ -24,19 +24,12 @@ describe("packet route Relay data", () => {
       "sourceGraphItemIds",
       "verificationCheckIds",
       "commandAffordances",
-      "allowedNextActions"
+      "allowedNextActions",
     ]) {
       expect(detailQuery.params.text).toContain(field);
     }
 
-    for (const field of [
-      "id",
-      "title",
-      "state",
-      "currentVersionId",
-      "operationId",
-      "updatedAt"
-    ]) {
+    for (const field of ["id", "title", "state", "currentVersionId", "operationId", "updatedAt"]) {
       expect(routeQuery.params.text).toContain(field);
     }
   });

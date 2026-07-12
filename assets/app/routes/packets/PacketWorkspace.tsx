@@ -35,7 +35,7 @@ export function PacketWorkspace({
   selectedId,
   selectedPacket,
   selectCreatedPacket,
-  selectPacket
+  selectPacket,
 }: Props) {
   return (
     <PacketsLayout
@@ -49,14 +49,18 @@ export function PacketWorkspace({
               errorFallback={
                 <div>
                   <PacketDetail packet={selectedPacket} />
-                  <p className="packet-detail-error" role="alert">Unable to load packet contract details.</p>
+                  <p className="packet-detail-error" role="alert">
+                    Unable to load packet contract details.
+                  </p>
                   <Button onPress={onRefresh}>Retry packet details</Button>
                 </div>
               }
               loadingFallback={
                 <div>
                   <PacketDetail packet={selectedPacket} />
-                  <p className="packet-detail-loading" role="status">Loading packet contract...</p>
+                  <p className="packet-detail-loading" role="status">
+                    Loading packet contract...
+                  </p>
                 </div>
               }
               resetKey={`packet-detail:${selectedPacket.id}:${fetchKey}`}
@@ -91,7 +95,7 @@ export function PacketWorkspace({
 function LoadedPacketDetail({
   fetchKey,
   onRefresh,
-  packet
+  packet,
 }: {
   fetchKey: number;
   onRefresh: () => void;
@@ -130,7 +134,11 @@ function LoadedPacketDetail({
 export function PacketWorkspaceLoading({ isPage }: { isPage: boolean }) {
   return (
     <PacketsLayout
-      detail={<div className="packet-detail-column"><PacketDetail packet={null} /></div>}
+      detail={
+        <div className="packet-detail-column">
+          <PacketDetail packet={null} />
+        </div>
+      }
       list={<PacketListFallback state={isPage ? "page-loading" : "initial-loading"} />}
     />
   );
@@ -139,7 +147,7 @@ export function PacketWorkspaceLoading({ isPage }: { isPage: boolean }) {
 export function PacketWorkspaceError({
   canPageBackward,
   onRetry,
-  onPreviousPage
+  onPreviousPage,
 }: {
   canPageBackward: boolean;
   onRetry: () => void;
@@ -147,7 +155,11 @@ export function PacketWorkspaceError({
 }) {
   return (
     <PacketsLayout
-      detail={<div className="packet-detail-column"><PacketDetail packet={null} /></div>}
+      detail={
+        <div className="packet-detail-column">
+          <PacketDetail packet={null} />
+        </div>
+      }
       list={
         <>
           <PacketListFallback

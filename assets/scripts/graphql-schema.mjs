@@ -45,7 +45,7 @@ function runMix(args) {
   const result = spawnSync("mix", args, {
     cwd: repoRoot,
     encoding: "utf8",
-    maxBuffer: 20 * 1024 * 1024
+    maxBuffer: 20 * 1024 * 1024,
   });
 
   if (result.error) {

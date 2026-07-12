@@ -1,11 +1,15 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
 import { CommandFieldError, CommandFormFeedback } from "../../../relay/CommandFormFeedback";
-import { commandFieldErrorProps, manualReplayIdentity, submissionIdentity } from "../commandFormSupport";
+import {
+  commandFieldErrorProps,
+  manualReplayIdentity,
+  submissionIdentity,
+} from "../commandFormSupport";
 import { useSubmitManualIntakeCommand } from "../commandWorkflow";
 
 export function ManualIntakeForm({
-  onAuthoritativeChange
+  onAuthoritativeChange,
 }: {
   onAuthoritativeChange: (normalizedEventId?: string) => void;
 }) {
@@ -14,8 +18,8 @@ export function ManualIntakeForm({
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const command = useSubmitManualIntakeCommand(success =>
-    onAuthoritativeChange(success?.result.normalizedEventId)
+  const command = useSubmitManualIntakeCommand((success) =>
+    onAuthoritativeChange(success?.result.normalizedEventId),
   );
 
   const submit = async (event: FormEvent) => {
@@ -31,7 +35,7 @@ export function ManualIntakeForm({
         body: normalizedBody,
         idempotencyKey: attempt.current.key,
         replayIdentity,
-        sourceIdentity: "manual:operator-console"
+        sourceIdentity: "manual:operator-console",
       });
     } catch (_error) {
       setPreparationError("Unable to prepare manual intake. Try again.");
@@ -48,7 +52,7 @@ export function ManualIntakeForm({
         {...commandFieldErrorProps(command.state, "manual-intake", "body")}
         id="manual-intake"
         name="body"
-        onChange={event => setBody(event.target.value)}
+        onChange={(event) => setBody(event.target.value)}
         rows={3}
         value={body}
       />
@@ -57,12 +61,13 @@ export function ManualIntakeForm({
         {pending ? "Submitting intake" : "Submit intake"}
       </Button>
       {preparationError ? (
-        <p className="ui-form-feedback" data-kind="error" role="alert">{preparationError}</p>
+        <p className="ui-form-feedback" data-kind="error" role="alert">
+          {preparationError}
+        </p>
       ) : (
         <CommandFormFeedback
           formRef={formRef}
           pendingMessage={pending ? "Submitting intake..." : null}
-          scope="manual-intake"
           state={command.state}
         />
       )}

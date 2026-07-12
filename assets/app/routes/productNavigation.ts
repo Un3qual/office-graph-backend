@@ -5,5 +5,5 @@ export const PRODUCT_DESTINATIONS = [
   { label: "Packets", to: "/packets" },
   { label: "All Runs" },
   { label: "Entities" },
-  { label: "Reports" }
+  { label: "Reports" },
 ] as const satisfies readonly NavDestination[];

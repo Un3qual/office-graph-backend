@@ -16,30 +16,25 @@ type Affordance = {
 
 export function enabledAffordance<T extends Affordance>(
   affordances: readonly T[],
-  identity: string
+  identity: string,
 ) {
-  return (
-    affordances.find(item => item.identity === identity && item.state === "enabled") ??
-    null
-  );
+  return affordances.find((item) => item.identity === identity && item.state === "enabled") ?? null;
 }
 
 export function defaultValue(affordance: Affordance, field: string) {
-  return affordance.inputDefaults.find(item => item.field === field)?.value ?? "";
+  return affordance.inputDefaults.find((item) => item.field === field)?.value ?? "";
 }
 
 export function defaultValues(affordance: Affordance, field: string) {
-  return [...(affordance.inputDefaults.find(item => item.field === field)?.values ?? [])];
+  return [...(affordance.inputDefaults.find((item) => item.field === field)?.values ?? [])];
 }
 
 export function targetValues(affordance: Affordance, type: string) {
-  return (affordance.targetIds ?? [])
-    .filter(item => item.type === type)
-    .map(item => item.id);
+  return (affordance.targetIds ?? []).filter((item) => item.type === type).map((item) => item.id);
 }
 
 export function commandFeedback<TResult>(
-  state: CommandMutationState<TResult>
+  state: CommandMutationState<TResult>,
 ): FormFeedbackMessage | null {
   if (state.status === "field-error") {
     const first = state.fields[0];
@@ -60,7 +55,7 @@ export function commandFieldName(serverField: string) {
 
 export function commandFieldErrors<TResult>(
   state: CommandMutationState<TResult>,
-  controlName: string
+  controlName: string,
 ) {
   return state.status === "field-error"
     ? state.fields.filter(({ field }) => commandFieldName(field) === controlName)
@@ -74,21 +69,21 @@ export function commandFieldErrorId(scope: string, controlName: string) {
 export function commandFieldErrorProps<TResult>(
   state: CommandMutationState<TResult>,
   scope: string,
-  controlName: string
+  controlName: string,
 ) {
   const invalid = commandFieldErrors(state, controlName).length > 0;
 
   return invalid
     ? {
         "aria-describedby": commandFieldErrorId(scope, controlName),
-        "aria-invalid": true as const
+        "aria-invalid": true as const,
       }
     : {};
 }
 
 export function submissionIdentity(
   previous: { fingerprint: string; key: string } | null,
-  input: unknown
+  input: unknown,
 ) {
   const fingerprint = JSON.stringify(input);
   return previous?.fingerprint === fingerprint

@@ -23,7 +23,7 @@ export function PacketEditor({ onRefresh, workspace }: Props) {
     const input = {
       ...contract,
       packetId: workspace.packet.id,
-      expectedCurrentVersionId: version.id
+      expectedCurrentVersionId: version.id,
     };
     attempt.current = submissionIdentity(attempt.current, input);
     command.submit({ ...input, idempotencyKey: attempt.current.key });
@@ -52,7 +52,6 @@ export function PacketEditor({ onRefresh, workspace }: Props) {
           pendingMessage={
             command.state.status === "pending" ? "Saving an immutable packet version..." : null
           }
-          scope="packet-version"
           state={command.state}
         />
       </form>

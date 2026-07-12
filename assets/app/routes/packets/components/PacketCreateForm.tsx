@@ -13,7 +13,7 @@ type Props = {
 export function PacketCreateForm({ onCreated, onRefresh }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const command = useCreateWorkPacketCommand(success => {
+  const command = useCreateWorkPacketCommand((success) => {
     if (success) {
       attempt.current = null;
       onCreated(success.operationId);
@@ -50,12 +50,12 @@ export function PacketCreateForm({ onCreated, onRefresh }: Props) {
           pendingMessage={
             command.state.status === "pending" ? "Creating the packet contract..." : null
           }
-          scope="packet-create"
           state={command.state}
         />
         {command.state.status === "success" ? (
           <p className="packet-command-success" role="status">
-            Packet created with immutable version {command.state.result.packetVersion.versionNumber}.
+            Packet created with immutable version {command.state.result.packetVersion.versionNumber}
+            .
           </p>
         ) : null}
       </form>

@@ -3,7 +3,7 @@ import type { Config } from "@react-router/dev/config";
 export default {
   appDirectory: "app",
   routeDiscovery: {
-    mode: "initial"
+    mode: "initial",
   },
-  ssr: false
+  ssr: false,
 } satisfies Config;

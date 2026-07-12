@@ -61,6 +61,19 @@ describe("operator route architecture", () => {
     expect(workflowSource).not.toContain("fetchGraphQL");
     expect(workflowSource).not.toContain("/api/");
   });
+
+  it("does not retain the unused operator-only run-start command path", () => {
+    const commandsSource = readFileSync(join(routeRoot, "commands.ts"), "utf8");
+    const workflowSource = readFileSync(join(routeRoot, "commandWorkflow.ts"), "utf8");
+
+    expect(commandsSource).not.toContain("OperatorStartWorkRunMutation");
+    expect(workflowSource).not.toContain("useStartWorkRunCommand");
+    expect(
+      existsSync(
+        join(assetsRoot, "app/relay/__generated__/OperatorStartWorkRunMutation.graphql.ts"),
+      ),
+    ).toBe(false);
+  });
 });
 
 function routeSource() {

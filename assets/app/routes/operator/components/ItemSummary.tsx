@@ -5,12 +5,7 @@ import { Button } from "../../../../src/ui/Button";
 import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PanelRows } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
-import {
-  commandAffordanceListText,
-  formatLabel,
-  listText,
-  statusTone
-} from "../presentation";
+import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
 import type { OperatorWorkflowItem } from "../workflow";
 import { OperatorRelationshipDetailsQuery } from "../data";
 import type { OperatorRelationshipDetailsQuery as OperatorRelationshipDetailsOperation } from "../../../relay/__generated__/OperatorRelationshipDetailsQuery.graphql";
@@ -62,20 +57,26 @@ export function ItemSummary({ item }: Props) {
             rows={[
               [
                 "Commands",
-                commandAffordanceListText(item.commandAffordances, item.allowedNextActions)
+                commandAffordanceListText(item.commandAffordances, item.allowedNextActions),
               ],
               ["Blockers", listText(item.blockerReasons)],
               ["Suggestions", proposedChangeText(item)],
               ["Graph links", graphLinkSummary(item)],
-              ["Audit trace", traceText(item.auditTrace.operationId, item.auditTrace.resourceCount)],
+              [
+                "Audit trace",
+                traceText(item.auditTrace.operationId, item.auditTrace.resourceCount),
+              ],
               [
                 "Revision trace",
-                traceText(item.revisionTrace.operationId, item.revisionTrace.resourceCount)
-              ]
+                traceText(item.revisionTrace.operationId, item.revisionTrace.resourceCount),
+              ],
             ]}
           />
           {item.relationshipSummary.hasMore ? (
-            <RelationshipOverflowDetails key={item.normalizedEventId} normalizedEventId={item.normalizedEventId} />
+            <RelationshipOverflowDetails
+              key={item.normalizedEventId}
+              normalizedEventId={item.normalizedEventId}
+            />
           ) : null}
         </>
       ) : null}
@@ -89,35 +90,47 @@ function RelationshipOverflowDetails({ normalizedEventId }: { normalizedEventId:
   const data = useLazyLoadQuery<OperatorRelationshipDetailsOperation>(
     OperatorRelationshipDetailsQuery,
     { id: normalizedEventId, first: 5, after },
-    { fetchPolicy: "network-only" }
+    { fetchPolicy: "network-only" },
   );
   const connection = data.operatorRelationshipDetails;
 
-  return <section aria-label="Relationship detail">
-    <h3>Related graph detail</h3>
-    <ul>
-      {(connection?.edges ?? []).flatMap(edge => edge?.node ? [
-        <li key={`${edge.node.kind}:${edge.node.stableId}`}>
-          {edge.node.title} · {formatLabel(edge.node.relationshipType)}
-        </li>
-      ] : [])}
-    </ul>
-    <div aria-label="Relationship pagination">
-      {connection?.pageInfo.hasPreviousPage ? (
-        <Button onPress={() => setCursors(current => current.length > 1 ? current.slice(0, -1) : current)}>
-          Previous relationship page
-        </Button>
-      ) : null}
-      {connection?.pageInfo.hasNextPage ? (
-        <Button onPress={() => {
-          const cursor = connection.pageInfo.endCursor;
-          if (cursor) setCursors(current => [...current, cursor]);
-        }}>
-          Next relationship page
-        </Button>
-      ) : null}
-    </div>
-  </section>;
+  return (
+    <section aria-label="Relationship detail">
+      <h3>Related graph detail</h3>
+      <ul>
+        {(connection?.edges ?? []).flatMap((edge) =>
+          edge?.node
+            ? [
+                <li key={`${edge.node.kind}:${edge.node.stableId}`}>
+                  {edge.node.title} · {formatLabel(edge.node.relationshipType)}
+                </li>,
+              ]
+            : [],
+        )}
+      </ul>
+      <div aria-label="Relationship pagination">
+        {connection?.pageInfo.hasPreviousPage ? (
+          <Button
+            onPress={() =>
+              setCursors((current) => (current.length > 1 ? current.slice(0, -1) : current))
+            }
+          >
+            Previous relationship page
+          </Button>
+        ) : null}
+        {connection?.pageInfo.hasNextPage ? (
+          <Button
+            onPress={() => {
+              const cursor = connection.pageInfo.endCursor;
+              if (cursor) setCursors((current) => [...current, cursor]);
+            }}
+          >
+            Next relationship page
+          </Button>
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 function graphLinkSummary(item: OperatorWorkflowItem) {

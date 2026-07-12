@@ -11,14 +11,12 @@ import {
 type FeedbackProps<TResult> = {
   readonly formRef: RefObject<HTMLFormElement | null>;
   readonly pendingMessage?: string | null;
-  readonly scope: string;
   readonly state: CommandMutationState<TResult>;
 };
 
 export function CommandFormFeedback<TResult>({
   formRef,
   pendingMessage = null,
-  scope,
   state
 }: FeedbackProps<TResult>) {
   const fieldErrors = state.status === "field-error" ? state.fields : [];
@@ -48,8 +46,8 @@ export function CommandFormFeedback<TResult>({
     <div className="ui-form-feedback" data-kind="field" role="alert">
       <p>Correct the following fields:</p>
       <ul>
-        {fieldErrors.map(({ field, message }, index) => (
-          <li key={`${field}:${index}`}>{message}</li>
+        {fieldErrors.map(({ field, message }) => (
+          <li key={`${field}:${message}`}>{message}</li>
         ))}
       </ul>
     </div>

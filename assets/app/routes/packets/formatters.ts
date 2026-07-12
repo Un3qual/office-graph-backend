@@ -4,7 +4,7 @@ const packetUpdatedAtFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   month: "short",
   timeZone: "UTC",
-  year: "numeric"
+  year: "numeric",
 });
 
 export function formatPacketUpdatedAt(value: string) {

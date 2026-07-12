@@ -27,7 +27,7 @@ export function PacketList({
   onPreviousPage,
   onSelect,
   rows,
-  selectedId
+  selectedId,
 }: Props) {
   return (
     <PacketListFrame
@@ -73,10 +73,9 @@ export function PacketList({
 export function PacketListFallback({
   canPageBackward = false,
   onPreviousPage,
-  state
+  state,
 }: FallbackProps) {
-  const loadingMessage =
-    state === "page-loading" ? "Loading packet page..." : "Loading packets...";
+  const loadingMessage = state === "page-loading" ? "Loading packet page..." : "Loading packets...";
 
   return (
     <PacketListFrame
@@ -97,7 +96,10 @@ export function PacketListFallback({
           </EmptyState>
         </div>
       ) : (
-        <p className={state === "page-loading" ? "packet-page-loading" : "packet-loading"} role="status">
+        <p
+          className={state === "page-loading" ? "packet-page-loading" : "packet-loading"}
+          role="status"
+        >
           {loadingMessage}
         </p>
       )}
@@ -108,7 +110,7 @@ export function PacketListFallback({
 function PacketListFrame({
   children,
   footer,
-  rowCount
+  rowCount,
 }: {
   children: React.ReactNode;
   footer: React.ReactNode;

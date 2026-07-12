@@ -33,7 +33,7 @@ export function InboxList({
   onSelect,
   rows,
   selectedId,
-  sourceWatermark
+  sourceWatermark,
 }: Props) {
   return (
     <section aria-label="Inbox" className="inbox-pane">
@@ -48,7 +48,7 @@ export function InboxList({
           {rows.map((row) => {
             const commands = commandAffordanceListText(
               row.commandAffordances,
-              row.allowedNextActions
+              row.allowedNextActions,
             );
             const context =
               commands === "None" && row.blockerReasons.length > 0
@@ -61,6 +61,7 @@ export function InboxList({
                 className="inbox-row"
                 key={row.normalizedEventId}
                 onClick={() => onSelect(row.normalizedEventId)}
+                type="button"
               >
                 <span className="row-title">{itemTitle(row)}</span>
                 <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
@@ -89,7 +90,7 @@ export function InboxList({
 export function InboxListFallback({
   canPageBackward = false,
   onPreviousPage,
-  state
+  state,
 }: FallbackProps) {
   return (
     <section aria-label="Inbox" className="inbox-pane">
@@ -108,11 +109,7 @@ export function InboxListFallback({
       {state === "error" ? (
         <div aria-label="Inbox pagination" className="inbox-pagination">
           <span>0 rows</span>
-          <button
-            type="button"
-            disabled={!canPageBackward}
-            onClick={onPreviousPage}
-          >
+          <button type="button" disabled={!canPageBackward} onClick={onPreviousPage}>
             Previous
           </button>
           <button type="button" disabled>

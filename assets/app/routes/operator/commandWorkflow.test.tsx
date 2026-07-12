@@ -7,7 +7,7 @@ import {
   RecordSource,
   Store,
   type GraphQLResponse,
-  type Variables
+  type Variables,
 } from "relay-runtime";
 import { describe, expect, it, vi } from "vitest";
 import type { CommandMutationController } from "../../relay/commandMutation";
@@ -18,9 +18,8 @@ import {
   useCreateEvidenceCandidateCommand,
   useCreateWorkPacketCommand,
   useRecordExecutionObservationCommand,
-  useStartWorkRunCommand,
   useSubmitManualIntakeCommand,
-  useWaiveVerificationCheckCommand
+  useWaiveVerificationCheckCommand,
 } from "./commandWorkflow";
 
 describe("operator command workflow", () => {
@@ -28,7 +27,7 @@ describe("operator command workflow", () => {
     const request = deferredRequest();
     const environment = relayEnvironment(request.fetch);
     const { result } = renderHook(() => useSubmitManualIntakeCommand(), {
-      wrapper: relayWrapper(environment)
+      wrapper: relayWrapper(environment),
     });
 
     expect(result.current.state).toEqual({ status: "idle" });
@@ -38,7 +37,7 @@ describe("operator command workflow", () => {
         idempotencyKey: "intake-1",
         sourceIdentity: "manual:test",
         replayIdentity: "paste:test",
-        body: "Create a durable intake event."
+        body: "Create a durable intake event.",
       });
     });
 
@@ -49,8 +48,8 @@ describe("operator command workflow", () => {
         idempotencyKey: "intake-1",
         sourceIdentity: "manual:test",
         replayIdentity: "paste:test",
-        body: "Create a durable intake event."
-      }
+        body: "Create a durable intake event.",
+      },
     });
 
     act(() => {
@@ -61,9 +60,9 @@ describe("operator command workflow", () => {
             operationId: "operation-1",
             affectedIds: [{ type: "normalized_intake_event", id: "event-1" }],
             normalizedEventId: "event-1",
-            proposedChangeIds: ["proposal-1"]
-          }
-        }
+            proposedChangeIds: ["proposal-1"],
+          },
+        },
       });
     });
 
@@ -75,8 +74,8 @@ describe("operator command workflow", () => {
       affectedIds: [{ type: "normalized_intake_event", id: "event-1" }],
       result: {
         normalizedEventId: "event-1",
-        proposedChangeIds: ["proposal-1"]
-      }
+        proposedChangeIds: ["proposal-1"],
+      },
     });
 
     act(() => result.current.reset());
@@ -88,7 +87,7 @@ describe("operator command workflow", () => {
       signal: { id: "signal-1" },
       task: { id: "task-1" },
       reviewFinding: { id: "finding-1" },
-      verificationCheck: { id: "check-1", graphItemId: "graph-item-1" }
+      verificationCheck: { id: "check-1", graphItemId: "graph-item-1" },
     };
 
     await expectCommandSuccess(
@@ -96,12 +95,12 @@ describe("operator command workflow", () => {
       {
         idempotencyKey: "apply-1",
         normalizedEventId: "event-1",
-        proposedChangeIds: ["proposal-1"]
+        proposedChangeIds: ["proposal-1"],
       },
       "OperatorApplyProposedChangesMutation",
       "applyProposedChanges",
       result,
-      result
+      result,
     );
   });
 
@@ -111,9 +110,9 @@ describe("operator command workflow", () => {
         id: "packet-1",
         currentVersionId: "version-1",
         title: "Packet",
-        state: "ready"
+        state: "ready",
       },
-      packetVersion: { id: "version-1", versionNumber: 1, lifecycleState: "ready" }
+      packetVersion: { id: "version-1", versionNumber: 1, lifecycleState: "ready" },
     };
 
     await expectCommandSuccess(
@@ -127,43 +126,19 @@ describe("operator command workflow", () => {
         sourceGraphItemIds: ["graph-item-1"],
         successCriteria: "Success",
         title: "Packet",
-        verificationCheckIds: ["check-1"]
+        verificationCheckIds: ["check-1"],
       },
       "OperatorCreateWorkPacketMutation",
       "createWorkPacket",
       result,
-      result
-    );
-  });
-
-  it("maps run-start results", async () => {
-    const result = {
-      run: { id: "run-1", executionState: "running", verificationState: "pending" },
-      requiredChecks: [
-        { id: "required-1", verificationCheckId: "check-1", state: "pending" }
-      ]
-    };
-
-    await expectCommandSuccess(
-      useStartWorkRunCommand,
-      {
-        authorityPosture: "human_supervised",
-        idempotencyKey: "run-1",
-        packetVersionId: "version-1",
-        reason: "Start work",
-        sourceSurface: "operator"
-      },
-      "OperatorStartWorkRunMutation",
-      "startWorkRun",
       result,
-      result
     );
   });
 
   it("maps execution-observation results", async () => {
     const result = {
       observation: { id: "observation-1", normalizedStatus: "passed" },
-      run: { id: "run-1", executionState: "completed", verificationState: "pending" }
+      run: { id: "run-1", executionState: "completed", verificationState: "pending" },
     };
 
     await expectCommandSuccess(
@@ -180,12 +155,12 @@ describe("operator command workflow", () => {
         runId: "run-1",
         sourceGraphItemId: "graph-item-1",
         trustBasis: "operator_attested",
-        verificationCheckId: "check-1"
+        verificationCheckId: "check-1",
       },
       "OperatorRecordExecutionObservationMutation",
       "recordExecutionObservation",
       result,
-      result
+      result,
     );
   });
 
@@ -204,12 +179,12 @@ describe("operator command workflow", () => {
         sourceKind: "manual",
         trustBasis: "operator_attested",
         verificationCheckId: "check-1",
-        workRunId: "run-1"
+        workRunId: "run-1",
       },
       "OperatorCreateEvidenceCandidateMutation",
       "createEvidenceCandidate",
       result,
-      result
+      result,
     );
   });
 
@@ -218,7 +193,7 @@ describe("operator command workflow", () => {
       evidenceCandidate: { id: "candidate-1", candidateState: "accepted" },
       evidenceItem: { id: "evidence-1", state: "accepted" },
       verificationResult: { id: "result-1", result: "passed" },
-      run: null
+      run: null,
     };
 
     await expectCommandSuccess(
@@ -229,12 +204,12 @@ describe("operator command workflow", () => {
         evidenceCandidateId: "candidate-1",
         idempotencyKey: "accept-1",
         result: "passed",
-        title: "Accepted evidence"
+        title: "Accepted evidence",
       },
       "OperatorAcceptEvidenceMutation",
       "acceptEvidence",
       result,
-      result
+      result,
     );
   });
 
@@ -242,7 +217,7 @@ describe("operator command workflow", () => {
     const result = {
       verificationResult: { id: "result-1", result: "waived" },
       requiredCheck: { id: "required-1", verificationCheckId: "check-1", state: "waived" },
-      run: { id: "run-1", executionState: "completed", verificationState: "passed" }
+      run: { id: "run-1", executionState: "completed", verificationState: "passed" },
     };
 
     await expectCommandSuccess(
@@ -254,12 +229,12 @@ describe("operator command workflow", () => {
         policyBasis: "approved_exception",
         reason: "Approved exception",
         runId: "run-1",
-        runRequiredCheckId: "required-1"
+        runRequiredCheckId: "required-1",
       },
       "OperatorWaiveVerificationCheckMutation",
       "waiveVerificationCheck",
       result,
-      result
+      result,
     );
   });
 
@@ -268,10 +243,9 @@ describe("operator command workflow", () => {
     const environment = relayEnvironment(request.fetch);
     const authoritativeRefresh = vi.fn();
 
-    const { result } = renderHook(
-      () => useAcceptEvidenceCommand(authoritativeRefresh),
-      { wrapper: relayWrapper(environment) }
-    );
+    const { result } = renderHook(() => useAcceptEvidenceCommand(authoritativeRefresh), {
+      wrapper: relayWrapper(environment),
+    });
 
     act(() => {
       result.current.submit({
@@ -280,7 +254,7 @@ describe("operator command workflow", () => {
         evidenceCandidateId: "candidate-1",
         idempotencyKey: "accept-conflict",
         result: "passed",
-        title: "Accepted evidence"
+        title: "Accepted evidence",
       });
     });
 
@@ -289,9 +263,9 @@ describe("operator command workflow", () => {
         errors: [
           {
             message: "The verification result slot was already completed.",
-            extensions: { code: "verification_result_slot_conflict" }
-          }
-        ]
+            extensions: { code: "verification_result_slot_conflict" },
+          },
+        ],
       };
 
       request.reject(
@@ -299,8 +273,8 @@ describe("operator command workflow", () => {
           source.errors[0].message,
           source,
           200,
-          "OperatorAcceptEvidenceMutation"
-        )
+          "OperatorAcceptEvidenceMutation",
+        ),
       );
     });
 
@@ -315,12 +289,12 @@ async function expectCommandSuccess<TInput, TResult>(
   mutationName: string,
   responseField: string,
   responseResult: Record<string, unknown>,
-  expectedResult: TResult
+  expectedResult: TResult,
 ) {
   const request = deferredRequest();
   const environment = relayEnvironment(request.fetch);
   const { result } = renderHook(() => useCommand(), {
-    wrapper: relayWrapper(environment)
+    wrapper: relayWrapper(environment),
   });
 
   act(() => {
@@ -337,9 +311,9 @@ async function expectCommandSuccess<TInput, TResult>(
           command: "test_command",
           operationId: "operation-1",
           affectedIds: [{ type: "test_resource", id: "resource-1" }],
-          ...responseResult
-        }
-      }
+          ...responseResult,
+        },
+      },
     });
   });
 
@@ -348,7 +322,7 @@ async function expectCommandSuccess<TInput, TResult>(
     status: "success",
     operationId: "operation-1",
     affectedIds: [{ type: "test_resource", id: "resource-1" }],
-    result: expectedResult
+    result: expectedResult,
   });
 }
 
@@ -378,7 +352,7 @@ function deferredRequest() {
     },
     reject(error: Error) {
       rejectResponse(error);
-    }
+    },
   };
 }
 
@@ -386,16 +360,14 @@ function relayEnvironment(fetch: ReturnType<typeof deferredRequest>["fetch"]) {
   return new Environment({
     getDataID: () => null,
     network: Network.create(fetch),
-    store: new Store(new RecordSource())
+    store: new Store(new RecordSource()),
   });
 }
 
 function relayWrapper(environment: Environment) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <RelayEnvironmentProvider environment={environment}>
-        {children}
-      </RelayEnvironmentProvider>
+      <RelayEnvironmentProvider environment={environment}>{children}</RelayEnvironmentProvider>
     );
   };
 }

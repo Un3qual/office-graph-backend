@@ -9,7 +9,7 @@ import {
   RecordSource,
   Store,
   type FetchFunction,
-  type GraphQLResponse
+  type GraphQLResponse,
 } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
@@ -34,7 +34,7 @@ describe("packet workspace route", () => {
 
     expect(await screen.findByText("No packets are available.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
-      "No packet selected."
+      "No packet selected.",
     );
     expect(screen.queryByText("First packet")).not.toBeInTheDocument();
   });
@@ -46,9 +46,9 @@ describe("packet workspace route", () => {
         createPacketAffordance({
           state: "hidden",
           reasonCodes: ["policy_restricted"],
-          blockerReasons: ["policy_restricted"]
-        })
-      )
+          blockerReasons: ["policy_restricted"],
+        }),
+      ),
     );
 
     await screen.findByText("No packets are available.");
@@ -64,28 +64,31 @@ describe("packet workspace route", () => {
       expect(request.name).toBe("PacketsCreateWorkPacketMutation");
       throw new GraphQLResponseError(
         "Packet validation failed.",
-        ({
+        {
           errors: [
             {
               message: "Add current product context.",
-              extensions: { code: "validation_failed", field: "context_summary" }
+              extensions: { code: "validation_failed", field: "context_summary" },
             },
             {
               message: "Describe how completion will be proven.",
-              extensions: { code: "validation_failed", field: "success_criteria" }
-            }
-          ]
-        } as unknown as GraphQLResponse),
+              extensions: { code: "validation_failed", field: "success_criteria" },
+            },
+          ],
+        } as unknown as GraphQLResponse,
         200,
-        request.name
+        request.name,
       );
     });
 
     renderWithRelay(network);
     const createPacket = within(await screen.findByRole("region", { name: "Create packet" }));
     const submitButton = createPacket.getByRole("button", { name: "Create packet" });
+    const form = submitButton.closest("form");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("Create packet form was not rendered.");
 
-    fireEvent.submit(submitButton.closest("form")!);
+    fireEvent.submit(form);
 
     const context = createPacket.getByLabelText("Context summary");
     const criteria = createPacket.getByLabelText("Success criteria");
@@ -93,15 +96,19 @@ describe("packet workspace route", () => {
 
     expect(createPacket.getByRole("alert")).toHaveTextContent("Add current product context.");
     expect(createPacket.getByRole("alert")).toHaveTextContent(
-      "Describe how completion will be proven."
+      "Describe how completion will be proven.",
     );
     expect(context).toHaveAttribute("aria-invalid", "true");
     expect(criteria).toHaveAttribute("aria-invalid", "true");
-    expect(document.getElementById(context.getAttribute("aria-describedby")!)).toHaveTextContent(
-      "Add current product context."
+    const contextDescription = context.getAttribute("aria-describedby");
+    const criteriaDescription = criteria.getAttribute("aria-describedby");
+    expect(contextDescription).not.toBeNull();
+    expect(criteriaDescription).not.toBeNull();
+    expect(document.getElementById(contextDescription ?? "")).toHaveTextContent(
+      "Add current product context.",
     );
-    expect(document.getElementById(criteria.getAttribute("aria-describedby")!)).toHaveTextContent(
-      "Describe how completion will be proven."
+    expect(document.getElementById(criteriaDescription ?? "")).toHaveTextContent(
+      "Describe how completion will be proven.",
     );
   });
 
@@ -110,7 +117,7 @@ describe("packet workspace route", () => {
     renderWithRelay(
       vi.fn(async () => {
         throw new Error("authorization policy secret_alpha denied packet_9");
-      })
+      }),
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
@@ -143,18 +150,16 @@ describe("packet workspace route", () => {
   });
 
   it("selects the first packet by default", async () => {
-    renderWithRelay(
-      packetNetwork([packet(), packet({ id: "packet_2", title: "Second packet" })])
-    );
+    renderWithRelay(packetNetwork([packet(), packet({ id: "packet_2", title: "Second packet" })]));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
     });
     expect(screen.getByRole("button", { name: /Second packet/i })).not.toHaveAttribute(
-      "aria-current"
+      "aria-current",
     );
   });
 
@@ -176,22 +181,20 @@ describe("packet workspace route", () => {
     renderWithRelay(network);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load packet contract details"
+      "Unable to load packet contract details",
     );
     fireEvent.click(screen.getByRole("button", { name: "Retry packet details" }));
 
     expect(await screen.findByRole("region", { name: "Version history" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
       "aria-current",
-      "true"
+      "true",
     );
     expect(detailReads).toBe(2);
   });
 
   it("updates route-local selection when a packet row is selected", async () => {
-    renderWithRelay(
-      packetNetwork([packet(), packet({ id: "packet_2", title: "Second packet" })])
-    );
+    renderWithRelay(packetNetwork([packet(), packet({ id: "packet_2", title: "Second packet" })]));
     const secondRow = await screen.findByRole("button", { name: /Second packet/i });
 
     fireEvent.click(secondRow);
@@ -199,11 +202,11 @@ describe("packet workspace route", () => {
     await waitFor(() => {
       expect(secondRow).toHaveAttribute("aria-current", "true");
       expect(screen.getByRole("button", { name: /First packet/i })).not.toHaveAttribute(
-        "aria-current"
+        "aria-current",
       );
     });
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
-      "Second packet"
+      "Second packet",
     );
   });
 
@@ -214,9 +217,9 @@ describe("packet workspace route", () => {
           currentVersionId: "version_current_7",
           operationId: "operation_sync_3",
           state: "ready_for_run",
-          updatedAt: "2026-07-09T19:45:00Z"
-        })
-      ])
+          updatedAt: "2026-07-09T19:45:00Z",
+        }),
+      ]),
     );
 
     const selectedRow = await screen.findByRole("button", { name: /First packet/i });
@@ -232,10 +235,7 @@ describe("packet workspace route", () => {
     expect(screen.queryByText("Read-only queue")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute("href", "/operator");
     expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute("href", "/packets");
-    expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute("aria-current", "page");
     await screen.findByText("Current version 1");
     expect(screen.queryByRole("combobox", { name: "Autonomy posture" })).not.toBeInTheDocument();
     expect(screen.getAllByText("Human supervised")).toHaveLength(2);
@@ -253,10 +253,10 @@ describe("packet workspace route", () => {
                 packet({
                   id: "relay_packet_created",
                   operationId: "operation_created",
-                  title: "Created packet"
-                })
+                  title: "Created packet",
+                }),
               ]
-            : [packet()]
+            : [packet()],
         );
       }
 
@@ -270,16 +270,14 @@ describe("packet workspace route", () => {
             packet: packetWorkspacePacket({
               id: "raw_packet_created",
               title: "Created packet",
-              currentVersionId: "version_created"
+              currentVersionId: "version_created",
             }),
             currentVersion: packetVersion({
               id: "version_created",
-              title: "Created packet"
+              title: "Created packet",
             }),
-            versions: [
-              packetVersion({ id: "version_created", title: "Created packet" })
-            ]
-          })
+            versions: [packetVersion({ id: "version_created", title: "Created packet" })],
+          }),
         );
       }
 
@@ -293,7 +291,7 @@ describe("packet workspace route", () => {
         successCriteria: "The required check passes",
         autonomyPosture: "human_supervised",
         sourceGraphItemIds: ["graph_1"],
-        verificationCheckIds: ["check_1"]
+        verificationCheckIds: ["check_1"],
       });
       created = true;
 
@@ -304,21 +302,21 @@ describe("packet workspace route", () => {
             operationId: "operation_created",
             affectedIds: [
               { type: "work_packet", id: "raw_packet_created" },
-              { type: "work_packet_version", id: "version_created" }
+              { type: "work_packet_version", id: "version_created" },
             ],
             packet: {
               id: "raw_packet_created",
               currentVersionId: "version_created",
               title: "Created packet",
-              state: "ready"
+              state: "ready",
             },
             packetVersion: {
               id: "version_created",
               versionNumber: 1,
-              lifecycleState: "ready"
-            }
-          }
-        }
+              lifecycleState: "ready",
+            },
+          },
+        },
       };
     });
 
@@ -327,32 +325,32 @@ describe("packet workspace route", () => {
     const createPacket = within(screen.getByRole("region", { name: "Create packet" }));
 
     fireEvent.change(createPacket.getByLabelText("Packet title"), {
-      target: { value: "Created packet" }
+      target: { value: "Created packet" },
     });
     fireEvent.change(createPacket.getByLabelText("Objective"), {
-      target: { value: "Ship the packet workspace" }
+      target: { value: "Ship the packet workspace" },
     });
     fireEvent.change(createPacket.getByLabelText("Context summary"), {
-      target: { value: "Current product context" }
+      target: { value: "Current product context" },
     });
     fireEvent.change(createPacket.getByLabelText("Requirements"), {
-      target: { value: "Preserve immutable history" }
+      target: { value: "Preserve immutable history" },
     });
     fireEvent.change(createPacket.getByLabelText("Success criteria"), {
-      target: { value: "The required check passes" }
+      target: { value: "The required check passes" },
     });
     fireEvent.change(createPacket.getByLabelText("Source graph item IDs"), {
-      target: { value: "graph_1" }
+      target: { value: "graph_1" },
     });
     fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
-      target: { value: "check_1" }
+      target: { value: "check_1" },
     });
     fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Created packet/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
     });
     expect(await screen.findByText("Current version 1")).toBeInTheDocument();
@@ -368,21 +366,19 @@ describe("packet workspace route", () => {
     const createdPacket = packet({
       id: "relay_packet_created",
       operationId: "operation_created",
-      title: "Created packet"
+      title: "Created packet",
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
         if (variables.after === "cursor_1") {
-          return packetConnectionResponse([
-            packet({ id: "packet_2", title: "Second packet" })
-          ]);
+          return packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })]);
         }
 
         return packetConnectionResponse(
           [packet()],
           created ? {} : { hasNextPage: true, endCursor: "cursor_1" },
           createPacketAffordance(),
-          created ? [createdPacket] : []
+          created ? [createdPacket] : [],
         );
       }
 
@@ -399,21 +395,21 @@ describe("packet workspace route", () => {
             operationId: "operation_created",
             affectedIds: [
               { type: "work_packet", id: "raw_packet_created" },
-              { type: "work_packet_version", id: "version_created" }
+              { type: "work_packet_version", id: "version_created" },
             ],
             packet: {
               id: "raw_packet_created",
               currentVersionId: "version_created",
               title: "Created packet",
-              state: "ready"
+              state: "ready",
             },
             packetVersion: {
               id: "version_created",
               versionNumber: 1,
-              lifecycleState: "ready"
-            }
-          }
-        }
+              lifecycleState: "ready",
+            },
+          },
+        },
       };
     });
 
@@ -424,25 +420,25 @@ describe("packet workspace route", () => {
 
     const createPacket = within(screen.getByRole("region", { name: "Create packet" }));
     fireEvent.change(createPacket.getByLabelText("Packet title"), {
-      target: { value: "Created packet" }
+      target: { value: "Created packet" },
     });
     fireEvent.change(createPacket.getByLabelText("Objective"), {
-      target: { value: "Ship the packet workspace" }
+      target: { value: "Ship the packet workspace" },
     });
     fireEvent.change(createPacket.getByLabelText("Context summary"), {
-      target: { value: "Current product context" }
+      target: { value: "Current product context" },
     });
     fireEvent.change(createPacket.getByLabelText("Requirements"), {
-      target: { value: "Preserve immutable history" }
+      target: { value: "Preserve immutable history" },
     });
     fireEvent.change(createPacket.getByLabelText("Success criteria"), {
-      target: { value: "The required check passes" }
+      target: { value: "The required check passes" },
     });
     fireEvent.change(createPacket.getByLabelText("Source graph item IDs"), {
-      target: { value: "graph_1" }
+      target: { value: "graph_1" },
     });
     fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
-      target: { value: "check_1" }
+      target: { value: "check_1" },
     });
     fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
 
@@ -452,7 +448,7 @@ describe("packet workspace route", () => {
       first: 50,
       after: null,
       createdOperationId: "operation_created",
-      loadCreatedPacket: true
+      loadCreatedPacket: true,
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
@@ -474,21 +470,21 @@ describe("packet workspace route", () => {
         expectedCurrentVersionId: "version_1",
         title: "Revised packet",
         sourceGraphItemIds: ["graph_1"],
-        verificationCheckIds: ["check_1"]
+        verificationCheckIds: ["check_1"],
       });
 
       const versionTwo = packetVersion({
         id: "version_2",
         versionNumber: 2,
-        title: "Revised packet"
+        title: "Revised packet",
       });
       detail = workspace({
         packet: packetWorkspacePacket({
           title: "Revised packet",
-          currentVersionId: "version_2"
+          currentVersionId: "version_2",
         }),
         currentVersion: versionTwo,
-        versions: [packetVersion(), versionTwo]
+        versions: [packetVersion(), versionTwo],
       });
 
       return {
@@ -498,28 +494,28 @@ describe("packet workspace route", () => {
             operationId: "operation_2",
             affectedIds: [
               { type: "work_packet", id: "packet_1" },
-              { type: "work_packet_version", id: "version_2" }
+              { type: "work_packet_version", id: "version_2" },
             ],
             packet: {
               id: "packet_1",
               currentVersionId: "version_2",
               title: "Revised packet",
-              state: "ready"
+              state: "ready",
             },
             packetVersion: {
               id: "version_2",
               versionNumber: 2,
-              lifecycleState: "ready"
-            }
-          }
-        }
+              lifecycleState: "ready",
+            },
+          },
+        },
       };
     });
 
     renderWithRelay(network);
     await screen.findByText("Current version 1");
     fireEvent.change(screen.getByLabelText("Version title"), {
-      target: { value: "Revised packet" }
+      target: { value: "Revised packet" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
 
@@ -541,16 +537,20 @@ describe("packet workspace route", () => {
       if (request.name === "PacketsWorkspaceDetailQuery") {
         if (variables.versionAfter === "version_cursor_2") {
           detailPage = 2;
-          return packetWorkspaceResponse(
-            workspace({ versions: [versionThree] }),
-            { hasNextPage: false, hasPreviousPage: true, startCursor: "version_cursor_3", endCursor: "version_cursor_3" }
-          );
+          return packetWorkspaceResponse(workspace({ versions: [versionThree] }), {
+            hasNextPage: false,
+            hasPreviousPage: true,
+            startCursor: "version_cursor_3",
+            endCursor: "version_cursor_3",
+          });
         }
 
-        return packetWorkspaceResponse(
-          workspace({ versions: [packetVersion(), versionTwo] }),
-          { hasNextPage: true, hasPreviousPage: false, startCursor: "version_cursor_1", endCursor: "version_cursor_2" }
-        );
+        return packetWorkspaceResponse(workspace({ versions: [packetVersion(), versionTwo] }), {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: "version_cursor_1",
+          endCursor: "version_cursor_2",
+        });
       }
 
       throw new Error(`Unexpected request ${request.name}`);
@@ -566,12 +566,12 @@ describe("packet workspace route", () => {
     expect(detailPage).toBe(2);
     expect(lastVariablesFor(network, "PacketsWorkspaceDetailQuery")).toMatchObject({
       versionFirst: 2,
-      versionAfter: "version_cursor_2"
+      versionAfter: "version_cursor_2",
     });
   });
 
   it("refreshes authoritative packet data after a stale version conflict", async () => {
-    let detail = workspace();
+    const detail = workspace();
     let conflicted = false;
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
@@ -585,8 +585,8 @@ describe("packet workspace route", () => {
             workspace({
               packet: packetWorkspacePacket({ currentVersionId: "version_2" }),
               currentVersion: versionTwo,
-              versions: [packetVersion(), versionTwo]
-            })
+              versions: [packetVersion(), versionTwo],
+            }),
           );
         }
 
@@ -597,20 +597,20 @@ describe("packet workspace route", () => {
       conflicted = true;
       throw new GraphQLResponseError(
         "The work packet version is stale.",
-        ({
+        {
           errors: [
             {
               message: "The work packet version is stale.",
               extensions: {
                 code: "stale_packet_version",
                 packet_id: "packet_1",
-                current_version_id: "version_2"
-              }
-            }
-          ]
-        } as unknown as GraphQLResponse),
+                current_version_id: "version_2",
+              },
+            },
+          ],
+        } as unknown as GraphQLResponse,
         200,
-        request.name
+        request.name,
       );
     });
 
@@ -618,13 +618,9 @@ describe("packet workspace route", () => {
     await screen.findByText("Current version 1");
     fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The work packet version is stale."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("The work packet version is stale.");
     expect(await screen.findByText("Current version 2")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Version history" })).toHaveTextContent(
-      "Version 1"
-    );
+    expect(screen.getByRole("region", { name: "Version history" })).toHaveTextContent("Version 1");
   });
 
   it("starts a run only from an enabled current affordance and links the returned state", async () => {
@@ -642,7 +638,7 @@ describe("packet workspace route", () => {
         packetVersionId: "version_1",
         sourceSurface: "packet_workspace",
         reason: "Start work from the packet workspace.",
-        authorityPosture: "human_supervised"
+        authorityPosture: "human_supervised",
       });
 
       return {
@@ -654,13 +650,13 @@ describe("packet workspace route", () => {
             run: {
               id: "run_1",
               executionState: "pending",
-              verificationState: "pending"
+              verificationState: "pending",
             },
             requiredChecks: [
-              { id: "required_1", verificationCheckId: "check_1", state: "pending" }
-            ]
-          }
-        }
+              { id: "required_1", verificationCheckId: "check_1", state: "pending" },
+            ],
+          },
+        },
       };
     });
 
@@ -672,7 +668,7 @@ describe("packet workspace route", () => {
     expect(runLink).toHaveAttribute("href", "/operator?runId=run_1");
     expect(runLink).toHaveAttribute("data-discover", "true");
     expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent(
-      "Execution pending"
+      "Execution pending",
     );
   });
 
@@ -684,8 +680,8 @@ describe("packet workspace route", () => {
           packet({
             id: "packet_2",
             title: "Second packet",
-            currentVersionId: "version_2"
-          })
+            currentVersionId: "version_2",
+          }),
         ]);
       }
 
@@ -696,21 +692,21 @@ describe("packet workspace route", () => {
                 packet: packetWorkspacePacket({
                   id: "packet_2",
                   title: "Second packet",
-                  currentVersionId: "version_2"
+                  currentVersionId: "version_2",
                 }),
                 currentVersion: packetVersion({
                   id: "version_2",
                   versionNumber: 2,
-                  title: "Second packet"
+                  title: "Second packet",
                 }),
                 versions: [
                   packetVersion({
                     id: "version_2",
                     versionNumber: 2,
-                    title: "Second packet"
-                  })
-                ]
-              })
+                    title: "Second packet",
+                  }),
+                ],
+              }),
             )
           : packetWorkspaceResponse(workspace());
       }
@@ -773,18 +769,19 @@ describe("packet workspace route", () => {
               state: "disabled",
               blockerReasons: ["missing_success_criteria"],
               reasonCodes: ["missing_success_criteria"],
-              safeExplanation: "Resolve packet readiness blockers before starting a work run."
-            })
-          ]
-        })
-      )
+              safeExplanation: "Resolve packet readiness blockers before starting a work run.",
+            }),
+          ],
+        }),
+      ),
     );
 
     await screen.findByText("Current version 1");
     expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Packet version editor" })).not.toBeInTheDocument();
-    expect(screen.getByText("Resolve packet readiness blockers before starting a work run."))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText("Resolve packet readiness blockers before starting a work run."),
+    ).toBeInTheDocument();
     expect(document.body).toHaveTextContent("missing_success_criteria");
   });
 
@@ -795,32 +792,30 @@ describe("packet workspace route", () => {
         request.name === "PacketsWorkspaceDetailQuery"
           ? packetWorkspaceResponse(workspace())
           : variables.after === "cursor_1"
-          ? nextPage.promise
-          : packetConnectionResponse([packet()], {
-              hasNextPage: true,
-              endCursor: "cursor_1"
-            })
+            ? nextPage.promise
+            : packetConnectionResponse([packet()], {
+                hasNextPage: true,
+                endCursor: "cursor_1",
+              }),
     );
 
     renderWithRelay(network);
     await screen.findByRole("button", { name: "Next" });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading packet page...");
     expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
-      "No packet selected."
+      "No packet selected.",
     );
     nextPage.resolve(
       packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })], {
         hasPreviousPage: true,
         startCursor: "cursor_2",
-        endCursor: "cursor_2"
-      })
+        endCursor: "cursor_2",
+      }),
     );
 
     await waitFor(() => {
@@ -828,12 +823,12 @@ describe("packet workspace route", () => {
         first: 50,
         after: "cursor_1",
         createdOperationId: null,
-        loadCreatedPacket: false
+        loadCreatedPacket: false,
       });
       expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
     });
   });
@@ -851,15 +846,13 @@ describe("packet workspace route", () => {
 
       return packetConnectionResponse([packet()], {
         hasNextPage: true,
-        endCursor: "cursor_1"
+        endCursor: "cursor_1",
       });
     });
 
     renderWithRelay(network);
     await screen.findByRole("button", { name: "Next" });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
@@ -867,7 +860,7 @@ describe("packet workspace route", () => {
     expect(document.body).not.toHaveTextContent("packet_9");
     expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
-      "No packet selected."
+      "No packet selected.",
     );
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
@@ -879,11 +872,11 @@ describe("packet workspace route", () => {
         first: 50,
         after: null,
         createdOperationId: null,
-        loadCreatedPacket: false
+        loadCreatedPacket: false,
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });
@@ -898,7 +891,7 @@ describe("packet workspace route", () => {
     const compactStyles = styles.slice(compactBreakpoint);
     const compactListPane = Array.from(
       compactStyles.matchAll(/\.packet-list-pane\s*\{([^}]*)\}/g),
-      (match) => match[1]
+      (match) => match[1],
     ).join("\n");
 
     expect(compactListPane).toMatch(/max-height:\s*\d+(?:\.\d+)?vh\s*;/);
@@ -910,39 +903,34 @@ describe("packet workspace route", () => {
     const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
     const detailRows = styles.match(/\.packet-detail-list div\s*\{([^}]*)\}/)?.[1] ?? "";
 
-    expect(detailRows).toContain(
-      "border-bottom: 1px solid var(--og-color-border);"
-    );
+    expect(detailRows).toContain("border-bottom: 1px solid var(--og-color-border);");
     expect(detailRows).not.toContain("#edf1f3");
   });
 
   it("returns to the previous cursor page", async () => {
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> =>
-      request.name === "PacketsWorkspaceDetailQuery"
-        ? packetWorkspaceResponse(workspace())
-        : variables.after === "cursor_1"
-        ? packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })], {
-            hasPreviousPage: true,
-            startCursor: "cursor_2",
-            endCursor: "cursor_2"
-          })
-        : packetConnectionResponse([packet()], {
-            hasNextPage: true,
-            startCursor: "cursor_1",
-            endCursor: "cursor_1"
-          })
+    const network = vi.fn(
+      async (request, variables): Promise<GraphQLResponse> =>
+        request.name === "PacketsWorkspaceDetailQuery"
+          ? packetWorkspaceResponse(workspace())
+          : variables.after === "cursor_1"
+            ? packetConnectionResponse([packet({ id: "packet_2", title: "Second packet" })], {
+                hasPreviousPage: true,
+                startCursor: "cursor_2",
+                endCursor: "cursor_2",
+              })
+            : packetConnectionResponse([packet()], {
+                hasNextPage: true,
+                startCursor: "cursor_1",
+                endCursor: "cursor_1",
+              }),
     );
 
     renderWithRelay(network);
     await screen.findByRole("button", { name: "Next" });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled()
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     await waitFor(() => {
@@ -950,11 +938,11 @@ describe("packet workspace route", () => {
         first: 50,
         after: null,
         createdOperationId: null,
-        loadCreatedPacket: false
+        loadCreatedPacket: false,
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
-        "true"
+        "true",
       );
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });
@@ -965,7 +953,7 @@ function renderWithRelay(network: FetchFunction) {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
-    store: new Store(new RecordSource())
+    store: new Store(new RecordSource()),
   });
 
   return render(
@@ -973,35 +961,32 @@ function renderWithRelay(network: FetchFunction) {
       <RelayEnvironmentProvider environment={environment}>
         <PacketsRoute />
       </RelayEnvironmentProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 
-function lastVariablesFor(
-  network: ReturnType<typeof vi.fn>,
-  requestName: string
-) {
-  return [...network.mock.calls]
-    .reverse()
-    .find(([request]) => request.name === requestName)?.[1];
+function lastVariablesFor(network: ReturnType<typeof vi.fn>, requestName: string) {
+  return [...network.mock.calls].reverse().find(([request]) => request.name === requestName)?.[1];
 }
 
 function packetNetwork(
   packets: ReturnType<typeof packet>[],
-  createAffordance = createPacketAffordance()
+  createAffordance = createPacketAffordance(),
 ) {
-  return vi.fn(async (request): Promise<GraphQLResponse> =>
-    request.name === "PacketsWorkspaceDetailQuery"
-      ? packetWorkspaceResponse(workspace())
-      : packetConnectionResponse(packets, {}, createAffordance)
+  return vi.fn(
+    async (request): Promise<GraphQLResponse> =>
+      request.name === "PacketsWorkspaceDetailQuery"
+        ? packetWorkspaceResponse(workspace())
+        : packetConnectionResponse(packets, {}, createAffordance),
   );
 }
 
 function packetWorkspaceNetwork(detail: ReturnType<typeof workspace>) {
-  return vi.fn(async (request): Promise<GraphQLResponse> =>
-    request.name === "PacketsWorkspaceDetailQuery"
-      ? packetWorkspaceResponse(detail)
-      : packetConnectionResponse([packet()])
+  return vi.fn(
+    async (request): Promise<GraphQLResponse> =>
+      request.name === "PacketsWorkspaceDetailQuery"
+        ? packetWorkspaceResponse(detail)
+        : packetConnectionResponse([packet()]),
   );
 }
 
@@ -1011,8 +996,8 @@ function packetWorkspaceResponse(
     hasNextPage: false,
     hasPreviousPage: false,
     startCursor: detail.versions[0]?.id ?? null,
-    endCursor: detail.versions.at(-1)?.id ?? null
-  }
+    endCursor: detail.versions.at(-1)?.id ?? null,
+  },
 ): GraphQLResponse {
   return {
     data: {
@@ -1021,12 +1006,12 @@ function packetWorkspaceResponse(
         versionHistory: {
           edges: detail.versions.map((version, index) => ({
             cursor: `${pageInfo.startCursor ?? "version"}:${index}`,
-            node: version
+            node: version,
           })),
-          pageInfo
-        }
-      }
-    }
+          pageInfo,
+        },
+      },
+    },
   };
 }
 
@@ -1040,13 +1025,13 @@ function runStartResponse(runId: string, operationId: string): GraphQLResponse {
         run: {
           id: runId,
           executionState: "pending",
-          verificationState: "pending"
+          verificationState: "pending",
         },
         requiredChecks: [
-          { id: `required_${runId}`, verificationCheckId: "check_1", state: "pending" }
-        ]
-      }
-    }
+          { id: `required_${runId}`, verificationCheckId: "check_1", state: "pending" },
+        ],
+      },
+    },
   };
 }
 
@@ -1061,7 +1046,7 @@ function workspace(overrides: Partial<WorkspacePayload> = {}): WorkspacePayload 
     currentVersion: packetVersion(),
     versions: [packetVersion()],
     commandAffordances: [versionAffordance(), startAffordance()],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1072,7 +1057,7 @@ function packetWorkspacePacket(overrides: Partial<WorkspacePacketPayload> = {}) 
     state: "ready",
     currentVersionId: "version_1",
     operationId: "operation_1",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1091,7 +1076,7 @@ function packetVersion(overrides: Partial<WorkspaceVersionPayload> = {}) {
     verificationCheckIds: ["check_1"],
     operationId: "operation_1",
     insertedAt: "2026-07-09T12:00:00Z",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1102,29 +1087,24 @@ function startAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
     reasonCodes: [],
     blockerReasons: [],
     safeExplanation: "Start a work run from the current packet version.",
-    requiredFields: [
-      "packet_version_id",
-      "source_surface",
-      "reason",
-      "authority_posture"
-    ],
+    requiredFields: ["packet_version_id", "source_surface", "reason", "authority_posture"],
     inputDefaults: [
       { field: "packet_version_id", value: "version_1", values: [] },
       { field: "source_surface", value: "packet_workspace", values: [] },
       {
         field: "reason",
         value: "Start work from the packet workspace.",
-        values: []
+        values: [],
       },
-      { field: "authority_posture", value: "human_supervised", values: [] }
+      { field: "authority_posture", value: "human_supervised", values: [] },
     ],
     targetIds: [
       { type: "work_packet", id: "packet_1" },
-      { type: "work_packet_version", id: "version_1" }
+      { type: "work_packet_version", id: "version_1" },
     ],
     traceLinks: [],
     decisionLinks: [],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1140,7 +1120,7 @@ function versionAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
     targetIds: [],
     traceLinks: [],
     decisionLinks: [],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1156,7 +1136,7 @@ function createPacketAffordance(overrides: Partial<CommandAffordancePayload> = {
     targetIds: [],
     traceLinks: [],
     decisionLinks: [],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -1164,7 +1144,7 @@ function packetConnectionResponse(
   packets: ReturnType<typeof packet>[],
   pageInfoOverrides: Partial<PageInfoPayload> = {},
   createAffordance = createPacketAffordance(),
-  createdPackets: ReturnType<typeof packet>[] = []
+  createdPackets: ReturnType<typeof packet>[] = [],
 ): GraphQLResponse {
   return {
     data: {
@@ -1172,32 +1152,29 @@ function packetConnectionResponse(
       createdPacket: {
         edges: createdPackets.map((node, index) => ({
           cursor: `created_cursor_${index + 1}`,
-          node
+          node,
         })),
         pageInfo: {
           hasNextPage: false,
           hasPreviousPage: false,
           startCursor: createdPackets.length > 0 ? "created_cursor_1" : null,
-          endCursor:
-            createdPackets.length > 0
-              ? `created_cursor_${createdPackets.length}`
-              : null
-        }
+          endCursor: createdPackets.length > 0 ? `created_cursor_${createdPackets.length}` : null,
+        },
       },
       listWorkPackets: {
         edges: packets.map((node, index) => ({
           cursor: `cursor_${index + 1}`,
-          node
+          node,
         })),
         pageInfo: {
           hasNextPage: false,
           hasPreviousPage: false,
           startCursor: packets.length > 0 ? "cursor_1" : null,
           endCursor: packets.length > 0 ? `cursor_${packets.length}` : null,
-          ...pageInfoOverrides
-        }
-      }
-    }
+          ...pageInfoOverrides,
+        },
+      },
+    },
   };
 }
 
@@ -1210,7 +1187,7 @@ function packet(overrides: Partial<PacketPayload> = {}) {
     currentVersionId: "version_1",
     operationId: "operation_1",
     updatedAt: "2026-07-09T12:00:00Z",
-    ...overrides
+    ...overrides,
   };
 }
 

@@ -5,7 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  writeFileSync
+  writeFileSync,
 } from "node:fs";
 import { extname, join, resolve } from "node:path";
 

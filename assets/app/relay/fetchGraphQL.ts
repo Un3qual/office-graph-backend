@@ -2,7 +2,7 @@ import {
   Observable,
   type GraphQLResponse,
   type RequestParameters,
-  type Variables
+  type Variables,
 } from "relay-runtime";
 
 const GRAPHQL_FETCH_TIMEOUT_MS = 30_000;
@@ -23,7 +23,7 @@ export class GraphQLResponseError extends Error {
 
 export async function fetchGraphQL(
   request: RequestParameters,
-  variables: Variables
+  variables: Variables,
 ): Promise<GraphQLResponse> {
   return fetchGraphQLWithSignal(request, variables);
 }
@@ -31,7 +31,7 @@ export async function fetchGraphQL(
 async function fetchGraphQLWithSignal(
   request: RequestParameters,
   variables: Variables,
-  disposalSignal?: AbortSignal
+  disposalSignal?: AbortSignal,
 ): Promise<GraphQLResponse> {
   if (!request.text) {
     throw new Error(`Relay request "${request.name}" is missing compiled GraphQL text.`);
@@ -49,13 +49,13 @@ async function fetchGraphQLWithSignal(
       credentials: "same-origin",
       headers: {
         accept: "application/json",
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
       body: JSON.stringify({
         query: request.text,
-        variables
+        variables,
       }),
-      signal: controller.signal
+      signal: controller.signal,
     });
 
     const payload = await readGraphQLResponse(response);
@@ -96,7 +96,7 @@ export function executeGraphQL(request: RequestParameters, variables: Variables)
       },
       (error: unknown) => {
         if (!disposed) sink.error(error instanceof Error ? error : new Error(String(error)));
-      }
+      },
     );
 
     return () => {

@@ -37,7 +37,7 @@ export function NavRail({ ariaLabel, brand, items }: Props) {
               {label}
             </NavLink>
           ) : (
-            <button className="ui-rail-item" disabled key={item.label}>
+            <button className="ui-rail-item" disabled key={item.label} type="button">
               {label}
             </button>
           );
