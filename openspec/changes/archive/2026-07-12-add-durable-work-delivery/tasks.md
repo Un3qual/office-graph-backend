@@ -20,5 +20,5 @@
 
 ## 5. Verification And Completion
 
-- [ ] 5.1 Run focused migration, persistence, worker, authorization, telemetry, operator-command, architecture, and concurrency tests; then run strict OpenSpec validation, `mix verify`, and `git diff --check`.
-- [ ] 5.2 Synchronize durable-delivery delta requirements into durable specs, archive `add-durable-work-delivery`, update the current plan index, confirm no active change remains, and push the verified commits to PR #21.
+- [x] 5.1 Run focused migration, persistence, worker, authorization, telemetry, operator-command, architecture, and concurrency tests; then run strict OpenSpec validation, `mix verify`, and `git diff --check`.
+- [x] 5.2 Synchronize durable-delivery delta requirements into durable specs, archive `add-durable-work-delivery`, update the current plan index, confirm no active change remains, and push the verified commits to PR #21.
