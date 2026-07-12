@@ -89,6 +89,18 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
     ]
   }
 
+  def public_field?(field) when is_atom(field) do
+    Enum.any?(@fields, fn {_command, fields} -> Keyword.has_key?(fields, field) end)
+  end
+
+  def public_field?(field) when is_binary(field) do
+    Enum.any?(@fields, fn {_command, fields} ->
+      Enum.any?(fields, fn {known, _type} -> Atom.to_string(known) == field end)
+    end)
+  end
+
+  def public_field?(_field), do: false
+
   def parse(command, params) when is_map(params) do
     @fields
     |> Map.fetch!(command)

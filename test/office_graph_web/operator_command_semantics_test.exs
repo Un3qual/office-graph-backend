@@ -109,7 +109,7 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
         {{:missing_verification_check, id}, :validation, "missing_verification_check",
          "A verification check could not be found.", %{verification_check_id: id}, 422},
         {{:invalid_evidence_result, "passsed"}, :validation, "invalid_evidence_result",
-         "The evidence result is not supported.", %{evidence_result: "passsed"}, 422},
+         "The evidence result is not supported.", %{evidence_result: "invalid"}, 422},
         {{:observation_idempotency_conflict, id}, :conflict, "idempotency_conflict",
          "The observation source idempotency key conflicts with different input.",
          %{observation_id: id}, 409},
@@ -156,95 +156,122 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
       end
     end
 
-    test "recursively sanitizes nested unsafe reasons for both transports" do
+    test "compact unknown values and keys fail closed under registered reason contexts" do
       id = Ecto.UUID.generate()
+
+      compact_bypasses = [
+        "adaptertimeout",
+        "databasecredentials",
+        "runtimefailure",
+        "sqlstate23505",
+        "selectcredentials",
+        "officegraphrepo"
+      ]
 
       unsafe_reason =
         {:normalized_event_operation_mismatch,
-         %{
-           {:sql, :key} => "SELECT hidden FROM adapter_state",
-           "DBConnection.ConnectionError" => id,
-           safe: [
-             :missing_normalized_event_id,
-             "event-123",
-             "signal_create",
-             "create_signal",
-             "create_task",
-             "create_review_finding",
-             "create_verification_check"
-           ],
-           safe_values: [id, 42, true, false, nil],
-           safe_tuple: {id, :pending, "PostgrexError"},
-           unsafe_pair: {:adapter_error, "timeout"},
-           safe_struct: %SafeReason{
-             id: id,
-             state: :pending,
-             details: %{field_name: "title", adapter: "DBConnection.ConnectionError"}
-           },
-           exception: %RuntimeError{message: "SELECT secret FROM credentials"},
-           adapter: {:adapter_error, "Postgrex SQL connection details"},
-           unsafe_tokens: [
-             "PostgrexError",
-             "Postgrex.Error",
-             "Postgrex_Error",
-             "DBConnection.ConnectionError",
-             "EctoQueryError",
-             "SELECT",
-             "SELECT_credentials",
-             "select_credentials",
-             "Elixir.OfficeGraph.Repo",
-             "delete",
-             "update_credentials",
-             "drop_table",
-             "alter_table",
-             "create_table",
-             "grant_role",
-             "revoke_role",
-             "ash_forbidden",
-             "ecto_constraint",
-             "ectoqueryerror",
-             "postgrexerror"
-           ]
-         }}
+         Map.new(compact_bypasses, fn token -> {token, token} end)
+         |> Map.put(:safe_id, id)
+         |> Map.put({:unsafe, :key}, id)}
 
       error = {:invalid_proposed_change_set, unsafe_reason}
       assert {:error, graphql_error} = GraphQLErrors.to_absinthe(error)
       json_conn = JsonErrors.render(build_conn(), error)
       serialized = inspect([graphql_error, json_response(json_conn, 409)])
 
-      refute serialized =~ "SELECT"
-      refute serialized =~ "credentials"
-      refute serialized =~ "Postgrex"
-      refute serialized =~ "RuntimeError"
+      for token <- compact_bypasses do
+        refute serialized =~ token
+      end
 
-      classification = Errors.classify(error)
-
-      assert classification.metadata == %{
+      assert Errors.classify(error).metadata == %{
                reason: %{
                  kind: "normalized_event_operation_mismatch",
-                 value: %{
-                   "invalid" => "invalid",
-                   "safe" => [
-                     "missing_normalized_event_id",
-                     "event-123",
-                     "signal_create",
-                     "create_signal",
-                     "create_task",
-                     "create_review_finding",
-                     "create_verification_check"
-                   ],
-                   "safe_struct" => %{
-                     "details" => %{"field_name" => "title", "invalid" => "invalid"},
-                     "id" => id,
-                     "state" => "pending"
-                   },
-                   "safe_tuple" => [id, "pending", "invalid"],
-                   "safe_values" => [id, 42, true, false, nil],
-                   "unsafe_pair" => %{kind: "internal", value: "invalid"},
-                   "unsafe_tokens" => List.duplicate("invalid", 20)
-                 }
+                 value: "invalid"
                }
              }
+    end
+
+    test "registered proposal reasons preserve only their exact public value shapes" do
+      first_id = Ecto.UUID.generate()
+      second_id = Ecto.UUID.generate()
+
+      cases = [
+        {:missing_normalized_event_id, "missing_normalized_event_id"},
+        {{:normalized_event_operation_mismatch, first_id},
+         %{kind: "normalized_event_operation_mismatch", value: first_id}},
+        {{:normalized_event_not_accepted, first_id},
+         %{kind: "normalized_event_not_accepted", value: first_id}},
+        {{:normalized_event_mismatch, first_id},
+         %{kind: "normalized_event_mismatch", value: first_id}},
+        {{:mixed_normalized_event_ids, [first_id, second_id]},
+         %{kind: "mixed_normalized_event_ids", value: [first_id, second_id]}},
+        {{:duplicate_change_type, "create_signal"},
+         %{kind: "duplicate_change_type", value: "create_signal"}},
+        {{:missing_change_type, "create_task"},
+         %{kind: "missing_change_type", value: "create_task"}},
+        {{:unexpected_change_type, "adaptertimeout"},
+         %{kind: "unexpected_change_type", value: "invalid"}},
+        {{:normalized_event_lookup_failed, %RuntimeError{message: "databasecredentials"}},
+         %{kind: "normalized_event_lookup_failed", value: "invalid"}}
+      ]
+
+      for {reason, expected} <- cases do
+        error = {:invalid_proposed_change_set, reason}
+        assert %{metadata: %{reason: ^expected}} = Errors.classify(error)
+
+        assert_adapter_error(
+          error,
+          409,
+          "invalid_proposed_change_set",
+          "The proposed change set is invalid.",
+          %{reason: expected}
+        )
+      end
+    end
+
+    test "canonical UUID metadata is version-agnostic while malformed ids fail closed" do
+      version_seven_id = "019f579b-957f-7143-bb93-6a56051f6602"
+
+      assert_adapter_error(
+        {:missing_proposed_change, version_seven_id},
+        422,
+        "missing_proposed_change",
+        "A proposed change could not be found.",
+        %{proposed_change_id: version_seven_id}
+      )
+
+      assert_adapter_error(
+        {:missing_proposed_change, "officegraphrepo"},
+        422,
+        "missing_proposed_change",
+        "A proposed change could not be found.",
+        %{proposed_change_id: "invalid"}
+      )
+    end
+
+    test "unknown tuple, map, list, and ordinary or exception struct reasons are total and invalid" do
+      id = Ecto.UUID.generate()
+
+      reasons = [
+        {id, :pending, "adaptertimeout"},
+        %{id: id, state: :pending},
+        [id, :pending],
+        %SafeReason{id: id, state: :pending, details: %{field_name: "title"}},
+        %RuntimeError{message: "databasecredentials"}
+      ]
+
+      for reason <- reasons do
+        error = {:invalid_proposed_change_set, reason}
+        assert %{metadata: %{reason: "invalid"}} = Errors.classify(error)
+
+        assert_adapter_error(
+          error,
+          409,
+          "invalid_proposed_change_set",
+          "The proposed change set is invalid.",
+          %{reason: "invalid"}
+        )
+      end
     end
 
     test "field conversion is total and adapters preserve classified fields" do
@@ -273,6 +300,17 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
         "A field has an invalid value.",
         %{field: "invalid"}
       )
+
+      for compact <-
+            ~w(adaptertimeout databasecredentials runtimefailure sqlstate23505 selectcredentials officegraphrepo) do
+        assert_adapter_error(
+          {:invalid_field, compact},
+          422,
+          "validation_failed",
+          "A field has an invalid value.",
+          %{field: "invalid"}
+        )
+      end
     end
 
     test "nested forbidden and generic fallback retain adapter parity without unsafe fields" do

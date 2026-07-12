@@ -1,64 +1,52 @@
 defmodule OfficeGraphWeb.OperatorCommands.Errors do
   @moduledoc false
 
-  @safe_token ~r/\A[a-z0-9][a-z0-9:_-]{0,159}\z/
-  @internal_segments [
-    "ash",
-    "adapter",
-    "connection",
-    "database",
-    "dbconnection",
-    "ecto",
-    "error",
-    "exception",
-    "postgres",
-    "postgrex",
-    "query",
-    "runtime",
-    "sql"
+  alias OfficeGraphWeb.OperatorCommands.Input
+
+  @uuid_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+  @uuid_metadata_keys [
+    :accepted_id,
+    :current_version_id,
+    :evidence_candidate_id,
+    :id,
+    :normalized_event_id,
+    :observation_id,
+    :operation_id,
+    :packet_id,
+    :packet_version_id,
+    :proposed_change_id,
+    :run_id,
+    :verification_check_id
   ]
-  @internal_prefixes ["ash", "dbconnection", "ecto", "postgres", "postgrex"]
-  @safe_domain_tokens [
+  @change_types [
     "create_review_finding",
     "create_signal",
     "create_task",
     "create_verification_check"
   ]
-  @sql_leading_tokens [
-    "alter",
-    "analyze",
-    "begin",
-    "call",
-    "comment",
-    "commit",
-    "copy",
-    "create",
-    "delete",
-    "drop",
-    "execute",
-    "explain",
-    "from",
-    "grant",
-    "insert",
-    "join",
-    "lock",
-    "merge",
-    "prepare",
-    "reindex",
-    "release",
-    "revoke",
-    "rollback",
-    "savepoint",
-    "select",
-    "set",
-    "show",
-    "truncate",
-    "union",
-    "update",
-    "vacuum",
-    "values",
-    "where",
-    "with"
+  @execution_states ["completed", "failed", "pending", "running"]
+  @verification_states ["failed", "missing_evidence", "pending", "unverified", "verified"]
+  @evidence_results ["failed", "passed", "waived"]
+  @simple_reason_tokens [
+    "existing_normalized_event_changes",
+    "invalid_apply_input",
+    "missing_normalized_event_id"
+  ]
+  @uuid_reason_kinds [
+    "normalized_event_mismatch",
+    "normalized_event_not_accepted",
+    "normalized_event_operation_mismatch"
+  ]
+  @change_type_reason_kinds ["duplicate_change_type", "missing_change_type"]
+  @opaque_reason_kinds ["normalized_event_lookup_failed", "unexpected_change_type"]
+  @auxiliary_fields [
+    "after_cursor",
+    "first",
+    "id",
+    "occurred_at",
+    "pagination",
+    "session_context",
+    "subject_version"
   ]
 
   @type classification :: %{
@@ -272,100 +260,111 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   defp sanitize_metadata(metadata) do
-    Map.new(metadata, fn {key, value} -> {key, sanitize(value)} end)
-  end
-
-  defp sanitize({kind, value}) when is_atom(kind) do
-    case sanitize_atom(kind) do
-      "internal" -> %{kind: "internal", value: "invalid"}
-      safe_kind -> %{kind: safe_kind, value: sanitize(value)}
-    end
-  end
-
-  defp sanitize(nil), do: nil
-  defp sanitize(value) when is_boolean(value) or is_number(value), do: value
-  defp sanitize(value) when is_atom(value), do: sanitize_atom(value)
-  defp sanitize(value) when is_list(value), do: sanitize_list(value)
-
-  defp sanitize(%{__exception__: true}), do: "invalid"
-
-  defp sanitize(value) when is_struct(value) do
-    value
-    |> Map.from_struct()
-    |> sanitize_map()
-  end
-
-  defp sanitize(value) when is_map(value) and not is_struct(value) do
-    sanitize_map(value)
-  end
-
-  defp sanitize(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&sanitize/1)
-
-  defp sanitize(value) when is_binary(value) do
-    if safe_token?(value) do
-      value
-    else
-      "invalid"
-    end
-  end
-
-  defp sanitize(_value), do: "invalid"
-
-  defp sanitize_list([]), do: []
-  defp sanitize_list([head | tail]), do: [sanitize(head) | sanitize_list_tail(tail)]
-
-  defp sanitize_list_tail([]), do: []
-  defp sanitize_list_tail([head | tail]), do: [sanitize(head) | sanitize_list_tail(tail)]
-  defp sanitize_list_tail(tail), do: [sanitize(tail)]
-
-  defp sanitize_map(value) do
-    Map.new(value, fn {key, nested} ->
-      case sanitize_key(key) do
-        "invalid" -> {"invalid", "invalid"}
-        safe_key -> {safe_key, sanitize(nested)}
+    Enum.reduce(metadata, %{}, fn {key, value}, sanitized ->
+      case sanitize_metadata_entry(key, value) do
+        {:ok, safe_value} -> Map.put(sanitized, key, safe_value)
+        :error -> Map.put(sanitized, :invalid, "invalid")
       end
     end)
   end
 
-  defp sanitize_key(key) when is_atom(key), do: key |> Atom.to_string() |> sanitize_key()
-
-  defp sanitize_key(key) when is_binary(key) do
-    if safe_token?(key), do: key, else: "invalid"
+  defp sanitize_metadata_entry(key, value) when key in @uuid_metadata_keys do
+    {:ok, sanitize_uuid(value)}
   end
 
-  defp sanitize_key(key) when is_number(key), do: to_string(key)
-  defp sanitize_key(_key), do: "invalid"
-
-  defp sanitize_atom(atom) do
-    value = Atom.to_string(atom)
-
-    if safe_token?(value), do: value, else: "internal"
+  defp sanitize_metadata_entry(:execution_state, value) do
+    {:ok, sanitize_enum(value, @execution_states)}
   end
 
-  defp sanitize_field(field) when is_atom(field),
-    do: field |> Atom.to_string() |> sanitize_field()
+  defp sanitize_metadata_entry(:verification_state, value) do
+    {:ok, sanitize_enum(value, @verification_states)}
+  end
+
+  defp sanitize_metadata_entry(:evidence_result, value) do
+    {:ok, sanitize_enum(value, @evidence_results)}
+  end
+
+  defp sanitize_metadata_entry(:reason, value), do: {:ok, sanitize_reason(value)}
+  defp sanitize_metadata_entry(:field, value), do: {:ok, sanitize_field(value)}
+  defp sanitize_metadata_entry(_key, _value), do: :error
+
+  defp sanitize_uuid(value) when is_binary(value) do
+    if Regex.match?(@uuid_pattern, value), do: value, else: "invalid"
+  end
+
+  defp sanitize_uuid(_value), do: "invalid"
+
+  defp sanitize_enum(value, allowed) when is_atom(value) do
+    sanitize_enum(Atom.to_string(value), allowed)
+  end
+
+  defp sanitize_enum(value, allowed) when is_binary(value) do
+    if value in allowed, do: value, else: "invalid"
+  end
+
+  defp sanitize_enum(_value, _allowed), do: "invalid"
+
+  defp sanitize_reason(value) when is_number(value) or is_boolean(value) or is_nil(value),
+    do: value
+
+  defp sanitize_reason(value) when is_atom(value) do
+    value
+    |> Atom.to_string()
+    |> sanitize_simple_reason()
+  end
+
+  defp sanitize_reason(value) when is_binary(value), do: sanitize_simple_reason(value)
+
+  defp sanitize_reason({kind, value}) when is_atom(kind) do
+    kind
+    |> Atom.to_string()
+    |> sanitize_reason_pair(value)
+  end
+
+  defp sanitize_reason(_value), do: "invalid"
+
+  defp sanitize_simple_reason(value) do
+    if value in @simple_reason_tokens, do: value, else: "invalid"
+  end
+
+  defp sanitize_reason_pair(kind, value) when kind in @uuid_reason_kinds do
+    %{kind: kind, value: sanitize_uuid(value)}
+  end
+
+  defp sanitize_reason_pair("mixed_normalized_event_ids" = kind, value) do
+    %{kind: kind, value: sanitize_uuid_list(value)}
+  end
+
+  defp sanitize_reason_pair(kind, value) when kind in @change_type_reason_kinds do
+    %{kind: kind, value: sanitize_enum(value, @change_types)}
+  end
+
+  defp sanitize_reason_pair(kind, _value) when kind in @opaque_reason_kinds do
+    %{kind: kind, value: "invalid"}
+  end
+
+  defp sanitize_reason_pair(_kind, _value), do: "invalid"
+
+  defp sanitize_uuid_list(value), do: sanitize_uuid_list(value, [])
+
+  defp sanitize_uuid_list([], sanitized), do: Enum.reverse(sanitized)
+
+  defp sanitize_uuid_list([value | values], sanitized) do
+    case sanitize_uuid(value) do
+      "invalid" -> "invalid"
+      uuid -> sanitize_uuid_list(values, [uuid | sanitized])
+    end
+  end
+
+  defp sanitize_uuid_list(_malformed, _sanitized), do: "invalid"
+
+  defp sanitize_field(field) when is_atom(field), do: sanitize_field(Atom.to_string(field))
 
   defp sanitize_field(field) when is_binary(field) do
-    if safe_token?(field), do: field, else: "invalid"
+    if Input.public_field?(field) or field in @auxiliary_fields, do: field, else: "invalid"
   end
 
   defp sanitize_field(_field), do: "invalid"
-
-  defp safe_token?(value) do
-    byte_size(value) <= 160 and String.valid?(value) and Regex.match?(@safe_token, value) and
-      safe_token_semantics?(value)
-  end
-
-  defp safe_token_semantics?(value) do
-    segments = String.split(value, [":", "_", "-"], trim: true)
-    first = List.first(segments)
-
-    value in @safe_domain_tokens or
-      (first not in @sql_leading_tokens and
-         Enum.all?(segments, &(&1 not in @internal_segments)) and
-         Enum.all?(@internal_prefixes, &(not String.starts_with?(value, &1))) and
-         not String.ends_with?(value, "error"))
-  end
 
   defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true
 
