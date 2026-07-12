@@ -32,10 +32,10 @@
 
 ## 6. Frontend Correctness And Accessibility
 
-- [ ] 6.1 Make Relay queries and mutations abort their underlying HTTP request on disposal and prove late payloads are ignored.
-- [ ] 6.2 Preserve all command field errors, map them to controls, render accessible inline feedback and a summary, and focus the first invalid control.
-- [ ] 6.3 Use client-side navigation for internal links, configure safe DateTime scalar typing, remove blind casts, and replace internal evidence jargon and stale queue copy.
-- [ ] 6.4 Remove dead operator hooks/exports, unused styles and StyleX tooling, then add AST-aware lint/import-boundary enforcement to frontend verification.
+- [x] 6.1 Make Relay queries and mutations abort their underlying HTTP request on disposal and prove late payloads are ignored.
+- [x] 6.2 Preserve all command field errors, map them to controls, render accessible inline feedback and a summary, and focus the first invalid control.
+- [x] 6.3 Use client-side navigation for internal links, configure safe DateTime scalar typing, remove blind casts, and replace internal evidence jargon and stale queue copy.
+- [x] 6.4 Remove dead operator hooks/exports, unused styles and StyleX tooling, then add AST-aware lint/import-boundary enforcement to frontend verification.
 
 ## 7. Maintainability Refactoring
 
