@@ -366,3 +366,39 @@ git diff --check
 ```
 
 Results: backend projection/API 48 passed (seed 395502); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.
+
+## Sixth Independent Performance Review Remediation
+
+Status: DONE
+
+### Scoped packet-source projection index
+
+- Added the forward migration `20260712161500_add_packet_source_projection_index.exs`; no historical migration was modified.
+- The named index `work_packet_version_sources_scope_graph_item_version_index` orders `(organization_id, workspace_id, graph_item_id, work_packet_version_id)`, matching the source-driven relationship CTE's scoped graph-item lookup and covering the linked version ID.
+- The explicit `down/0` drops only that named index. The migration regression executes down and up, proving the catalog removes and restores the exact ordered columns.
+
+### Planner evidence
+
+- The focused regression inserts 5,000 same-scope noise graph items/source rows beside the target source, runs `ANALYZE work_packet_version_sources`, and inspects `EXPLAIN (FORMAT JSON)` recursively.
+- Before the migration, the catalog returned no index columns and PostgreSQL selected a sequential scan with an estimated total cost of 219.52.
+- After the migration, PostgreSQL selects the named index through an accepted index, index-only, or bitmap-index plan node. The test does not disable sequential scans and does not match an entire brittle plan string.
+
+### RED, GREEN, and final gate
+
+Focused RED: 0/2 (missing catalog entry and sequential scan). Focused GREEN after the migration: 2/2; adding executed rollback coverage produced 3/3.
+
+Final Nix-shell gate:
+
+```sh
+MIX_ENV=test mix ecto.migrate
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test test/office_graph/authorization/owner_capability_migration_test.exs \
+  test/office_graph/projections/operator_workflow_source_index_test.exs \
+  test/office_graph_web/operator_workflow_api_test.exs \
+  test/office_graph/projections/operator_workflow_test.exs
+openspec validate harden-project-quality --strict
+git diff --check
+```
+
+Results: the test database reported all migrations up; migration plus projection/API coverage passed 53 tests (seed 847435); warnings-as-errors compilation, formatting, strict OpenSpec, and diff checks passed.
