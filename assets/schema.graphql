@@ -784,6 +784,7 @@ type RootQueryType {
   operatorPacketCreateAffordance: OperatorCommandAffordance!
   operatorManualIntakeAffordance: OperatorCommandAffordance!
   operatorRunState(id: ID!): OperatorRunState!
+  operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
   operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
   node(
     "The ID of an object."
@@ -1481,6 +1482,13 @@ type OperatorRunCommandOptionChoiceConnection {
   edges: [OperatorRunCommandOptionChoiceEdge]
 }
 
+type OperatorRunCommandOptionSummary {
+  observation: Int!
+  evidenceCandidate: Int!
+  evidenceAcceptance: Int!
+  waiver: Int!
+}
+
 type OperatorRunState {
   type: String!
   status: String!
@@ -1488,7 +1496,7 @@ type OperatorRunState {
   commandAffordances: [OperatorCommandAffordance!]!
   commandOptions: OperatorRunCommandOptions!
   commandOptionsOverflow: Boolean!
-  commandOptionPage(after: String, first: Int!, kind: String!): OperatorRunCommandOptionChoiceConnection
+  commandOptionSummary: OperatorRunCommandOptionSummary!
   childSummary: OperatorRunChildSummary!
   activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID

@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<675b0f9d955fef7fd8444f5f726acecb>>
+ * @generated SignedSource<<05bae68b4be8a047e767f9dbf0a47b8a>>
  * @lightSyntaxTransform
  */
 
@@ -54,6 +54,12 @@ export type OperatorRunStateFragment$data = {
       readonly type: string;
     }>;
   }>;
+  readonly commandOptionSummary: {
+    readonly evidenceAcceptance: number;
+    readonly evidenceCandidate: number;
+    readonly observation: number;
+    readonly waiver: number;
+  };
   readonly commandOptions: {
     readonly evidenceAcceptance: ReadonlyArray<{
       readonly acceptancePolicyBasis: string;
@@ -184,6 +190,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "b07bf89a801e81a21f930c168015b45d";
+(node as any).hash = "c03edc0383ecebfff0f5b3f5a9eb679f";
 
 export default node;

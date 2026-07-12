@@ -215,3 +215,51 @@ git diff --check
 ```
 
 Results: backend projection/API 44 passed (seed 43197); frontend operator/packet routes 62 passed; Relay validated 22 reader, 18 normalization, and 22 operation documents; all static, production-build, OpenSpec, formatting, and diff gates passed.
+
+## Third Independent Review Remediation
+
+Status: DONE
+
+### Complete, tenant-safe relationship detail
+
+- The relationship-detail CTE now derives linked packet versions from scoped applied graph resources, adds the latest linked packet plus its run history, and preserves `(kind, stable_id)` keyset pagination with `LIMIT`.
+- Both graph-relationship endpoints are joined through organization/workspace-scoped `graph_items`; an unrelated tenant's packet, run, and graph resources cannot enter the result.
+- Window aggregates provide exact base relationship counts without materializing every detail row. The base workflow projection caps linked run history at 21 and the detail path remains the bounded source of overflow rows.
+- A regression with 21 same-version runs proves the first and second relationship pages cover every in-scope workflow link, exclude a foreign tenant's run, and report the exact 26 links and 3 relationships.
+
+### Exact affordance availability and bounded root option reads
+
+- Run-command availability is now derived from the same scoped, nonsentinel SQL predicates as each option page. Compact first-20 projection arrays no longer decide whether an affordance exists.
+- The option page moved from nested `operatorRunState` resolution to the authenticated root `operatorRunCommandOptionPage`. Schema introspection proves the root field exists and the nested field does not.
+- The operator UI issues one combined root operation and conditionally includes only option kinds whose bounded availability summary exceeds 20. Non-overflow kinds retain their compact typed options.
+- A 21-check regression invalidates the first 20 labels and proves the sole valid row 21 still enables `record_execution_observation` and remains selectable from the root option page. Route coverage proves overflow paging and run-selection cursor reset.
+
+### Result-aware activity and waiver completeness
+
+- Derived missing-evidence activity now reports `failed_check` when a scoped failed verification result exists for that check; otherwise it reports `missing_accepted_evidence`.
+- Waiver SQL rejects blank or redaction-sentinel execution and verification states before ordering and `LIMIT`, in addition to rejecting unusable check titles.
+- The waiver regression places invalid rows before the valid row, proves only the valid choice is returned, then redacts the run execution state and proves the page is empty.
+
+### Focused and final evidence
+
+- Initial third-review focused gate: relationship overflow 1/1; row-21 availability, activity reason, and waiver filtering 2/2; operator route 39/39.
+- The first complete projection run found one legacy presentation-state regression (27/28): exact option availability had accidentally changed a partially completed run from `awaiting_evidence` to `awaiting_execution`. Restoring the established child-count status transition while retaining exact SQL affordance gating produced 28/28.
+
+Final Nix-shell gate:
+
+```sh
+mix format
+mix compile --warnings-as-errors
+mix test test/office_graph_web/operator_workflow_api_test.exs \
+  test/office_graph/projections/operator_workflow_test.exs
+pnpm --dir assets run relay:check
+pnpm --dir assets run typecheck
+pnpm --dir assets exec vitest run app/routes/operator/route.test.tsx \
+  app/routes/packets/route.test.tsx --reporter=dot
+pnpm --dir assets run build
+openspec validate harden-project-quality --strict
+mix format --check-formatted
+git diff --check
+```
+
+Results: backend projection/API 45 passed (seed 493226); frontend operator/packet routes 62 passed; Relay validated 23 reader, 18 normalization, and 23 operation documents; TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.

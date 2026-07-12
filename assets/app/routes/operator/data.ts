@@ -225,6 +225,12 @@ export const OperatorRunStateFragment = graphql`
       }
     }
     commandOptionsOverflow
+    commandOptionSummary {
+      observation
+      evidenceCandidate
+      evidenceAcceptance
+      waiver
+    }
     childSummary {
       requiredChecks
       observations
@@ -312,9 +318,43 @@ export const OperatorRunStateFragment = graphql`
 `;
 
 export const OperatorRunCommandOptionPageQuery = graphql`
-  query OperatorRunCommandOptionPageQuery($id: ID!, $kind: String!, $first: Int!, $after: String) {
-    operatorRunState(id: $id) {
-      commandOptionPage(kind: $kind, first: $first, after: $after) {
+  query OperatorRunCommandOptionPageQuery(
+    $id: ID!
+    $first: Int!
+    $observationAfter: String
+    $evidenceCandidateAfter: String
+    $evidenceAcceptanceAfter: String
+    $waiverAfter: String
+    $loadObservation: Boolean!
+    $loadEvidenceCandidate: Boolean!
+    $loadEvidenceAcceptance: Boolean!
+    $loadWaiver: Boolean!
+  ) {
+    observation: operatorRunCommandOptionPage(
+      id: $id, kind: "observation", first: $first, after: $observationAfter
+    ) @include(if: $loadObservation) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    evidenceCandidate: operatorRunCommandOptionPage(
+      id: $id, kind: "evidence_candidate", first: $first, after: $evidenceCandidateAfter
+    ) @include(if: $loadEvidenceCandidate) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    evidenceAcceptance: operatorRunCommandOptionPage(
+      id: $id, kind: "evidence_acceptance", first: $first, after: $evidenceAcceptanceAfter
+    ) @include(if: $loadEvidenceAcceptance) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    waiver: operatorRunCommandOptionPage(
+      id: $id, kind: "waiver", first: $first, after: $waiverAfter
+    ) @include(if: $loadWaiver) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+  }
+`;
+
+export const OperatorRunCommandOptionPageConnectionFragment = graphql`
+  fragment OperatorRunCommandOptionPageConnectionFragment on OperatorRunCommandOptionChoiceConnection @inline {
         edges {
           cursor
           node {
@@ -338,8 +378,6 @@ export const OperatorRunCommandOptionPageQuery = graphql`
           }
         }
         pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
-      }
-    }
   }
 `;
 

@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useState } from "react";
-import { useLazyLoadQuery } from "react-relay";
+import { readInlineData, useLazyLoadQuery } from "react-relay";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { Button } from "../../../src/ui/Button";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
@@ -8,7 +8,14 @@ import { VerificationPanel } from "./components/VerificationPanel";
 import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
 import { RunCommandForm } from "./components/RunCommandForm";
 import { PacketCommandForm } from "./components/PacketCommandForm";
-import { OperatorRunCommandOptionPageQuery } from "./data";
+import {
+  OperatorRunCommandOptionPageConnectionFragment,
+  OperatorRunCommandOptionPageQuery
+} from "./data";
+import type {
+  OperatorRunCommandOptionPageConnectionFragment$data,
+  OperatorRunCommandOptionPageConnectionFragment$key
+} from "../../relay/__generated__/OperatorRunCommandOptionPageConnectionFragment.graphql";
 import type { OperatorRunCommandOptionPageQuery as OperatorRunCommandOptionPageOperation } from "../../relay/__generated__/OperatorRunCommandOptionPageQuery.graphql";
 import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
@@ -167,52 +174,94 @@ function PagedCommandForms({
   runId: string;
   runState: OperatorRunState;
 }) {
-  const observation = useCommandOptionPage(runId, "observation");
-  const evidenceCandidate = useCommandOptionPage(runId, "evidence_candidate");
-  const evidenceAcceptance = useCommandOptionPage(runId, "evidence_acceptance");
-  const waiver = useCommandOptionPage(runId, "waiver");
+  const [cursors, setCursors] = useState({
+    observation: [null] as Array<string | null>,
+    evidenceCandidate: [null] as Array<string | null>,
+    evidenceAcceptance: [null] as Array<string | null>,
+    waiver: [null] as Array<string | null>
+  });
+  const summary = runState.commandOptionSummary;
+  const overflow = {
+    observation: summary.observation > 20,
+    evidenceCandidate: summary.evidenceCandidate > 20,
+    evidenceAcceptance: summary.evidenceAcceptance > 20,
+    waiver: summary.waiver > 20
+  };
+  const data = useLazyLoadQuery<OperatorRunCommandOptionPageOperation>(
+    OperatorRunCommandOptionPageQuery,
+    {
+      id: runId,
+      first: 20,
+      observationAfter: cursors.observation.at(-1) ?? null,
+      evidenceCandidateAfter: cursors.evidenceCandidate.at(-1) ?? null,
+      evidenceAcceptanceAfter: cursors.evidenceAcceptance.at(-1) ?? null,
+      waiverAfter: cursors.waiver.at(-1) ?? null,
+      loadObservation: overflow.observation,
+      loadEvidenceCandidate: overflow.evidenceCandidate,
+      loadEvidenceAcceptance: overflow.evidenceAcceptance,
+      loadWaiver: overflow.waiver
+    },
+    { fetchPolicy: "network-only" }
+  );
+  const page = <K extends keyof typeof cursors>(
+    key: K,
+    connection: OptionConnection | null | undefined
+  ) => ({
+    ...commandOptionPageData(connection),
+    options: commandOptionPageData(connection).options,
+    hasNext: commandOptionPageData(connection).hasNext,
+    hasPrevious: commandOptionPageData(connection).hasPrevious,
+    next: () => {
+      const cursor = commandOptionPageData(connection).endCursor;
+      if (cursor) setCursors(current => ({ ...current, [key]: [...current[key], cursor] }));
+    },
+    previous: () => setCursors(current => ({
+      ...current,
+      [key]: current[key].length > 1 ? current[key].slice(0, -1) : current[key]
+    }))
+  });
+  const observation = page("observation", data.observation);
+  const evidenceCandidate = page("evidenceCandidate", data.evidenceCandidate);
+  const evidenceAcceptance = page("evidenceAcceptance", data.evidenceAcceptance);
+  const waiver = page("waiver", data.waiver);
   const pagedRunState = {
     ...runState,
     commandOptions: {
-      observation: observation.options.flatMap(choice => choice.observation ? [choice.observation] : []),
-      evidenceCandidate: evidenceCandidate.options.flatMap(choice => choice.evidenceCandidate ? [choice.evidenceCandidate] : []),
-      evidenceAcceptance: evidenceAcceptance.options.flatMap(choice => choice.evidenceAcceptance ? [choice.evidenceAcceptance] : []),
-      waiver: waiver.options.flatMap(choice => choice.waiver ? [choice.waiver] : [])
+      observation: overflow.observation ? observation.options.flatMap(choice => choice.observation ? [choice.observation] : []) : runState.commandOptions.observation,
+      evidenceCandidate: overflow.evidenceCandidate ? evidenceCandidate.options.flatMap(choice => choice.evidenceCandidate ? [choice.evidenceCandidate] : []) : runState.commandOptions.evidenceCandidate,
+      evidenceAcceptance: overflow.evidenceAcceptance ? evidenceAcceptance.options.flatMap(choice => choice.evidenceAcceptance ? [choice.evidenceAcceptance] : []) : runState.commandOptions.evidenceAcceptance,
+      waiver: overflow.waiver ? waiver.options.flatMap(choice => choice.waiver ? [choice.waiver] : []) : runState.commandOptions.waiver
     }
   } as OperatorRunState;
 
   return <>
     <RunCommandForm onRefresh={onRefresh} runState={pagedRunState} />
-    <ChoicePagination label="observation choices" page={observation} />
+    {overflow.observation ? <ChoicePagination label="observation choices" page={observation} /> : null}
     <EvidenceCommandForm onRefresh={onRefresh} runState={pagedRunState} />
-    <ChoicePagination label="evidence candidate choices" page={evidenceCandidate} />
-    <ChoicePagination label="evidence acceptance choices" page={evidenceAcceptance} />
-    <ChoicePagination label="waiver choices" page={waiver} />
+    {overflow.evidenceCandidate ? <ChoicePagination label="evidence candidate choices" page={evidenceCandidate} /> : null}
+    {overflow.evidenceAcceptance ? <ChoicePagination label="evidence acceptance choices" page={evidenceAcceptance} /> : null}
+    {overflow.waiver ? <ChoicePagination label="waiver choices" page={waiver} /> : null}
   </>;
 }
 
-function useCommandOptionPage(runId: string, kind: string) {
-  const [cursors, setCursors] = useState<Array<string | null>>([null]);
-  const after = cursors.at(-1) ?? null;
-  const data = useLazyLoadQuery<OperatorRunCommandOptionPageOperation>(
-    OperatorRunCommandOptionPageQuery,
-    { id: runId, kind, first: 20, after },
-    { fetchPolicy: "network-only" }
+type OptionConnection = NonNullable<OperatorRunCommandOptionPageOperation["response"]["observation"]>;
+type ChoicePage = { hasNext: boolean; hasPrevious: boolean; next: () => void; previous: () => void };
+
+function commandOptionPageData(connection: OptionConnection | null | undefined) {
+  if (!connection) return { options: [], hasNext: false, hasPrevious: false, endCursor: null };
+  const data: OperatorRunCommandOptionPageConnectionFragment$data = readInlineData(
+    OperatorRunCommandOptionPageConnectionFragment,
+    connection as OperatorRunCommandOptionPageConnectionFragment$key
   );
-  const connection = data.operatorRunState?.commandOptionPage;
   return {
-    options: (connection?.edges ?? []).flatMap(edge => edge?.node ? [edge.node] : []),
-    hasNext: connection?.pageInfo.hasNextPage ?? false,
-    hasPrevious: connection?.pageInfo.hasPreviousPage ?? false,
-    next: () => {
-      const cursor = connection?.pageInfo.endCursor;
-      if (cursor) setCursors(current => [...current, cursor]);
-    },
-    previous: () => setCursors(current => current.length > 1 ? current.slice(0, -1) : current)
+    options: (data.edges ?? []).flatMap(edge => edge?.node ? [edge.node] : []),
+    hasNext: data.pageInfo.hasNextPage,
+    hasPrevious: data.pageInfo.hasPreviousPage,
+    endCursor: data.pageInfo.endCursor
   };
 }
 
-function ChoicePagination({ label, page }: { label: string; page: ReturnType<typeof useCommandOptionPage> }) {
+function ChoicePagination({ label, page }: { label: string; page: ChoicePage }) {
   return <div aria-label={`${label} pagination`}>
     {page.hasPrevious ? <Button onPress={page.previous}>Previous {label}</Button> : null}
     {page.hasNext ? <Button onPress={page.next}>Next {label}</Button> : null}

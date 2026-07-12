@@ -329,17 +329,31 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     refute get_in(response, ["data", "operatorWorkflowItems"])
   end
 
-  test "schema omits the retired operatorInbox field", %{conn: conn} do
-    response =
+  test "schema omits retired operator fields and exposes root command option paging", %{
+    conn: conn
+  } do
+    root_response =
       conn
       |> post(~p"/graphql", %{
         query: "{ __type(name: \"RootQueryType\") { fields { name } } }"
       })
       |> json_response(200)
 
-    assert response["errors"] in [nil, []]
-    fields = get_in(response, ["data", "__type", "fields"])
-    refute Enum.any?(fields, &(&1["name"] == "operatorInbox"))
+    assert root_response["errors"] in [nil, []]
+    root_fields = get_in(root_response, ["data", "__type", "fields"])
+    refute Enum.any?(root_fields, &(&1["name"] == "operatorInbox"))
+    assert Enum.any?(root_fields, &(&1["name"] == "operatorRunCommandOptionPage"))
+
+    run_state_response =
+      conn
+      |> post(~p"/graphql", %{
+        query: "{ __type(name: \"OperatorRunState\") { fields { name } } }"
+      })
+      |> json_response(200)
+
+    assert run_state_response["errors"] in [nil, []]
+    run_state_fields = get_in(run_state_response, ["data", "__type", "fields"])
+    refute Enum.any?(run_state_fields, &(&1["name"] == "commandOptionPage"))
   end
 
   test "pending rows from one source expose distinct safe summaries and proposal previews", %{
@@ -732,6 +746,12 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert inserted_after_cursor.observation.id in second_activity_ids
     assert second_activity["pageInfo"]["hasPreviousPage"] == true
 
+    {:ok, _failed_acceptance} =
+      accept_candidate(bootstrap.session, candidate,
+        key: "graphql-options-failed-activity",
+        result: "failed"
+      )
+
     all_activity =
       graphql(
         conn,
@@ -746,7 +766,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         "operatorRunState"
       )["activity"]
 
-    assert Enum.any?(all_activity["edges"], &(&1["node"]["kind"] == "missing_evidence"))
+    assert Enum.any?(all_activity["edges"], fn edge ->
+             edge["node"]["kind"] == "missing_evidence" and
+               edge["node"]["status"] == "failed_check"
+           end)
 
     forged_cursor =
       ["2026-07-12T00:00:00.000000", "required_check", "not-a-uuid"]
@@ -876,38 +899,152 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     query = """
     query PagedOptions($id: ID!, $first: Int!, $after: String) {
-      operatorRunState(id: $id) {
+      state: operatorRunState(id: $id) {
         commandOptionsOverflow
-        commandOptionPage(kind: "observation", first: $first, after: $after) {
-          edges { cursor node { key observation { key verificationCheckId } } }
-          pageInfo { hasNextPage hasPreviousPage endCursor }
-        }
+        commandOptionSummary { observation evidenceCandidate evidenceAcceptance waiver }
+      }
+      optionPage: operatorRunCommandOptionPage(
+        id: $id, kind: "observation", first: $first, after: $after
+      ) {
+        edges { cursor node { key observation { key verificationCheckId } } }
+        pageInfo { hasNextPage hasPreviousPage endCursor }
       }
     }
     """
 
-    first = graphql(conn, query, %{id: run_result.run.id, first: 20}, "operatorRunState")
-    assert first["commandOptionsOverflow"] == true
-    assert length(first["commandOptionPage"]["edges"]) == 20
-    assert first["commandOptionPage"]["pageInfo"]["hasNextPage"] == true
+    first_response =
+      conn
+      |> post(~p"/graphql", %{
+        query: query,
+        variables: %{id: run_result.run.id, first: 20}
+      })
+      |> json_response(200)
+
+    assert first_response["errors"] in [nil, []]
+    first = first_response["data"]
+    assert first["state"]["commandOptionsOverflow"] == true
+    assert first["state"]["commandOptionSummary"]["observation"] == 21
+    assert length(first["optionPage"]["edges"]) == 20
+    assert first["optionPage"]["pageInfo"]["hasNextPage"] == true
 
     second =
-      graphql(
-        conn,
-        query,
-        %{
+      conn
+      |> post(~p"/graphql", %{
+        query: query,
+        variables: %{
           id: run_result.run.id,
           first: 20,
-          after: first["commandOptionPage"]["pageInfo"]["endCursor"]
-        },
+          after: first["optionPage"]["pageInfo"]["endCursor"]
+        }
+      })
+      |> json_response(200)
+      |> then(fn response ->
+        assert response["errors"] in [nil, []]
+        response["data"]
+      end)
+
+    assert [%{"node" => %{"observation" => %{"verificationCheckId" => last_check_id}}}] =
+             second["optionPage"]["edges"]
+
+    assert last_check_id == List.last(checks).id
+    assert second["optionPage"]["pageInfo"]["hasPreviousPage"] == true
+
+    checks
+    |> Enum.take(20)
+    |> Enum.each(fn check ->
+      OfficeGraph.Repo.query!(
+        "UPDATE verification_checks SET title = '  [REDACTED]  ' WHERE id = $1",
+        [Ecto.UUID.dump!(check.id)]
+      )
+    end)
+
+    compact_invalid =
+      graphql(
+        conn,
+        """
+        query CompactInvalidOptions($id: ID!) {
+          operatorRunState(id: $id) {
+            allowedNextActions
+            commandOptions { observation { key } }
+            commandOptionSummary { observation }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
         "operatorRunState"
       )
 
-    assert [%{"node" => %{"observation" => %{"verificationCheckId" => last_check_id}}}] =
-             second["commandOptionPage"]["edges"]
+    assert compact_invalid["commandOptions"]["observation"] == []
+    assert compact_invalid["commandOptionSummary"]["observation"] == 1
+    assert "record_execution_observation" in compact_invalid["allowedNextActions"]
 
-    assert last_check_id == List.last(checks).id
-    assert second["commandOptionPage"]["pageInfo"]["hasPreviousPage"] == true
+    only_valid =
+      graphql(
+        conn,
+        """
+        query OnlyValidOption($id: ID!) {
+          operatorRunCommandOptionPage(id: $id, kind: "observation", first: 20) {
+            edges { node { observation { verificationCheckId } } }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunCommandOptionPage"
+      )
+
+    assert [%{"node" => %{"observation" => %{"verificationCheckId" => only_valid_id}}}] =
+             only_valid["edges"]
+
+    assert only_valid_id == List.last(checks).id
+
+    valid_waiver =
+      graphql(
+        conn,
+        """
+        query OnlyValidWaiver($id: ID!) {
+          operatorRunCommandOptionPage(id: $id, kind: "waiver", first: 20) {
+            edges { node { waiver { runRequiredCheckId } } }
+            pageInfo { hasNextPage }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunCommandOptionPage"
+      )
+
+    assert [%{"node" => %{"waiver" => %{"runRequiredCheckId" => valid_waiver_id}}}] =
+             valid_waiver["edges"]
+
+    assert valid_waiver_id
+    assert valid_waiver["pageInfo"]["hasNextPage"] == false
+
+    OfficeGraph.Repo.query!(
+      "UPDATE runs SET execution_state = '  [REDACTED]  ' WHERE id = $1",
+      [Ecto.UUID.dump!(run_result.run.id)]
+    )
+
+    invalid_state_waiver =
+      graphql(
+        conn,
+        """
+        query InvalidStateWaiver($id: ID!) {
+          operatorRunCommandOptionPage(id: $id, kind: "waiver", first: 20) {
+            edges { node { waiver { key } } }
+            pageInfo { hasNextPage }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunCommandOptionPage"
+      )
+
+    assert invalid_state_waiver["edges"] == []
+    assert invalid_state_waiver["pageInfo"]["hasNextPage"] == false
+
+    OfficeGraph.Repo.query!(
+      "UPDATE runs SET execution_state = $1 WHERE id = $2",
+      [run_result.run.execution_state, Ecto.UUID.dump!(run_result.run.id)]
+    )
 
     checks
     |> Enum.with_index(1)

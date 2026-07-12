@@ -204,39 +204,43 @@ describe("operator route", () => {
       if (request.name === "OperatorRunStateQuery") {
         const state = operatorRunState({
           commandOptionsOverflow: true,
+          commandOptionSummary: {
+            observation: 21,
+            evidenceCandidate: 1,
+            evidenceAcceptance: 1,
+            waiver: 1
+          },
           commandAffordances: [enabledCommandAffordance("record_execution_observation")]
         });
         return { data: { operatorRunState: { ...state, run: { ...state.run, id: variables.id } } } };
       }
       if (request.name === "OperatorRunCommandOptionPageQuery") {
-        const isObservation = variables.kind === "observation";
-        const secondPage = variables.after === "option_cursor_1";
-        return {
-          data: {
-            operatorRunState: {
-              commandOptionPage: {
-                edges: isObservation ? [
-                  {
-                    cursor: secondPage ? "option_cursor_2" : "option_cursor_1",
-                    node: {
-                      observation: observationCommandOption({
-                        key: secondPage ? "required_21" : "required_1",
-                        label: secondPage ? "Twenty-first check" : "First check"
-                      }),
-                      evidenceCandidate: null,
-                      evidenceAcceptance: null,
-                      waiver: null
-                    }
-                  }
-                ] : [],
-                pageInfo: {
-                  hasNextPage: isObservation && !secondPage,
-                  hasPreviousPage: isObservation && secondPage,
-                  startCursor: isObservation ? (secondPage ? "option_cursor_2" : "option_cursor_1") : null,
-                  endCursor: isObservation ? (secondPage ? "option_cursor_2" : "option_cursor_1") : null
-                }
+        const secondPage = variables.observationAfter === "option_cursor_1";
+        const connection = {
+          edges: [
+            {
+              cursor: secondPage ? "option_cursor_2" : "option_cursor_1",
+              node: {
+                observation: observationCommandOption({
+                  key: secondPage ? "required_21" : "required_1",
+                  label: secondPage ? "Twenty-first check" : "First check"
+                }),
+                evidenceCandidate: null,
+                evidenceAcceptance: null,
+                waiver: null
               }
             }
+          ],
+          pageInfo: {
+            hasNextPage: !secondPage,
+            hasPreviousPage: secondPage,
+            startCursor: secondPage ? "option_cursor_2" : "option_cursor_1",
+            endCursor: secondPage ? "option_cursor_2" : "option_cursor_1"
+          }
+        };
+        return {
+          data: {
+            observation: connection
           }
         };
       }
@@ -255,9 +259,15 @@ describe("operator route", () => {
       const observationCalls = network.mock.calls.filter(
         ([request, variables]) =>
           request.name === "OperatorRunCommandOptionPageQuery" &&
-          variables.id === "run_2" && variables.kind === "observation"
+          variables.id === "run_2"
       );
-      expect(observationCalls.at(-1)?.[1]).toMatchObject({ after: null });
+      expect(observationCalls.at(-1)?.[1]).toMatchObject({
+        observationAfter: null,
+        loadObservation: true,
+        loadEvidenceCandidate: false,
+        loadEvidenceAcceptance: false,
+        loadWaiver: false
+      });
     });
   });
 
@@ -2239,6 +2249,12 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
       ]
     },
     commandOptionsOverflow: false,
+    commandOptionSummary: {
+      observation: 1,
+      evidenceCandidate: 1,
+      evidenceAcceptance: 1,
+      waiver: 1
+    },
     childSummary: {
       requiredChecks: 1,
       observations: 1,
@@ -2499,6 +2515,12 @@ type OperatorRunStatePayload = {
     }>;
   };
   commandOptionsOverflow: boolean;
+  commandOptionSummary: {
+    observation: number;
+    evidenceCandidate: number;
+    evidenceAcceptance: number;
+    waiver: number;
+  };
   childSummary: {
     requiredChecks: number;
     observations: number;

@@ -18,13 +18,16 @@ defmodule OfficeGraph.Projections.RunState do
            Runs.get_projection_summary(session_context, run_id, @child_summary_limit),
          {:ok, evidence_candidates} <-
            read_evidence_candidates(session_context, summary.run.id, @child_summary_limit),
-         {:ok, verification_checks} <- read_verification_checks(session_context, summary) do
+         {:ok, verification_checks} <- read_verification_checks(session_context, summary),
+         {:ok, command_option_summary} <-
+           read_command_option_summary(session_context, summary.run.id) do
       {:ok,
        build_run_state(
          session_context,
          summary,
          evidence_candidates,
-         verification_checks
+         verification_checks,
+         command_option_summary
        )}
     end
   end
@@ -59,6 +62,7 @@ defmodule OfficeGraph.Projections.RunState do
     after_cursor = Keyword.get(opts, :after_cursor)
 
     with true <- kind in ["observation", "evidence_candidate", "evidence_acceptance", "waiver"],
+         {:ok, run_id} <- normalize_run_id(run_id),
          :ok <-
            Authorization.authorize_projection(session_context, :skeleton_read,
              organization_id: session_context.organization_id
@@ -85,6 +89,32 @@ defmodule OfficeGraph.Projections.RunState do
       false -> {:error, {:invalid_field, :kind}}
       error -> error
     end
+  end
+
+  defp read_command_option_summary(session_context, run_id) do
+    ["observation", "evidence_candidate", "evidence_acceptance", "waiver"]
+    |> Enum.reduce_while({:ok, %{}}, fn kind, {:ok, counts} ->
+      case Repo.query(
+             command_option_sql(kind),
+             command_option_params(
+               session_context,
+               run_id,
+               nil,
+               @child_summary_limit + 1
+             )
+           ) do
+        {:ok, %{rows: rows}} ->
+          valid_count =
+            rows
+            |> Enum.map(&command_option_choice(kind, &1))
+            |> Enum.count(& &1)
+
+          {:cont, {:ok, Map.put(counts, String.to_existing_atom(kind), valid_count)}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
   end
 
   def verification_outcome(session_context, run_id) do
@@ -154,13 +184,23 @@ defmodule OfficeGraph.Projections.RunState do
          session_context,
          summary,
          evidence_candidates,
-         verification_checks
+         verification_checks,
+         command_option_summary
        ) do
-    status = run_status(summary, evidence_candidates)
+    command_option_availability =
+      Map.new(command_option_summary, fn {kind, count} -> {kind, count > 0} end)
+
+    status = run_status(summary, command_option_availability)
     verification_checks_by_id = Map.new(verification_checks, &{&1.id, &1})
 
     command_affordances =
-      run_command_affordances(session_context, status, summary, evidence_candidates)
+      run_command_affordances(
+        session_context,
+        status,
+        summary,
+        evidence_candidates,
+        command_option_availability
+      )
 
     %{
       type: "operator_run_state",
@@ -169,9 +209,9 @@ defmodule OfficeGraph.Projections.RunState do
       command_affordances: command_affordances,
       command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
       command_options_overflow:
-        summary.child_counts.required_checks > @child_summary_limit or
-          summary.child_counts.observations > @child_summary_limit or
-          summary.child_counts.evidence_candidates > @child_summary_limit,
+        Enum.any?(command_option_summary, &(elem(&1, 1) > @child_summary_limit)),
+      command_option_summary: command_option_summary,
+      command_option_availability: command_option_availability,
       child_summary: child_summary(summary),
       source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
@@ -311,6 +351,9 @@ defmodule OfficeGraph.Projections.RunState do
       AND rrc.state = 'pending'
       AND btrim(vc.title) <> ''
       AND lower(btrim(vc.title)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND btrim(r.execution_state) <> '' AND btrim(r.verification_state) <> ''
+      AND lower(btrim(r.execution_state)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND lower(btrim(r.verification_state)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
       AND ($4::timestamp IS NULL OR (rrc.inserted_at, rrc.id) > ($4, $5::uuid))
     ORDER BY rrc.inserted_at, rrc.id
     LIMIT $6
@@ -484,6 +527,13 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
+  defp normalize_run_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:invalid_field, :id}}
+    end
+  end
+
   defp activity_sql do
     """
     WITH activity AS (
@@ -513,7 +563,13 @@ defmodule OfficeGraph.Projections.RunState do
       WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
       UNION ALL
       SELECT rrc.inserted_at, 'missing_evidence', rrc.verification_check_id,
-             COALESCE(vc.title, 'Missing evidence'), 'missing_accepted_evidence'
+             COALESCE(vc.title, 'Missing evidence'),
+             CASE WHEN EXISTS (
+               SELECT 1 FROM verification_results vr
+               WHERE vr.work_run_id = $1 AND vr.organization_id = $2 AND vr.workspace_id = $3
+                 AND vr.verification_check_id = rrc.verification_check_id
+                 AND vr.result = 'failed'
+             ) THEN 'failed_check' ELSE 'missing_accepted_evidence' END
       FROM run_required_checks rrc
       LEFT JOIN verification_checks vc
         ON vc.id = rrc.verification_check_id
@@ -751,7 +807,7 @@ defmodule OfficeGraph.Projections.RunState do
     "failed"
   end
 
-  defp run_status(summary, _evidence_candidates) do
+  defp run_status(summary, _availability) do
     cond do
       summary.child_counts.pending_evidence_candidates > 0 and
           summary.child_counts.missing_evidence > 0 ->
@@ -772,94 +828,122 @@ defmodule OfficeGraph.Projections.RunState do
          session_context,
          "awaiting_execution",
          summary,
-         _evidence_candidates
+         _evidence_candidates,
+         availability
        ) do
-    record_observation_affordance(session_context, summary)
-    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
+    record_observation_affordance(session_context, summary, availability.observation)
+    |> Kernel.++(
+      waive_verification_check_affordance(session_context, summary, availability.waiver)
+    )
   end
 
   defp run_command_affordances(
          session_context,
          "awaiting_evidence",
          summary,
-         _evidence_candidates
+         _evidence_candidates,
+         availability
        ) do
-    record_observation_affordance(session_context, summary)
-    |> Kernel.++(create_evidence_candidate_affordance(session_context, summary))
-    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
+    record_observation_affordance(session_context, summary, availability.observation)
+    |> Kernel.++(
+      create_evidence_candidate_affordance(
+        session_context,
+        summary,
+        availability.evidence_candidate
+      )
+    )
+    |> Kernel.++(
+      waive_verification_check_affordance(session_context, summary, availability.waiver)
+    )
   end
 
   defp run_command_affordances(
          session_context,
          "awaiting_evidence_acceptance",
          summary,
-         evidence_candidates
+         evidence_candidates,
+         availability
        ) do
-    record_observation_affordance(session_context, summary)
-    |> Kernel.++(accept_evidence_affordance(session_context, summary, evidence_candidates))
-    |> Kernel.++(waive_verification_check_affordance(session_context, summary))
+    record_observation_affordance(session_context, summary, availability.observation)
+    |> Kernel.++(
+      accept_evidence_affordance(
+        session_context,
+        summary,
+        evidence_candidates,
+        availability.evidence_acceptance
+      )
+    )
+    |> Kernel.++(
+      waive_verification_check_affordance(session_context, summary, availability.waiver)
+    )
   end
 
-  defp run_command_affordances(_session_context, _status, _summary, _evidence_candidates), do: []
+  defp run_command_affordances(
+         _session_context,
+         _status,
+         _summary,
+         _evidence_candidates,
+         _availability
+       ),
+       do: []
 
-  defp record_observation_affordance(session_context, summary) do
-    case checks_needing_observations(summary) do
-      [] ->
-        []
+  defp record_observation_affordance(_session_context, _summary, false), do: []
 
-      check_ids ->
-        if CommandAffordance.authorized?(session_context, :execution_observation_record) do
-          [
-            CommandAffordance.enabled(
-              "record_execution_observation",
-              "Record execution observations for this run.",
-              required_fields: CommandAffordance.observation_required_fields(),
-              input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
-              target_ids:
-                [CommandAffordance.target_id("work_run", summary.run.id)] ++
-                  Enum.map(
-                    check_ids,
-                    &CommandAffordance.target_id("verification_check", &1)
-                  )
-            )
-          ]
-        else
-          [CommandAffordance.policy_restricted("record_execution_observation")]
-        end
-    end
-  end
+  defp record_observation_affordance(session_context, summary, true) do
+    check_ids = checks_needing_observations(summary)
 
-  defp create_evidence_candidate_affordance(session_context, summary) do
-    if candidate_eligible_observations(summary) == [] do
-      []
+    if CommandAffordance.authorized?(session_context, :execution_observation_record) do
+      [
+        CommandAffordance.enabled(
+          "record_execution_observation",
+          "Record execution observations for this run.",
+          required_fields: CommandAffordance.observation_required_fields(),
+          input_defaults: [CommandAffordance.input_default("run_id", summary.run.id)],
+          target_ids:
+            [CommandAffordance.target_id("work_run", summary.run.id)] ++
+              Enum.map(
+                check_ids,
+                &CommandAffordance.target_id("verification_check", &1)
+              )
+        )
+      ]
     else
-      if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
-        [
-          CommandAffordance.enabled(
-            "create_evidence_candidate",
-            "Create an evidence candidate for missing verification evidence.",
-            required_fields: [
-              "work_run_id",
-              "verification_check_id",
-              "execution_observation_id",
-              "claim",
-              "source_kind",
-              "source_identity",
-              "freshness_state",
-              "trust_basis",
-              "sensitivity"
-            ],
-            input_defaults: candidate_input_defaults(summary),
-            target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
-          )
-        ]
-      else
-        [CommandAffordance.policy_restricted("create_evidence_candidate")]
-      end
+      [CommandAffordance.policy_restricted("record_execution_observation")]
     end
   end
 
-  defp accept_evidence_affordance(session_context, summary, evidence_candidates) do
+  defp create_evidence_candidate_affordance(_session_context, _summary, false), do: []
+
+  defp create_evidence_candidate_affordance(session_context, summary, true) do
+    if CommandAffordance.authorized?(session_context, :evidence_candidate_create) do
+      [
+        CommandAffordance.enabled(
+          "create_evidence_candidate",
+          "Create an evidence candidate for missing verification evidence.",
+          required_fields: [
+            "work_run_id",
+            "verification_check_id",
+            "execution_observation_id",
+            "claim",
+            "source_kind",
+            "source_identity",
+            "freshness_state",
+            "trust_basis",
+            "sensitivity"
+          ],
+          input_defaults: candidate_input_defaults(summary),
+          target_ids: run_target_ids(summary) ++ observation_target_ids(summary)
+        )
+      ]
+    else
+      [CommandAffordance.policy_restricted("create_evidence_candidate")]
+    end
+  end
+
+  defp accept_evidence_affordance(_session_context, _summary, _evidence_candidates, false),
+    do: []
+
+  defp accept_evidence_affordance(session_context, summary, evidence_candidates, true) do
     if CommandAffordance.authorized?(session_context, :evidence_accept) do
       [
         CommandAffordance.enabled(
@@ -927,7 +1011,9 @@ defmodule OfficeGraph.Projections.RunState do
     |> Enum.reject(&MapSet.member?(observed_check_ids, &1))
   end
 
-  defp waive_verification_check_affordance(session_context, summary) do
+  defp waive_verification_check_affordance(_session_context, _summary, false), do: []
+
+  defp waive_verification_check_affordance(session_context, summary, true) do
     if CommandAffordance.authorized?(session_context, :verification_waive) do
       [
         CommandAffordance.enabled(

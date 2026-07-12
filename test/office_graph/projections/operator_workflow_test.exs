@@ -394,6 +394,77 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert row.allowed_next_actions == []
   end
 
+  @tag timeout: 120_000
+  test "relationship detail pages more than twenty scoped workflow links without loading history" do
+    key = "paged-workflow-links"
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, key)
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+    {:ok, first_run} = create_ready_run(bootstrap.session, applied.verification_check)
+
+    runs =
+      Enum.reduce(2..21, [first_run.run], fn index, [current | _] = runs ->
+        OfficeGraph.Repo.query!(
+          "UPDATE runs SET state = 'failed', aggregate_state = 'failed', execution_state = 'failed', verification_state = 'failed' WHERE id = $1",
+          [Ecto.UUID.dump!(current.id)]
+        )
+
+        {:ok, next_run} =
+          start_run_for_packet_version(
+            bootstrap.session,
+            first_run.packet_version,
+            "#{key}:#{index}"
+          )
+
+        [next_run.run | runs]
+      end)
+
+    {:ok, other_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Foreign workflow links",
+        organization_slug: "foreign-workflow-links",
+        workspace_name: "Foreign workflow links",
+        workspace_slug: "foreign-workflow-links",
+        initiative_name: "Foreign workflow links",
+        initiative_slug: "foreign-workflow-links",
+        owner_email: "foreign-workflow-links@office-graph.local"
+      )
+
+    {:ok, other_check} = create_required_verification_check(other_scope.session)
+    {:ok, other_run} = create_ready_run(other_scope.session, other_check)
+
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
+
+    assert detail.relationship_summary.graph_links == 26
+    assert detail.relationship_summary.graph_relationships == 3
+    assert detail.relationship_summary.has_more
+    assert length(detail.graph_links) == 20
+
+    assert {:ok, first_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    assert first_page.has_next_page?
+    assert length(first_page.edges) == 20
+
+    assert {:ok, second_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 20,
+               after_cursor: List.last(first_page.edges).cursor
+             )
+
+    all_ids = Enum.map(first_page.edges ++ second_page.edges, & &1.node.stable_id)
+    assert Enum.all?(runs, &("work_run:#{&1.id}" in all_ids))
+    refute "work_run:#{other_run.run.id}" in all_ids
+  end
+
   test "directly satisfied checks complete the operator workflow item" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, intake} = submit_manual_intake(bootstrap.session, "directly-satisfied-triage")

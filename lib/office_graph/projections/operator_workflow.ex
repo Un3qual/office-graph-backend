@@ -92,6 +92,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
              )
            ) do
       page_rows = Enum.take(rows, limit)
+      counts = relationship_counts_from_rows(rows)
 
       {:ok,
        %{
@@ -101,7 +102,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
              %{node: detail, cursor: KeysetCursor.encode([detail.kind, detail.stable_id])}
            end),
          has_next_page?: length(rows) > limit,
-         has_previous_page?: not is_nil(after_cursor)
+         has_previous_page?: not is_nil(after_cursor),
+         graph_link_count: counts.graph_links,
+         graph_relationship_count: counts.graph_relationships
        }}
     end
   end
@@ -132,20 +135,64 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       WHERE pgc.normalized_event_id = $1 AND pgc.organization_id = $2 AND pgc.workspace_id = $3
         AND pgc.status = 'applied' AND pgc.change_type = 'create_verification_check'
         AND vc.organization_id = $2 AND vc.workspace_id = $3
+    ), linked_versions AS (
+      SELECT DISTINCT wpv.id, wpv.work_packet_id, wpv.version_number,
+             wpv.title, wpv.lifecycle_state
+      FROM work_packet_versions wpv
+      WHERE wpv.organization_id = $2 AND wpv.workspace_id = $3
+        AND (
+          EXISTS (
+            SELECT 1 FROM work_packet_version_required_checks wprc
+            WHERE wprc.work_packet_version_id = wpv.id
+              AND wprc.organization_id = $2 AND wprc.workspace_id = $3
+              AND wprc.verification_check_id IN (
+                SELECT id FROM applied_links WHERE link_type = 'verification_check'
+              )
+          )
+          OR EXISTS (
+            SELECT 1 FROM work_packet_version_sources wps
+            WHERE wps.work_packet_version_id = wpv.id
+              AND wps.organization_id = $2 AND wps.workspace_id = $3
+              AND wps.graph_item_id IN (SELECT graph_item_id FROM applied_links)
+          )
+        )
+    ), packet_links AS (
+      SELECT DISTINCT ON (work_packet_id) work_packet_id AS id, title, lifecycle_state AS status
+      FROM linked_versions
+      ORDER BY work_packet_id, version_number DESC
+    ), workflow_links AS (
+      SELECT 'work_packet'::text AS link_type, id, title, status
+      FROM packet_links
+      UNION ALL
+      SELECT 'work_run', r.id, COALESCE(r.objective, 'Work run'),
+             COALESCE(r.aggregate_state, r.state)
+      FROM runs r
+      WHERE r.organization_id = $2 AND r.workspace_id = $3
+        AND r.work_packet_version_id IN (SELECT id FROM linked_versions)
     ), details AS (
       SELECT 'graph_link'::text AS kind, link_type || ':' || id::text AS stable_id,
              title, status, graph_item_id AS source_graph_item_id, NULL::uuid AS target_graph_item_id,
              link_type AS relationship_type
       FROM applied_links
       UNION ALL
+      SELECT 'graph_link', link_type || ':' || id::text, title, status,
+             NULL::uuid, NULL::uuid, link_type
+      FROM workflow_links
+      UNION ALL
       SELECT 'graph_relationship', gr.id::text, gr.relationship_type, NULL,
              gr.source_item_id, gr.target_item_id, gr.relationship_type
       FROM graph_relationships gr
-      WHERE gr.source_item_id IN (SELECT graph_item_id FROM applied_links)
-        AND gr.target_item_id IN (SELECT graph_item_id FROM applied_links)
+      JOIN graph_items source_gi ON source_gi.id = gr.source_item_id
+        AND source_gi.organization_id = $2 AND source_gi.workspace_id = $3
+      JOIN graph_items target_gi ON target_gi.id = gr.target_item_id
+        AND target_gi.organization_id = $2 AND target_gi.workspace_id = $3
+      WHERE source_gi.id IN (SELECT graph_item_id FROM applied_links)
+        AND target_gi.id IN (SELECT graph_item_id FROM applied_links)
     )
     SELECT kind, stable_id, title, status, source_graph_item_id::text,
-           target_graph_item_id::text, relationship_type
+           target_graph_item_id::text, relationship_type,
+           count(*) FILTER (WHERE kind = 'graph_link') OVER () AS graph_link_count,
+           count(*) FILTER (WHERE kind = 'graph_relationship') OVER () AS graph_relationship_count
     FROM details
     WHERE $4::text IS NULL OR (kind, stable_id) > ($4, $5)
     ORDER BY kind ASC, stable_id ASC
@@ -166,7 +213,17 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     ]
   end
 
-  defp relationship_detail_row([kind, stable_id, title, status, source_id, target_id, type]) do
+  defp relationship_detail_row([
+         kind,
+         stable_id,
+         title,
+         status,
+         source_id,
+         target_id,
+         type,
+         _graph_link_count,
+         _graph_relationship_count
+       ]) do
     %{
       kind: kind,
       stable_id: stable_id,
@@ -177,6 +234,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       relationship_type: type
     }
   end
+
+  defp relationship_counts_from_rows([
+         [_kind, _id, _title, _status, _source, _target, _type, links, relationships] | _rest
+       ]),
+       do: %{graph_links: links, graph_relationships: relationships}
+
+  defp relationship_counts_from_rows([]), do: %{graph_links: 0, graph_relationships: 0}
 
   def operator_workflow_items_page(session_context, opts) do
     with {:ok, page} <- read_intake_rows_page(session_context, opts) do
@@ -364,6 +428,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
     title = proposed_change_title(event.id)
     graph_relationships = applied_projection.graph_relationships
+    exact_relationship_counts = relationship_counts!(session_context, event.id)
 
     %{
       type: "operator_workflow_item",
@@ -389,11 +454,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       graph_links: Enum.take(graph_links, @relationship_summary_limit),
       graph_relationships: Enum.take(graph_relationships, @relationship_summary_limit),
       relationship_summary: %{
-        graph_links: length(graph_links),
-        graph_relationships: length(graph_relationships),
+        graph_links: exact_relationship_counts.graph_links,
+        graph_relationships: exact_relationship_counts.graph_relationships,
         has_more:
-          length(graph_links) > @relationship_summary_limit or
-            length(graph_relationships) > @relationship_summary_limit
+          exact_relationship_counts.graph_links > @relationship_summary_limit or
+            exact_relationship_counts.graph_relationships > @relationship_summary_limit
       },
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
@@ -401,6 +466,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   end
 
   defp proposed_change_title(event_id), do: "Manual intake proposal #{event_id}"
+
+  defp relationship_counts!(session_context, event_id) do
+    params = relationship_detail_params(session_context, event_id, nil, 1)
+    %{rows: rows} = Repo.query!(relationship_details_sql(), params)
+    relationship_counts_from_rows(rows)
+  end
 
   defp source_summary(event_id, proposed_changes) do
     count = length(proposed_changes)
@@ -798,6 +869,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(@relationship_summary_limit + 1)
     |> Ash.read(authorize?: false)
   end
 
