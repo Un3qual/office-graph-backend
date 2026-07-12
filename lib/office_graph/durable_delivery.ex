@@ -232,10 +232,7 @@ defmodule OfficeGraph.DurableDelivery do
 
   defp transaction(fun) do
     if Repo.in_transaction?() do
-      case fun.() do
-        {:error, error} -> {:error, error}
-        result -> {:ok, result}
-      end
+      {:ok, fun.()}
     else
       Repo.transaction(fun)
     end
