@@ -41,11 +41,40 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     refute Map.has_key?(Map.from_struct(summary), :stacktrace)
   end
 
-  test "fails closed for a session without the durable-delivery capability" do
+  test "fails closed for an invalid session" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    unauthorized = %{bootstrap.session | capabilities: MapSet.new(), trusted?: true}
+    unauthorized = %{bootstrap.session | session_id: Ecto.UUID.generate()}
 
     assert {:error, :forbidden} = DurableDelivery.list_terminal_jobs(unauthorized)
+  end
+
+  test "rechecks live grants before returning terminal history" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    Repo.query!("DELETE FROM role_assignments WHERE id = $1", [
+      Ecto.UUID.dump!(bootstrap.role_assignment.id)
+    ])
+
+    assert {:error, :forbidden} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+  end
+
+  test "uses safe job failure metadata when no event state exists" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    job =
+      insert_terminal_job(bootstrap, Ecto.UUID.generate(), "event_not_found")
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+    assert %{failure_code: "event_not_found"} = Enum.find(summaries, &(&1.id == job.id))
+  end
+
+  test "ignores malformed event ids when assembling terminal summaries" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    job = insert_terminal_job(bootstrap, "not-a-uuid", "attempts_exhausted")
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+    assert %{failure_code: "attempts_exhausted"} = Enum.find(summaries, &(&1.id == job.id))
   end
 
   defp insert_other_scope_terminal_job do
@@ -60,6 +89,25 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
 
     job
     |> Ecto.Changeset.change(state: "cancelled", cancelled_at: DateTime.utc_now())
+    |> Repo.update!()
+  end
+
+  defp insert_terminal_job(bootstrap, event_id, failure_code) do
+    {:ok, job} =
+      %{
+        "event_id" => event_id,
+        "organization_id" => bootstrap.organization.id,
+        "workspace_id" => bootstrap.workspace.id
+      }
+      |> OfficeGraph.DurableDelivery.DispatchEventWorker.new()
+      |> Oban.insert()
+
+    job
+    |> Ecto.Changeset.change(%{
+      state: "cancelled",
+      cancelled_at: DateTime.utc_now(),
+      meta: %{"terminal_failure_code" => failure_code}
+    })
     |> Repo.update!()
   end
 

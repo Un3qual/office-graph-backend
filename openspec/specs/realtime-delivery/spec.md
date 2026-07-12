@@ -45,6 +45,13 @@ sensitivity, relationship, and policy rules used by reads and projections.
 - **THEN** the realtime layer MUST stop, alter, redact, or reauthorize delivery
   before exposing new restricted data
 
+#### Scenario: Subscriber renews its session
+
+- **WHEN** the same owner subscribes to the same scope with a newly authorized
+  session context
+- **THEN** the existing subscription mediator MUST use the renewed context for
+  subsequent delivery authorization
+
 ### Requirement: Realtime Streams Have Explicit Ownership
 
 Office Graph SHALL assign each realtime topic, subscription field, channel,

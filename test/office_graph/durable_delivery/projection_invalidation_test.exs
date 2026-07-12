@@ -110,6 +110,57 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     refute_receive {:projection_invalidated, _invalidation}
   end
 
+  test "repeat subscription refreshes the mediator session" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    renewed_session =
+      Ash.create!(
+        OfficeGraph.Identity.Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: bootstrap.principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "renewed_subscription"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    renewed_context = %{bootstrap.session | session_id: renewed_session.id}
+
+    assert :ok =
+             DurableDelivery.subscribe(
+               bootstrap.session,
+               bootstrap.organization.id,
+               bootstrap.workspace.id
+             )
+
+    revoke_session!(bootstrap.session.session_id)
+
+    assert :ok =
+             DurableDelivery.subscribe(
+               renewed_context,
+               bootstrap.organization.id,
+               bootstrap.workspace.id
+             )
+
+    {:ok, operation} = Operations.start_operation(renewed_context, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(renewed_context, operation, %{
+               event_key: "test:renewed-subscription",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    [job] = jobs_for_event(event.id)
+    assert :ok = DispatchEventWorker.perform(job)
+    assert_receive {:projection_invalidated, %{event_id: event_id}}
+    assert event_id == event.id
+  end
+
   test "dispatch keeps an event pending until its invalidation is accepted" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
@@ -196,6 +247,44 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     assert {:cancel, "event_scope_mismatch"} = DispatchEventWorker.perform(mismatched_job)
 
     assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
+             Ash.get(DomainEvent, event.id)
+  end
+
+  test "the dispatch worker persists terminal state before cancelling" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:terminal-transition-retry",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    Repo.query!("""
+    ALTER TABLE domain_events
+    ADD CONSTRAINT test_terminal_transition_retry
+    CHECK (delivery_state <> 'dispatched' AND failure_code <> 'attempts_exhausted')
+    """)
+
+    [job] = jobs_for_event(event.id)
+    exhausted_job = %{job | attempt: job.max_attempts}
+
+    assert {:snooze, 5} = DispatchEventWorker.perform(exhausted_job)
+
+    assert %{meta: %{"terminal_failure_code" => "attempts_exhausted"}} =
+             Repo.get!(Oban.Job, job.id)
+
+    assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
+             Ash.get(DomainEvent, event.id)
+
+    Repo.query!("ALTER TABLE domain_events DROP CONSTRAINT test_terminal_transition_retry")
+
+    terminalization_job = Repo.get!(Oban.Job, job.id)
+    assert {:cancel, "attempts_exhausted"} = DispatchEventWorker.perform(terminalization_job)
+
+    assert {:ok, %{delivery_state: "failed", failure_code: "attempts_exhausted"}} =
              Ash.get(DomainEvent, event.id)
   end
 

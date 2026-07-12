@@ -79,6 +79,25 @@ defmodule OfficeGraph.DurableDelivery.EventTest do
     assert length(jobs_for_event(first.id)) == 1
   end
 
+  test "stable replay does not recreate a pruned dispatch job" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    attrs = %{
+      event_key: "test:pruned-replay",
+      event_kind: "manual_intake.accepted",
+      subject_kind: "normalized_intake_event",
+      subject_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, first} = DurableDelivery.record_and_enqueue(bootstrap.session, operation, attrs)
+    assert {1, _jobs} = Repo.delete_all(jobs_query(first.id))
+
+    assert {:ok, replay} = DurableDelivery.record_and_enqueue(bootstrap.session, operation, attrs)
+    assert replay.id == first.id
+    assert jobs_for_event(first.id) == []
+  end
+
   test "an outer transaction rollback removes the event and its job" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
@@ -102,8 +121,10 @@ defmodule OfficeGraph.DurableDelivery.EventTest do
   end
 
   defp jobs_for_event(event_id) do
-    Oban.Job
-    |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
-    |> Repo.all()
+    event_id |> jobs_query() |> Repo.all()
+  end
+
+  defp jobs_query(event_id) do
+    where(Oban.Job, [job], fragment("?->>'event_id'", job.args) == ^event_id)
   end
 end

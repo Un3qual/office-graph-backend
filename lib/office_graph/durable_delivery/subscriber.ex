@@ -12,6 +12,12 @@ defmodule OfficeGraph.DurableDelivery.Subscriber do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
+  def refresh(pid, session_context) do
+    GenServer.call(pid, {:refresh, session_context})
+  catch
+    :exit, _reason -> {:error, :subscription_unavailable}
+  end
+
   @impl GenServer
   def init(opts) do
     owner = Keyword.fetch!(opts, :owner)
@@ -28,6 +34,11 @@ defmodule OfficeGraph.DurableDelivery.Subscriber do
        organization_id: organization_id,
        workspace_id: workspace_id
      }}
+  end
+
+  @impl GenServer
+  def handle_call({:refresh, session_context}, _from, state) do
+    {:reply, :ok, %{state | session_context: session_context}}
   end
 
   @impl GenServer

@@ -76,6 +76,9 @@ defmodule OfficeGraph.DurableDelivery do
 
       {:ok,
        Enum.map(jobs, fn job ->
+         failure_code =
+           Map.get(failure_codes, job.args["event_id"]) || terminal_failure_code(job)
+
          %TerminalJob{
            id: job.id,
            worker: job.worker,
@@ -83,7 +86,7 @@ defmodule OfficeGraph.DurableDelivery do
            state: job.state,
            attempt: job.attempt,
            max_attempts: job.max_attempts,
-           failure_code: Map.get(failure_codes, job.args["event_id"]),
+           failure_code: failure_code,
            attempted_at: job.attempted_at,
            cancelled_at: job.cancelled_at,
            discarded_at: job.discarded_at
@@ -145,10 +148,16 @@ defmodule OfficeGraph.DurableDelivery do
     failure_code =
       OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
 
-    case transaction(fn -> mark_failed_locked(event_id, expected_scope, failure_code) end) do
-      {:ok, _result} -> :ok
-      {:error, _error} -> :ok
+    if valid_event_id?(event_id) do
+      case transaction(fn -> mark_failed_locked(event_id, expected_scope, failure_code) end) do
+        {:ok, result} -> result
+        {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
+      end
+    else
+      :ok
     end
+  catch
+    _kind, _reason -> {:error, {:retryable, :event_failure_transition_crashed}}
   end
 
   defp mark_failed_locked(event_id, expected_scope, failure_code) do
@@ -160,8 +169,11 @@ defmodule OfficeGraph.DurableDelivery do
           :ok
         end
 
-      _other ->
+      {:ok, _missing_or_terminal_event} ->
         :ok
+
+      {:error, _error} ->
+        {:error, {:retryable, :event_read_failed}}
     end
   end
 
@@ -175,14 +187,14 @@ defmodule OfficeGraph.DurableDelivery do
     |> Ash.update(return_notifications?: true)
     |> case do
       {:ok, _failed, _notifications} -> :ok
-      {:error, _error} -> :ok
+      {:error, _error} -> {:error, {:retryable, :event_update_failed}}
     end
   end
 
   defp record_and_enqueue_request(request) do
-    with {:ok, event} <- create_or_replay_event(request),
+    with {:ok, event, insert_result} <- create_or_replay_event(request),
          :ok <- validate_replay(event, request),
-         {:ok, _job} <- enqueue(event) do
+         :ok <- enqueue_if_created(event, insert_result) do
       event
     else
       {:error, error} -> Repo.rollback(error)
@@ -200,8 +212,23 @@ defmodule OfficeGraph.DurableDelivery do
       return_notifications?: true
     )
     |> case do
-      {:ok, event, _notifications} -> {:ok, event}
-      result -> result
+      {:ok, event, _notifications} ->
+        insert_result =
+          case Ash.Resource.get_metadata(event, :upsert_action) do
+            :update ->
+              :replayed
+
+            :insert ->
+              :created
+
+            _other ->
+              if Ash.Resource.get_metadata(event, :upsert_skipped), do: :replayed, else: :created
+          end
+
+        {:ok, event, insert_result}
+
+      result ->
+        result
     end
   end
 
@@ -235,11 +262,20 @@ defmodule OfficeGraph.DurableDelivery do
     |> Oban.insert()
   end
 
+  defp enqueue_if_created(event, :created) do
+    case enqueue(event) do
+      {:ok, _job} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp enqueue_if_created(_event, :replayed), do: :ok
+
   defp authorize_terminal_read(session_context) do
     with true <- is_map(session_context),
          :ok <- OfficeGraph.Identity.validate_session_context(session_context),
          :ok <-
-           OfficeGraph.Authorization.authorize_projection(
+           OfficeGraph.Authorization.authorize(
              session_context,
              :durable_delivery_read,
              organization_id: session_context.organization_id
@@ -254,13 +290,35 @@ defmodule OfficeGraph.DurableDelivery do
   defp normalize_limit(_limit), do: 50
 
   defp failure_codes_by_event(jobs) do
-    event_ids = jobs |> Enum.map(& &1.args["event_id"]) |> Enum.reject(&is_nil/1)
+    event_ids =
+      jobs
+      |> Enum.flat_map(fn job ->
+        event_id = job.args["event_id"]
 
-    DomainEvent
-    |> Ash.Query.filter(id in ^event_ids)
-    |> Ash.read!()
-    |> Map.new(&{&1.id, &1.failure_code})
+        case Ecto.UUID.cast(event_id) do
+          {:ok, event_id} -> [event_id]
+          :error -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    if event_ids == [] do
+      %{}
+    else
+      DomainEvent
+      |> Ash.Query.filter(id in ^event_ids)
+      |> Ash.read!()
+      |> Map.new(&{&1.id, &1.failure_code})
+    end
   end
+
+  defp terminal_failure_code(%Oban.Job{meta: %{"terminal_failure_code" => code}}) do
+    OfficeGraph.DurableDelivery.WorkerResult.safe_code(code, nil)
+  end
+
+  defp terminal_failure_code(_job), do: nil
+
+  defp valid_event_id?(event_id), do: match?({:ok, _event_id}, Ecto.UUID.cast(event_id))
 
   defp read_event_for_transition(event_id) do
     DomainEvent

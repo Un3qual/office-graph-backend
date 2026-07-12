@@ -54,7 +54,7 @@ defmodule OfficeGraph.DurableDelivery.Subscriptions do
 
     case DynamicSupervisor.start_child(@subscription_supervisor, child) do
       {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
+      {:error, {:already_started, pid}} -> Subscriber.refresh(pid, session_context)
       {:error, _error} -> {:error, :subscription_unavailable}
     end
   end

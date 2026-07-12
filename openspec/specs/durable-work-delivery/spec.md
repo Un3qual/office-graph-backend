@@ -64,6 +64,28 @@ without exposing internal exceptions as product data.
   stable state, safe reason, attempts, queue, worker, and timestamps throughout
   the configured operator-history retention window
 
+#### Scenario: Terminal event persistence is temporarily unavailable
+
+- **WHEN** a delivery attempt reaches a terminal result but persisting the
+  event's failed state does not succeed
+- **THEN** the worker MUST retain a safe terminalization phase and retry that
+  state transition without broadcasting the event again or cancelling the job
+  first
+
+#### Scenario: Terminal job has no matching event state
+
+- **WHEN** a cancelled delivery job refers to a missing, mismatched-scope, or
+  malformed event identity
+- **THEN** the scoped operator read MUST remain available and MUST expose the
+  worker's persisted safe terminal reason without interpreting raw job errors
+
+#### Scenario: Terminal history authorization changes
+
+- **WHEN** a principal's durable-delivery read grant is revoked while its
+  session remains active
+- **THEN** subsequent terminal-history reads MUST recheck current grants and
+  fail closed
+
 #### Scenario: A delivery job carries the wrong scope
 
 - **WHEN** a delivery job's organization or workspace does not match its event
