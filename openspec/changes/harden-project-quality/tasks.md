@@ -25,10 +25,10 @@
 
 ## 5. Operator Projection And API Safety
 
-- [ ] 5.1 Project and render policy-safe source/proposal summaries so pending work can be distinguished and reviewed before apply.
-- [ ] 5.2 Project complete typed run/evidence command-option bundles and remove browser-side reconstruction of domain relationships/defaults.
-- [ ] 5.3 Bound growing packet/run/relationship collections with Relay connections or compact summaries, support incremental reads, and reject negative pagination while preserving zero-item semantics.
-- [ ] 5.4 Remove the retired unreleased `operatorInbox` field and regenerate the GraphQL schema and Relay artifacts.
+- [x] 5.1 Project and render policy-safe source/proposal summaries so pending work can be distinguished and reviewed before apply.
+- [x] 5.2 Project complete typed run/evidence command-option bundles and remove browser-side reconstruction of domain relationships/defaults.
+- [x] 5.3 Bound growing packet/run/relationship collections with Relay connections or compact summaries, support incremental reads, and reject negative pagination while preserving zero-item semantics.
+- [x] 5.4 Remove the retired unreleased `operatorInbox` field and regenerate the GraphQL schema and Relay artifacts.
 
 ## 6. Frontend Correctness And Accessibility
 
