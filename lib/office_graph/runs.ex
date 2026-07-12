@@ -17,7 +17,7 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.Operations
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Repo
-  alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
+  alias OfficeGraph.Runs.{ExecutionObservation, ObservationStateReducer, Run, RunRequiredCheck}
   alias OfficeGraph.WorkGraph.{EvidenceItem, VerificationResult}
 
   alias OfficeGraph.WorkPackets.{
@@ -389,18 +389,19 @@ defmodule OfficeGraph.Runs do
     %{run: run, required_checks: run_required_checks}
   end
 
-  defp update_run_after_observation!(run, %{normalized_status: "succeeded"}) do
-    cond do
-      run_failed?(run) ->
+  defp update_run_after_observation!(run, observation) do
+    case ObservationStateReducer.next_state(
+           run,
+           observation.normalized_status,
+           failed_observations_for_run?(run.id)
+         ) do
+      :preserve ->
         run
 
-      failed_observations_for_run?(run.id) ->
+      :failed ->
         update_run_failed!(run)
 
-      run_verified?(run) ->
-        run
-
-      true ->
+      :awaiting_verification ->
         run
         |> Ash.Changeset.for_update(:set_lifecycle_state, %{
           state: "awaiting_verification",
@@ -411,14 +412,6 @@ defmodule OfficeGraph.Runs do
         })
         |> Ash.update!(authorize?: false, return_notifications?: true)
         |> unwrap_notification_result()
-    end
-  end
-
-  defp update_run_after_observation!(run, _observation) do
-    cond do
-      run_verified?(run) -> run
-      run_failed?(run) -> run
-      true -> update_run_failed!(run)
     end
   end
 

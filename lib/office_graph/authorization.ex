@@ -140,7 +140,7 @@ defmodule OfficeGraph.Authorization do
         opts
       )
       when is_map(operation) do
-    {authorization_result, {action_name, _decision, reason}} =
+    {authorization_result, {action_name, decision, reason}} =
       evaluate_authorization(session_context, organization_id, action, opts)
 
     operation_matches? = operation_matches_session?(operation, session_context)
@@ -152,18 +152,15 @@ defmodule OfficeGraph.Authorization do
         {:error, :forbidden}
       end
 
-    case {operation_matches?, result} do
-      {true, {:error, :forbidden}} ->
-        with :ok <- record_decision(session_context, operation, action_name, "deny", reason) do
+    case operation_matches? do
+      true ->
+        with :ok <- record_decision(session_context, operation, action_name, decision, reason) do
           result
         end
 
-      {false, _result} ->
+      false ->
         # Mismatched operations are refused before audit persistence so a forged
         # request cannot attach decisions to an operation it does not own.
-        result
-
-      _other ->
         result
     end
   end

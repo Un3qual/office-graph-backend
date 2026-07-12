@@ -3149,6 +3149,10 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       Repo.query!("DELETE FROM external_sources WHERE key = $1", [source_identity])
     end)
 
+    Repo.query!("DELETE FROM authorization_decisions WHERE organization_id = $1::uuid", [
+      db_uuid(organization_id)
+    ])
+
     Repo.query!("DELETE FROM operation_correlations WHERE organization_id = $1::uuid", [
       db_uuid(organization_id)
     ])

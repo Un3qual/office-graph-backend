@@ -5,6 +5,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.QueryCounter
   alias OfficeGraph.Runs
+  alias OfficeGraph.Authorization.AuthorizationDecision
   alias OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
@@ -453,6 +454,22 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
     assert execution_state == run.execution_state
     assert verification_state == run.verification_state
 
+    assert AuthorizationDecision
+           |> Ash.Query.filter(
+             operation_id == ^stale_operation.id and action == "verification.waive" and
+               decision == "allow"
+           )
+           |> Ash.exists?(authorize?: false)
+
+    refute VerificationResult
+           |> Ash.Query.filter(operation_id == ^stale_operation.id)
+           |> Ash.exists?(authorize?: false)
+
+    assert "pending" ==
+             RunRequiredCheck
+             |> Ash.get!(first_required_check.id, authorize?: false)
+             |> Map.fetch!(:state)
+
     {:ok, other_check} = create_required_verification_check(bootstrap.session)
     {:ok, other_run_result} = create_ready_run(bootstrap.session, other_check)
     [other_required_check] = other_run_result.required_checks
@@ -746,6 +763,57 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
 
     assert Enum.any?(non_packet_run.errors, fn error ->
              error.message == "run_id must reference a packet-backed run"
+           end)
+  end
+
+  test "run required-check validation sanitizes lookup failures" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    changeset = fn run_id, verification_check_id ->
+      %Ash.Changeset{
+        arguments: %{},
+        attributes: %{
+          run_id: run_id,
+          verification_check_id: verification_check_id,
+          organization_id: bootstrap.session.organization_id,
+          workspace_id: bootstrap.session.workspace_id
+        }
+      }
+    end
+
+    [invalid_run] =
+      ValidateRunRequiredCheckContract.batch_change(
+        [changeset.("not-a-run-uuid", verification_check.id)],
+        [],
+        %{}
+      )
+
+    assert Enum.any?(invalid_run.errors, fn error ->
+             error.field == :run_id and error.message == "run_id could not be validated"
+           end)
+
+    refute Enum.any?(invalid_run.errors, &String.contains?(&1.message, "not-a-run-uuid"))
+
+    [failed_check_lookup] =
+      ValidateRunRequiredCheckContract.batch_change(
+        [changeset.(run_result.run.id, verification_check.id)],
+        [
+          packet_required_check_reader: fn _changesets, _runs_by_id ->
+            {:error, RuntimeError.exception("private packet lookup failure")}
+          end
+        ],
+        %{}
+      )
+
+    assert Enum.any?(failed_check_lookup.errors, fn error ->
+             error.field == :verification_check_id and
+               error.message == "verification_check_id could not be validated"
+           end)
+
+    refute Enum.any?(failed_check_lookup.errors, fn error ->
+             String.contains?(error.message, "private packet lookup failure")
            end)
   end
 
@@ -3105,7 +3173,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
     assert summary.run.verification_state == "verified"
   end
 
-  test "verified runs stay verified after later failed observations" do
+  test "later failed observations invalidate verified runs" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
@@ -3140,14 +3208,14 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
         observed_status: "failed"
       )
 
-    assert later_observation.run.aggregate_state == "verified"
-    assert later_observation.run.execution_state == "completed"
-    assert later_observation.run.verification_state == "verified"
+    assert later_observation.run.aggregate_state == "failed"
+    assert later_observation.run.execution_state == "failed"
+    assert later_observation.run.verification_state == "failed"
 
     {:ok, summary} = Runs.get_summary(bootstrap.session, accepted.work_run.id)
-    assert summary.run.aggregate_state == "verified"
-    assert summary.run.execution_state == "completed"
-    assert summary.run.verification_state == "verified"
+    assert summary.run.aggregate_state == "failed"
+    assert summary.run.execution_state == "failed"
+    assert summary.run.verification_state == "failed"
   end
 
   test "verified runs reject stale failed evidence acceptance" do
@@ -3718,6 +3786,52 @@ defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
 
     assert {:ok, [required_check]} = Runs.required_checks_for_run(run_result.run.id)
     assert required_check.state == "pending"
+  end
+
+  test "a second failed candidate for one run and check returns a stable slot conflict" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    {:ok, observation_result} =
+      record_observation(bootstrap.session, run_result.run, verification_check,
+        key: "duplicate-failed-result-slot"
+      )
+
+    {:ok, first_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "duplicate-failed-result-slot-first"
+      )
+
+    {:ok, second_candidate} =
+      create_evidence_candidate(
+        bootstrap.session,
+        run_result.run,
+        verification_check,
+        observation_result.observation,
+        key: "duplicate-failed-result-slot-second"
+      )
+
+    assert {:ok, _accepted} =
+             accept_candidate(bootstrap.session, first_candidate,
+               key: "duplicate-failed-result-slot-first",
+               result: "failed"
+             )
+
+    run_id = run_result.run.id
+    check_id = verification_check.id
+
+    assert {:error, {:verification_result_slot_conflict, ^run_id, ^check_id}} =
+             accept_candidate(bootstrap.session, second_candidate,
+               key: "duplicate-failed-result-slot-second",
+               result: "failed"
+             )
+
+    refute accepted_evidence_for_candidate?(second_candidate.id)
   end
 
   test "unknown evidence results are rejected before accepting a candidate" do

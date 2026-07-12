@@ -226,7 +226,7 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
     end
   end
 
-  test "same-scope validation preserves Ash read errors separately from missing references" do
+  test "same-scope validation sanitizes Ash read errors" do
     organization_id = Ecto.UUID.generate()
     workspace_id = Ecto.UUID.generate()
 
@@ -249,8 +249,8 @@ defmodule OfficeGraph.WorkGraph.AshAuthorizationTest do
 
     message = Exception.message(error)
 
-    assert message =~ "body_document_id lookup failed"
-    assert message =~ "not-a-uuid"
+    assert message =~ "body_document_id could not be validated"
+    refute message =~ "not-a-uuid"
     refute message =~ "must reference an existing record in the target scope"
   end
 

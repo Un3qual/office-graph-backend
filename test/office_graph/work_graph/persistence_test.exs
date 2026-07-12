@@ -720,19 +720,17 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     refute event_message =~ "constraint error when attempting to insert struct"
   end
 
-  test "plain document creation rolls back document and block when revision insert fails", %{
+  test "plain document creation leaves no document or block when decision persistence fails", %{
     bootstrap: bootstrap,
     operation: operation
   } do
     plain_text = "Rollback document #{System.unique_integer([:positive])}"
     missing_operation = %{operation | id: Ecto.UUID.generate()}
 
-    assert {:error, error} =
+    assert {:error, {:authorization_decision_failed, error}} =
              Content.create_plain_document(bootstrap.session, missing_operation, plain_text)
 
-    message = ash_error_message(error)
-    assert message =~ "operation_id"
-    refute message =~ "constraint error when attempting to insert struct"
+    assert %Ash.Error.Unknown{} = error
 
     assert [] =
              Document

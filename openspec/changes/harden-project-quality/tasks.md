@@ -12,10 +12,10 @@
 
 ## 3. Backend Correctness
 
-- [ ] 3.1 Add a failing late-observation regression, then make failed observations invalidate a previously verified run while later successful observations preserve verified state.
-- [ ] 3.2 Add a failing duplicate-result-slot regression, then preflight the locked run/check slot and return one stable conflict without creating partial evidence.
-- [ ] 3.3 Persist reconstructable allow/deny decisions for waiver authorization even when later domain validation rejects the command; sanitize reference-validator infrastructure failures.
-- [ ] 3.4 Make the capability-backfill rollback non-destructive and prove pre-existing capability/grant rows survive up/down.
+- [x] 3.1 Add a failing late-observation regression, then make failed observations invalidate a previously verified run while later successful observations preserve verified state.
+- [x] 3.2 Add a failing duplicate-result-slot regression, then preflight the locked run/check slot and return one stable conflict without creating partial evidence.
+- [x] 3.3 Persist reconstructable allow/deny decisions for waiver authorization even when later domain validation rejects the command; sanitize reference-validator infrastructure failures.
+- [x] 3.4 Make the capability-backfill rollback non-destructive and prove pre-existing capability/grant rows survive up/down.
 
 ## 4. Shared Command Semantics
 
@@ -40,7 +40,7 @@
 ## 7. Maintainability Refactoring
 
 - [ ] 7.1 Move the durable-delivery test worker into test support and split the multiple top-level proposed-change modules into cohesive files.
-- [ ] 7.2 Extract explicit run lifecycle reduction and evidence result-slot policy seams without fragmenting their transactions.
+- [x] 7.2 Extract explicit run lifecycle reduction and evidence result-slot policy seams without fragmenting their transactions.
 - [ ] 7.3 Split the largest backend test modules around behavior domains and shared support while preserving assertions.
 - [ ] 7.4 Split the operator/packet route tests and global styles around route ownership and shared fixtures/tokens.
 - [ ] 7.5 Replace high-risk source-string architecture assertions with behavioral, introspection, or TypeScript AST checks where executable contracts exist.
