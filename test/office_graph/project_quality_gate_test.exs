@@ -24,13 +24,23 @@ defmodule OfficeGraph.ProjectQualityGateTest do
   end
 
   test "verification environment is stable and honors explicit isolation overrides" do
-    {first_output, 0} = System.cmd("sh", ["bin/verify", "--print-environment"])
-    {second_output, 0} = System.cmd("sh", ["bin/verify", "--print-environment"])
+    {first_output, 0} =
+      System.cmd("sh", ["bin/verify", "--print-environment"],
+        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+      )
+
+    {second_output, 0} =
+      System.cmd("sh", ["bin/verify", "--print-environment"],
+        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+      )
 
     assert first_output == second_output
     assert first_output =~ ~r/^COMPOSE_PROJECT_NAME=office_graph_[0-9]+$/m
-    assert first_output =~ ~r/^OFFICE_GRAPH_POSTGRES_PORT=[0-9]+$/m
+    assert first_output =~ "OFFICE_GRAPH_POSTGRES_PORT=auto"
     assert first_output =~ ~r/^MIX_TEST_PARTITION=_w[0-9]+$/m
+
+    assert compose_published_port("") == "0"
+    assert compose_published_port("61234") == "61234"
 
     {overridden_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
@@ -44,6 +54,27 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     assert overridden_output =~ "COMPOSE_PROJECT_NAME=explicit_project"
     assert overridden_output =~ "OFFICE_GRAPH_POSTGRES_PORT=61234"
     assert overridden_output =~ "MIX_TEST_PARTITION=_explicit"
+
+    {external_output, 0} =
+      System.cmd("sh", ["bin/verify", "--print-environment"],
+        env: [
+          {"OFFICE_GRAPH_SKIP_COMPOSE", "1"},
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+        ]
+      )
+
+    assert external_output =~ "OFFICE_GRAPH_POSTGRES_PORT=55432"
+  end
+
+  defp compose_published_port(port) do
+    {config, 0} =
+      System.cmd("docker", ["compose", "config", "--format", "json"],
+        env: [{"OFFICE_GRAPH_POSTGRES_PORT", port}]
+      )
+
+    config
+    |> Jason.decode!()
+    |> get_in(["services", "postgres", "ports", Access.at(0), "published"])
   end
 
   defp expand_alias("test", _aliases), do: ["test"]

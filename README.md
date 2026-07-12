@@ -72,10 +72,11 @@ Run the canonical repository gate:
 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify
 ```
 
-`bin/verify` derives a stable Compose project name, host port, and test database
-partition from the worktree path so concurrent worktrees do not share database
-state. `COMPOSE_PROJECT_NAME`, `OFFICE_GRAPH_POSTGRES_PORT`, and
-`MIX_TEST_PARTITION` override those derived values.
+`bin/verify` derives a stable Compose project name and test database partition
+from the worktree path, then asks Docker to allocate an available loopback host
+port so concurrent worktrees do not share database state or contend for a small
+fixed port range. `COMPOSE_PROJECT_NAME`, `OFFICE_GRAPH_POSTGRES_PORT`, and
+`MIX_TEST_PARTITION` override those defaults.
 
 When PostgreSQL is managed externally, skip Compose and provide explicit test
 connection settings:
