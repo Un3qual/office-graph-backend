@@ -1,6 +1,10 @@
 defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
   use OfficeGraphWeb.ConnCase, async: true
 
+  defmodule SafeReason do
+    defstruct [:id, :state, :details]
+  end
+
   alias OfficeGraphWeb.GraphQL.Common.Errors, as: GraphQLErrors
   alias OfficeGraphWeb.JsonApi.Common.Errors, as: JsonErrors
   alias OfficeGraphWeb.OperatorCommands.{Errors, Input}
@@ -50,6 +54,24 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
                  normalized_event_id: event_id,
                  proposed_change_ids: ["not-a-uuid"]
                })
+    end
+
+    test "atom keys take precedence over string keys even for false and nil values" do
+      common = %{
+        "idempotency_key" => "string-key",
+        "source_identity" => "manual:string",
+        "replay_identity" => "paste:string",
+        "body" => "string body"
+      }
+
+      assert {:error, {:invalid_field, :idempotency_key}} =
+               Input.parse(:submit_manual_intake, Map.put(common, :idempotency_key, false))
+
+      assert {:error, {:missing_field, :source_identity}} =
+               Input.parse(:submit_manual_intake, Map.put(common, :source_identity, nil))
+
+      assert {:ok, %{replay_identity: "paste:atom"}} =
+               Input.parse(:submit_manual_intake, Map.put(common, :replay_identity, "paste:atom"))
     end
   end
 
@@ -135,16 +157,54 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
     end
 
     test "recursively sanitizes nested unsafe reasons for both transports" do
+      id = Ecto.UUID.generate()
+
       unsafe_reason =
         {:normalized_event_operation_mismatch,
          %{
            {:sql, :key} => "SELECT hidden FROM adapter_state",
-           safe: [:missing_normalized_event_id, "event-123"],
+           "DBConnection.ConnectionError" => id,
+           safe: [
+             :missing_normalized_event_id,
+             "event-123",
+             "signal_create",
+             "create_signal",
+             "create_task",
+             "create_review_finding",
+             "create_verification_check"
+           ],
+           safe_values: [id, 42, true, false, nil],
+           safe_tuple: {id, :pending, "PostgrexError"},
+           unsafe_pair: {:adapter_error, "timeout"},
+           safe_struct: %SafeReason{
+             id: id,
+             state: :pending,
+             details: %{field_name: "title", adapter: "DBConnection.ConnectionError"}
+           },
            exception: %RuntimeError{message: "SELECT secret FROM credentials"},
            adapter: {:adapter_error, "Postgrex SQL connection details"},
-           adapter_token: "Postgrex.Error",
-           exception_token: "Ecto.ConstraintError",
-           sql_token: "SELECT"
+           unsafe_tokens: [
+             "PostgrexError",
+             "Postgrex.Error",
+             "Postgrex_Error",
+             "DBConnection.ConnectionError",
+             "EctoQueryError",
+             "SELECT",
+             "SELECT_credentials",
+             "select_credentials",
+             "Elixir.OfficeGraph.Repo",
+             "delete",
+             "update_credentials",
+             "drop_table",
+             "alter_table",
+             "create_table",
+             "grant_role",
+             "revoke_role",
+             "ash_forbidden",
+             "ecto_constraint",
+             "ectoqueryerror",
+             "postgrexerror"
+           ]
          }}
 
       error = {:invalid_proposed_change_set, unsafe_reason}
@@ -163,17 +223,130 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
                reason: %{
                  kind: "normalized_event_operation_mismatch",
                  value: %{
-                   "adapter" => %{kind: "internal", value: "invalid"},
-                   "adapter_token" => "invalid",
-                   "exception" => "invalid",
-                   "exception_token" => "invalid",
                    "invalid" => "invalid",
-                   "safe" => ["missing_normalized_event_id", "event-123"],
-                   "sql_token" => "invalid"
+                   "safe" => [
+                     "missing_normalized_event_id",
+                     "event-123",
+                     "signal_create",
+                     "create_signal",
+                     "create_task",
+                     "create_review_finding",
+                     "create_verification_check"
+                   ],
+                   "safe_struct" => %{
+                     "details" => %{"field_name" => "title", "invalid" => "invalid"},
+                     "id" => id,
+                     "state" => "pending"
+                   },
+                   "safe_tuple" => [id, "pending", "invalid"],
+                   "safe_values" => [id, 42, true, false, nil],
+                   "unsafe_pair" => %{kind: "internal", value: "invalid"},
+                   "unsafe_tokens" => List.duplicate("invalid", 20)
                  }
                }
              }
     end
+
+    test "field conversion is total and adapters preserve classified fields" do
+      fields = [
+        %{field: "title", message: "is invalid"},
+        %{field: "invalid", message: "is invalid"}
+      ]
+
+      changeset = %Ash.Changeset{errors: [%{field: :title}, %{field: {:unsafe, :field}}]}
+
+      assert %{fields: ^fields, metadata: %{}} = Errors.classify(changeset)
+
+      assert_adapter_error(changeset, 422, "validation_failed", "Validation failed.", %{
+        fields: fields
+      })
+
+      malformed = {:invalid_field, {:unsafe, :field}}
+
+      assert %{fields: [%{field: "invalid", message: "A field has an invalid value."}]} =
+               Errors.classify(malformed)
+
+      assert_adapter_error(
+        malformed,
+        422,
+        "validation_failed",
+        "A field has an invalid value.",
+        %{field: "invalid"}
+      )
+    end
+
+    test "nested forbidden and generic fallback retain adapter parity without unsafe fields" do
+      nested_forbidden = %{errors: [%{errors: [struct(Ash.Error.Forbidden)]}]}
+
+      assert_adapter_error(
+        nested_forbidden,
+        403,
+        "forbidden",
+        "The action is not authorized.",
+        %{}
+      )
+
+      generic = %RuntimeError{message: "SELECT credentials FROM secrets"}
+      assert_adapter_error(generic, 422, "validation_failed", "Validation failed.", %{})
+    end
+
+    test "malformed changeset and nested error containers are total" do
+      malformed_changeset = %Ash.Changeset{errors: :invalid}
+
+      assert %{fields: [], metadata: %{}} = Errors.classify(malformed_changeset)
+
+      assert_adapter_error(
+        malformed_changeset,
+        422,
+        "validation_failed",
+        "Validation failed.",
+        %{}
+      )
+
+      improper_changeset = %Ash.Changeset{errors: [%{field: :title} | :invalid]}
+      retained_field = [%{field: "title", message: "is invalid"}]
+      assert %{fields: ^retained_field} = Errors.classify(improper_changeset)
+
+      assert_adapter_error(
+        improper_changeset,
+        422,
+        "validation_failed",
+        "Validation failed.",
+        %{fields: retained_field}
+      )
+
+      nested_forbidden = %{errors: [struct(Ash.Error.Forbidden) | :invalid]}
+
+      assert_adapter_error(
+        nested_forbidden,
+        403,
+        "forbidden",
+        "The action is not authorized.",
+        %{}
+      )
+
+      assert_adapter_error(
+        %{errors: :invalid},
+        422,
+        "validation_failed",
+        "Validation failed.",
+        %{}
+      )
+    end
+  end
+
+  defp assert_adapter_error(error, status, code, detail, extra) do
+    assert {:error, graphql_error} = GraphQLErrors.to_absinthe(error)
+    assert graphql_error[:message] == detail
+
+    assert stringify_keys(graphql_error[:extensions]) ==
+             stringify_keys(Map.put(extra, :code, code))
+
+    json_conn = JsonErrors.render(build_conn(), error)
+    assert json_conn.status == status
+
+    assert json_response(json_conn, status)["error"] ==
+             stringify_keys(extra |> Map.put(:code, code) |> Map.put(:detail, detail))
   end
 
   defp stringify_keys(value) when is_map(value) do

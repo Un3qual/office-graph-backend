@@ -1,8 +1,65 @@
 defmodule OfficeGraphWeb.OperatorCommands.Errors do
   @moduledoc false
 
-  @internal_token ~r/(?:\A|[._:-])(adapter|exception|ecto|ash|postgrex|sql|database|runtime)(?:\z|[._:-])/i
-  @sql_token ~r/\A(select|insert|update|delete|alter|drop|create|grant|revoke)\z/i
+  @safe_token ~r/\A[a-z0-9][a-z0-9:_-]{0,159}\z/
+  @internal_segments [
+    "ash",
+    "adapter",
+    "connection",
+    "database",
+    "dbconnection",
+    "ecto",
+    "error",
+    "exception",
+    "postgres",
+    "postgrex",
+    "query",
+    "runtime",
+    "sql"
+  ]
+  @internal_prefixes ["ash", "dbconnection", "ecto", "postgres", "postgrex"]
+  @safe_domain_tokens [
+    "create_review_finding",
+    "create_signal",
+    "create_task",
+    "create_verification_check"
+  ]
+  @sql_leading_tokens [
+    "alter",
+    "analyze",
+    "begin",
+    "call",
+    "comment",
+    "commit",
+    "copy",
+    "create",
+    "delete",
+    "drop",
+    "execute",
+    "explain",
+    "from",
+    "grant",
+    "insert",
+    "join",
+    "lock",
+    "merge",
+    "prepare",
+    "reindex",
+    "release",
+    "revoke",
+    "rollback",
+    "savepoint",
+    "select",
+    "set",
+    "show",
+    "truncate",
+    "union",
+    "update",
+    "vacuum",
+    "values",
+    "where",
+    "with"
+  ]
 
   @type classification :: %{
           category: :authorization | :conflict | :not_found | :validation,
@@ -170,7 +227,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   def classify(%Ash.Changeset{} = changeset) do
-    fields = Enum.map(changeset.errors, &changeset_field/1)
+    fields = changeset_fields(changeset.errors)
     result(:validation, "validation_failed", "Validation failed.", %{}, fields)
   end
 
@@ -183,7 +240,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   defp field_error(detail, field) do
-    field = field |> to_string() |> sanitize()
+    field = sanitize_field(field)
 
     result(:validation, "validation_failed", detail, %{field: field}, [
       %{field: field, message: detail}
@@ -191,10 +248,18 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   defp changeset_field(%{field: field}) do
-    %{field: field |> to_string() |> sanitize(), message: "is invalid"}
+    %{field: sanitize_field(field), message: "is invalid"}
   end
 
   defp changeset_field(_error), do: %{field: nil, message: "is invalid"}
+
+  defp changeset_fields([]), do: []
+
+  defp changeset_fields([error | errors]) do
+    [changeset_field(error) | changeset_fields(errors)]
+  end
+
+  defp changeset_fields(_malformed), do: []
 
   defp result(category, code, detail, metadata \\ %{}, fields \\ []) do
     %{
@@ -211,22 +276,33 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   defp sanitize({kind, value}) when is_atom(kind) do
-    %{kind: sanitize_atom(kind), value: sanitize(value)}
+    case sanitize_atom(kind) do
+      "internal" -> %{kind: "internal", value: "invalid"}
+      safe_kind -> %{kind: safe_kind, value: sanitize(value)}
+    end
   end
 
   defp sanitize(nil), do: nil
   defp sanitize(value) when is_boolean(value) or is_number(value), do: value
   defp sanitize(value) when is_atom(value), do: sanitize_atom(value)
-  defp sanitize(value) when is_list(value), do: Enum.map(value, &sanitize/1)
+  defp sanitize(value) when is_list(value), do: sanitize_list(value)
 
-  defp sanitize(value) when is_map(value) and not is_struct(value) do
-    Map.new(value, fn {key, nested} -> {sanitize_key(key), sanitize(nested)} end)
+  defp sanitize(%{__exception__: true}), do: "invalid"
+
+  defp sanitize(value) when is_struct(value) do
+    value
+    |> Map.from_struct()
+    |> sanitize_map()
   end
 
+  defp sanitize(value) when is_map(value) and not is_struct(value) do
+    sanitize_map(value)
+  end
+
+  defp sanitize(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&sanitize/1)
+
   defp sanitize(value) when is_binary(value) do
-    if byte_size(value) <= 160 and String.valid?(value) and
-         Regex.match?(~r/\A[[:alnum:]][[:alnum:]:._-]*\z/u, value) and
-         not internal_token?(value) do
+    if safe_token?(value) do
       value
     else
       "invalid"
@@ -235,38 +311,73 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   defp sanitize(_value), do: "invalid"
 
-  defp sanitize_key(key) when is_atom(key) do
-    key
-    |> Atom.to_string()
-    |> case do
-      "Elixir." <> _module -> "internal"
-      value -> value
-    end
+  defp sanitize_list([]), do: []
+  defp sanitize_list([head | tail]), do: [sanitize(head) | sanitize_list_tail(tail)]
+
+  defp sanitize_list_tail([]), do: []
+  defp sanitize_list_tail([head | tail]), do: [sanitize(head) | sanitize_list_tail(tail)]
+  defp sanitize_list_tail(tail), do: [sanitize(tail)]
+
+  defp sanitize_map(value) do
+    Map.new(value, fn {key, nested} ->
+      case sanitize_key(key) do
+        "invalid" -> {"invalid", "invalid"}
+        safe_key -> {safe_key, sanitize(nested)}
+      end
+    end)
   end
 
-  defp sanitize_key(key) when is_binary(key), do: sanitize(key)
+  defp sanitize_key(key) when is_atom(key), do: key |> Atom.to_string() |> sanitize_key()
+
+  defp sanitize_key(key) when is_binary(key) do
+    if safe_token?(key), do: key, else: "invalid"
+  end
+
   defp sanitize_key(key) when is_number(key), do: to_string(key)
   defp sanitize_key(_key), do: "invalid"
 
   defp sanitize_atom(atom) do
     value = Atom.to_string(atom)
 
-    if String.starts_with?(value, "Elixir.") or internal_token?(value) do
-      "internal"
-    else
-      value
-    end
+    if safe_token?(value), do: value, else: "internal"
   end
 
-  defp internal_token?(value) do
-    Regex.match?(@internal_token, value) or Regex.match?(@sql_token, value)
+  defp sanitize_field(field) when is_atom(field),
+    do: field |> Atom.to_string() |> sanitize_field()
+
+  defp sanitize_field(field) when is_binary(field) do
+    if safe_token?(field), do: field, else: "invalid"
+  end
+
+  defp sanitize_field(_field), do: "invalid"
+
+  defp safe_token?(value) do
+    byte_size(value) <= 160 and String.valid?(value) and Regex.match?(@safe_token, value) and
+      safe_token_semantics?(value)
+  end
+
+  defp safe_token_semantics?(value) do
+    segments = String.split(value, [":", "_", "-"], trim: true)
+    first = List.first(segments)
+
+    value in @safe_domain_tokens or
+      (first not in @sql_leading_tokens and
+         Enum.all?(segments, &(&1 not in @internal_segments)) and
+         Enum.all?(@internal_prefixes, &(not String.starts_with?(value, &1))) and
+         not String.ends_with?(value, "error"))
   end
 
   defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true
 
-  defp ash_forbidden_error?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &ash_forbidden_error?/1)
-  end
+  defp ash_forbidden_error?(%{errors: errors}), do: any_ash_forbidden_error?(errors)
 
   defp ash_forbidden_error?(_error), do: false
+
+  defp any_ash_forbidden_error?([]), do: false
+
+  defp any_ash_forbidden_error?([error | errors]) do
+    ash_forbidden_error?(error) or any_ash_forbidden_error?(errors)
+  end
+
+  defp any_ash_forbidden_error?(_malformed), do: false
 end

@@ -151,5 +151,13 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
     end
   end
 
-  defp fetch(params, key), do: Map.get(params, key) || Map.get(params, to_string(key))
+  defp fetch(params, key) do
+    string_key = to_string(key)
+
+    cond do
+      Map.has_key?(params, key) -> Map.fetch!(params, key)
+      Map.has_key?(params, string_key) -> Map.fetch!(params, string_key)
+      true -> nil
+    end
+  end
 end
