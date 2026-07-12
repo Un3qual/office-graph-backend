@@ -575,6 +575,90 @@ describe("packet workspace route", () => {
     );
   });
 
+  it("clears packet-scoped command results when the selected packet changes", async () => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([
+          packet(),
+          packet({
+            id: "packet_2",
+            title: "Second packet",
+            currentVersionId: "version_2"
+          })
+        ]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return variables.id === "packet_2"
+          ? packetWorkspaceResponse(
+              workspace({
+                packet: packetWorkspacePacket({
+                  id: "packet_2",
+                  title: "Second packet",
+                  currentVersionId: "version_2"
+                }),
+                currentVersion: packetVersion({
+                  id: "version_2",
+                  versionNumber: 2,
+                  title: "Second packet"
+                }),
+                versions: [
+                  packetVersion({
+                    id: "version_2",
+                    versionNumber: 2,
+                    title: "Second packet"
+                  })
+                ]
+              })
+            )
+          : packetWorkspaceResponse(workspace());
+      }
+
+      expect(request.name).toBe("PacketsStartWorkRunMutation");
+      return runStartResponse("run_1", "operation_run_1");
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("Current version 1");
+    fireEvent.click(screen.getByRole("button", { name: "Start work run" }));
+    await screen.findByRole("link", { name: /Open run run_1/i });
+
+    fireEvent.click(screen.getByRole("button", { name: /Second packet/i }));
+
+    expect(await screen.findByText("Current version 2")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Run result" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open run run_1/i })).not.toBeInTheDocument();
+  });
+
+  it("starts a new idempotent attempt after a successful run cycle", async () => {
+    const idempotencyKeys: string[] = [];
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        return packetConnectionResponse([packet()]);
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(workspace());
+      }
+
+      expect(request.name).toBe("PacketsStartWorkRunMutation");
+      idempotencyKeys.push(variables.input.idempotencyKey);
+      const runNumber = idempotencyKeys.length;
+      return runStartResponse(`run_${runNumber}`, `operation_run_${runNumber}`);
+    });
+
+    renderWithRelay(network);
+    await screen.findByText("Current version 1");
+    fireEvent.click(screen.getByRole("button", { name: "Start work run" }));
+    await screen.findByRole("link", { name: /Open run run_1/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start work run" }));
+    await screen.findByRole("link", { name: /Open run run_2/i });
+
+    expect(idempotencyKeys).toHaveLength(2);
+    expect(idempotencyKeys[1]).not.toBe(idempotencyKeys[0]);
+  });
+
   it("keeps run start unavailable when the current affordance is disabled", async () => {
     renderWithRelay(
       packetWorkspaceNetwork(
@@ -822,6 +906,26 @@ function packetWorkspaceNetwork(detail: ReturnType<typeof workspace>) {
 
 function packetWorkspaceResponse(detail: ReturnType<typeof workspace>): GraphQLResponse {
   return { data: { operatorPacketWorkspace: detail } };
+}
+
+function runStartResponse(runId: string, operationId: string): GraphQLResponse {
+  return {
+    data: {
+      startWorkRun: {
+        command: "start_work_run",
+        operationId,
+        affectedIds: [{ type: "work_run", id: runId }],
+        run: {
+          id: runId,
+          executionState: "pending",
+          verificationState: "pending"
+        },
+        requiredChecks: [
+          { id: `required_${runId}`, verificationCheckId: "check_1", state: "pending" }
+        ]
+      }
+    }
+  };
 }
 
 function workspace(overrides: Partial<WorkspacePayload> = {}): WorkspacePayload {

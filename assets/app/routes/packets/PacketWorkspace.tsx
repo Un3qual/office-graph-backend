@@ -97,7 +97,14 @@ function LoadedPacketDetail({
 }) {
   const workspace = usePacketWorkspaceDetail(packet.id, fetchKey);
 
-  return <PacketDetail onRefresh={onRefresh} packet={packet} workspace={workspace} />;
+  return (
+    <PacketDetail
+      key={`${workspace.packet.id}:${workspace.currentVersion.id}`}
+      onRefresh={onRefresh}
+      packet={packet}
+      workspace={workspace}
+    />
+  );
 }
 
 export function PacketWorkspaceLoading({ isPage }: { isPage: boolean }) {

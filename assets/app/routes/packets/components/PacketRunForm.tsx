@@ -17,7 +17,12 @@ type Props = {
 
 export function PacketRunForm({ onRefresh, workspace }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
-  const command = useStartWorkRunCommand(() => onRefresh());
+  const command = useStartWorkRunCommand(success => {
+    if (success) {
+      attempt.current = null;
+    }
+    onRefresh();
+  });
   const visibleAffordance = workspace.commandAffordances.find(
     affordance => affordance.identity === "start_work_run"
   );
