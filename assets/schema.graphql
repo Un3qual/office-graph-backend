@@ -870,7 +870,6 @@ type RootMutationType {
   createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
   acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
   waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
-  executePacketRunVerification(input: ExecutePacketRunVerificationInput!): PacketRunSummary!
 }
 
 """
@@ -880,102 +879,6 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
-
-type PacketRunPacket {
-  id: ID!
-  title: String!
-  state: String!
-}
-
-type PacketRunPacketVersion {
-  id: ID!
-  versionNumber: Int!
-  lifecycleState: String!
-  objective: String!
-}
-
-type PacketRunRun {
-  id: ID!
-  aggregateState: String!
-  executionState: String!
-  verificationState: String!
-}
-
-type PacketRunRequiredCheck {
-  id: ID!
-  verificationCheckId: ID!
-  state: String!
-}
-
-type PacketRunObservation {
-  id: ID!
-  normalizedStatus: String!
-  sourceKind: String!
-  sourceIdentity: String!
-}
-
-type PacketRunEvidenceItem {
-  id: ID!
-  state: String!
-  candidateId: ID
-  workRunId: ID
-}
-
-type PacketRunVerificationResult {
-  id: ID!
-  result: String!
-  evidenceItemId: ID
-  operationId: ID
-  workRunId: ID
-  workPacketVersionId: ID
-  actorPrincipalId: ID
-  policyBasis: String
-  targetGraphItemId: ID
-}
-
-type PacketRunMissingEvidence {
-  verificationCheckId: ID!
-  reason: String!
-}
-
-type PacketRunSummary {
-  packet: PacketRunPacket!
-  packetVersion: PacketRunPacketVersion!
-  run: PacketRunRun!
-  requiredChecks: [PacketRunRequiredCheck!]!
-  observations: [PacketRunObservation!]!
-  evidenceItems: [PacketRunEvidenceItem!]!
-  verificationResults: [PacketRunVerificationResult!]!
-  missingEvidence: [PacketRunMissingEvidence!]!
-}
-
-input ExecutePacketRunVerificationInput {
-  flowIdentity: String!
-  verificationCheckId: ID!
-  sourceGraphItemId: ID!
-  packetTitle: String!
-  objective: String!
-  contextSummary: String!
-  requirements: String!
-  successCriteria: String!
-  autonomyPosture: String!
-  sourceSurface: String!
-  reason: String!
-  authorityPosture: String!
-  observationSourceKind: String!
-  observationSourceIdentity: String!
-  observationIdempotencyKey: String!
-  observedStatus: String!
-  normalizedStatus: String!
-  freshnessState: String!
-  trustBasis: String!
-  observationRationale: String!
-  evidenceClaim: String!
-  evidenceTitle: String!
-  evidenceBody: String!
-  evidenceResult: String!
-  acceptancePolicyBasis: String!
-}
 
 input SubmitManualIntakeInput {
   idempotencyKey: String!

@@ -116,46 +116,10 @@ defmodule OfficeGraphWeb.GraphQL.Common.Errors do
     }
   end
 
-  defp normalize({:packet_run_flow_idempotency_conflict, flow_identity}) do
-    %{
-      detail: "The packet-run-verification flow identity conflicts with different input.",
-      extensions: %{code: "idempotency_conflict", flow_identity: flow_identity}
-    }
-  end
-
-  defp normalize(
-         {:source_graph_item_check_mismatch, source_graph_item_id, verification_check_id,
-          expected_graph_item_id}
-       ) do
-    %{
-      detail: "The source graph item does not match the verification check.",
-      extensions: %{
-        code: "source_graph_item_check_mismatch",
-        source_graph_item_id: source_graph_item_id,
-        verification_check_id: verification_check_id,
-        expected_graph_item_id: expected_graph_item_id
-      }
-    }
-  end
-
-  defp normalize({:invalid_packet_run_input, reason}) do
-    %{
-      detail: "The packet-run-verification input is not ready for execution.",
-      extensions: %{code: "packet_run_input_not_ready", reason: reason}
-    }
-  end
-
   defp normalize({:invalid_evidence_result, result}) do
     %{
-      detail: "The evidence result is not supported for packet-run verification.",
+      detail: "The evidence result is not supported.",
       extensions: %{code: "invalid_evidence_result", evidence_result: result}
-    }
-  end
-
-  defp normalize({:invalid_packet_run_evidence_input, reason}) do
-    %{
-      detail: "The packet-run-verification evidence input is invalid.",
-      extensions: %{code: "invalid_packet_run_evidence_input", reason: reason}
     }
   end
 

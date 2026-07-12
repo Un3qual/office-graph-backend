@@ -1,4 +1,4 @@
-defmodule OfficeGraph.WorkPackets.WorkPacketRunVerificationTest do
+defmodule OfficeGraph.WorkPackets.WorkPacketCommandLoopTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.Foundation

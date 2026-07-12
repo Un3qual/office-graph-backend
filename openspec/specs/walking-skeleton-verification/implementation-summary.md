@@ -36,9 +36,9 @@
   surface under the GraphQL schema and `/api/v1`.
 - Kept `OfficeGraph.ApiSupport` limited to gated local owner bootstrap for
   dev/test requests.
-- Kept manual GraphQL only for the operator workflow and packet-run command
-  surfaces, where resolvers call `OfficeGraph.Projections` and
-  `OfficeGraph.PacketRunVerification` directly.
+- Kept manual GraphQL only for operator projections and step-specific command
+  surfaces, where resolvers call `OfficeGraph.Projections` and the owning
+  domain contexts directly.
 - API smoke coverage proves generated GraphQL and JSON reads return durable
   resource data.
 

@@ -96,15 +96,13 @@ than transport-adjacent helper modules.
 Office Graph SHALL decompose broad cross-domain workflow endpoints into durable
 domain commands before treating the endpoint as a stable API endpoint.
 
-#### Scenario: Packet-run-verification flow is refactored
+#### Scenario: Packet, run, and verification workflow is decomposed
 
-- **WHEN** the packet-run-verification flow is migrated out of transport support
-  code
+- **WHEN** the operator workflow is exposed through product transports
 - **THEN** the implementation MUST split durable behavior into Ash-shaped
   commands owned by the relevant domains for packet preparation, run start,
   observation recording, evidence suggestion or acceptance, and verification
-  recomputation, while any one-shot endpoint MUST remain temporary
-  compatibility or workflow orchestration with retirement criteria
+  recomputation, and MUST keep each transport command scoped to one durable step
 
 #### Scenario: New cross-domain workflow is introduced
 

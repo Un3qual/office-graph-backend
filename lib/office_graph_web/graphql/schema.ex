@@ -23,8 +23,6 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
   import_types(OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries)
   import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Types)
   import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Mutations)
-  import_types(OfficeGraphWeb.GraphQL.PacketRunVerification.Types)
-  import_types(OfficeGraphWeb.GraphQL.PacketRunVerification.Mutations)
 
   node interface do
     resolve_type(fn
@@ -66,6 +64,5 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
 
   mutation do
     import_fields(:operator_command_mutations)
-    import_fields(:packet_run_verification_mutations)
   end
 end

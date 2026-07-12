@@ -9,7 +9,6 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     Foundation,
     Integrations,
     Operations,
-    PacketRunVerification,
     Repo,
     Runs,
     Tenancy,
@@ -1099,96 +1098,6 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     end
   end
 
-  test "packet run API rolls back partial flow state when concurrent observation keys conflict" do
-    suffix = System.unique_integer([:positive])
-    shared_source_identity = "provider:api-observation-race-#{suffix}"
-    shared_observation_key = "api-observation-race-#{suffix}"
-
-    try do
-      {bootstrap, first_attrs, second_attrs} =
-        with_unboxed_connection(fn ->
-          cleanup_work_run_verification_scope!("office-graph")
-          cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
-
-          {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-
-          {:ok, first_check} =
-            create_concurrency_verification_check(
-              bootstrap.session,
-              "api-observation-race-first-#{suffix}"
-            )
-
-          {:ok, second_check} =
-            create_concurrency_verification_check(
-              bootstrap.session,
-              "api-observation-race-second-#{suffix}"
-            )
-
-          install_execution_observation_insert_barrier!(shared_observation_key)
-
-          {
-            bootstrap,
-            packet_run_flow_attrs(
-              "api-observation-race-first-#{suffix}",
-              first_check,
-              shared_source_identity,
-              shared_observation_key
-            ),
-            packet_run_flow_attrs(
-              "api-observation-race-second-#{suffix}",
-              second_check,
-              shared_source_identity,
-              shared_observation_key
-            )
-          }
-        end)
-
-      results =
-        [first_attrs, second_attrs]
-        |> Enum.map(fn attrs ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              {attrs, PacketRunVerification.execute(bootstrap.session, attrs)}
-            end)
-          end)
-        end)
-        |> Task.await_many(15_000)
-
-      assert [{_successful_attrs, {:ok, summary}}] =
-               Enum.filter(results, fn {_attrs, result} -> match?({:ok, _summary}, result) end)
-
-      assert summary.run.aggregate_state == "verified"
-
-      assert [{failed_attrs, {:error, _error}}] =
-               Enum.filter(results, fn {_attrs, result} -> match?({:error, _error}, result) end)
-
-      assert {0, 0, 0} =
-               with_unboxed_connection(fn ->
-                 packet_run_flow_state_counts(failed_attrs.flow_identity)
-               end)
-
-      corrected_attrs =
-        Map.put(
-          failed_attrs,
-          :observation_idempotency_key,
-          "api-observation-race-corrected-#{suffix}"
-        )
-
-      assert {:ok, corrected_summary} =
-               with_unboxed_connection(fn ->
-                 PacketRunVerification.execute(bootstrap.session, corrected_attrs)
-               end)
-
-      assert corrected_summary.run.aggregate_state == "verified"
-    after
-      with_unboxed_connection(fn ->
-        drop_execution_observation_insert_barrier!()
-        cleanup_work_run_verification_scope!("office-graph")
-        cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
-      end)
-    end
-  end
-
   test "standalone observation recording serializes source idempotency replays" do
     suffix = System.unique_integer([:positive])
     shared_source_identity = "provider:standalone-observation-race-#{suffix}"
@@ -1682,36 +1591,6 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
     })
   end
 
-  defp packet_run_flow_attrs(label, verification_check, source_identity, observation_key) do
-    %{
-      flow_identity: "packet-run-#{label}",
-      verification_check_id: verification_check.id,
-      source_graph_item_id: verification_check.graph_item_id,
-      packet_title: "Verify #{label} readiness",
-      objective: "Confirm #{label} has passing evidence.",
-      context_summary: "#{label} context collected from the graph.",
-      requirements: "Review #{label} blockers.",
-      success_criteria: "The required verification check has accepted evidence.",
-      autonomy_posture: "human_supervised",
-      source_surface: "concurrency_test",
-      reason: "Execute #{label} packet.",
-      authority_posture: "human_supervised",
-      observation_source_kind: "provider_check",
-      observation_source_identity: source_identity,
-      observation_idempotency_key: observation_key,
-      observed_status: "passed",
-      normalized_status: "succeeded",
-      freshness_state: "fresh",
-      trust_basis: "signed_provider_payload",
-      observation_rationale: "Provider confirmed #{label} passed.",
-      evidence_claim: "#{label} passed.",
-      evidence_title: "#{label} check passed",
-      evidence_body: "The #{label} check passed.",
-      evidence_result: "passed",
-      acceptance_policy_basis: "owner_acceptance"
-    }
-  end
-
   defp standalone_observation_attrs(verification_check, source_identity, observation_key) do
     %{
       source_kind: "provider_check",
@@ -2105,33 +1984,6 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
       )
 
     {evidence_item_count, verification_result_count}
-  end
-
-  defp packet_run_flow_state_counts(flow_identity) do
-    operation_key_pattern = "packet-run-verification:#{flow_identity}:%"
-
-    %{rows: [[operation_count, packet_count, run_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*)
-           FROM operation_correlations
-           WHERE idempotency_key LIKE $1),
-          (SELECT count(*)
-           FROM work_packets
-           WHERE operation_id IN (
-             SELECT id FROM operation_correlations WHERE idempotency_key LIKE $1
-           )),
-          (SELECT count(*)
-           FROM runs
-           WHERE operation_id IN (
-             SELECT id FROM operation_correlations WHERE idempotency_key LIKE $1
-           ))
-        """,
-        [operation_key_pattern]
-      )
-
-    {operation_count, packet_count, run_count}
   end
 
   defp observation_source_key_count(source_identity, idempotency_key) do

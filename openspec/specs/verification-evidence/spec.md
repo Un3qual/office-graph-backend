@@ -119,8 +119,8 @@ only according to policy.
 
 ### Requirement: Initial Evidence Candidates Require Acceptance
 
-Office Graph SHALL implement a candidate-to-accepted evidence path for the
-first packet-run-verification slice.
+Office Graph SHALL implement a candidate-to-accepted evidence path for
+packet-backed runs and direct verification workflows.
 
 #### Scenario: Candidate is created
 

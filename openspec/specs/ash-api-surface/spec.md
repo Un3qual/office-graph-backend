@@ -203,10 +203,10 @@ documented integration or workflow requirement needs a custom command endpoint.
 - **THEN** the custom Phoenix endpoint MUST stay thin and call the same public
   context/domain command that GraphQL, jobs, agents, and other entrypoints use
 
-### Requirement: Packet Run Verification Slice Uses Shared Domain APIs
+### Requirement: Packet And Verification Commands Use Shared Domain APIs
 
-Office Graph SHALL expose the first packet-run-verification slice through
-shared domain actions and Ash-owned APIs.
+Office Graph SHALL expose packet, run, observation, evidence, and verification
+behavior through shared domain actions and Ash-owned APIs.
 
 #### Scenario: Resource API is exposed
 
@@ -217,7 +217,7 @@ shared domain actions and Ash-owned APIs.
   on the owning domain/resource or document a narrow custom transport
   exception
 
-#### Scenario: Domain-owned packet-run and evidence creates are not exposed as simple resource creates
+#### Scenario: Domain-owned command creates are not exposed as simple resource creates
 
 - **WHEN** packet creation, packet-version readiness, packet source links,
   packet required-check links, work-run lifecycle, run required checks,
@@ -229,79 +229,48 @@ shared domain actions and Ash-owned APIs.
   callers choose lifecycle state, candidate state, accepted-evidence state, or
   child links directly
 
-#### Scenario: Orchestration command spans domains
+#### Scenario: Product command advances one owned step
 
 - **WHEN** an API command creates a packet, starts a work run, records an
-  observation, accepts evidence, or records verification across multiple
-  bounded contexts
-- **THEN** the transport code MUST stay thin, build or receive session and
-  operation context, call public context actions, and avoid owning lifecycle,
+  observation, creates or accepts evidence, or records a verification decision
+- **THEN** the transport code MUST stay thin, resolve session and operation
+  context, call exactly one owning domain command, and avoid owning lifecycle,
   authorization, validation, or evidence-acceptance rules
 
-### Requirement: Packet Run Verification Uses A GraphQL Command
+### Requirement: Operator Workflow Uses Step-Specific Commands
 
-Office Graph SHALL expose the first packet-run-verification flow through the
-current GraphQL command and domain tests, not a duplicate hand-written JSON
-route.
+Office Graph SHALL expose the operator workflow through separate GraphQL and
+JSON commands for packet creation, run start, observation recording, evidence
+candidate creation, evidence acceptance, and verification waiver.
 
-#### Scenario: GraphQL executes the current flow
+#### Scenario: API client executes the current flow
 
-- **WHEN** GraphQL creates a packet, starts a work run, records an observation,
-  accepts evidence, and reads the summary data
-- **THEN** the mutation MUST call `OfficeGraph.PacketRunVerification.execute/2`
-  and return operation correlation, validation errors, structured authorization
-  error or conflict outcomes, verification results, data changes, and safe
-  response semantics
+- **WHEN** a client creates a packet, starts a work run, records an observation,
+  creates and accepts evidence, and reads the resulting projections
+- **THEN** each command MUST call its owning domain action and return operation
+  correlation, affected identities, structured authorization, validation, and
+  conflict outcomes, and safe response semantics
 
 #### Scenario: API request is invalid
 
-- **WHEN** the GraphQL command receives invalid packet, run, observation,
+- **WHEN** a step-specific command receives invalid packet, run, observation,
   evidence, authorization, lifecycle, scope, or idempotency input
 - **THEN** it MUST return a structured error with a stable code and safe
   explanatory detail
 
-#### Scenario: Old JSON command has no current caller
+#### Scenario: Equivalent API families execute a command
 
-- **WHEN** no current non-test caller or accepted integration contract uses
-  `/api/packet-run-verification/execute`
-- **THEN** the Phoenix JSON route, controller, serializer, and route-level tests
-  MUST be removed instead of kept as a fallback for `/operator`
+- **WHEN** GraphQL and JSON clients execute the same operator command
+- **THEN** both API families MUST preserve the same domain authorization,
+  validation, idempotency, conflict, audit, and result semantics even when
+  their transport envelopes differ
 
-#### Scenario: Composite flow input is invalid
+#### Scenario: Workflow commands remain independently retryable
 
-- **WHEN** a packet-run-verification command contains packet readiness input or
-  passed-evidence input that the owning domain rules would later reject
-- **THEN** the GraphQL command MUST reject the request before creating
-  per-step operation-correlated packet, run, observation, candidate, evidence,
-  or verification result records
-
-#### Scenario: Composite observation source replay conflicts
-
-- **WHEN** a packet-run-verification command reuses an observation source
-  identity and idempotency key that already belongs to a different flow step,
-  work run, check, status, freshness, trust basis, or graph linkage, including
-  concurrent requests racing on the same absent observation key
-- **THEN** the shared API context MUST reject the request as an idempotency
-  conflict before creating packet, run, evidence, or verification-result records
-  and MUST allow a corrected retry with the same flow identity when no durable
-  flow step has been consumed
-
-#### Scenario: Composite evidence result is unsupported
-
-- **WHEN** a packet-run-verification command supplies an evidence result outside
-  the supported acceptance vocabulary
-- **THEN** the shared API context MUST reject the request before creating
-  per-step operation-correlated packet, run, observation, candidate, evidence, or
-  verification-result records
-
-#### Scenario: Composite flow identity is reused with different input
-
-- **WHEN** a packet-run-verification command reuses a flow identity with a
-  different verification check, source graph item, packet contract,
-  observation, evidence, or acceptance input
-- **THEN** the shared API context MUST reject the request as an idempotency
-  conflict instead of replaying prior durable packet, run, observation,
-  candidate, evidence, verification result, or summary records
+- **WHEN** a command is retried with the same operation identity and equivalent
+  normalized input
+- **THEN** it MUST return its original durable result, while changed input MUST
+  return a stable idempotency conflict without mutating completed steps
 
 #### Scenario: Work packet operation replay conflicts
 
