@@ -1,7 +1,11 @@
 # durable-work-delivery Specification
 
 ## Purpose
-TBD - created by archiving change add-durable-work-delivery. Update Purpose after archive.
+
+Define the canonical requirements for typed, transactional, Postgres-backed
+asynchronous work delivery, including retries, terminal failure handling,
+scoped operator visibility, and operational telemetry.
+
 ## Requirements
 ### Requirement: Durable Work Uses Postgres-Backed Jobs
 

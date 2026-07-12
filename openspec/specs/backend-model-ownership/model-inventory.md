@@ -58,7 +58,7 @@ Derived from committed migrations; expected count: 47 tables.
 
 These resources are accepted or active design commitments that are not yet
 implemented in committed migrations. They remain separate from the implemented
-46-table inventory so the architecture gate does not treat the walking skeleton
+47-table inventory so the architecture gate does not treat the walking skeleton
 as the complete MVP persistence model.
 
 | Table | Owning domain | Canonical Ash resource | Source | Implementation status |
