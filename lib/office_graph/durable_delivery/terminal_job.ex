@@ -4,6 +4,5 @@ defmodule OfficeGraph.DurableDelivery.TerminalJob do
   """
 
   @enforce_keys [:id, :worker, :queue, :state, :attempt, :max_attempts]
-  defstruct @enforce_keys ++
-              [:failure_code, :attempted_at, :cancelled_at, :discarded_at]
+  defstruct [:failure_code, :attempted_at, :cancelled_at, :discarded_at | @enforce_keys]
 end

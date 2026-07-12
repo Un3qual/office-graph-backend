@@ -17,7 +17,7 @@ defmodule OfficeGraph.DurableDelivery.EventRequest do
     :operation_id,
     :occurred_at
   ]
-  defstruct @enforce_keys ++ [:causation_event_id]
+  defstruct [:causation_event_id | @enforce_keys]
 
   def new(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- validate_context(session_context, operation),
