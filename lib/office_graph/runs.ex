@@ -244,6 +244,23 @@ defmodule OfficeGraph.Runs do
     end
   end
 
+  def get_verification_outcome_summary(session_context, run_id) do
+    with :ok <-
+           Authorization.authorize(session_context, :skeleton_read,
+             organization_id: session_context.organization_id
+           ),
+         {:ok, run} <- fetch_scoped(Run, session_context, run_id),
+         {:ok, required_checks} <- read_run_required_checks(run),
+         {:ok, verification_results} <- read_verification_results(run) do
+      {:ok,
+       %{
+         run: run,
+         verification_results: verification_results,
+         missing_evidence: missing_evidence(required_checks, verification_results)
+       }}
+    end
+  end
+
   defp create_observation(session_context, operation, run, attrs) do
     attrs = normalize_observation_attrs(attrs)
 

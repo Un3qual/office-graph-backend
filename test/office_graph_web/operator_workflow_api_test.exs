@@ -365,13 +365,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     first_row = Enum.find(rows, &(&1["normalizedEventId"] == first.normalized_event.id))
     second_row = Enum.find(rows, &(&1["normalizedEventId"] == second.normalized_event.id))
 
-    assert first_row["title"] ==
-             "Manual intake proposal #{String.slice(first.normalized_event.id, 0, 8)}"
-
-    assert second_row["title"] ==
-             "Manual intake proposal #{String.slice(second.normalized_event.id, 0, 8)}"
+    assert first_row["title"] == "Manual intake proposal #{first.normalized_event.id}"
+    assert second_row["title"] == "Manual intake proposal #{second.normalized_event.id}"
 
     assert first_row["sourceSummary"] != second_row["sourceSummary"]
+    assert first_row["proposedActionPreviews"] != second_row["proposedActionPreviews"]
+
+    assert Enum.all?(first_row["proposedActionPreviews"], fn preview ->
+             preview["title"] =~ first.normalized_event.id
+           end)
+
+    assert Enum.all?(second_row["proposedActionPreviews"], fn preview ->
+             preview["title"] =~ second.normalized_event.id
+           end)
 
     assert Enum.map(first_row["proposedActionPreviews"], & &1["action"]) == [
              "create_signal",
@@ -726,6 +732,43 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert inserted_after_cursor.observation.id in second_activity_ids
     assert second_activity["pageInfo"]["hasPreviousPage"] == true
 
+    all_activity =
+      graphql(
+        conn,
+        """
+        query AllRunActivity($id: ID!) {
+          operatorRunState(id: $id) {
+            activity(first: 20) { edges { node { kind stableId status } } }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunState"
+      )["activity"]
+
+    assert Enum.any?(all_activity["edges"], &(&1["node"]["kind"] == "missing_evidence"))
+
+    forged_cursor =
+      ["2026-07-12T00:00:00.000000", "required_check", "not-a-uuid"]
+      |> Jason.encode!()
+      |> Base.url_encode64(padding: false)
+
+    forged_response =
+      conn
+      |> post(~p"/graphql", %{
+        query: """
+        query ForgedActivity($id: ID!, $after: String) {
+          operatorRunState(id: $id) {
+            activity(first: 2, after: $after) { edges { node { stableId } } }
+          }
+        }
+        """,
+        variables: %{id: run_result.run.id, after: forged_cursor}
+      })
+      |> json_response(200)
+
+    assert [%{"message" => "A field has an invalid value."}] = forged_response["errors"]
+
     options = options["commandOptions"]
 
     assert Enum.map(options["observation"], & &1["verificationCheckId"]) == [second_check.id]
@@ -797,6 +840,110 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert state["commandOptions"]["observation"] == []
     assert state["commandOptions"]["waiver"] == []
+  end
+
+  @tag timeout: 120_000
+  test "eligible command choices after the compact twenty-item summary remain reachable", %{
+    conn: conn
+  } do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    checks =
+      Enum.map(1..21, fn _index ->
+        {:ok, check} = create_required_verification_check(bootstrap.session)
+        check
+      end)
+
+    {:ok, run_result} =
+      OperatorCommandFixtures.create_ready_run(
+        bootstrap.session,
+        checks,
+        %{
+          title: "Paged command choices",
+          objective: "Reach every valid command choice.",
+          context_summary: "Twenty-one checks require bounded choice paging.",
+          requirements: "No valid choice may be hidden.",
+          success_criteria: "The final choice is reachable.",
+          autonomy_posture: "human_supervised"
+        },
+        %{
+          source_surface: "operator_option_pagination_test",
+          reason: "Exercise command option keysets.",
+          authority_posture: "human_supervised"
+        },
+        attach_packet_version?: true
+      )
+
+    query = """
+    query PagedOptions($id: ID!, $first: Int!, $after: String) {
+      operatorRunState(id: $id) {
+        commandOptionsOverflow
+        commandOptionPage(kind: "observation", first: $first, after: $after) {
+          edges { cursor node { key observation { key verificationCheckId } } }
+          pageInfo { hasNextPage hasPreviousPage endCursor }
+        }
+      }
+    }
+    """
+
+    first = graphql(conn, query, %{id: run_result.run.id, first: 20}, "operatorRunState")
+    assert first["commandOptionsOverflow"] == true
+    assert length(first["commandOptionPage"]["edges"]) == 20
+    assert first["commandOptionPage"]["pageInfo"]["hasNextPage"] == true
+
+    second =
+      graphql(
+        conn,
+        query,
+        %{
+          id: run_result.run.id,
+          first: 20,
+          after: first["commandOptionPage"]["pageInfo"]["endCursor"]
+        },
+        "operatorRunState"
+      )
+
+    assert [%{"node" => %{"observation" => %{"verificationCheckId" => last_check_id}}}] =
+             second["commandOptionPage"]["edges"]
+
+    assert last_check_id == List.last(checks).id
+    assert second["commandOptionPage"]["pageInfo"]["hasPreviousPage"] == true
+
+    checks
+    |> Enum.with_index(1)
+    |> Enum.each(fn {check, index} ->
+      key = "untruncated-outcome-#{index}"
+      {:ok, observed} = record_observation(bootstrap.session, run_result.run, check, key: key)
+
+      {:ok, candidate} =
+        create_evidence_candidate(
+          bootstrap.session,
+          run_result.run,
+          check,
+          observed.observation,
+          key: key
+        )
+
+      {:ok, _accepted} = accept_candidate(bootstrap.session, candidate, key: key)
+    end)
+
+    outcome =
+      graphql(
+        conn,
+        """
+        query CompleteOutcome($id: ID!) {
+          operatorVerificationOutcome(id: $id) {
+            verificationResults { id verificationCheckId result }
+            missingEvidence { verificationCheckId reason }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorVerificationOutcome"
+      )
+
+    assert length(outcome["verificationResults"]) == 21
+    assert outcome["missingEvidence"] == []
   end
 
   test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do

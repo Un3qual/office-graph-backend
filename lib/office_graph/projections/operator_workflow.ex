@@ -7,6 +7,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Projections.CommandAffordance
   alias OfficeGraph.Projections.KeysetCursor
+  alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph.{GraphRelationship, ReviewFinding, Signal, Task, VerificationCheck}
@@ -77,27 +78,104 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     limit = Keyword.fetch!(opts, :limit)
     after_cursor = Keyword.get(opts, :after_cursor)
 
-    with {:ok, row} <- operator_workflow_item(session_context, normalized_event_id),
-         {:ok, after_key} <- decode_relationship_cursor(after_cursor) do
-      details =
-        row.relationship_details
-        |> Enum.sort_by(&{&1.kind, &1.stable_id})
-        |> Enum.drop_while(fn detail ->
-          after_key && {detail.kind, detail.stable_id} <= after_key
-        end)
-
-      page_details = Enum.take(details, limit)
+    with :ok <- authorize_read(session_context),
+         {:ok, normalized_event_id} <- normalize_event_id(normalized_event_id),
+         {:ok, after_key} <- decode_relationship_cursor(after_cursor),
+         {:ok, %{rows: rows}} <-
+           Repo.query(
+             relationship_details_sql(),
+             relationship_detail_params(
+               session_context,
+               normalized_event_id,
+               after_key,
+               limit + 1
+             )
+           ) do
+      page_rows = Enum.take(rows, limit)
 
       {:ok,
        %{
          edges:
-           Enum.map(page_details, fn detail ->
+           Enum.map(page_rows, fn row ->
+             detail = relationship_detail_row(row)
              %{node: detail, cursor: KeysetCursor.encode([detail.kind, detail.stable_id])}
            end),
-         has_next_page?: length(details) > limit,
+         has_next_page?: length(rows) > limit,
          has_previous_page?: not is_nil(after_cursor)
        }}
     end
+  end
+
+  defp relationship_details_sql do
+    """
+    WITH applied_links AS (
+      SELECT 'signal'::text AS link_type, s.id, s.graph_item_id, s.title, s.state AS status
+      FROM proposed_graph_changes pgc JOIN signals s ON s.id = pgc.applied_resource_id
+      WHERE pgc.normalized_event_id = $1 AND pgc.organization_id = $2 AND pgc.workspace_id = $3
+        AND pgc.status = 'applied' AND pgc.change_type = 'create_signal'
+        AND s.organization_id = $2 AND s.workspace_id = $3
+      UNION ALL
+      SELECT 'task', t.id, t.graph_item_id, t.title, t.lifecycle_state
+      FROM proposed_graph_changes pgc JOIN tasks t ON t.id = pgc.applied_resource_id
+      WHERE pgc.normalized_event_id = $1 AND pgc.organization_id = $2 AND pgc.workspace_id = $3
+        AND pgc.status = 'applied' AND pgc.change_type = 'create_task'
+        AND t.organization_id = $2 AND t.workspace_id = $3
+      UNION ALL
+      SELECT 'review_finding', rf.id, rf.graph_item_id, rf.title, rf.lifecycle_state
+      FROM proposed_graph_changes pgc JOIN review_findings rf ON rf.id = pgc.applied_resource_id
+      WHERE pgc.normalized_event_id = $1 AND pgc.organization_id = $2 AND pgc.workspace_id = $3
+        AND pgc.status = 'applied' AND pgc.change_type = 'create_review_finding'
+        AND rf.organization_id = $2 AND rf.workspace_id = $3
+      UNION ALL
+      SELECT 'verification_check', vc.id, vc.graph_item_id, vc.title, vc.lifecycle_state
+      FROM proposed_graph_changes pgc JOIN verification_checks vc ON vc.id = pgc.applied_resource_id
+      WHERE pgc.normalized_event_id = $1 AND pgc.organization_id = $2 AND pgc.workspace_id = $3
+        AND pgc.status = 'applied' AND pgc.change_type = 'create_verification_check'
+        AND vc.organization_id = $2 AND vc.workspace_id = $3
+    ), details AS (
+      SELECT 'graph_link'::text AS kind, link_type || ':' || id::text AS stable_id,
+             title, status, graph_item_id AS source_graph_item_id, NULL::uuid AS target_graph_item_id,
+             link_type AS relationship_type
+      FROM applied_links
+      UNION ALL
+      SELECT 'graph_relationship', gr.id::text, gr.relationship_type, NULL,
+             gr.source_item_id, gr.target_item_id, gr.relationship_type
+      FROM graph_relationships gr
+      WHERE gr.source_item_id IN (SELECT graph_item_id FROM applied_links)
+        AND gr.target_item_id IN (SELECT graph_item_id FROM applied_links)
+    )
+    SELECT kind, stable_id, title, status, source_graph_item_id::text,
+           target_graph_item_id::text, relationship_type
+    FROM details
+    WHERE $4::text IS NULL OR (kind, stable_id) > ($4, $5)
+    ORDER BY kind ASC, stable_id ASC
+    LIMIT $6
+    """
+  end
+
+  defp relationship_detail_params(session_context, event_id, after_key, limit) do
+    {kind, stable_id} = after_key || {nil, nil}
+
+    [
+      Ecto.UUID.dump!(event_id),
+      Ecto.UUID.dump!(session_context.organization_id),
+      Ecto.UUID.dump!(session_context.workspace_id),
+      kind,
+      stable_id,
+      limit
+    ]
+  end
+
+  defp relationship_detail_row([kind, stable_id, title, status, source_id, target_id, type]) do
+    %{
+      kind: kind,
+      stable_id: stable_id,
+      title: title,
+      status: status,
+      source_graph_item_id: source_id,
+      target_graph_item_id: target_id,
+      relationship_type: type
+    }
   end
 
   def operator_workflow_items_page(session_context, opts) do
@@ -286,7 +364,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
     title = proposed_change_title(event.id)
     graph_relationships = applied_projection.graph_relationships
-    relationship_details = relationship_details(graph_links, graph_relationships)
 
     %{
       type: "operator_workflow_item",
@@ -295,7 +372,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       duplicate_of_id: event.duplicate_of_id,
       title: title,
       source_summary: source_summary(event.id, proposed_changes),
-      proposed_action_previews: proposed_action_previews(proposed_changes),
+      proposed_action_previews: proposed_action_previews(event.id, proposed_changes),
       status: status,
       reason_codes: reason_codes,
       source: %{
@@ -318,26 +395,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
           length(graph_links) > @relationship_summary_limit or
             length(graph_relationships) > @relationship_summary_limit
       },
-      relationship_details: relationship_details,
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
     }
   end
 
-  defp proposed_change_title(event_id),
-    do: "Manual intake proposal #{String.slice(event_id, 0, 8)}"
+  defp proposed_change_title(event_id), do: "Manual intake proposal #{event_id}"
 
   defp source_summary(event_id, proposed_changes) do
     count = length(proposed_changes)
 
-    "#{count} proposed #{if(count == 1, do: "change", else: "changes")} · ref #{String.slice(event_id, 0, 8)}"
+    "#{count} proposed #{if(count == 1, do: "change", else: "changes")} · ref #{event_id}"
   end
 
-  defp proposed_action_previews(proposed_changes) do
+  defp proposed_action_previews(event_id, proposed_changes) do
     Enum.map(proposed_changes, fn proposed_change ->
       %{
         action: proposed_change.change_type,
-        title: proposed_action_label(proposed_change.change_type),
+        title: "#{proposed_action_label(proposed_change.change_type)} · ref #{event_id}",
         status: proposed_change.status
       }
     end)
@@ -349,36 +424,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp proposed_action_label("create_verification_check"), do: "Proposed verification check"
   defp proposed_action_label(_unknown), do: "Proposed change"
 
-  defp relationship_details(graph_links, graph_relationships) do
-    link_details =
-      Enum.map(graph_links, fn link ->
-        %{
-          kind: "graph_link",
-          stable_id: "#{link.type}:#{link.id}",
-          title: link.title,
-          status: link.state,
-          source_graph_item_id: link.graph_item_id,
-          target_graph_item_id: nil,
-          relationship_type: link.type
-        }
-      end)
-
-    relationship_details =
-      Enum.map(graph_relationships, fn relationship ->
-        %{
-          kind: "graph_relationship",
-          stable_id: relationship.id,
-          title: relationship.relationship_type,
-          status: nil,
-          source_graph_item_id: relationship.source_graph_item_id,
-          target_graph_item_id: relationship.target_graph_item_id,
-          relationship_type: relationship.relationship_type
-        }
-      end)
-
-    link_details ++ relationship_details
-  end
-
   defp decode_relationship_cursor(nil), do: {:ok, nil}
 
   defp decode_relationship_cursor(cursor) do
@@ -387,6 +432,13 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       {:ok, {kind, stable_id}}
     else
       _invalid -> {:error, {:invalid_field, :pagination}}
+    end
+  end
+
+  defp normalize_event_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:invalid_field, :id}}
     end
   end
 

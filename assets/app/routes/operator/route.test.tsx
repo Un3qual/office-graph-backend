@@ -171,12 +171,93 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByText(/Initial required check/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Load more run activity" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next run activity page" }));
 
     expect(await screen.findByText(/Later observation/)).toBeInTheDocument();
     expect(lastVariablesFor(network, "OperatorRunStateQuery")).toMatchObject({
       activityAfter: "activity_cursor_1",
       activityFirst: 5
+    });
+  });
+
+  it("pages overflow command choices and resets their cursor for a different run", async () => {
+    const secondItem = operatorWorkflowItem({
+      id: "operator_workflow_item_command_page_2",
+      normalizedEventId: "evt_command_page_2",
+      typedId: { type: "normalized_intake_event", id: "evt_command_page_2" },
+      title: "Second command-page run",
+      sourceSummary: "Second command-page run summary",
+      graphLinks: [
+        {
+          type: "work_run",
+          id: "run_2",
+          graphItemId: null,
+          title: "Second run",
+          state: "running"
+        }
+      ]
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([operatorWorkflowItem(), secondItem], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        const state = operatorRunState({
+          commandOptionsOverflow: true,
+          commandAffordances: [enabledCommandAffordance("record_execution_observation")]
+        });
+        return { data: { operatorRunState: { ...state, run: { ...state.run, id: variables.id } } } };
+      }
+      if (request.name === "OperatorRunCommandOptionPageQuery") {
+        const isObservation = variables.kind === "observation";
+        const secondPage = variables.after === "option_cursor_1";
+        return {
+          data: {
+            operatorRunState: {
+              commandOptionPage: {
+                edges: isObservation ? [
+                  {
+                    cursor: secondPage ? "option_cursor_2" : "option_cursor_1",
+                    node: {
+                      observation: observationCommandOption({
+                        key: secondPage ? "required_21" : "required_1",
+                        label: secondPage ? "Twenty-first check" : "First check"
+                      }),
+                      evidenceCandidate: null,
+                      evidenceAcceptance: null,
+                      waiver: null
+                    }
+                  }
+                ] : [],
+                pageInfo: {
+                  hasNextPage: isObservation && !secondPage,
+                  hasPreviousPage: isObservation && secondPage,
+                  startCursor: isObservation ? (secondPage ? "option_cursor_2" : "option_cursor_1") : null,
+                  endCursor: isObservation ? (secondPage ? "option_cursor_2" : "option_cursor_1") : null
+                }
+              }
+            }
+          }
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("option", { name: "First check" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next observation choices" }));
+    expect(await screen.findByRole("option", { name: "Twenty-first check" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Second command-page run/i }));
+
+    await waitFor(() => {
+      const observationCalls = network.mock.calls.filter(
+        ([request, variables]) =>
+          request.name === "OperatorRunCommandOptionPageQuery" &&
+          variables.id === "run_2" && variables.kind === "observation"
+      );
+      expect(observationCalls.at(-1)?.[1]).toMatchObject({ after: null });
     });
   });
 
@@ -451,11 +532,11 @@ describe("operator route", () => {
       id: "operator_workflow_item_summary_1",
       normalizedEventId: "evt_summary_1",
       typedId: { type: "normalized_intake_event", id: "evt_summary_1" },
-      title: "Manual intake proposal evt_summ",
-      sourceSummary: "2 proposed changes · ref evt_summ",
+      title: "Manual intake proposal evt_summary_1",
+      sourceSummary: "2 proposed changes · ref evt_summary_1",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Proposed signal", status: "pending" },
-        { action: "create_task", title: "Proposed task", status: "pending" }
+        { action: "create_signal", title: "Proposed signal · ref evt_summary_1", status: "pending" },
+        { action: "create_task", title: "Proposed task · ref evt_summary_1", status: "pending" }
       ],
       source: {
         identity: "manual:shared-source",
@@ -467,10 +548,10 @@ describe("operator route", () => {
       id: "operator_workflow_item_summary_2",
       normalizedEventId: "evt_summary_2",
       typedId: { type: "normalized_intake_event", id: "evt_summary_2" },
-      title: "Manual intake proposal evt_summ",
-      sourceSummary: "1 proposed change · ref evt_summ",
+      title: "Manual intake proposal evt_summary_2",
+      sourceSummary: "1 proposed change · ref evt_summary_2",
       proposedActionPreviews: [
-        { action: "create_signal", title: "Proposed signal", status: "pending" }
+        { action: "create_signal", title: "Proposed signal · ref evt_summary_2", status: "pending" }
       ],
       source: {
         identity: "manual:shared-source",
@@ -485,13 +566,13 @@ describe("operator route", () => {
     );
 
     expect(await screen.findByRole("button", { name: /2 proposed changes/i })).toHaveTextContent(
-      "2 proposed changes · ref evt_summ"
+      "2 proposed changes · ref evt_summary_1"
     );
     expect(screen.getByRole("button", { name: /1 proposed change/i })).toHaveTextContent(
-      "1 proposed change · ref evt_summ"
+      "1 proposed change · ref evt_summary_2"
     );
     expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
-      "Create signal: Proposed signal"
+      "Create signal: Proposed signal · ref evt_summary_1"
     );
     expect(document.body).not.toHaveTextContent("SECRET_TOKEN");
   });
@@ -548,7 +629,7 @@ describe("operator route", () => {
     renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByText(/First related task/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Load more relationships" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next relationship page" }));
     expect(await screen.findByText(/Second relationship/)).toBeInTheDocument();
     expect(lastVariablesFor(network, "OperatorRelationshipDetailsQuery")).toMatchObject({
       id: "evt_1",
@@ -1754,6 +1835,32 @@ describe("operator route", () => {
     expect(screen.getByRole("button", { name: "Record execution observation" })).toBeDisabled();
   });
 
+  it("disables observation options with duplicate outcomes or a missing default", async () => {
+    const duplicate = observationCommandOption({
+      defaultOutcomeKey: "missing",
+      outcomes: [
+        { key: "same", label: "First", observedStatus: "first", normalizedStatus: "first" },
+        { key: "same", label: "Second", observedStatus: "second", normalizedStatus: "second" }
+      ]
+    });
+    const runState = operatorRunState({
+      commandAffordances: [enabledCommandAffordance("record_execution_observation")],
+      commandOptions: {
+        observation: [duplicate],
+        evidenceCandidate: [],
+        evidenceAcceptance: [],
+        waiver: []
+      }
+    });
+
+    renderWithRelay(<OperatorRoute />, operatorCommandNetwork(runState));
+
+    fireEvent.change(await screen.findByLabelText("Observation rationale"), {
+      target: { value: "Invalid outcome bundles cannot submit." }
+    });
+    expect(screen.getByRole("button", { name: "Record execution observation" })).toBeDisabled();
+  });
+
   it("does not synthesize run start from an inbox-only affordance", async () => {
     const workflowItem = operatorWorkflowItem({
       commandAffordances: [
@@ -2131,6 +2238,7 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
         }
       ]
     },
+    commandOptionsOverflow: false,
     childSummary: {
       requiredChecks: 1,
       observations: 1,
@@ -2390,6 +2498,7 @@ type OperatorRunStatePayload = {
       policyBasis: string;
     }>;
   };
+  commandOptionsOverflow: boolean;
   childSummary: {
     requiredChecks: number;
     observations: number;

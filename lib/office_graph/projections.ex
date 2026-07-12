@@ -44,6 +44,10 @@ defmodule OfficeGraph.Projections do
     to: RunState,
     as: :activity_page
 
+  defdelegate operator_run_command_option_page(session_context, run_id, kind, opts),
+    to: RunState,
+    as: :command_option_page
+
   defdelegate verification_outcome(session_context, run_id), to: RunState
 
   def graphql_node_type(value) do

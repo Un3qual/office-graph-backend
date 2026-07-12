@@ -12,10 +12,11 @@ type Props = {
   runId: string | null;
   runState: OperatorRunState | null;
   state: "empty" | "error" | "loaded" | "loading";
-  onLoadMoreActivity?: () => void;
+  onNextActivityPage?: () => void;
+  onPreviousActivityPage?: () => void;
 };
 
-export function RunPanel({ onLoadMoreActivity, runId, runState, state }: Props) {
+export function RunPanel({ onNextActivityPage, onPreviousActivityPage, runId, runState, state }: Props) {
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
@@ -76,9 +77,14 @@ export function RunPanel({ onLoadMoreActivity, runId, runState, state }: Props) 
               </li>
             ] : [])}
           </ul>
-          {runState.activity?.pageInfo.hasNextPage && onLoadMoreActivity ? (
-            <Button onPress={onLoadMoreActivity}>Load more run activity</Button>
-          ) : null}
+          <div aria-label="Run activity pagination">
+            {runState.activity?.pageInfo.hasPreviousPage && onPreviousActivityPage ? (
+              <Button onPress={onPreviousActivityPage}>Previous run activity page</Button>
+            ) : null}
+            {runState.activity?.pageInfo.hasNextPage && onNextActivityPage ? (
+              <Button onPress={onNextActivityPage}>Next run activity page</Button>
+            ) : null}
+          </div>
         </>
       ) : null}
     </Panel>

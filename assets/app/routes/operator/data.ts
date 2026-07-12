@@ -224,6 +224,7 @@ export const OperatorRunStateFragment = graphql`
         policyBasis
       }
     }
+    commandOptionsOverflow
     childSummary {
       requiredChecks
       observations
@@ -306,6 +307,38 @@ export const OperatorRunStateFragment = graphql`
     missingEvidence {
       verificationCheckId
       reason
+    }
+  }
+`;
+
+export const OperatorRunCommandOptionPageQuery = graphql`
+  query OperatorRunCommandOptionPageQuery($id: ID!, $kind: String!, $first: Int!, $after: String) {
+    operatorRunState(id: $id) {
+      commandOptionPage(kind: $kind, first: $first, after: $after) {
+        edges {
+          cursor
+          node {
+            observation {
+              key label runId verificationCheckId sourceGraphItemId
+              observationSourceKind observationSourceIdentity freshnessState trustBasis
+              defaultOutcomeKey
+              outcomes { key label observedStatus normalizedStatus }
+            }
+            evidenceCandidate {
+              key label workRunId verificationCheckId executionObservationId
+              sourceKind sourceIdentity freshnessState trustBasis sensitivity
+            }
+            evidenceAcceptance {
+              key label evidenceCandidateId result acceptancePolicyBasis
+            }
+            waiver {
+              key label runId runRequiredCheckId expectedExecutionState
+              expectedVerificationState policyBasis
+            }
+          }
+        }
+        pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      }
     }
   }
 `;

@@ -153,3 +153,65 @@ Results:
 - Frontend operator/packet routes: 60 passed, 0 failures.
 - Relay: 21 reader, 17 normalization, and 21 operation documents validated.
 - TypeScript, warnings-as-errors compilation, production client/SSR build, strict OpenSpec, formatting, and diff checks passed.
+
+## Second Independent Review Remediation
+
+Status: DONE
+
+### Globally distinct safe labels
+
+The generated workflow title, source summary, and every proposal preview now carry the complete server-generated normalized-event UUID. No 8-character prefix is used as a uniqueness claim. The same-source regression proves two ordinary events produce different complete preview bundles while first-sentence, source-identity, and body-derived secrets remain absent from all three safe fields.
+
+### Reachable bounded command choices and complete outcomes
+
+- Added authenticated `commandOptionPage(kind:, first:, after:)` connections for observation, evidence-candidate, evidence-acceptance, and waiver choices.
+- Each kind uses a scoped data-layer query ordered by `(inserted_at, UUID)`, an opaque keyset cursor, `limit + 1`, complete typed nested option nodes, and server-side nonsentinel filtering.
+- The compact run projection remains capped at 20. When exact child counts indicate overflow, the UI reads all four bounded choice pages independently, feeds only the current typed page to the existing forms, and exposes explicit previous/next controls.
+- A 21-check regression proves the first page contains 20 choices and the 21st valid observation choice remains reachable on page two.
+- Verification outcome no longer reuses compact `operatorRunState`; its purpose-specific read loads every required check and verification result. The 21-check regression accepts all 21 results and proves the outcome returns all 21 with no missing evidence.
+
+### Relationship and active-run query boundaries
+
+- Relationship detail no longer calls the full workflow projection. One scoped CTE query derives applied links/relationships directly, applies `(kind, stable_id)` keyset pagination and `LIMIT`, and scopes resource joins by organization/workspace.
+- Base workflow rows retain only their bounded link/relationship details and exact counts; the prior private full `relationship_details` list was removed.
+- Query telemetry proves the detail path issues one bounded CTE query and no audit-record query.
+- Packet active-run lookup filters terminal lifecycle states in SQL and applies `LIMIT 1`; query telemetry asserts that boundary. Historical workflow links remain available because they are not the active-run lookup.
+
+### Activity cursor, missing evidence, and scope hardening
+
+- Activity now includes derived `missing_evidence` nodes for pending required checks.
+- Verification-check joins include organization/workspace equality in addition to the check ID.
+- Cursors require a valid timestamp, an allowlisted activity kind, and a full valid UUID before any dump/query. A forged UUID cursor returns the stable safe invalid-field message.
+- Activity remains insertion-stable under the `(inserted_at, kind, UUID)` keyset.
+
+### Explicit page semantics and option invariants
+
+- Run activity, relationship detail, and each command-choice category now use explicit previous/next page labels rather than claiming accumulation while replacing results.
+- Cursor stacks remount by run ID or normalized-event ID, so changing selection starts the new detail at `after: null`. Route coverage advances an overflow choice page, selects another run, and proves the new run query resets its cursor.
+- Backend and frontend option validation now require a nonempty outcome list, unique outcome keys, a default key present in the list, and complete nonsentinel values. Duplicate choices or a missing default disable/exclude the option.
+
+### RED and review evidence
+
+- Secret-label RED: 0/1; `SECRET_TOKEN=must-not-leak` was the public title before the first review fix.
+- Sentinel RED: 15/16; `  [REDACTED]  ` remained an observation option before the recursive filter.
+- First second-review focused relationship boundary run: 4/5; telemetry included authorization reads, so the assertion was corrected to identify the single bounded CTE query specifically.
+- First overflow UI run: 4/5; the fixture lacked the observation affordance, correctly preventing the form from rendering. Enabling the affordance made the paging/reset behavior executable.
+- First covering run after active-run hardening: 43/44; filtering historical workflow links removed terminal linked-run status. The filter was restored there and retained only on the reviewed packet active-run `LIMIT 1` lookup.
+
+### Final second-review gate
+
+```sh
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test test/office_graph_web/operator_workflow_api_test.exs \
+  test/office_graph/projections/operator_workflow_test.exs
+pnpm --dir assets run relay:check
+pnpm --dir assets run typecheck
+pnpm --dir assets exec vitest run app/routes/operator/route.test.tsx \
+  app/routes/packets/route.test.tsx --reporter=dot
+pnpm --dir assets run build
+openspec validate harden-project-quality --strict
+git diff --check
+```
+
+Results: backend projection/API 44 passed (seed 43197); frontend operator/packet routes 62 passed; Relay validated 22 reader, 18 normalization, and 22 operation documents; all static, production-build, OpenSpec, formatting, and diff gates passed.

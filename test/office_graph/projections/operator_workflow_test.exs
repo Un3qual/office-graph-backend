@@ -160,6 +160,26 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
 
     assert detail.audit_trace.resource_count == 4
     assert detail.revision_trace.resource_count == 4
+
+    {{:ok, relationship_page}, relationship_queries} =
+      QueryCounter.count(fn ->
+        Projections.operator_relationship_details_page(
+          bootstrap.session,
+          intake.normalized_event.id,
+          limit: 2,
+          after_cursor: nil
+        )
+      end)
+
+    assert length(relationship_page.edges) == 2
+
+    detail_queries =
+      Enum.filter(relationship_queries, &String.contains?(&1.query || "", "WITH applied_links"))
+
+    assert length(detail_queries) == 1
+    assert String.contains?(hd(detail_queries).query, "graph_relationships")
+    assert QueryCounter.source_count(relationship_queries, "audit_records") == 0
+    assert String.contains?(hd(detail_queries).query, "LIMIT")
   end
 
   test "operator workflow stops offering packet creation once its packet contract exists" do
@@ -689,8 +709,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         }
       )
 
-    assert {:ok, workspace} =
-             Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
+    {{:ok, workspace}, workspace_queries} =
+      QueryCounter.count(fn ->
+        Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
+      end)
+
+    run_queries = Enum.filter(workspace_queries, &String.contains?(&1.query || "", ~s("runs")))
+    assert length(run_queries) == 1
+    assert String.contains?(hd(run_queries).query, "LIMIT")
 
     assert workspace.ready?
     assert workspace.allowed_next_actions == ["create_work_packet_version", "start_work_run"]

@@ -206,9 +206,12 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     |> Ash.Query.filter(
       work_packet_version_id == ^current_version_id and
         organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
+        workspace_id == ^session_context.workspace_id and state not in ["failed", "verified"] and
+        aggregate_state not in ["failed", "verified"] and
+        verification_state not in ["failed", "verified"]
     )
     |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(1)
     |> Ash.read(actor: session_context)
   end
 

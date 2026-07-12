@@ -1466,12 +1466,29 @@ type OperatorRunCommandOptions {
   waiver: [OperatorWaiverCommandOption!]!
 }
 
+type OperatorRunCommandOptionChoice {
+  kind: String!
+  key: ID!
+  label: String!
+  observation: OperatorObservationCommandOption
+  evidenceCandidate: OperatorEvidenceCandidateCommandOption
+  evidenceAcceptance: OperatorEvidenceAcceptanceCommandOption
+  waiver: OperatorWaiverCommandOption
+}
+
+type OperatorRunCommandOptionChoiceConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRunCommandOptionChoiceEdge]
+}
+
 type OperatorRunState {
   type: String!
   status: String!
   allowedNextActions: [String!]!
   commandAffordances: [OperatorCommandAffordance!]!
   commandOptions: OperatorRunCommandOptions!
+  commandOptionsOverflow: Boolean!
+  commandOptionPage(after: String, first: Int!, kind: String!): OperatorRunCommandOptionChoiceConnection
   childSummary: OperatorRunChildSummary!
   activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
@@ -1518,6 +1535,11 @@ type PageInfo {
 
   "When paginating forwards, the cursor to continue."
   endCursor: String
+}
+
+type OperatorRunCommandOptionChoiceEdge {
+  node: OperatorRunCommandOptionChoice
+  cursor: String
 }
 
 type OperatorRunActivityEdge {

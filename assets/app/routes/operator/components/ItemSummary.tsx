@@ -75,7 +75,7 @@ export function ItemSummary({ item }: Props) {
             ]}
           />
           {item.relationshipSummary.hasMore ? (
-            <RelationshipOverflowDetails normalizedEventId={item.normalizedEventId} />
+            <RelationshipOverflowDetails key={item.normalizedEventId} normalizedEventId={item.normalizedEventId} />
           ) : null}
         </>
       ) : null}
@@ -84,7 +84,8 @@ export function ItemSummary({ item }: Props) {
 }
 
 function RelationshipOverflowDetails({ normalizedEventId }: { normalizedEventId: string }) {
-  const [after, setAfter] = useState<string | null>(null);
+  const [cursors, setCursors] = useState<Array<string | null>>([null]);
+  const after = cursors.at(-1) ?? null;
   const data = useLazyLoadQuery<OperatorRelationshipDetailsOperation>(
     OperatorRelationshipDetailsQuery,
     { id: normalizedEventId, first: 5, after },
@@ -101,11 +102,21 @@ function RelationshipOverflowDetails({ normalizedEventId }: { normalizedEventId:
         </li>
       ] : [])}
     </ul>
-    {connection?.pageInfo.hasNextPage ? (
-      <Button onPress={() => setAfter(connection.pageInfo.endCursor ?? null)}>
-        Load more relationships
-      </Button>
-    ) : null}
+    <div aria-label="Relationship pagination">
+      {connection?.pageInfo.hasPreviousPage ? (
+        <Button onPress={() => setCursors(current => current.length > 1 ? current.slice(0, -1) : current)}>
+          Previous relationship page
+        </Button>
+      ) : null}
+      {connection?.pageInfo.hasNextPage ? (
+        <Button onPress={() => {
+          const cursor = connection.pageInfo.endCursor;
+          if (cursor) setCursors(current => [...current, cursor]);
+        }}>
+          Next relationship page
+        </Button>
+      ) : null}
+    </div>
   </section>;
 }
 

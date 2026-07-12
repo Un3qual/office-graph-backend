@@ -75,8 +75,18 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
 
 function completeOption(option: object, fields: string[]) {
   const values = option as Record<string, unknown>;
-  return fields.every((field) => usableProjectionValue(values[field])) &&
-    Array.isArray(values.outcomes) && values.outcomes.every(outcome =>
+  if (!fields.every((field) => usableProjectionValue(values[field])) ||
+      !Array.isArray(values.outcomes) || values.outcomes.length === 0) return false;
+
+  const outcomes = values.outcomes;
+  const keys = outcomes.map(outcome =>
+    typeof outcome === "object" && outcome !== null
+      ? (outcome as Record<string, unknown>).key
+      : null
+  );
+
+  return new Set(keys).size === keys.length &&
+    keys.includes(values.defaultOutcomeKey) && outcomes.every(outcome =>
       typeof outcome === "object" && outcome !== null &&
       ["key", "label", "observedStatus", "normalizedStatus"].every(field =>
         usableProjectionValue((outcome as Record<string, unknown>)[field])

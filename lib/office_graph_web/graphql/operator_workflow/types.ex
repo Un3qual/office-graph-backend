@@ -377,12 +377,62 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :waiver, non_null(list_of(non_null(:operator_waiver_command_option)))
   end
 
+  object :operator_run_command_option_choice do
+    field :kind, non_null(:string)
+    field :key, non_null(:id)
+    field :label, non_null(:string)
+    field :observation, :operator_observation_command_option
+    field :evidence_candidate, :operator_evidence_candidate_command_option
+    field :evidence_acceptance, :operator_evidence_acceptance_command_option
+    field :waiver, :operator_waiver_command_option
+  end
+
+  connection(node_type: :operator_run_command_option_choice)
+
   object :operator_run_state do
     field :type, non_null(:string)
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :command_options, non_null(:operator_run_command_options)
+    field :command_options_overflow, non_null(:boolean)
+
+    connection field :command_option_page,
+                 node_type: :operator_run_command_option_choice,
+                 paginate: :forward do
+      arg(:kind, non_null(:string))
+
+      resolve(fn
+        %{first: first}, _resolution when is_integer(first) and first < 0 ->
+          {:error, "A field has an invalid value."}
+
+        args, %{source: run_state} = resolution ->
+          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+               {:ok, :forward, limit} <- Connection.limit(args, 100),
+               {:ok, page} <-
+                 Projections.operator_run_command_option_page(
+                   session_context,
+                   run_state.run.id,
+                   args.kind,
+                   limit: limit,
+                   after_cursor: Map.get(args, :after)
+                 ) do
+            {:ok,
+             %{
+               edges: page.edges,
+               page_info: %{
+                 has_next_page: page.has_next_page?,
+                 has_previous_page: page.has_previous_page?,
+                 start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+                 end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+               }
+             }}
+          else
+            error -> Errors.to_absinthe(error)
+          end
+      end)
+    end
+
     field :child_summary, non_null(:operator_run_child_summary)
 
     connection field :activity, node_type: :operator_run_activity, paginate: :forward do

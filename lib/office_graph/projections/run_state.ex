@@ -54,18 +54,78 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
+  def command_option_page(session_context, run_id, kind, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    after_cursor = Keyword.get(opts, :after_cursor)
+
+    with true <- kind in ["observation", "evidence_candidate", "evidence_acceptance", "waiver"],
+         :ok <-
+           Authorization.authorize_projection(session_context, :skeleton_read,
+             organization_id: session_context.organization_id
+           ),
+         {:ok, after_key} <- decode_command_option_cursor(after_cursor),
+         {:ok, %{rows: rows}} <-
+           Repo.query(
+             command_option_sql(kind),
+             command_option_params(session_context, run_id, after_key, limit + 1)
+           ) do
+      choices = rows |> Enum.map(&command_option_choice(kind, &1)) |> Enum.filter(& &1)
+      page_choices = Enum.take(choices, limit)
+
+      {:ok,
+       %{
+         edges:
+           Enum.map(page_choices, fn choice ->
+             %{node: choice, cursor: KeysetCursor.encode([choice.inserted_at, choice.key])}
+           end),
+         has_next_page?: length(rows) > limit,
+         has_previous_page?: not is_nil(after_cursor)
+       }}
+    else
+      false -> {:error, {:invalid_field, :kind}}
+      error -> error
+    end
+  end
+
   def verification_outcome(session_context, run_id) do
-    with {:ok, run_state} <- operator_run_state(session_context, run_id) do
+    with {:ok, summary} <- Runs.get_verification_outcome_summary(session_context, run_id) do
+      verification_results =
+        Enum.map(summary.verification_results, &verification_result_projection/1)
+
+      missing_evidence = Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
+
       {:ok,
        %{
          type: "verification_outcome",
-         status: run_state.status,
-         run: run_state.run,
-         verification_results: run_state.verification_results,
-         missing_evidence: run_state.missing_evidence,
-         source_watermark: run_state.source_watermark
+         status: verification_outcome_status(summary.run),
+         run: %{
+           id: summary.run.id,
+           aggregate_state: summary.run.aggregate_state,
+           execution_state: summary.run.execution_state,
+           verification_state: summary.run.verification_state
+         },
+         verification_results: verification_results,
+         missing_evidence: missing_evidence,
+         source_watermark: outcome_watermark(summary.run, verification_results, missing_evidence)
        }}
     end
+  end
+
+  defp verification_outcome_status(run)
+       when run.verification_state == "verified" or run.aggregate_state == "verified",
+       do: "verified"
+
+  defp verification_outcome_status(run)
+       when run.verification_state == "failed" or run.aggregate_state == "failed",
+       do: "failed"
+
+  defp verification_outcome_status(_run), do: "awaiting_evidence"
+
+  defp outcome_watermark(run, results, missing) do
+    {run.id, run.aggregate_state, run.execution_state, run.verification_state, results, missing}
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
   end
 
   defp read_evidence_candidates(session_context, run_id, limit) do
@@ -108,6 +168,10 @@ defmodule OfficeGraph.Projections.RunState do
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
       command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
+      command_options_overflow:
+        summary.child_counts.required_checks > @child_summary_limit or
+          summary.child_counts.observations > @child_summary_limit or
+          summary.child_counts.evidence_candidates > @child_summary_limit,
       child_summary: child_summary(summary),
       source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
@@ -175,20 +239,7 @@ defmodule OfficeGraph.Projections.RunState do
       verification_results:
         summary.verification_results
         |> Enum.take(@child_summary_limit)
-        |> Enum.map(fn result ->
-          %{
-            id: result.id,
-            result: result.result,
-            verification_check_id: result.verification_check_id,
-            evidence_item_id: result.evidence_item_id,
-            operation_id: result.operation_id,
-            actor_principal_id: result.actor_principal_id,
-            policy_basis: result.policy_basis,
-            target_graph_item_id: result.target_graph_item_id,
-            work_run_id: result.work_run_id,
-            work_packet_version_id: result.work_packet_version_id
-          }
-        end),
+        |> Enum.map(&verification_result_projection/1),
       missing_evidence:
         summary.missing_evidence
         |> Enum.take(@child_summary_limit)
@@ -206,13 +257,243 @@ defmodule OfficeGraph.Projections.RunState do
     )
   end
 
+  defp verification_result_projection(result) do
+    %{
+      id: result.id,
+      result: result.result,
+      verification_check_id: result.verification_check_id,
+      evidence_item_id: result.evidence_item_id,
+      operation_id: result.operation_id,
+      actor_principal_id: result.actor_principal_id,
+      policy_basis: result.policy_basis,
+      target_graph_item_id: result.target_graph_item_id,
+      work_run_id: result.work_run_id,
+      work_packet_version_id: result.work_packet_version_id
+    }
+  end
+
+  defp command_option_sql("observation") do
+    """
+    SELECT rrc.inserted_at, rrc.id::text, vc.title, r.id::text, vc.id::text,
+           vc.graph_item_id::text, NULL, NULL, NULL, NULL, NULL, NULL,
+           r.execution_state, r.verification_state
+    FROM run_required_checks rrc
+    JOIN runs r ON r.id = rrc.run_id AND r.organization_id = $2 AND r.workspace_id = $3
+    JOIN verification_checks vc ON vc.id = rrc.verification_check_id
+      AND vc.organization_id = $2 AND vc.workspace_id = $3
+    WHERE rrc.run_id = $1 AND rrc.organization_id = $2 AND rrc.workspace_id = $3
+      AND rrc.state = 'pending'
+      AND btrim(vc.title) <> ''
+      AND lower(btrim(vc.title)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND NOT EXISTS (
+        SELECT 1 FROM execution_observations eo
+        WHERE eo.work_run_id = $1 AND eo.organization_id = $2 AND eo.workspace_id = $3
+          AND eo.verification_check_id = rrc.verification_check_id
+          AND eo.normalized_status = 'succeeded' AND eo.freshness_state = 'fresh'
+          AND eo.trust_basis IN ('owner_attested', 'signed_provider_payload')
+      )
+      AND ($4::timestamp IS NULL OR (rrc.inserted_at, rrc.id) > ($4, $5::uuid))
+    ORDER BY rrc.inserted_at, rrc.id
+    LIMIT $6
+    """
+  end
+
+  defp command_option_sql("waiver") do
+    """
+    SELECT rrc.inserted_at, rrc.id::text, vc.title, r.id::text, vc.id::text,
+           vc.graph_item_id::text, NULL, NULL, NULL, NULL, NULL, NULL,
+           r.execution_state, r.verification_state
+    FROM run_required_checks rrc
+    JOIN runs r ON r.id = rrc.run_id AND r.organization_id = $2 AND r.workspace_id = $3
+    JOIN verification_checks vc ON vc.id = rrc.verification_check_id
+      AND vc.organization_id = $2 AND vc.workspace_id = $3
+    WHERE rrc.run_id = $1 AND rrc.organization_id = $2 AND rrc.workspace_id = $3
+      AND rrc.state = 'pending'
+      AND btrim(vc.title) <> ''
+      AND lower(btrim(vc.title)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND ($4::timestamp IS NULL OR (rrc.inserted_at, rrc.id) > ($4, $5::uuid))
+    ORDER BY rrc.inserted_at, rrc.id
+    LIMIT $6
+    """
+  end
+
+  defp command_option_sql("evidence_candidate") do
+    """
+    SELECT eo.inserted_at, eo.id::text, vc.title, r.id::text, vc.id::text,
+           eo.graph_item_id::text, eo.source_kind, eo.source_identity,
+           eo.freshness_state, eo.trust_basis, 'internal', eo.id::text,
+           r.execution_state, r.verification_state
+    FROM execution_observations eo
+    JOIN runs r ON r.id = eo.work_run_id AND r.organization_id = $2 AND r.workspace_id = $3
+    JOIN verification_checks vc ON vc.id = eo.verification_check_id
+      AND vc.organization_id = $2 AND vc.workspace_id = $3
+    WHERE eo.work_run_id = $1 AND eo.organization_id = $2 AND eo.workspace_id = $3
+      AND eo.normalized_status = 'succeeded' AND eo.freshness_state = 'fresh'
+      AND eo.trust_basis IN ('owner_attested', 'signed_provider_payload')
+      AND btrim(vc.title) <> ''
+      AND lower(btrim(vc.title)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND btrim(eo.source_kind) <> '' AND btrim(eo.source_identity) <> ''
+      AND lower(btrim(eo.source_kind)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND lower(btrim(eo.source_identity)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND EXISTS (SELECT 1 FROM run_required_checks rrc WHERE rrc.run_id = $1
+        AND rrc.organization_id = $2 AND rrc.workspace_id = $3 AND rrc.state = 'pending'
+        AND rrc.verification_check_id = eo.verification_check_id)
+      AND ($4::timestamp IS NULL OR (eo.inserted_at, eo.id) > ($4, $5::uuid))
+    ORDER BY eo.inserted_at, eo.id
+    LIMIT $6
+    """
+  end
+
+  defp command_option_sql("evidence_acceptance") do
+    """
+    SELECT ec.inserted_at, ec.id::text, vc.title, r.id::text, vc.id::text,
+           NULL, ec.source_kind, ec.source_identity, ec.freshness_state, ec.trust_basis,
+           ec.sensitivity, ec.execution_observation_id::text, r.execution_state,
+           r.verification_state
+    FROM evidence_candidates ec
+    JOIN runs r ON r.id = ec.work_run_id AND r.organization_id = $2 AND r.workspace_id = $3
+    JOIN verification_checks vc ON vc.id = ec.verification_check_id
+      AND vc.organization_id = $2 AND vc.workspace_id = $3
+    WHERE ec.work_run_id = $1 AND ec.organization_id = $2 AND ec.workspace_id = $3
+      AND ec.candidate_state = 'candidate' AND ec.freshness_state = 'fresh'
+      AND ec.trust_basis IN ('owner_attested', 'signed_provider_payload')
+      AND btrim(vc.title) <> ''
+      AND lower(btrim(vc.title)) NOT IN ('[redacted]', '<redacted>', 'redacted', '***')
+      AND EXISTS (SELECT 1 FROM run_required_checks rrc WHERE rrc.run_id = $1
+        AND rrc.organization_id = $2 AND rrc.workspace_id = $3 AND rrc.state = 'pending'
+        AND rrc.verification_check_id = ec.verification_check_id)
+      AND ($4::timestamp IS NULL OR (ec.inserted_at, ec.id) > ($4, $5::uuid))
+    ORDER BY ec.inserted_at, ec.id
+    LIMIT $6
+    """
+  end
+
+  defp command_option_params(session_context, run_id, after_key, limit) do
+    {inserted_at, id} = after_key || {nil, nil}
+
+    [
+      Ecto.UUID.dump!(run_id),
+      Ecto.UUID.dump!(session_context.organization_id),
+      Ecto.UUID.dump!(session_context.workspace_id),
+      inserted_at,
+      if(id, do: Ecto.UUID.dump!(id), else: nil),
+      limit
+    ]
+  end
+
+  defp command_option_choice(kind, [
+         inserted_at,
+         key,
+         label,
+         run_id,
+         check_id,
+         graph_id,
+         source_kind,
+         source_identity,
+         freshness,
+         trust,
+         sensitivity,
+         observation_id,
+         execution_state,
+         verification_state
+       ]) do
+    base = %{
+      kind: kind,
+      key: key,
+      label: label,
+      inserted_at: NaiveDateTime.to_iso8601(inserted_at)
+    }
+
+    option =
+      case kind do
+        "observation" ->
+          Map.put(base, :observation, %{
+            key: key,
+            label: label,
+            run_id: run_id,
+            verification_check_id: check_id,
+            source_graph_item_id: graph_id,
+            observation_source_kind: "human",
+            observation_source_identity: "operator-console",
+            freshness_state: "fresh",
+            trust_basis: "owner_attested",
+            default_outcome_key: "succeeded",
+            outcomes: observation_outcomes()
+          })
+
+        "waiver" ->
+          Map.put(base, :waiver, %{
+            key: key,
+            label: label,
+            run_id: run_id,
+            run_required_check_id: key,
+            expected_execution_state: execution_state,
+            expected_verification_state: verification_state,
+            policy_basis: "owner_exception"
+          })
+
+        "evidence_candidate" ->
+          Map.put(base, :evidence_candidate, %{
+            key: key,
+            label: label,
+            work_run_id: run_id,
+            verification_check_id: check_id,
+            execution_observation_id: observation_id,
+            source_kind: source_kind,
+            source_identity: source_identity,
+            freshness_state: freshness,
+            trust_basis: trust,
+            sensitivity: sensitivity
+          })
+
+        "evidence_acceptance" ->
+          Map.put(base, :evidence_acceptance, %{
+            key: key,
+            label: label,
+            evidence_candidate_id: key,
+            result: "passed",
+            acceptance_policy_basis: "owner_acceptance"
+          })
+      end
+
+    nested = Map.get(option, String.to_existing_atom(kind))
+    if complete_string_option?(nested), do: option, else: nil
+  end
+
+  defp observation_outcomes do
+    [
+      %{
+        key: "succeeded",
+        label: "Succeeded",
+        observed_status: "succeeded",
+        normalized_status: "succeeded"
+      },
+      %{key: "failed", label: "Failed", observed_status: "failed", normalized_status: "failed"}
+    ]
+  end
+
+  defp decode_command_option_cursor(nil), do: {:ok, nil}
+
+  defp decode_command_option_cursor(cursor) do
+    with {:ok, [inserted_at, id]} <- KeysetCursor.decode(cursor, 2),
+         {:ok, inserted_at} <- NaiveDateTime.from_iso8601(inserted_at),
+         {:ok, id} <- Ecto.UUID.cast(id) do
+      {:ok, {inserted_at, id}}
+    else
+      _invalid -> {:error, {:invalid_field, :pagination}}
+    end
+  end
+
   defp activity_sql do
     """
     WITH activity AS (
       SELECT rrc.inserted_at, 'required_check'::text AS kind, rrc.id AS stable_id,
              COALESCE(vc.title, 'Required check') AS title, rrc.state AS status
       FROM run_required_checks rrc
-      LEFT JOIN verification_checks vc ON vc.id = rrc.verification_check_id
+      LEFT JOIN verification_checks vc
+        ON vc.id = rrc.verification_check_id
+       AND vc.organization_id = rrc.organization_id
+       AND vc.workspace_id = rrc.workspace_id
       WHERE rrc.run_id = $1 AND rrc.organization_id = $2 AND rrc.workspace_id = $3
       UNION ALL
       SELECT inserted_at, 'observation', id, source_identity, normalized_status
@@ -230,6 +511,18 @@ defmodule OfficeGraph.Projections.RunState do
       SELECT inserted_at, 'verification_result', id, COALESCE(policy_basis, 'Verification result'), result
       FROM verification_results
       WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT rrc.inserted_at, 'missing_evidence', rrc.verification_check_id,
+             COALESCE(vc.title, 'Missing evidence'), 'missing_accepted_evidence'
+      FROM run_required_checks rrc
+      LEFT JOIN verification_checks vc
+        ON vc.id = rrc.verification_check_id
+       AND vc.organization_id = rrc.organization_id
+       AND vc.workspace_id = rrc.workspace_id
+      WHERE rrc.run_id = $1
+        AND rrc.organization_id = $2
+        AND rrc.workspace_id = $3
+        AND rrc.state = 'pending'
     )
     SELECT inserted_at, kind, stable_id::text, title, status
     FROM activity
@@ -273,7 +566,16 @@ defmodule OfficeGraph.Projections.RunState do
   defp decode_activity_cursor(cursor) do
     with {:ok, [inserted_at, kind, id]} <- KeysetCursor.decode(cursor, 3),
          {:ok, inserted_at} <- NaiveDateTime.from_iso8601(inserted_at),
-         true <- is_binary(kind) and is_binary(id) do
+         true <-
+           kind in [
+             "required_check",
+             "observation",
+             "evidence_candidate",
+             "evidence_item",
+             "verification_result",
+             "missing_evidence"
+           ],
+         {:ok, id} <- Ecto.UUID.cast(id) do
       {:ok, {inserted_at, kind, id}}
     else
       _invalid -> {:error, {:invalid_field, :pagination}}
@@ -414,11 +716,22 @@ defmodule OfficeGraph.Projections.RunState do
   end
 
   defp complete_string_option?(option) do
-    Enum.all?(option, fn
-      {:outcomes, outcomes} -> Enum.all?(outcomes, &complete_string_option?/1)
-      {_key, value} -> usable_projection_value?(value)
-    end)
+    option
+    |> Map.delete(:outcomes)
+    |> Enum.all?(fn {_key, value} -> usable_projection_value?(value) end) and
+      valid_outcome_bundle?(option)
   end
+
+  defp valid_outcome_bundle?(%{outcomes: outcomes, default_outcome_key: default_key}) do
+    keys = Enum.map(outcomes, &Map.get(&1, :key))
+
+    outcomes != [] and Enum.uniq(keys) == keys and default_key in keys and
+      Enum.all?(outcomes, fn outcome ->
+        Enum.all?(outcome, fn {_key, value} -> usable_projection_value?(value) end)
+      end)
+  end
+
+  defp valid_outcome_bundle?(_option_without_outcomes), do: true
 
   defp usable_projection_value?(value) when is_binary(value) do
     normalized = value |> String.trim() |> String.downcase()
