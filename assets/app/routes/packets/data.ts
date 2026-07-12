@@ -1,7 +1,12 @@
 import { graphql } from "react-relay";
 
 export const PacketsRouteQuery = graphql`
-  query PacketsRouteQuery($first: Int!, $after: String) {
+  query PacketsRouteQuery(
+    $first: Int!
+    $after: String
+    $createdOperationId: ID
+    $loadCreatedPacket: Boolean!
+  ) {
     operatorPacketCreateAffordance {
       identity
       state
@@ -19,6 +24,17 @@ export const PacketsRouteQuery = graphql`
         hasPreviousPage
         startCursor
         endCursor
+      }
+    }
+    createdPacket: listWorkPackets(
+      first: 1
+      filter: { operationId: { eq: $createdOperationId } }
+    ) @include(if: $loadCreatedPacket) {
+      edges {
+        node {
+          id
+          ...PacketsRoutePacketFragment
+        }
       }
     }
   }

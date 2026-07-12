@@ -304,7 +304,7 @@ describe("packet workspace route", () => {
     expect(await screen.findByText("Current version 1")).toBeInTheDocument();
   });
 
-  it("returns to the first packet page and selects a newly created packet", async () => {
+  it("loads and selects a newly created packet outside the first page", async () => {
     let created = false;
     const createdPacket = packet({
       id: "relay_packet_created",
@@ -320,8 +320,10 @@ describe("packet workspace route", () => {
         }
 
         return packetConnectionResponse(
-          created ? [createdPacket, packet()] : [packet()],
-          created ? {} : { hasNextPage: true, endCursor: "cursor_1" }
+          [packet()],
+          created ? {} : { hasNextPage: true, endCursor: "cursor_1" },
+          createPacketAffordance(),
+          created ? [createdPacket] : []
         );
       }
 
@@ -389,7 +391,9 @@ describe("packet workspace route", () => {
     await waitFor(() => expect(createdRow).toHaveAttribute("aria-current", "true"));
     expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
       first: 50,
-      after: null
+      after: null,
+      createdOperationId: "operation_created",
+      loadCreatedPacket: true
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
@@ -637,7 +641,9 @@ describe("packet workspace route", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
         first: 50,
-        after: "cursor_1"
+        after: "cursor_1",
+        createdOperationId: null,
+        loadCreatedPacket: false
       });
       expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
@@ -686,7 +692,9 @@ describe("packet workspace route", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
         first: 50,
-        after: null
+        after: null,
+        createdOperationId: null,
+        loadCreatedPacket: false
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
@@ -755,7 +763,9 @@ describe("packet workspace route", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
         first: 50,
-        after: null
+        after: null,
+        createdOperationId: null,
+        loadCreatedPacket: false
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
@@ -927,11 +937,27 @@ function createPacketAffordance(overrides: Partial<CommandAffordancePayload> = {
 function packetConnectionResponse(
   packets: ReturnType<typeof packet>[],
   pageInfoOverrides: Partial<PageInfoPayload> = {},
-  createAffordance = createPacketAffordance()
+  createAffordance = createPacketAffordance(),
+  createdPackets: ReturnType<typeof packet>[] = []
 ): GraphQLResponse {
   return {
     data: {
       operatorPacketCreateAffordance: createAffordance,
+      createdPacket: {
+        edges: createdPackets.map((node, index) => ({
+          cursor: `created_cursor_${index + 1}`,
+          node
+        })),
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: createdPackets.length > 0 ? "created_cursor_1" : null,
+          endCursor:
+            createdPackets.length > 0
+              ? `created_cursor_${createdPackets.length}`
+              : null
+        }
+      },
       listWorkPackets: {
         edges: packets.map((node, index) => ({
           cursor: `cursor_${index + 1}`,

@@ -47,14 +47,28 @@ export function usePacketsWorkflow({
   fetchKey,
   requestedSelection
 }: PacketsWorkflowInput) {
-  const data = useLazyLoadQuery<PacketsRouteOperation>(PacketsRouteQuery, page, {
-    fetchKey,
-    fetchPolicy: "network-only"
-  });
+  const createdOperationId =
+    requestedSelection?.kind === "operation_id" ? requestedSelection.value : null;
+  const data = useLazyLoadQuery<PacketsRouteOperation>(
+    PacketsRouteQuery,
+    {
+      ...page,
+      createdOperationId,
+      loadCreatedPacket: createdOperationId !== null
+    },
+    {
+      fetchKey,
+      fetchPolicy: "network-only"
+    }
+  );
   const connection = packetConnectionFromRelay(data);
-  const selectedId = selectedPacketId(connection.rows, requestedSelection);
+  const rows = mergeCreatedPacket(
+    connection.rows,
+    packetRowsFromRelayConnection(data.createdPacket)[0] ?? null
+  );
+  const selectedId = selectedPacketId(rows, requestedSelection);
   const selectedPacket =
-    connection.rows.find((packet) => packet.id === selectedId) ?? null;
+    rows.find((packet) => packet.id === selectedId) ?? null;
 
   return {
     canPageBackward,
@@ -68,7 +82,7 @@ export function usePacketsWorkflow({
       }
     },
     loadPreviousPage: onPreviousPage,
-    rows: connection.rows,
+    rows,
     selectedId,
     selectedPacket,
     selectCreatedPacket: (operationId: string) =>
@@ -115,7 +129,11 @@ export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operati
       )
     : null;
 
-  return selectedPacket?.id ?? rows[0]?.id ?? null;
+  if (selectedPacket) {
+    return selectedPacket.id;
+  }
+
+  return requestedSelection?.kind === "operation_id" ? null : rows[0]?.id ?? null;
 }
 
 function packetConnectionFromRelay(
@@ -127,7 +145,22 @@ function packetConnectionFromRelay(
     return packetConnectionFromRows([], { endCursor: null, hasNextPage: false });
   }
 
-  const rows = (connection.edges ?? []).flatMap((edge) => {
+  return packetConnectionFromRows(
+    packetRowsFromRelayConnection(connection),
+    connection.pageInfo
+  );
+}
+
+type PacketRelayConnection = {
+  readonly edges?: ReadonlyArray<{
+    readonly node?: PacketsRoutePacketFragment$key | null;
+  } | null> | null;
+};
+
+function packetRowsFromRelayConnection(
+  connection: PacketRelayConnection | null | undefined
+): PacketsRoutePacketFragment$data[] {
+  return (connection?.edges ?? []).flatMap((edge) => {
     if (!edge?.node) {
       return [];
     }
@@ -139,6 +172,15 @@ function packetConnectionFromRelay(
       )
     ];
   });
+}
 
-  return packetConnectionFromRows(rows, connection.pageInfo);
+function mergeCreatedPacket<TPacket extends Pick<PacketRow, "id">>(
+  rows: readonly TPacket[],
+  createdPacket: TPacket | null
+): TPacket[] {
+  if (!createdPacket || rows.some((packet) => packet.id === createdPacket.id)) {
+    return [...rows];
+  }
+
+  return [createdPacket, ...rows];
 }

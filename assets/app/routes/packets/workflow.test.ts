@@ -54,6 +54,15 @@ describe("packet route workflow", () => {
       selectedPacketId(rows, { kind: "operation_id", value: "operation_created" })
     ).toBe("relay_packet_created");
   });
+
+  it("does not fall back to an unrelated packet when an operation selection is absent", () => {
+    expect(
+      selectedPacketId([packet()], {
+        kind: "operation_id",
+        value: "operation_missing"
+      })
+    ).toBeNull();
+  });
 });
 
 function packet(overrides: Partial<Packet> = {}): Packet {
