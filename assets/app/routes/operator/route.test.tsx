@@ -372,6 +372,51 @@ describe("operator route", () => {
     });
   });
 
+  it("renders distinct policy-safe summaries and proposal previews for one source", async () => {
+    const firstItem = operatorWorkflowItem({
+      id: "operator_workflow_item_summary_1",
+      normalizedEventId: "evt_summary_1",
+      typedId: { type: "normalized_intake_event", id: "evt_summary_1" },
+      title: "Investigate invoice export",
+      sourceSummary: "manual:shared-source · Investigate invoice export",
+      proposedActionPreviews: [
+        { action: "create_signal", title: "Investigate invoice export", status: "pending" },
+        { action: "create_task", title: "Investigate invoice export", status: "pending" }
+      ],
+      source: {
+        identity: "manual:shared-source",
+        replayIdentity: "paste:summary-1",
+        outcome: "accepted"
+      }
+    });
+    const secondItem = operatorWorkflowItem({
+      id: "operator_workflow_item_summary_2",
+      normalizedEventId: "evt_summary_2",
+      typedId: { type: "normalized_intake_event", id: "evt_summary_2" },
+      title: "Review payroll import",
+      sourceSummary: "manual:shared-source · Review payroll import",
+      proposedActionPreviews: [
+        { action: "create_signal", title: "Review payroll import", status: "pending" }
+      ],
+      source: {
+        identity: "manual:shared-source",
+        replayIdentity: "paste:summary-2",
+        outcome: "accepted"
+      }
+    });
+
+    renderWithRelay(
+      <OperatorRoute />,
+      createOperatorNetwork({ workflowItems: [firstItem, secondItem] })
+    );
+
+    expect(await screen.findByRole("button", { name: /Investigate invoice export/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review payroll import/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Item detail" })).toHaveTextContent(
+      "Create signal: Investigate invoice export"
+    );
+  });
+
   it("returns to the previous inbox page when the next page fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
@@ -1596,6 +1641,11 @@ function operatorWorkflowItem(overrides: Partial<OperatorWorkflowItemPayload> = 
     typedId: { type: "normalized_intake_event", id: "evt_1" },
     normalizedEventId: "evt_1",
     duplicateOfId: null,
+    title: "Run console verification",
+    sourceSummary: "manual:operator-console · Run console verification",
+    proposedActionPreviews: [
+      { action: "create_signal", title: "Run console verification", status: "pending" }
+    ],
     status: "ready_for_packet",
     reasonCodes: [],
     source: {
@@ -1800,6 +1850,9 @@ type OperatorWorkflowItemPayload = {
   id: string;
   status: string;
   normalizedEventId: string;
+  title: string;
+  sourceSummary: string;
+  proposedActionPreviews: Array<{ action: string; title: string; status: string }>;
   typedId: { type: string; id: string };
   allowedNextActions: string[];
   commandAffordances: CommandAffordancePayload[];

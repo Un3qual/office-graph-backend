@@ -20,6 +20,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :total, non_null(:integer)
   end
 
+  object :operator_proposed_action_preview do
+    field :action, non_null(:string)
+    field :title, non_null(:string)
+    field :status, non_null(:string)
+  end
+
   object :operator_graph_link do
     field :type, non_null(:string)
     field :id, non_null(:id)
@@ -67,6 +73,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :typed_id, non_null(:operator_typed_id)
     field :normalized_event_id, non_null(:id)
     field :duplicate_of_id, :id
+    field :title, non_null(:string)
+    field :source_summary, non_null(:string)
+
+    field :proposed_action_previews,
+          non_null(list_of(non_null(:operator_proposed_action_preview)))
+
     field :status, non_null(:string)
     field :reason_codes, non_null(list_of(non_null(:string)))
     field :source, non_null(:operator_source)

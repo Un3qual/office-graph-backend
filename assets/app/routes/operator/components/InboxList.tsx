@@ -64,7 +64,7 @@ export function InboxList({
               >
                 <span className="row-title">{itemTitle(row)}</span>
                 <Badge tone={statusTone(row.status)}>{formatLabel(row.status)}</Badge>
-                <span className="row-source">{row.source.identity}</span>
+                <span className="row-source">{row.sourceSummary}</span>
                 <span className="row-meta">
                   {context} · Watermark {row.sourceWatermark ?? "None"}
                 </span>

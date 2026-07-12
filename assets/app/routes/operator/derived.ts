@@ -61,7 +61,7 @@ export function runIdForItem(item: OperatorWorkflowItemFragment$data | null) {
 }
 
 export function itemTitle(item: OperatorWorkflowItemFragment$data) {
-  return item.normalizedEventId;
+  return item.title;
 }
 
 export function verificationOutcomeFromRunState(runState: OperatorRunStateFragment$data) {

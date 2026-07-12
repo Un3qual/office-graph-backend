@@ -1130,6 +1130,12 @@ type OperatorProposedChangeStatus {
   total: Int!
 }
 
+type OperatorProposedActionPreview {
+  action: String!
+  title: String!
+  status: String!
+}
+
 type OperatorGraphLink {
   type: String!
   id: ID!
@@ -1181,6 +1187,12 @@ type OperatorWorkflowItem implements Node {
   normalizedEventId: ID!
 
   duplicateOfId: ID
+
+  title: String!
+
+  sourceSummary: String!
+
+  proposedActionPreviews: [OperatorProposedActionPreview!]!
 
   status: String!
 

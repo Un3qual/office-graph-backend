@@ -46,7 +46,7 @@ export function ItemSummary({ item }: Props) {
             </div>
             <div>
               <dt>Source</dt>
-              <dd>{item.source.identity}</dd>
+              <dd>{item.sourceSummary}</dd>
             </div>
             <div>
               <dt>Replay</dt>
@@ -76,8 +76,13 @@ export function ItemSummary({ item }: Props) {
 }
 
 function proposedChangeText(item: OperatorWorkflowItem) {
-  const proposed = item.proposedChangeStatus;
+  if (item.proposedActionPreviews.length > 0) {
+    return item.proposedActionPreviews
+      .map((preview) => `${formatLabel(preview.action)}: ${preview.title}`)
+      .join(", ");
+  }
 
+  const proposed = item.proposedChangeStatus;
   return `${proposed.pending} pending, ${proposed.applied} applied, ${proposed.rejected} rejected`;
 }
 

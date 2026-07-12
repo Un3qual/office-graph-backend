@@ -59,6 +59,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         node {
           id
           normalizedEventId
+          title
+          sourceSummary
+          proposedActionPreviews { action title status }
           status
           allowedNextActions
           commandAffordances {
@@ -298,6 +301,47 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert node["id"] == second_node["id"]
     assert node["normalizedEventId"] == older_intake.normalized_event.id
     assert node["status"] == "pending_triage"
+  end
+
+  test "pending rows from one source expose distinct safe summaries and proposal previews", %{
+    conn: conn
+  } do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    {:ok, first} =
+      submit_manual_intake(bootstrap.session, "safe-summary-first",
+        source_identity: "manual:shared-source",
+        body: "Investigate failed invoice export. SECRET_TOKEN=must-not-leak"
+      )
+
+    {:ok, second} =
+      submit_manual_intake(bootstrap.session, "safe-summary-second",
+        source_identity: "manual:shared-source",
+        body: "Review delayed payroll import. PRIVATE_ARCHIVE=must-not-leak"
+      )
+
+    page = graphql(conn, @relay_inbox_query, %{first: 10}, "operatorWorkflowItems")
+    rows = Enum.map(page["edges"], & &1["node"])
+
+    first_row = Enum.find(rows, &(&1["normalizedEventId"] == first.normalized_event.id))
+    second_row = Enum.find(rows, &(&1["normalizedEventId"] == second.normalized_event.id))
+
+    assert first_row["title"] == "Investigate failed invoice export"
+    assert second_row["title"] == "Review delayed payroll import"
+    assert first_row["sourceSummary"] != second_row["sourceSummary"]
+
+    assert Enum.map(first_row["proposedActionPreviews"], & &1["action"]) == [
+             "create_signal",
+             "create_task",
+             "create_review_finding",
+             "create_verification_check"
+           ]
+
+    encoded = Jason.encode!(rows)
+    refute encoded =~ "SECRET_TOKEN"
+    refute encoded =~ "PRIVATE_ARCHIVE"
+    refute encoded =~ first.raw_archive.id
+    refute encoded =~ second.raw_archive.id
   end
 
   test "GraphQL operator workflow Relay cursors remain stable when new intake arrives between pages",
@@ -866,16 +910,21 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     |> Phoenix.Naming.camelize(:lower)
   end
 
-  defp submit_manual_intake(session, key) do
+  defp submit_manual_intake(session, key, opts \\ []) do
     {:ok, operation} =
       Operations.start_operation(session, :manual_intake_submit,
         idempotency_key: "manual-intake-api:#{key}:#{System.unique_integer([:positive])}"
       )
 
     Integrations.submit_manual_intake(session, operation, %{
-      source_identity: "manual:#{key}",
+      source_identity: Keyword.get(opts, :source_identity, "manual:#{key}"),
       replay_identity: "paste:#{key}",
-      body: "Investigate #{key} through the operator workflow GraphQL API."
+      body:
+        Keyword.get(
+          opts,
+          :body,
+          "Investigate #{key} through the operator workflow GraphQL API."
+        )
     })
   end
 

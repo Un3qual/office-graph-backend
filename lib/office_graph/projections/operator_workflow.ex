@@ -264,11 +264,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         applied_projection.audit_trace
       )
 
+    title = proposed_change_title(proposed_changes, event.source_identity)
+
     %{
       type: "operator_workflow_item",
       typed_id: %{type: "normalized_intake_event", id: event.id},
       normalized_event_id: event.id,
       duplicate_of_id: event.duplicate_of_id,
+      title: title,
+      source_summary: source_summary(event.source_identity, title),
+      proposed_action_previews: proposed_action_previews(proposed_changes),
       status: status,
       reason_codes: reason_codes,
       source: %{
@@ -287,6 +292,29 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
     }
+  end
+
+  defp proposed_change_title(proposed_changes, fallback) do
+    proposed_changes
+    |> Enum.find(&(&1.change_type == "create_signal"))
+    |> case do
+      %{payload: payload} -> Map.get(payload, "title") || Map.get(payload, :title) || fallback
+      nil -> fallback
+    end
+  end
+
+  defp source_summary(source_identity, title), do: "#{source_identity} · #{title}"
+
+  defp proposed_action_previews(proposed_changes) do
+    Enum.map(proposed_changes, fn proposed_change ->
+      %{
+        action: proposed_change.change_type,
+        title:
+          Map.get(proposed_change.payload, "title") ||
+            Map.get(proposed_change.payload, :title) || proposed_change.change_type,
+        status: proposed_change.status
+      }
+    end)
   end
 
   defp read_proposed_changes_by_event_id(_session_context, []), do: {:ok, %{}}

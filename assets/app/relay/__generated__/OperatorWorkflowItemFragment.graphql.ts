@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<16c371382f4dbfe9bab5244039e31ed2>>
+ * @generated SignedSource<<f2e926ea871aa6d42895d8d11358a375>>
  * @lightSyntaxTransform
  */
 
@@ -50,6 +50,11 @@ export type OperatorWorkflowItemFragment$data = {
   readonly id: string;
   readonly normalizedEventId: string;
   readonly operationWatermark: string | null | undefined;
+  readonly proposedActionPreviews: ReadonlyArray<{
+    readonly action: string;
+    readonly status: string;
+    readonly title: string;
+  }>;
   readonly proposedChangeStatus: {
     readonly applied: number;
     readonly pending: number;
@@ -66,8 +71,10 @@ export type OperatorWorkflowItemFragment$data = {
     readonly outcome: string;
     readonly replayIdentity: string;
   };
+  readonly sourceSummary: string;
   readonly sourceWatermark: string | null | undefined;
   readonly status: string;
+  readonly title: string;
   readonly type: string;
   readonly typedId: {
     readonly id: string;
@@ -85,6 +92,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorWorkflowItemFragment"
 };
 
-(node as any).hash = "535c3e521437408be17d980e9a65e058";
+(node as any).hash = "8a5ff6f8759f0694e4380d54a96a9a2e";
 
 export default node;

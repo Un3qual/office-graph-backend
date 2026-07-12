@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<671b92198284fcb53e66f9fe23e2b436>>
+ * @generated SignedSource<<f25e4822aca9b6017b8c8fbc8deb1175>>
  * @lightSyntaxTransform
  */
 
@@ -118,17 +118,31 @@ v10 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "reasonCodes",
+  "name": "title",
   "storageKey": null
 },
 v11 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
+  "name": "status",
+  "storageKey": null
+},
+v12 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "reasonCodes",
+  "storageKey": null
+},
+v13 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
   "name": "blockerReasons",
   "storageKey": null
 },
-v12 = [
+v14 = [
   {
     "alias": null,
     "args": null,
@@ -144,7 +158,7 @@ v12 = [
     "storageKey": null
   }
 ],
-v13 = [
+v15 = [
   (v7/*:: as any*/),
   (v8/*:: as any*/),
   {
@@ -171,14 +185,36 @@ v13 = [
     "name": "duplicateOfId",
     "storageKey": null
   },
+  (v10/*:: as any*/),
   {
     "alias": null,
     "args": null,
     "kind": "ScalarField",
-    "name": "status",
+    "name": "sourceSummary",
     "storageKey": null
   },
-  (v10/*:: as any*/),
+  {
+    "alias": null,
+    "args": null,
+    "concreteType": "OperatorProposedActionPreview",
+    "kind": "LinkedField",
+    "name": "proposedActionPreviews",
+    "plural": true,
+    "selections": [
+      {
+        "alias": null,
+        "args": null,
+        "kind": "ScalarField",
+        "name": "action",
+        "storageKey": null
+      },
+      (v10/*:: as any*/),
+      (v11/*:: as any*/)
+    ],
+    "storageKey": null
+  },
+  (v11/*:: as any*/),
+  (v12/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -244,7 +280,7 @@ v13 = [
     ],
     "storageKey": null
   },
-  (v11/*:: as any*/),
+  (v13/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -262,8 +298,8 @@ v13 = [
     "selections": [
       (v2/*:: as any*/),
       (v3/*:: as any*/),
-      (v10/*:: as any*/),
-      (v11/*:: as any*/),
+      (v12/*:: as any*/),
+      (v13/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -354,13 +390,7 @@ v13 = [
         "name": "graphItemId",
         "storageKey": null
       },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "title",
-        "storageKey": null
-      },
+      (v10/*:: as any*/),
       (v3/*:: as any*/)
     ],
     "storageKey": null
@@ -405,7 +435,7 @@ v13 = [
     "kind": "LinkedField",
     "name": "auditTrace",
     "plural": false,
-    "selections": (v12/*:: as any*/),
+    "selections": (v14/*:: as any*/),
     "storageKey": null
   },
   {
@@ -415,11 +445,11 @@ v13 = [
     "kind": "LinkedField",
     "name": "revisionTrace",
     "plural": false,
-    "selections": (v12/*:: as any*/),
+    "selections": (v14/*:: as any*/),
     "storageKey": null
   }
 ],
-v14 = {
+v16 = {
   "alias": null,
   "args": null,
   "concreteType": "PageInfo",
@@ -498,7 +528,7 @@ return {
                   {
                     "kind": "InlineDataFragmentSpread",
                     "name": "OperatorWorkflowItemFragment",
-                    "selections": (v13/*:: as any*/),
+                    "selections": (v15/*:: as any*/),
                     "args": null,
                     "argumentDefinitions": []
                   }
@@ -508,7 +538,7 @@ return {
             ],
             "storageKey": null
           },
-          (v14/*:: as any*/)
+          (v16/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -550,25 +580,25 @@ return {
                 "kind": "LinkedField",
                 "name": "node",
                 "plural": false,
-                "selections": (v13/*:: as any*/),
+                "selections": (v15/*:: as any*/),
                 "storageKey": null
               }
             ],
             "storageKey": null
           },
-          (v14/*:: as any*/)
+          (v16/*:: as any*/)
         ],
         "storageKey": null
       }
     ]
   },
   "params": {
-    "cacheID": "1f5b675d5246ae2665bb91a58321548d",
+    "cacheID": "5d8c7cae8ab4d73a81cfa99d8d30ca9f",
     "id": null,
     "metadata": {},
     "name": "OperatorWorkflowRouteQuery",
     "operationKind": "query",
-    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorManualIntakeAffordance {\n    identity\n    state\n  }\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  typedId {\n    type\n    id\n  }\n  normalizedEventId\n  duplicateOfId\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    relationshipType\n  }\n  auditTrace {\n    operationId\n    resourceCount\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n  }\n}\n"
+    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorManualIntakeAffordance {\n    identity\n    state\n  }\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  typedId {\n    type\n    id\n  }\n  normalizedEventId\n  duplicateOfId\n  title\n  sourceSummary\n  proposedActionPreviews {\n    action\n    title\n    status\n  }\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    relationshipType\n  }\n  auditTrace {\n    operationId\n    resourceCount\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n  }\n}\n"
   }
 };
 })();

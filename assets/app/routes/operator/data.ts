@@ -34,6 +34,13 @@ export const OperatorWorkflowItemFragment = graphql`
     }
     normalizedEventId
     duplicateOfId
+    title
+    sourceSummary
+    proposedActionPreviews {
+      action
+      title
+      status
+    }
     status
     reasonCodes
     source {
