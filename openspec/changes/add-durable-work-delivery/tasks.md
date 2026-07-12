@@ -1,11 +1,11 @@
 ## 1. Durable Runtime And Persistence
 
 - [x] 1.1 Add failing runtime and migration tests, then add the pinned Oban dependency, explicit queues/plugins, test mode, supervision, standard Oban tables, and typed `domain_events` persistence with scope, operation, subject, causation, delivery-state, and growth indexes.
-- [ ] 1.2 Add architecture coverage and public DurableDelivery boundary modules so callers cannot reach Oban, domain-event storage, or another domain's truth tables directly.
+- [x] 1.2 Add architecture coverage and public DurableDelivery boundary modules so callers cannot reach Oban, domain-event storage, or another domain's truth tables directly.
 
 ## 2. Transactional Events And Workers
 
-- [ ] 2.1 Add failing event tests, then implement transaction-safe `record_and_enqueue/2` with typed validation, operation/scope checks, stable event identity, one unique dispatch job, replay, and rollback behavior.
+- [x] 2.1 Add failing event tests, then implement transaction-safe `record_and_enqueue/2` with typed validation, operation/scope checks, stable event identity, one unique dispatch job, replay, and rollback behavior.
 - [ ] 2.2 Add failing worker tests, then implement the shared success/retryable/terminal classification contract, idempotent event dispatch, bounded attempts, safe failure state, and deterministic test worker.
 
 ## 3. Observability And Failure Visibility

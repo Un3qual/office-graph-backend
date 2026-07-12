@@ -3,6 +3,7 @@ defmodule OfficeGraph do
     deps: [OfficeGraph.Repo],
     exports: [
       ApiSupport,
+      DurableDelivery,
       Identity.SessionContext,
       Integrations,
       Operations,
