@@ -1,7 +1,7 @@
 # json-storage-policy Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Constrain JSON storage to appropriate opaque or evolving data while keeping core domain facts relational.
 ## Requirements
 ### Requirement: JSON Storage Boundary
 Office Graph SHALL restrict JSON/JSONB storage to raw, replay, debugging,

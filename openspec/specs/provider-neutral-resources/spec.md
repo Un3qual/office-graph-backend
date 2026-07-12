@@ -1,7 +1,7 @@
 # provider-neutral-resources Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define shared resources independently of any one external provider's schema.
 ## Requirements
 ### Requirement: Provider-Neutral Base Resources
 Office Graph SHALL use provider-neutral base resources for concepts that can

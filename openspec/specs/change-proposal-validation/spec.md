@@ -1,7 +1,7 @@
 # change-proposal-validation Specification
 
 ## Purpose
-TBD - created by archiving change design-proposed-graph-changes. Update Purpose after archive.
+Define deterministic validation and failure reporting before a change proposal can apply.
 ## Requirements
 ### Requirement: Change Proposal Validation
 Office Graph SHALL validate change proposals before they can be approved

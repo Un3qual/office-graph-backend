@@ -1,7 +1,7 @@
 # verification Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define the separation and lifecycle of checks, evidence, and verified outcomes.
 ## Requirements
 ### Requirement: Checks And Evidence Are Distinct
 

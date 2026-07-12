@@ -1,7 +1,7 @@
 # external-event-normalization Specification
 
 ## Purpose
-TBD - created by archiving change design-ingestion-and-integrations. Update Purpose after archive.
+Define the boundary that converts verified provider events into typed internal signals.
 ## Requirements
 ### Requirement: External Event Normalization Boundary
 Office Graph SHALL distinguish raw payload archives, normalized events,

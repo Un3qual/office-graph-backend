@@ -1,7 +1,7 @@
 # bootstrap-and-local-identity-lab Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authentication. Update Purpose after archive.
+Define safe first-organization bootstrap and local identity-lab behavior for development environments.
 ## Requirements
 ### Requirement: First Organization Bootstrap
 Office Graph SHALL provide a controlled bootstrap path for the first

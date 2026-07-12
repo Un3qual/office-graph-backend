@@ -1,7 +1,7 @@
 # change-proposal-application Specification
 
 ## Purpose
-TBD - created by archiving change design-proposed-graph-changes. Update Purpose after archive.
+Define how approved change proposals apply through validated, owning-domain actions.
 ## Requirements
 ### Requirement: Change Proposal Application Through Domain Actions
 Office Graph SHALL apply accepted change proposals through owning domain

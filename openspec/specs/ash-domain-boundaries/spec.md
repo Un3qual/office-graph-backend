@@ -1,7 +1,7 @@
 # ash-domain-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Assign Ash resources and actions to explicit owning domains with enforceable cross-domain access.
 ## Requirements
 ### Requirement: Ash Domain Ownership
 Each Ash domain and Ash resource SHALL belong to the bounded context that owns

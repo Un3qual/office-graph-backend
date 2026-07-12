@@ -1,7 +1,7 @@
 # shared-operation-contracts Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Define operation-context propagation across domain commands, workers, integrations, and agents.
 ## Requirements
 ### Requirement: Operation Context Propagation
 Meaningful durable actions SHALL receive or create an operation context,

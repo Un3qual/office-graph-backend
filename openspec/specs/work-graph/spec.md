@@ -1,7 +1,7 @@
 # work-graph Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define the department-neutral graph of work, decisions, requirements, checks, and evidence.
 ## Requirements
 ### Requirement: Department-Neutral Work Graph
 

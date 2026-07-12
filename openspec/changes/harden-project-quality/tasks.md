@@ -1,14 +1,14 @@
 ## 1. Audit Record And Baseline
 
 - [ ] 1.1 Write the evidence-backed project audit with severity, affected contracts, fix disposition, long-file judgment, and explicitly deferred structural gaps.
-- [ ] 1.2 Capture clean Nix baseline evidence for OpenSpec, dependency advisories, backend checks, the complete backend suite, and frontend verification, including the canonical-alias omission reproduction.
+- [x] 1.2 Capture clean Nix baseline evidence for OpenSpec, dependency advisories, backend checks, the complete backend suite, and frontend verification, including the canonical-alias omission reproduction.
 
 ## 2. Canonical Quality Gate
 
-- [ ] 2.1 Add a regression for full-suite execution, then make verify/precommit invoke one complete ExUnit run and use non-mutating lockfile checks.
-- [ ] 2.2 Make `bin/verify` the canonical all-layer entry point, isolate Compose/port/test-database identity per worktree, and update local documentation.
-- [ ] 2.3 Add tracked Nix-based CI, strict OpenSpec and placeholder-purpose checks, backend/frontend advisory checks, and production build smoke coverage.
-- [ ] 2.4 Update vulnerable dependencies and add regression coverage for exact runtime boolean parsing.
+- [x] 2.1 Add a regression for full-suite execution, then make verify/precommit invoke one complete ExUnit run and use non-mutating lockfile checks.
+- [x] 2.2 Make `bin/verify` the canonical all-layer entry point, isolate Compose/port/test-database identity per worktree, and update local documentation.
+- [x] 2.3 Add tracked Nix-based CI, strict OpenSpec and placeholder-purpose checks, backend/frontend advisory checks, and production build smoke coverage.
+- [x] 2.4 Update vulnerable dependencies and add regression coverage for exact runtime boolean parsing.
 
 ## 3. Backend Correctness
 
@@ -47,7 +47,7 @@
 
 ## 8. Documentation And Completion
 
-- [ ] 8.1 Replace all canonical generated purpose placeholders and mark the discovery-era project plan historical with current-source pointers.
+- [x] 8.1 Replace all canonical generated purpose placeholders and mark the discovery-era project plan historical with current-source pointers.
 - [ ] 8.2 Run focused red/green evidence for every behavior fix, then the canonical gate twice with varied seeds and confirm a clean worktree.
 - [ ] 8.3 Independently review the complete stacked diff, resolve every material finding, validate the OpenSpec change strictly, and archive it.
 - [ ] 8.4 Commit and push the semantic branch, open a non-draft PR targeting the latest open PR branch, and record deferred structural gaps in the PR body.

@@ -17,9 +17,10 @@ Docker/Compose CLI used by the local Postgres helpers. It also sets
 project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix archives do
 not leak into this runtime.
 
-## Postgres
+## Local Postgres
 
-Start local Postgres with Docker Compose:
+The canonical verification command starts and waits for an isolated Postgres
+service automatically. For focused development, start the default service with:
 
 ```sh
 docker compose up -d postgres
@@ -65,29 +66,32 @@ docker compose up -d postgres
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
 ```
 
-Run the current backend baseline gate:
+Run the canonical repository gate:
 
 ```sh
-nix --extra-experimental-features 'nix-command flakes' develop --command mix compile --warnings-as-errors
-nix --extra-experimental-features 'nix-command flakes' develop --command mix format --check-formatted
-nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
-nix --extra-experimental-features 'nix-command flakes' develop --command mix static.analysis
-nix --extra-experimental-features 'nix-command flakes' develop --command mix typecheck
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify
+```
+
+`bin/verify` derives a stable Compose project name, host port, and test database
+partition from the worktree path so concurrent worktrees do not share database
+state. `COMPOSE_PROJECT_NAME`, `OFFICE_GRAPH_POSTGRES_PORT`, and
+`MIX_TEST_PARTITION` override those derived values.
+
+When PostgreSQL is managed externally, skip Compose and provide explicit test
+connection settings:
+
+```sh
+OFFICE_GRAPH_SKIP_COMPOSE=1 \
+OFFICE_GRAPH_TEST_DATABASE_HOST=localhost \
+OFFICE_GRAPH_TEST_DATABASE_PORT=5432 \
+MIX_TEST_PARTITION=_local \
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify
+```
+
+Focused developer commands remain available inside the Nix shell:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/walking_skeleton_test.exs
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
-nix --extra-experimental-features 'nix-command flakes' develop --command mix test
-nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
-nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
-```
-
-Or run the same gate as one command:
-
-```sh
-nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
-```
-
-If Postgres is already provided outside Docker Compose, skip the local Compose
-startup:
-
-```sh
-OFFICE_GRAPH_SKIP_COMPOSE=1 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
+nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir assets test
 ```

@@ -1,7 +1,7 @@
 # integration-source-principals Specification
 
 ## Purpose
-TBD - created by archiving change design-integration-source-principals. Update Purpose after archive.
+Define authenticated source-principal context for integrations before provider data enters the graph.
 ## Requirements
 ### Requirement: Integration Source Principal Context
 Office Graph SHALL model integration source principal context as distinct

@@ -1,7 +1,7 @@
 # principal-role-capability-model Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authorization-schema. Update Purpose after archive.
+Define relational principal, role, capability, and grant facts used by authorization.
 ## Requirements
 ### Requirement: Principal Role Capability Facts
 Office Graph SHALL store principals, roles, capabilities, role memberships,

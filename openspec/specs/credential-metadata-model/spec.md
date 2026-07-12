@@ -1,7 +1,7 @@
 # credential-metadata-model Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authorization-schema. Update Purpose after archive.
+Define secret-free credential metadata that supports governance without persisting credential material.
 ## Requirements
 ### Requirement: Secret-Free Credential Metadata
 Office Graph SHALL store credential metadata as product data while keeping

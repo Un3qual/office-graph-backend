@@ -1,7 +1,7 @@
 # extension-table-rules Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define when provider-specific extension tables are justified alongside provider-neutral resources.
 ## Requirements
 ### Requirement: Extension Table Justification
 Office Graph SHALL introduce provider-specific, source-specific, or

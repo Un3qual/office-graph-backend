@@ -1,7 +1,7 @@
 # agent-runtime Specification
 
 ## Purpose
-TBD - created by archiving change design-agent-runtime. Update Purpose after archive.
+Define governed runtime entry points for agents that inspect graph context and perform authorized work.
 ## Requirements
 ### Requirement: Agent Runtime Entry Points
 Office Graph SHALL start internal agent activity only through explicit runtime

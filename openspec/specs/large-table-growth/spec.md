@@ -1,7 +1,7 @@
 # large-table-growth Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define partition-ready keys and indexes for tables expected to grow at high volume.
 ## Requirements
 ### Requirement: High-Volume Tables Are Partition-Ready
 Office Graph SHALL design high-volume tables so future time or tenant

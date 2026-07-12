@@ -1,7 +1,7 @@
 # work-runs Specification
 
 ## Purpose
-TBD - created by archiving change design-runs-and-verification. Update Purpose after archive.
+Define Office Graph-managed executions of selected work and their governed lifecycle.
 ## Requirements
 ### Requirement: Work Runs Represent Selected Work Execution
 

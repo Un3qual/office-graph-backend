@@ -1,11 +1,16 @@
 # Office Graph Requirements Discovery Plan
 
-Status: discovery
+Status: historical discovery record
 Date: 2026-06-16
 
 This file is a planning map, not an approved product spec. Its job is to keep
 the early product, architecture, and OpenSpec questions organized until they are
 decided and promoted into formal OpenSpec changes or specs.
+
+This discovery map is retained for historical context only. Current product
+direction lives in `openspec/project.md`; accepted behavior lives in
+`openspec/specs/`; active delivery scope and decisions live in
+`openspec/changes/`. Do not use this file as the implementation queue.
 
 ## Source Material
 

@@ -1,7 +1,7 @@
 # portable-rich-text-persistence Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define portable rich-text storage that preserves structure without provider lock-in.
 ## Requirements
 ### Requirement: Rich Text V1 Portable Storage
 Office Graph SHALL persist first-cut rich text bodies in a normalized,

@@ -1,7 +1,7 @@
 # provider-adapter-principal-consumption Specification
 
 ## Purpose
-TBD - created by archiving change design-integration-source-principals. Update Purpose after archive.
+Require provider adapters to consume verified source-principal context.
 ## Requirements
 ### Requirement: Provider Adapters Consume Verified Source Context
 Office Graph provider adapters SHALL consume verified source-principal context

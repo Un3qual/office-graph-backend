@@ -1,7 +1,7 @@
 # mvp-persistence-inventory Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define the minimum provider-neutral relational resource inventory for the MVP.
 ## Requirements
 ### Requirement: MVP Resource Inventory
 Office Graph SHALL define a first persistence inventory that separates

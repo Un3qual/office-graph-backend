@@ -1,7 +1,7 @@
 # sync-state-machine Specification
 
 ## Purpose
-TBD - created by archiving change design-ingestion-and-integrations. Update Purpose after archive.
+Define explicit ingestion synchronization states, retries, and terminal outcomes.
 ## Requirements
 ### Requirement: Ingestion Sync State Machine
 Office Graph SHALL use a shared sync state vocabulary for ingestion and replay.

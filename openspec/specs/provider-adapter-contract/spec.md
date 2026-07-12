@@ -1,7 +1,7 @@
 # provider-adapter-contract Specification
 
 ## Purpose
-TBD - created by archiving change design-ingestion-and-integrations. Update Purpose after archive.
+Define typed, provider-neutral output from external provider adapters.
 ## Requirements
 ### Requirement: Provider Adapter Output Contract
 Office Graph provider adapters SHALL output typed provider-neutral envelopes

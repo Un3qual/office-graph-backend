@@ -1,0 +1,59 @@
+defmodule OfficeGraph.ProjectQualityGateTest do
+  use ExUnit.Case, async: true
+
+  test "canonical aliases execute one complete ExUnit suite" do
+    aliases = Mix.Project.config()[:aliases]
+
+    test_tasks =
+      aliases[:verify]
+      |> Enum.flat_map(&expand_alias(&1, aliases))
+      |> Enum.filter(fn task ->
+        task == "test" or String.starts_with?(task, "test ")
+      end)
+
+    assert test_tasks == ["test"]
+    assert aliases[:precommit] == ["verify"]
+  end
+
+  test "canonical verification checks unused dependencies without unlocking them" do
+    verify = Mix.Project.config()[:aliases][:verify]
+
+    assert "deps.unlock --check-unused" in verify
+    assert "cmd mix hex.audit" in verify
+    refute Enum.any?(verify, &String.starts_with?(&1, "deps.unlock --unused"))
+  end
+
+  test "verification environment is stable and honors explicit isolation overrides" do
+    {first_output, 0} = System.cmd("sh", ["bin/verify", "--print-environment"])
+    {second_output, 0} = System.cmd("sh", ["bin/verify", "--print-environment"])
+
+    assert first_output == second_output
+    assert first_output =~ ~r/^COMPOSE_PROJECT_NAME=office_graph_[0-9]+$/m
+    assert first_output =~ ~r/^OFFICE_GRAPH_POSTGRES_PORT=[0-9]+$/m
+    assert first_output =~ ~r/^MIX_TEST_PARTITION=_w[0-9]+$/m
+
+    {overridden_output, 0} =
+      System.cmd("sh", ["bin/verify", "--print-environment"],
+        env: [
+          {"COMPOSE_PROJECT_NAME", "explicit_project"},
+          {"OFFICE_GRAPH_POSTGRES_PORT", "61234"},
+          {"MIX_TEST_PARTITION", "_explicit"}
+        ]
+      )
+
+    assert overridden_output =~ "COMPOSE_PROJECT_NAME=explicit_project"
+    assert overridden_output =~ "OFFICE_GRAPH_POSTGRES_PORT=61234"
+    assert overridden_output =~ "MIX_TEST_PARTITION=_explicit"
+  end
+
+  defp expand_alias("test", _aliases), do: ["test"]
+
+  defp expand_alias(task, aliases) do
+    case aliases[String.to_existing_atom(task)] do
+      nil -> [task]
+      tasks -> Enum.flat_map(tasks, &expand_alias(&1, aliases))
+    end
+  rescue
+    ArgumentError -> [task]
+  end
+end

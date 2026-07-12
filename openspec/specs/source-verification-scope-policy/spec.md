@@ -1,7 +1,7 @@
 # source-verification-scope-policy Specification
 
 ## Purpose
-TBD - created by archiving change design-integration-source-principals. Update Purpose after archive.
+Define authentication and scope checks that external sources must pass before normalization.
 ## Requirements
 ### Requirement: Source Verification Before Normalization
 Office Graph SHALL verify inbound source identity and allowed event scope

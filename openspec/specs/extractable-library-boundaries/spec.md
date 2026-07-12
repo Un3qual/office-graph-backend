@@ -1,7 +1,7 @@
 # extractable-library-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Identify reusable context boundaries while preventing premature package extraction.
 ## Requirements
 ### Requirement: Library Candidate Identification
 Future library candidates SHALL be identified during code organization,

@@ -102,6 +102,7 @@ defmodule OfficeGraph.MixProject do
       ],
       "assets.deploy": ["assets.build", "phx.digest"],
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
+      "frontend.audit": ["assets.setup", "cmd --cd assets pnpm audit --audit-level high"],
       "static.analysis": [
         "credo --strict",
         "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
@@ -110,27 +111,24 @@ defmodule OfficeGraph.MixProject do
       typecheck: ["dialyzer --quiet-with-result"],
       release: ["assets.deploy", "release"],
       "boundary.check": ["compile --force --warnings-as-errors"],
+      "production.build": ["cmd env MIX_ENV=prod mix compile --warnings-as-errors"],
       verify: [
+        "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
         "static.analysis",
         "typecheck",
-        "architecture.conformance",
+        "cmd mix hex.audit",
+        "cmd openspec validate --specs --strict",
+        "cmd openspec validate --changes --strict",
+        "cmd ./bin/check-spec-purposes",
+        "frontend.audit",
         "frontend.verify",
+        "production.build",
         "test"
       ],
-      precommit: [
-        "compile --warnings-as-errors",
-        "deps.unlock --unused",
-        "format --check-formatted",
-        "boundary.check",
-        "static.analysis",
-        "typecheck",
-        "architecture.conformance",
-        "frontend.verify",
-        "test"
-      ]
+      precommit: ["verify"]
     ]
   end
 

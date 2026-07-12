@@ -1,7 +1,7 @@
 # retention-legal-hold-export Specification
 
 ## Purpose
-TBD - created by archiving change design-revision-audit-soft-delete. Update Purpose after archive.
+Define retention, legal-hold, and export behavior for governed records.
 ## Requirements
 ### Requirement: Retention Policy Application
 Office Graph SHALL apply retention rules by organization, scope, resource kind,

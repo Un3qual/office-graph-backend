@@ -1,7 +1,7 @@
 # authorization Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define the unified principal and policy model used to authorize human, service, integration, and agent actions.
 ## Requirements
 ### Requirement: Unified Principal Model
 

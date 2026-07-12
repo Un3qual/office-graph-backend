@@ -1,7 +1,7 @@
 # scope-projection-invalidation-plan Specification
 
 ## Purpose
-TBD - created by archiving change design-scope-hierarchy-implementation. Update Purpose after archive.
+Define how scope changes invalidate cached authorization explanations and projections.
 ## Requirements
 ### Requirement: Authorization Explanation Invalidation Planning
 Office Graph SHALL plan invalidation for authorization explanations that

@@ -1,0 +1,18 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - name: Run canonical repository gate
+        run: nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify

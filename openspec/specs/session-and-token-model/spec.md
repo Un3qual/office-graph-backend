@@ -1,7 +1,7 @@
 # session-and-token-model Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authentication. Update Purpose after archive.
+Define thin sessions and tokens backed by durable identity and authorization state.
 ## Requirements
 ### Requirement: Thin Session And Token Model
 Office Graph SHALL keep sessions and tokens as authentication artifacts, not

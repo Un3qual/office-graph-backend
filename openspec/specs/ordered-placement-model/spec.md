@@ -1,7 +1,7 @@
 # ordered-placement-model Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define the first-version ordering model for stable placement within scoped collections.
 ## Requirements
 ### Requirement: Ordered Placement V1 Scope
 Office Graph SHALL keep first-cut ordering explicit and domain-owned instead

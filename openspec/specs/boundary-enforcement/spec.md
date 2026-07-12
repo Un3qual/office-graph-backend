@@ -1,7 +1,7 @@
 # boundary-enforcement Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Define compile-time boundary declarations and dependency enforcement across bounded contexts.
 ## Requirements
 ### Requirement: Boundary Definitions
 The codebase SHALL use the Boundary library to define bounded contexts,

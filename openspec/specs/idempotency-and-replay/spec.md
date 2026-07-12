@@ -1,7 +1,7 @@
 # idempotency-and-replay Specification
 
 ## Purpose
-TBD - created by archiving change design-ingestion-and-integrations. Update Purpose after archive.
+Define idempotent ingestion and deterministic replay behavior for repeated external operations.
 ## Requirements
 ### Requirement: Idempotent Ingestion
 Office Graph SHALL define idempotency basis for manual intake, webhooks, API
