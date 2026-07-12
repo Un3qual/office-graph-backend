@@ -1,6 +1,9 @@
 defmodule OfficeGraphWeb.OperatorCommands.Errors do
   @moduledoc false
 
+  @internal_token ~r/(?:\A|[._:-])(adapter|exception|ecto|ash|postgrex|sql|database|runtime)(?:\z|[._:-])/i
+  @sql_token ~r/\A(select|insert|update|delete|alter|drop|create|grant|revoke)\z/i
+
   @type classification :: %{
           category: :authorization | :conflict | :not_found | :validation,
           code: String.t(),
@@ -222,7 +225,8 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   defp sanitize(value) when is_binary(value) do
     if byte_size(value) <= 160 and String.valid?(value) and
-         Regex.match?(~r/\A[[:alnum:]][[:alnum:]:._-]*\z/u, value) do
+         Regex.match?(~r/\A[[:alnum:]][[:alnum:]:._-]*\z/u, value) and
+         not internal_token?(value) do
       value
     else
       "invalid"
@@ -247,12 +251,15 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   defp sanitize_atom(atom) do
     value = Atom.to_string(atom)
 
-    if String.starts_with?(value, "Elixir.") or
-         Regex.match?(~r/(adapter|exception|ecto|ash|postgrex|sql|database|runtime)/i, value) do
+    if String.starts_with?(value, "Elixir.") or internal_token?(value) do
       "internal"
     else
       value
     end
+  end
+
+  defp internal_token?(value) do
+    Regex.match?(@internal_token, value) or Regex.match?(@sql_token, value)
   end
 
   defp ash_forbidden_error?(%Ash.Error.Forbidden{}), do: true

@@ -141,7 +141,10 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
            {:sql, :key} => "SELECT hidden FROM adapter_state",
            safe: [:missing_normalized_event_id, "event-123"],
            exception: %RuntimeError{message: "SELECT secret FROM credentials"},
-           adapter: {:adapter_error, "Postgrex SQL connection details"}
+           adapter: {:adapter_error, "Postgrex SQL connection details"},
+           adapter_token: "Postgrex.Error",
+           exception_token: "Ecto.ConstraintError",
+           sql_token: "SELECT"
          }}
 
       error = {:invalid_proposed_change_set, unsafe_reason}
@@ -161,9 +164,12 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
                  kind: "normalized_event_operation_mismatch",
                  value: %{
                    "adapter" => %{kind: "internal", value: "invalid"},
+                   "adapter_token" => "invalid",
                    "exception" => "invalid",
+                   "exception_token" => "invalid",
                    "invalid" => "invalid",
-                   "safe" => ["missing_normalized_event_id", "event-123"]
+                   "safe" => ["missing_normalized_event_id", "event-123"],
+                   "sql_token" => "invalid"
                  }
                }
              }
