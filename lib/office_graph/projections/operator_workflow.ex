@@ -28,6 +28,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   @default_operator_inbox_limit 50
   @max_operator_inbox_limit 100
 
+  def manual_intake_affordance(session_context) do
+    affordance =
+      if CommandAffordance.authorized?(session_context, :manual_intake_submit) do
+        CommandAffordance.enabled(
+          "submit_manual_intake",
+          "Submit manual intake in the current workspace."
+        )
+      else
+        CommandAffordance.policy_restricted("submit_manual_intake")
+      end
+
+    {:ok, affordance}
+  end
+
   def operator_inbox(session_context, opts \\ []) do
     with {:ok, page} <- read_intake_rows_page(session_context, opts) do
       {:ok,

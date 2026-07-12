@@ -184,6 +184,9 @@ describe("packet workspace route", () => {
       "aria-current",
       "page"
     );
+    await screen.findByText("Current version 1");
+    expect(screen.queryByRole("combobox", { name: "Autonomy posture" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Human supervised")).toHaveLength(2);
   });
 
   it("creates a packet, refreshes the list, and selects its immutable current version", async () => {
@@ -486,6 +489,7 @@ describe("packet workspace route", () => {
 
     await screen.findByText("Current version 1");
     expect(screen.queryByRole("button", { name: "Start work run" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Packet version editor" })).not.toBeInTheDocument();
     expect(screen.getByText("Resolve packet readiness blockers before starting a work run."))
       .toBeInTheDocument();
     expect(document.body).toHaveTextContent("missing_success_criteria");
@@ -712,11 +716,11 @@ function workspace(overrides: Partial<WorkspacePayload> = {}): WorkspacePayload 
     ready: true,
     status: "ready_for_run",
     blockerReasons: [],
-    allowedNextActions: ["start_work_run"],
+    allowedNextActions: ["create_work_packet_version", "start_work_run"],
     packet: packetWorkspacePacket(),
     currentVersion: packetVersion(),
     versions: [packetVersion()],
-    commandAffordances: [startAffordance()],
+    commandAffordances: [versionAffordance(), startAffordance()],
     ...overrides
   };
 }
@@ -778,6 +782,22 @@ function startAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
       { type: "work_packet", id: "packet_1" },
       { type: "work_packet_version", id: "version_1" }
     ],
+    traceLinks: [],
+    decisionLinks: [],
+    ...overrides
+  };
+}
+
+function versionAffordance(overrides: Partial<CommandAffordancePayload> = {}) {
+  return {
+    identity: "create_work_packet_version",
+    state: "enabled",
+    reasonCodes: [],
+    blockerReasons: [],
+    safeExplanation: "Create the next immutable version of this work packet.",
+    requiredFields: [],
+    inputDefaults: [],
+    targetIds: [],
     traceLinks: [],
     decisionLinks: [],
     ...overrides

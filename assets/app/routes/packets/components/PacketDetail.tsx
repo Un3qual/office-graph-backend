@@ -13,6 +13,9 @@ type Props = {
 };
 
 export function PacketDetail({ onRefresh, packet, workspace = null }: Props) {
+  const canCreateVersion = workspace?.commandAffordances.some(
+    affordance => affordance.identity === "create_work_packet_version" && affordance.state === "enabled"
+  ) ?? false;
   return (
     <section aria-label="Packet detail" className="packet-detail-pane">
       {packet ? (
@@ -71,7 +74,7 @@ export function PacketDetail({ onRefresh, packet, workspace = null }: Props) {
                   ))}
                 </ol>
               </section>
-              {onRefresh ? <PacketEditor onRefresh={onRefresh} workspace={workspace} /> : null}
+              {onRefresh && canCreateVersion ? <PacketEditor onRefresh={onRefresh} workspace={workspace} /> : null}
               {onRefresh ? <PacketRunForm onRefresh={onRefresh} workspace={workspace} /> : null}
             </div>
           ) : null}

@@ -9,12 +9,13 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
   const command = useRecordExecutionObservationCommand(onRefresh);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const [rationale, setRationale] = useState("");
-  const [sourceGraphItemId, setSourceGraphItemId] = useState("");
   const affordance = enabledAffordance(runState.commandAffordances, "record_execution_observation");
 
   if (!affordance) return null;
 
   const verificationCheckIds = targetValues(affordance, "verification_check");
+  const sourceGraphItemIdForCheck = (verificationCheckId: string) =>
+    runState.requiredChecks.find(check => check.verificationCheckId === verificationCheckId)?.graphItemId ?? "";
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -23,7 +24,7 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
     const input = {
       runId: defaultValue(affordance, "run_id") || runState.run.id,
       verificationCheckId: String(form.get("verificationCheckId") ?? ""),
-      sourceGraphItemId: sourceGraphItemId.trim(), observedStatus: outcome, normalizedStatus: outcome,
+      sourceGraphItemId: sourceGraphItemIdForCheck(String(form.get("verificationCheckId") ?? "")), observedStatus: outcome, normalizedStatus: outcome,
       observationRationale: rationale.trim(), observationSourceKind: "human",
       observationSourceIdentity: "operator-console", freshnessState: "fresh", trustBasis: "owner_attested"
     };
@@ -41,9 +42,8 @@ export function RunCommandForm({ onRefresh, runState }: { onRefresh: () => void;
       <option value="succeeded">Succeeded</option>
       <option value="failed">Failed</option>
     </select>
-    <label htmlFor="observation-source">Source graph item ID</label><input id="observation-source" onChange={event => setSourceGraphItemId(event.target.value)} value={sourceGraphItemId} />
     <label htmlFor="observation-rationale">Observation rationale</label><textarea id="observation-rationale" onChange={event => setRationale(event.target.value)} value={rationale} />
-    <Button isDisabled={command.state.status === "pending" || !sourceGraphItemId.trim() || !rationale.trim() || verificationCheckIds.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
+    <Button isDisabled={command.state.status === "pending" || !rationale.trim() || verificationCheckIds.length === 0} type="submit" variant="primary">{command.state.status === "pending" ? "Recording observation" : "Record execution observation"}</Button>
     <FormFeedback feedback={commandFeedback(command.state)} />
   </form>;
 }

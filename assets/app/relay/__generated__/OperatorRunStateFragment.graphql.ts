@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<d2d4e03092ffde128dc8dddc38aef3cb>>
+ * @generated SignedSource<<0901ffcd5d01a6570fcb8d4ede4114ec>>
  * @lightSyntaxTransform
  */
 
@@ -71,6 +71,8 @@ export type OperatorRunStateFragment$data = {
     readonly versionNumber: number;
   };
   readonly requiredChecks: ReadonlyArray<{
+    readonly graphItemId: string | null | undefined;
+    readonly id: string;
     readonly state: string;
     readonly verificationCheckId: string | null | undefined;
   }>;
@@ -107,6 +109,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "ed1e7b3aadcc9bd7560031f907c60fee";
+(node as any).hash = "0d19e6b73fe4c73735a088fa95e9ad78";
 
 export default node;

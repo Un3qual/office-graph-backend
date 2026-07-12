@@ -166,15 +166,15 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
       |> version_attrs(source_ids, check_ids)
       |> WorkPackets.readiness_blocker_reasons()
       |> Kernel.++(verification_check_blockers(check_ids, verification_checks))
-      |> Kernel.++(WorkPackets.mismatched_source_check_ids(source_ids, verification_checks))
-      |> Enum.map(&normalize_blocker/1)
+      |> Kernel.++(source_check_mismatch_blockers(source_ids, verification_checks))
       |> Kernel.++(run_start_policy_blockers(session_context))
       |> Enum.uniq()
 
     ready? = blockers == []
 
     command_affordances =
-      run_start_affordances(session_context, packet, current_version, blockers)
+      version_create_affordance(session_context, packet, current_version, source_ids, check_ids) ++
+        run_start_affordances(session_context, packet, current_version, blockers)
 
     workspace = %{
       type: "operator_packet_workspace",
@@ -246,8 +246,62 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     end
   end
 
-  defp normalize_blocker(blocker) when is_binary(blocker), do: blocker
-  defp normalize_blocker(_verification_check_id), do: "source_graph_item_check_mismatch"
+  defp source_check_mismatch_blockers(source_ids, verification_checks) do
+    case WorkPackets.mismatched_source_check_ids(source_ids, verification_checks) do
+      [] -> []
+      _mismatched_check_ids -> ["source_graph_item_check_mismatch"]
+    end
+  end
+
+  defp version_create_affordance(
+         session_context,
+         packet,
+         current_version,
+         source_ids,
+         check_ids
+       ) do
+    required_fields = [
+      "packet_id",
+      "expected_current_version_id" | CommandAffordance.packet_required_fields()
+    ]
+
+    if CommandAffordance.authorized?(session_context, :work_packet_version_create) do
+      [
+        CommandAffordance.enabled(
+          "create_work_packet_version",
+          "Create the next immutable version of this work packet.",
+          required_fields: required_fields,
+          input_defaults:
+            version_create_input_defaults(packet, current_version, source_ids, check_ids),
+          target_ids: [
+            CommandAffordance.target_id("work_packet", packet.id),
+            CommandAffordance.target_id("work_packet_version", current_version.id)
+          ]
+        )
+      ]
+    else
+      [
+        CommandAffordance.policy_restricted("create_work_packet_version",
+          required_fields: required_fields
+        )
+      ]
+    end
+  end
+
+  defp version_create_input_defaults(packet, current_version, source_ids, check_ids) do
+    [
+      CommandAffordance.input_default("packet_id", packet.id),
+      CommandAffordance.input_default("expected_current_version_id", current_version.id),
+      CommandAffordance.input_default("title", current_version.title),
+      CommandAffordance.input_default("objective", current_version.objective),
+      CommandAffordance.input_default("context_summary", current_version.context_summary),
+      CommandAffordance.input_default("requirements", current_version.requirements),
+      CommandAffordance.input_default("success_criteria", current_version.success_criteria),
+      CommandAffordance.input_default("autonomy_posture", current_version.autonomy_posture),
+      CommandAffordance.input_default("source_graph_item_ids", source_ids),
+      CommandAffordance.input_default("verification_check_ids", check_ids)
+    ]
+  end
 
   defp run_start_policy_blockers(session_context) do
     if CommandAffordance.authorized?(session_context, :work_run_start) do

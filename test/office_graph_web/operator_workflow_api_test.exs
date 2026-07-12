@@ -615,7 +615,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert workspace["ready"] == true
     assert workspace["status"] == "ready_for_run"
     assert workspace["blockerReasons"] == []
-    assert workspace["allowedNextActions"] == ["start_work_run"]
+    assert workspace["allowedNextActions"] == ["create_work_packet_version", "start_work_run"]
     assert workspace["packet"]["currentVersionId"] == version_result.version.id
     assert workspace["packet"]["title"] == "Packet workspace version two"
     assert workspace["currentVersion"]["id"] == version_result.version.id
@@ -633,7 +633,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "Packet workspace version two"
            ]
 
-    assert [start_run] = workspace["commandAffordances"]
+    assert [create_version, start_run] = workspace["commandAffordances"]
+    assert create_version["identity"] == "create_work_packet_version"
+    assert create_version["state"] == "enabled"
     assert start_run["identity"] == "start_work_run"
     assert start_run["state"] == "enabled"
     assert start_run["blockerReasons"] == []
@@ -647,6 +649,46 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert %{"type" => "work_packet_version", "id" => version_result.version.id} in start_run[
              "targetIds"
            ]
+  end
+
+  test "GraphQL exposes workspace command affordances according to capabilities", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    packet_query =
+      "query PacketAffordance { operatorPacketCreateAffordance { identity state } }"
+
+    intake_query =
+      "query IntakeAffordance { operatorManualIntakeAffordance { identity state } }"
+
+    assert graphql(conn, packet_query, %{}, "operatorPacketCreateAffordance") == %{
+             "identity" => "create_work_packet",
+             "state" => "enabled"
+           }
+
+    assert graphql(conn, intake_query, %{}, "operatorManualIntakeAffordance") == %{
+             "identity" => "submit_manual_intake",
+             "state" => "enabled"
+           }
+
+    read_only_session = create_session_with_capabilities!(bootstrap, ["skeleton.read"])
+
+    with_local_api_owner_bootstrap(false, fn ->
+      restricted_conn = Ash.PlugHelpers.set_actor(conn, read_only_session)
+
+      assert graphql(
+               restricted_conn,
+               packet_query,
+               %{},
+               "operatorPacketCreateAffordance"
+             )["state"] == "hidden"
+
+      assert graphql(
+               restricted_conn,
+               intake_query,
+               %{},
+               "operatorManualIntakeAffordance"
+             )["state"] == "hidden"
+    end)
   end
 
   test "GraphQL packet readiness normalizes nullable id lists", %{conn: conn} do

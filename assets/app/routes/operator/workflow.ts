@@ -68,6 +68,9 @@ export function useOperatorWorkflow({
       : null;
 
   return {
+    canSubmitManualIntake:
+      rootData.operatorManualIntakeAffordance.identity === "submit_manual_intake" &&
+      rootData.operatorManualIntakeAffordance.state === "enabled",
     inbox,
     readiness,
     readinessInput,
@@ -80,11 +83,11 @@ export function useOperatorWorkflow({
 
 export type OperatorWorkflowState = ReturnType<typeof useOperatorWorkflow>;
 
-export function useValidatedPacketReadiness(input: PacketReadinessInput) {
+export function useValidatedPacketReadiness(input: PacketReadinessInput, fetchKey?: number) {
   const data = useLazyLoadQuery<OperatorPacketReadinessOperation>(
     OperatorPacketReadinessQuery,
     { input: packetReadinessQueryInput(input) },
-    { fetchPolicy: "network-only" }
+    { fetchKey, fetchPolicy: "network-only" }
   );
 
   return packetReadinessFromRelay(data);

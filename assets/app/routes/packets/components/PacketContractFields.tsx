@@ -40,15 +40,11 @@ export function PacketContractFields({ titleLabel, version }: Props) {
           required
         />
       </label>
-      <label>
-        Autonomy posture
-        <select
-          defaultValue={version?.autonomyPosture ?? "human_supervised"}
-          name="autonomyPosture"
-        >
-          <option value="human_supervised">Human supervised</option>
-        </select>
-      </label>
+      <div>
+        <span>Autonomy posture</span>
+        <span>Human supervised</span>
+        <input name="autonomyPosture" type="hidden" value={version?.autonomyPosture ?? "human_supervised"} />
+      </div>
       <label>
         Source graph item IDs
         <textarea

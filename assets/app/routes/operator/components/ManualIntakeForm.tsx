@@ -7,6 +7,7 @@ import { useSubmitManualIntakeCommand } from "../commandWorkflow";
 export function ManualIntakeForm({ onRefresh }: { onRefresh: () => void }) {
   const [body, setBody] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const [preparationError, setPreparationError] = useState<string | null>(null);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const command = useSubmitManualIntakeCommand(onRefresh);
 
@@ -15,15 +16,21 @@ export function ManualIntakeForm({ onRefresh }: { onRefresh: () => void }) {
     const normalizedBody = body.trim();
     if (!normalizedBody) return;
     setPreparing(true);
-    attempt.current = submissionIdentity(attempt.current, { body: normalizedBody });
-    const replayIdentity = await manualReplayIdentity(normalizedBody);
-    command.submit({
-      body: normalizedBody,
-      idempotencyKey: attempt.current.key,
-      replayIdentity,
-      sourceIdentity: "manual:operator-console"
-    });
-    setPreparing(false);
+    setPreparationError(null);
+    try {
+      attempt.current = submissionIdentity(attempt.current, { body: normalizedBody });
+      const replayIdentity = await manualReplayIdentity(normalizedBody);
+      command.submit({
+        body: normalizedBody,
+        idempotencyKey: attempt.current.key,
+        replayIdentity,
+        sourceIdentity: "manual:operator-console"
+      });
+    } catch (_error) {
+      setPreparationError("Unable to prepare manual intake. Try again.");
+    } finally {
+      setPreparing(false);
+    }
   };
   const pending = preparing || command.state.status === "pending";
 
@@ -34,7 +41,7 @@ export function ManualIntakeForm({ onRefresh }: { onRefresh: () => void }) {
       <Button isDisabled={pending || body.trim() === ""} type="submit" variant="primary">
         {pending ? "Submitting intake" : "Submit intake"}
       </Button>
-      <FormFeedback feedback={commandFeedback(command.state)} pendingMessage={pending ? "Submitting intake..." : null} />
+      <FormFeedback feedback={preparationError ? { kind: "error", message: preparationError } : commandFeedback(command.state)} pendingMessage={pending ? "Submitting intake..." : null} />
     </form>
   );
 }

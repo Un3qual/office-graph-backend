@@ -5,13 +5,15 @@ defmodule OfficeGraph.Projections.RunState do
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph.EvidenceCandidate
+  alias OfficeGraph.WorkGraph.VerificationCheck
 
   require Ash.Query
 
   def operator_run_state(session_context, run_id) do
     with {:ok, summary} <- Runs.get_summary(session_context, run_id),
-         {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id) do
-      {:ok, build_run_state(session_context, summary, evidence_candidates)}
+         {:ok, evidence_candidates} <- read_evidence_candidates(session_context, summary.run.id),
+         {:ok, verification_checks} <- read_verification_checks(session_context, summary) do
+      {:ok, build_run_state(session_context, summary, evidence_candidates, verification_checks)}
     end
   end
 
@@ -39,8 +41,20 @@ defmodule OfficeGraph.Projections.RunState do
     |> Ash.read(authorize?: false)
   end
 
-  defp build_run_state(session_context, summary, evidence_candidates) do
+  defp read_verification_checks(session_context, summary) do
+    check_ids = Enum.map(summary.required_checks, & &1.verification_check_id)
+
+    VerificationCheck
+    |> Ash.Query.filter(
+      id in ^check_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read(actor: session_context)
+  end
+
+  defp build_run_state(session_context, summary, evidence_candidates, verification_checks) do
     status = run_status(summary, evidence_candidates)
+    verification_checks_by_id = Map.new(verification_checks, &{&1.id, &1})
 
     command_affordances =
       run_command_affordances(session_context, status, summary, evidence_candidates)
@@ -73,6 +87,11 @@ defmodule OfficeGraph.Projections.RunState do
           %{
             id: required_check.id,
             verification_check_id: required_check.verification_check_id,
+            graph_item_id:
+              get_in(verification_checks_by_id, [
+                required_check.verification_check_id,
+                Access.key(:graph_item_id)
+              ]),
             state: required_check.state
           }
         end),
@@ -242,15 +261,28 @@ defmodule OfficeGraph.Projections.RunState do
   end
 
   defp candidate_input_defaults(summary) do
+    eligible_observations =
+      Enum.filter(summary.observations, fn observation ->
+        observation.normalized_status == "succeeded" and
+          Verification.acceptable_evidence_source?(observation)
+      end)
+
+    eligible_check_ids =
+      eligible_observations
+      |> Enum.map(& &1.verification_check_id)
+      |> MapSet.new()
+
     [
       CommandAffordance.input_default("work_run_id", summary.run.id),
       CommandAffordance.input_default(
         "verification_check_id",
-        Enum.map(summary.missing_evidence, & &1.verification_check_id)
+        summary.missing_evidence
+        |> Enum.map(& &1.verification_check_id)
+        |> Enum.filter(&MapSet.member?(eligible_check_ids, &1))
       ),
       CommandAffordance.input_default(
         "execution_observation_id",
-        Enum.map(summary.observations, & &1.id)
+        Enum.map(eligible_observations, & &1.id)
       ),
       CommandAffordance.input_default("sensitivity", "internal")
     ]

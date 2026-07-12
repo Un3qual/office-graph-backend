@@ -1,12 +1,15 @@
 defmodule OfficeGraph.Projections.OperatorWorkflowTest do
   use OfficeGraph.DataCase, async: false
 
+  import Ecto.Query
+
   alias OfficeGraph.Foundation
   alias OfficeGraph.Integrations
   alias OfficeGraph.Operations
   alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.Projections
   alias OfficeGraph.QueryCounter
+  alias OfficeGraph.Repo
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
   alias OfficeGraph.SessionCaseHelpers
@@ -660,8 +663,14 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
              Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
 
     assert workspace.ready?
-    assert workspace.allowed_next_actions == ["start_work_run"]
-    assert [start_run] = workspace.command_affordances
+    assert workspace.allowed_next_actions == ["create_work_packet_version", "start_work_run"]
+    assert [create_version, start_run] = workspace.command_affordances
+    assert create_version.identity == "create_work_packet_version"
+    assert create_version.state == "enabled"
+
+    assert packet_default_value(create_version, "expected_current_version_id") ==
+             packet_result.version.id
+
     assert start_run.identity == "start_work_run"
     assert start_run.state == "enabled"
     assert packet_default_value(start_run, "packet_version_id") == packet_result.version.id
@@ -674,10 +683,53 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     refute restricted_workspace.ready?
     assert restricted_workspace.blocker_reasons == ["policy_restricted"]
     assert restricted_workspace.allowed_next_actions == []
-    assert [restricted_start] = restricted_workspace.command_affordances
+    assert [restricted_version, restricted_start] = restricted_workspace.command_affordances
+    assert restricted_version.identity == "create_work_packet_version"
+    assert restricted_version.state == "hidden"
+    assert restricted_version.target_ids == []
+    assert restricted_version.input_defaults == []
     assert restricted_start.state == "hidden"
     assert restricted_start.target_ids == []
     assert restricted_start.input_defaults == []
+  end
+
+  test "packet workspace normalizes source-check mismatch blockers" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, unrelated_check} = create_required_verification_check(bootstrap.session)
+
+    {:ok, packet_result} =
+      OperatorCommandFixtures.create_ready_packet(
+        bootstrap.session,
+        [verification_check],
+        %{
+          title: "Mismatch workspace packet",
+          objective: "Expose a safe blocker.",
+          context_summary: "Mismatch context.",
+          requirements: "Do not expose resource IDs.",
+          success_criteria: "The blocker is generic.",
+          autonomy_posture: "human_supervised"
+        }
+      )
+
+    Repo.delete_all(
+      from(check in OfficeGraph.WorkGraph.VerificationCheck,
+        where: check.id == ^unrelated_check.id
+      )
+    )
+
+    Repo.update_all(
+      from(check in OfficeGraph.WorkGraph.VerificationCheck,
+        where: check.id == ^verification_check.id
+      ),
+      set: [graph_item_id: unrelated_check.graph_item_id]
+    )
+
+    assert {:ok, workspace} =
+             Projections.packet_workspace(bootstrap.session, packet_result.packet.id)
+
+    assert "source_graph_item_check_mismatch" in workspace.blocker_reasons
+    refute verification_check.id in workspace.blocker_reasons
   end
 
   test "packet create affordance is exposed only to authorized operators" do
@@ -694,6 +746,21 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert restricted.state == "hidden"
     assert restricted.target_ids == []
     assert restricted.input_defaults == []
+  end
+
+  test "manual intake affordance is exposed only to authorized operators" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, enabled} = Projections.manual_intake_affordance(bootstrap.session)
+    assert enabled.identity == "submit_manual_intake"
+    assert enabled.state == "enabled"
+
+    read_only_session = create_read_only_session!(bootstrap)
+
+    assert {:ok, restricted} = Projections.manual_intake_affordance(read_only_session)
+    assert restricted.identity == "submit_manual_intake"
+    assert restricted.state == "hidden"
+    assert restricted.target_ids == []
   end
 
   test "operator run state moves from missing evidence to verified" do
@@ -747,6 +814,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     assert initial_state.missing_evidence == [
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
+
+    assert [%{graph_item_id: graph_item_id}] = initial_state.required_checks
+    assert graph_item_id == verification_check.graph_item_id
 
     {:ok, observation_result} =
       record_observation(bootstrap.session, run_result.run, verification_check,
@@ -994,6 +1064,39 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
                awaiting_evidence.evidence_candidates,
                &(&1.id == candidate.id and &1.state == "candidate")
              )
+    end
+  end
+
+  test "operator run state only defaults passed-acceptance-eligible observations" do
+    for {key, observation_overrides} <- [
+          {"failed-observation", [normalized_status: "failed", observed_status: "failed"]},
+          {"stale-observation", [freshness_state: "stale"]},
+          {"untrusted-observation", [trust_basis: "unauthenticated"]}
+        ] do
+      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+      {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+      {:ok, observation_result} =
+        record_observation(
+          bootstrap.session,
+          run_result.run,
+          verification_check,
+          Keyword.put(observation_overrides, :key, key)
+        )
+
+      assert {:ok, run_state} =
+               Projections.operator_run_state(bootstrap.session, observation_result.run.id)
+
+      create_candidate =
+        Enum.find(run_state.command_affordances, &(&1.identity == "create_evidence_candidate"))
+
+      if create_candidate do
+        assert packet_default_values(create_candidate, "execution_observation_id") == []
+        assert packet_default_values(create_candidate, "verification_check_id") == []
+      else
+        assert run_state.status == "failed"
+      end
     end
   end
 
@@ -1334,6 +1437,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
     key = Keyword.fetch!(opts, :key)
     observed_status = Keyword.get(opts, :observed_status, "passed")
     normalized_status = Keyword.get(opts, :normalized_status, "succeeded")
+    freshness_state = Keyword.get(opts, :freshness_state, "fresh")
+    trust_basis = Keyword.get(opts, :trust_basis, "owner_attested")
 
     OperatorCommandFixtures.record_observation(
       session,
@@ -1345,8 +1450,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflowTest do
         idempotency_key: "observation:#{key}",
         observed_status: observed_status,
         normalized_status: normalized_status,
-        freshness_state: "fresh",
-        trust_basis: "owner_attested",
+        freshness_state: freshness_state,
+        trust_basis: trust_basis,
         rationale: "Human confirmed #{key}."
       },
       idempotency_key: "observation-operation:#{key}"

@@ -717,11 +717,20 @@ describe("operator route", () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         workflowReads += 1;
-        return workflowConnectionResponse([], variables);
+        return workflowConnectionResponse(
+          workflowReads === 1
+            ? []
+            : [operatorWorkflowItem({ id: "operator_workflow_item_new", normalizedEventId: "evt_new" })],
+          variables
+        );
       }
 
       if (request.name === "OperatorSubmitManualIntakeMutation") {
         return mutationResponse.promise;
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
       }
 
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -763,6 +772,45 @@ describe("operator route", () => {
     });
 
     await waitFor(() => expect(workflowReads).toBe(2));
+    expect(await screen.findByRole("button", { name: /evt_new/i })).toBeInTheDocument();
+  });
+
+  it("hides manual intake when the backend affordance is restricted", async () => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return workflowConnectionResponse([], variables, {}, {
+          ...enabledCommandAffordance("submit_manual_intake"),
+          state: "hidden"
+        });
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    await screen.findByText("No operator workflow items.");
+    expect(screen.queryByLabelText("Manual intake")).not.toBeInTheDocument();
+  });
+
+  it("recovers when manual replay identity preparation fails", async () => {
+    vi.stubGlobal("crypto", {
+      subtle: { digest: vi.fn().mockRejectedValue(new Error("digest unavailable")) }
+    });
+    const network = createOperatorNetwork({ workflowItems: [] });
+
+    renderWithRelay(<OperatorRoute />, network);
+    fireEvent.change(await screen.findByLabelText("Manual intake"), {
+      target: { value: "Investigate the deployment" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to prepare manual intake. Try again."
+    );
+    expect(screen.getByRole("button", { name: "Submit intake" })).toBeEnabled();
+    expect(network.mock.calls.some(([request]) =>
+      request.name === "OperatorSubmitManualIntakeMutation"
+    )).toBe(false);
   });
 
   it("refreshes after a manual-intake replay conflict and keeps the explicit retry form", async () => {
@@ -867,12 +915,25 @@ describe("operator route", () => {
   });
 
   it("creates a packet from the selected enabled affordance defaults", async () => {
+    let readinessReads = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") return workflowConnectionResponse([operatorWorkflowItem()], variables);
       if (request.name === "OperatorRunStateQuery") return { data: { operatorRunState: operatorRunState() } };
-      if (request.name === "OperatorPacketReadinessQuery") return {
-        data: { operatorPacketReadiness: operatorPacketReadiness() }
-      };
+      if (request.name === "OperatorPacketReadinessQuery") {
+        readinessReads += 1;
+        return {
+          data: {
+            operatorPacketReadiness:
+              readinessReads === 1
+                ? operatorPacketReadiness()
+                : operatorPacketReadiness({
+                    status: "packet_created",
+                    allowedNextActions: [],
+                    commandAffordances: []
+                  })
+          }
+        };
+      }
       if (request.name === "OperatorCreateWorkPacketMutation") return {
         data: { createWorkPacket: {
           command: "create_work_packet", operationId: "operation_packet_1", affectedIds: [],
@@ -897,6 +958,10 @@ describe("operator route", () => {
       sourceGraphItemIds: ["graph_1"],
       verificationCheckIds: ["check_1"]
     } }));
+    await waitFor(() => expect(readinessReads).toBe(2));
+    expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+      "Packet created"
+    );
   });
 
   it("accepts evidence from the enabled run affordance and refreshes run state", async () => {
@@ -909,7 +974,18 @@ describe("operator route", () => {
       }
       if (request.name === "OperatorRunStateQuery") {
         runReads += 1;
-        return { data: { operatorRunState: operatorRunState() } };
+        return {
+          data: {
+            operatorRunState:
+              runReads === 1
+                ? operatorRunState()
+                : operatorRunState({
+                    status: "verified",
+                    allowedNextActions: [],
+                    commandAffordances: []
+                  })
+          }
+        };
       }
       if (request.name === "OperatorAcceptEvidenceMutation") return {
         data: { acceptEvidence: {
@@ -939,10 +1015,11 @@ describe("operator route", () => {
     } }));
     await waitFor(() => expect(runReads).toBe(2));
     await waitFor(() => expect(workflowReads).toBe(2));
+    expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("Verified");
     expect(screen.getByRole("button", { name: /evt_1/i })).toHaveAttribute("aria-current", "true");
   });
 
-  it("accepts the candidate targeted by the enabled affordance", async () => {
+  it("accepts the operator-selected candidate targeted by the enabled affordance", async () => {
     const base = operatorRunState();
     const secondCandidate = {
       ...base.evidenceCandidates[0],
@@ -956,6 +1033,7 @@ describe("operator route", () => {
       commandAffordances: [
         enabledCommandAffordance("accept_evidence", [], [
           { type: "work_run", id: "run_1" },
+          { type: "evidence_candidate", id: "candidate_1" },
           { type: "evidence_candidate", id: "candidate_2" }
         ])
       ]
@@ -963,7 +1041,10 @@ describe("operator route", () => {
     const network = operatorCommandNetwork(runState);
 
     renderWithRelay(<OperatorRoute />, network);
-    fireEvent.change(await screen.findByLabelText("Evidence title"), {
+    fireEvent.change(await screen.findByLabelText("Evidence candidate"), {
+      target: { value: "candidate_2" }
+    });
+    fireEvent.change(screen.getByLabelText("Evidence title"), {
       target: { value: "Second candidate" }
     });
     fireEvent.change(screen.getByLabelText("Evidence body"), {
@@ -1059,6 +1140,15 @@ describe("operator route", () => {
         ...base.missingEvidence,
         { verificationCheckId: "check_2", reason: "missing" }
       ],
+      requiredChecks: [
+        ...base.requiredChecks,
+        {
+          id: "required_2",
+          graphItemId: "graph_2",
+          verificationCheckId: "check_2",
+          state: "open"
+        }
+      ],
       commandAffordances: [
         enabledCommandAffordance("record_execution_observation", [
           { field: "run_id", value: "run_1", values: [] }
@@ -1078,9 +1168,6 @@ describe("operator route", () => {
     fireEvent.change(screen.getByLabelText("Observation outcome"), {
       target: { value: "failed" }
     });
-    fireEvent.change(screen.getByLabelText("Source graph item ID"), {
-      target: { value: "graph_2" }
-    });
     fireEvent.change(screen.getByLabelText("Observation rationale"), {
       target: { value: "The second check failed." }
     });
@@ -1090,6 +1177,7 @@ describe("operator route", () => {
       .toMatchObject({
         input: {
           verificationCheckId: "check_2",
+          sourceGraphItemId: "graph_2",
           observedStatus: "failed",
           normalizedStatus: "failed"
         }
@@ -1229,14 +1317,21 @@ function createOperatorNetwork({
 function workflowConnectionResponse(
   workflowItems: ReturnType<typeof operatorWorkflowItem>[] | null,
   variables: Readonly<Record<string, unknown>>,
-  pageInfoOverrides: Partial<OperatorWorkflowPageInfoPayload> = {}
+  pageInfoOverrides: Partial<OperatorWorkflowPageInfoPayload> = {},
+  manualIntakeAffordance: CommandAffordancePayload = enabledCommandAffordance("submit_manual_intake")
 ): GraphQLResponse {
   if (workflowItems === null) {
-    return { data: { operatorWorkflowItems: null } };
+    return {
+      data: {
+        operatorManualIntakeAffordance: manualIntakeAffordance,
+        operatorWorkflowItems: null
+      }
+    };
   }
 
   return {
     data: {
+      operatorManualIntakeAffordance: manualIntakeAffordance,
       operatorWorkflowItems: {
         edges: workflowItems.map((node, index) => ({
           cursor: `cursor_${index + 1}`,
@@ -1445,7 +1540,7 @@ function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
       executionState: "completed",
       verificationState: "pending"
     },
-    requiredChecks: [{ id: "required_1", verificationCheckId: "check_1", state: "open" }],
+    requiredChecks: [{ id: "required_1", graphItemId: "graph_1", verificationCheckId: "check_1", state: "open" }],
     observations: [
       {
         id: "observation_1",
@@ -1518,6 +1613,7 @@ type OperatorWorkflowPageInfoPayload = {
 type OperatorPacketReadinessPayload = {
   allowedNextActions: string[];
   commandAffordances: CommandAffordancePayload[];
+  status: string;
   sourceLinks: Array<{ type: string; id: string; graphItemId: string; title: string }>;
   requiredChecks: Array<{ id: string; graphItemId: string; state: string }>;
 };

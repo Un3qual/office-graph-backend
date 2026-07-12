@@ -15,6 +15,7 @@ import {
 } from "./workflow";
 
 type Props = {
+  fetchKey: number;
   readiness: PacketReadinessState | null;
   readinessInput: PacketReadinessInput | null;
   onRefresh: () => void;
@@ -23,6 +24,7 @@ type Props = {
 };
 
 export function OperatorInspector({
+  fetchKey,
   readiness,
   readinessInput,
   onRefresh,
@@ -43,9 +45,9 @@ export function OperatorInspector({
               readinessInput={readinessInput}
             />
           }
-          resetKey={`${selectedId ?? "none"}:readiness:requested`}
+          resetKey={`${selectedId ?? "none"}:readiness:requested:${fetchKey}`}
         >
-          <ValidatedReadinessPanel input={readinessInput} onRefresh={onRefresh} />
+          <ValidatedReadinessPanel fetchKey={fetchKey} input={readinessInput} onRefresh={onRefresh} />
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
@@ -59,8 +61,8 @@ export function OperatorInspector({
   );
 }
 
-function ValidatedReadinessPanel({ input, onRefresh }: { input: PacketReadinessInput; onRefresh: () => void }) {
-  const readiness = useValidatedPacketReadiness(input);
+function ValidatedReadinessPanel({ fetchKey, input, onRefresh }: { fetchKey: number; input: PacketReadinessInput; onRefresh: () => void }) {
+  const readiness = useValidatedPacketReadiness(input, fetchKey);
 
   return <>
     <ReadinessPanel readiness={readiness} readinessInput={input} />

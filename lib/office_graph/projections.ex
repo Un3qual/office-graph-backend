@@ -24,6 +24,7 @@ defmodule OfficeGraph.Projections do
   defdelegate operator_inbox(session_context, opts), to: OperatorWorkflow
   defdelegate operator_workflow_items_page(session_context, opts), to: OperatorWorkflow
   defdelegate operator_workflow_item(session_context, normalized_event_id), to: OperatorWorkflow
+  defdelegate manual_intake_affordance(session_context), to: OperatorWorkflow
   defdelegate packet_readiness(session_context, attrs), to: PacketReadiness
   defdelegate packet_workspace(session_context, packet_id), to: PacketWorkspace
   defdelegate packet_create_affordance(session_context), to: PacketWorkspace

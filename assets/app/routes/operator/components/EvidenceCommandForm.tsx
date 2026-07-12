@@ -15,6 +15,7 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
   const [claim, setClaim] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [waiverReason, setWaiverReason] = useState("");
   const [policyBasis, setPolicyBasis] = useState("owner_exception");
   const candidateAffordance = enabledAffordance(runState.commandAffordances, "create_evidence_candidate");
@@ -59,7 +60,7 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
     event.preventDefault();
     if (!acceptAffordance) return;
     const input = {
-      evidenceCandidateId: acceptableCandidateIds[0] ?? "",
+      evidenceCandidateId: selectedCandidateId || acceptableCandidateIds[0] || "",
       title: title.trim(), body: body.trim(), result: "passed", acceptancePolicyBasis: "owner_acceptance"
     };
     acceptAttempt.current = submissionIdentity(acceptAttempt.current, input);
@@ -92,6 +93,10 @@ export function EvidenceCommandForm({ onRefresh, runState }: { onRefresh: () => 
       <FormFeedback feedback={commandFeedback(candidate.state)} />
     </form> : null}
     {acceptAffordance ? <form className="operator-command-form" onSubmit={submitAccept}>
+      <label htmlFor="evidence-candidate">Evidence candidate</label>
+      <select id="evidence-candidate" name="evidenceCandidateId" onChange={event => setSelectedCandidateId(event.target.value)} value={selectedCandidateId || acceptableCandidateIds[0] || ""}>
+        {acceptableCandidateIds.map(id => <option key={id} value={id}>{id}</option>)}
+      </select>
       <label htmlFor="evidence-title">Evidence title</label><input id="evidence-title" onChange={event => setTitle(event.target.value)} value={title} />
       <label htmlFor="evidence-body">Evidence body</label><textarea id="evidence-body" onChange={event => setBody(event.target.value)} value={body} />
       <Button isDisabled={accept.state.status === "pending" || !title.trim() || !body.trim() || acceptableCandidateIds.length === 0} type="submit" variant="primary">{accept.state.status === "pending" ? "Accepting evidence" : "Accept evidence"}</Button>

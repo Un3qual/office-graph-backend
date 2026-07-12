@@ -2,6 +2,10 @@ import { graphql } from "react-relay";
 
 export const OperatorWorkflowRouteQuery = graphql`
   query OperatorWorkflowRouteQuery($first: Int!, $after: String) {
+    operatorManualIntakeAffordance {
+      identity
+      state
+    }
     operatorWorkflowItems(first: $first, after: $after) {
       edges {
         cursor
@@ -162,6 +166,8 @@ export const OperatorRunStateFragment = graphql`
       verificationState
     }
     requiredChecks {
+      id
+      graphItemId
       verificationCheckId
       state
     }

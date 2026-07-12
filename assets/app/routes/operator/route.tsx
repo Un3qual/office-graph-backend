@@ -110,6 +110,7 @@ function OperatorRouteContent({
   return (
     <OperatorWorkspace
       canPageBackward={navigation.previousCursors.length > 0}
+      fetchKey={fetchKey}
       linkedRunId={linkedRunId}
       onNextPage={onNextPage}
       onPreviousPage={onPreviousPage}
