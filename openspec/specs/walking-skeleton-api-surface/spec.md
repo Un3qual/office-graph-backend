@@ -19,8 +19,8 @@ explicitly documented custom JSON exceptions.
 #### Scenario: API mutation creates skeleton state
 
 - **WHEN** a GraphQL mutation submits manual intake, applies proposed graph
-  changes, links evidence, completes verification, or runs the current
-  packet-run verification command
+  changes, creates or versions a packet, starts a run, records an observation,
+  creates or accepts evidence, or waives a verification check
 - **THEN** it MUST call the public context/domain action and produce the
   expected authorization, validation, operation correlation, revision, and audit
   behavior

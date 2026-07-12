@@ -132,9 +132,6 @@ describe("operator route", () => {
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
     expect(network.mock.calls.some(([request]) => request.name === "OperatorPacketReadinessQuery"))
       .toBe(false);
-    expect(network.mock.calls.some(([request]) => request.name === "ExecutePacketRunVerificationMutation"))
-      .toBe(false);
-
     fireEvent.click(screen.getByRole("button", { name: "Validate readiness" }));
 
     await waitFor(() => {
@@ -164,8 +161,6 @@ describe("operator route", () => {
       );
     });
     expect(screen.queryByRole("button", { name: "Execute verification" })).not.toBeInTheDocument();
-    expect(network.mock.calls.some(([request]) => request.name === "ExecutePacketRunVerificationMutation"))
-      .toBe(false);
   });
 
   it("keeps derived readiness and workspace context visible while validation suspends", async () => {

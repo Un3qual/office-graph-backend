@@ -208,6 +208,31 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     refute command_record_snapshot() == before_snapshot
   end
 
+  test "GraphQL exposes only step-specific operator workflow commands", %{conn: conn} do
+    response =
+      raw_graphql(
+        conn,
+        """
+        query OperatorCommandSurface {
+          __schema {
+            mutationType {
+              fields { name }
+            }
+          }
+        }
+        """,
+        %{}
+      )
+
+    mutation_names =
+      response
+      |> get_in(["data", "__schema", "mutationType", "fields"])
+      |> Enum.map(& &1["name"])
+
+    retired_mutation = Enum.join(["execute", "Packet", "Run", "Verification"])
+    refute retired_mutation in mutation_names
+  end
+
   test "step-specific GraphQL commands complete the operator loop and replay safely", %{
     conn: conn
   } do

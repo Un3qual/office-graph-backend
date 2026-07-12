@@ -146,15 +146,6 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
     )
   end
 
-  defp to_response({:packet_run_flow_idempotency_conflict, flow_identity}, _opts) do
-    response(
-      :unprocessable_entity,
-      "idempotency_conflict",
-      "The packet-run-verification flow identity conflicts with different input.",
-      %{flow_identity: flow_identity}
-    )
-  end
-
   defp to_response({:observation_idempotency_conflict, observation_id}, _opts) do
     response(
       :conflict,

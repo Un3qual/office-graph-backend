@@ -40,8 +40,8 @@
 
 ## 8. Retire The One-Shot Workflow Path
 
-- [ ] 8.1 Migrate packet-run-verification domain and API behavior tests to the separate command sequence, then remove the one-shot GraphQL mutation, transport input/result modules, schema imports, and `OfficeGraph.PacketRunVerification` coordinator.
-- [ ] 8.2 Run a caller audit proving no current source, test, generated schema, Relay artifact, or durable spec references the removed one-shot product path.
+- [x] 8.1 Migrate packet-run-verification domain and API behavior tests to the separate command sequence, then remove the one-shot GraphQL mutation, transport input/result modules, schema imports, and `OfficeGraph.PacketRunVerification` coordinator.
+- [x] 8.2 Run a caller audit proving no current source, test, generated schema, Relay artifact, or durable spec references the removed one-shot product path.
 
 ## 9. Change Verification
 

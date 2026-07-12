@@ -6,7 +6,6 @@ defmodule OfficeGraph do
       Identity.SessionContext,
       Integrations,
       Operations,
-      PacketRunVerification,
       Projections,
       ProposedChanges,
       Runs,

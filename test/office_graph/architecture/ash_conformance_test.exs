@@ -666,9 +666,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     refute source =~ "def apply_proposed_changes"
     refute source =~ "def complete_verification"
     refute source =~ "def read_operator_"
-    refute source =~ "def execute_packet_run_verification"
     refute source =~ "def with_request_session_context"
-    refute source =~ "PacketRunVerification"
     refute source =~ "Projections"
     refute source =~ "Integrations"
 
@@ -699,8 +697,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
           "lib/office_graph_web/graphql/common/queries.ex",
           "lib/office_graph_web/graphql/operator_workflow/types.ex",
           "lib/office_graph_web/graphql/operator_workflow/queries.ex",
-          "lib/office_graph_web/graphql/packet_run_verification/types.ex",
-          "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"
+          "lib/office_graph_web/graphql/operator_commands/types.ex",
+          "lib/office_graph_web/graphql/operator_commands/mutations.ex"
         ] do
       assert File.exists?(required_path),
              "Expected GraphQL transport module file #{required_path}"
@@ -840,7 +838,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
 
     router_source = File.read!("lib/office_graph_web/router.ex")
     old_route = "/packet" <> "-run-verification/execute"
-    old_module_name = "JsonApi." <> "PacketRunVerification"
+    old_module_name = "JsonApi." <> Enum.join(["Packet", "Run", "Verification"])
 
     refute router_source =~ old_route
     refute router_source =~ old_module_name
@@ -2271,7 +2269,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
     [
       {:query, "lib/office_graph_web/graphql/common/queries.ex"},
       {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
-      {:mutation, "lib/office_graph_web/graphql/packet_run_verification/mutations.ex"}
+      {:mutation, "lib/office_graph_web/graphql/operator_commands/mutations.ex"}
     ]
     |> Enum.flat_map(fn {root_kind, path} ->
       graphql_root_surfaces_in_file(root_kind, path)

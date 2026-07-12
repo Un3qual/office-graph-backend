@@ -46,7 +46,6 @@ describe("Relay compiler workflow", () => {
     expect(dataSource).toContain("OperatorWorkflowItemFragment");
     expect(dataSource).toContain("OperatorPacketReadinessQuery");
     expect(dataSource).toContain("OperatorRunStateQuery");
-    expect(dataSource).not.toContain("ExecutePacketRunVerificationMutation");
     expect(dataSource).not.toContain("updateOperatorWorkflowAfterVerification");
     expect(dataSource).toContain("operatorWorkflowItems");
     expect(dataSource).not.toContain("@connection");
@@ -68,9 +67,6 @@ describe("Relay compiler workflow", () => {
     );
     expect(readGenerated(generatedDir, "OperatorRunStateQuery.graphql.ts")).toContain(
       "export type OperatorRunStateQuery$data"
-    );
-    expect(existsSync(join(generatedDir, "ExecutePacketRunVerificationMutation.graphql.ts"))).toBe(
-      false
     );
   });
 });
