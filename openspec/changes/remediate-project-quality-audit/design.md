@@ -1,6 +1,6 @@
 ## Context
 
-OfficeGraph already enforces strict formatting, Credo, Boundary, duplicate-code, architecture-smell, Dialyzer, backend-test, frontend-test, Relay, typecheck, and production-build gates. The audit found three gaps around that strong baseline: `mix verify` does not run strict OpenSpec or advisory checks, its frontend Relay step recompiles an already compiled backend, and verification command ownership is concentrated in a 1,039-line module even though waiver execution is an independent transactional workflow. A dated 554-line review handoff also remains in the root after every finding in it was resolved.
+OfficeGraph already enforces strict formatting, Credo, Boundary, duplicate-code, architecture-smell, Dialyzer, backend-test, frontend-test, Relay, typecheck, and production-build gates. The audit found gaps around that strong baseline: `mix verify` does not run strict OpenSpec or advisory checks, its frontend Relay step recompiles an already compiled backend, the GraphQL query/schema modules form a compile cycle, and verification command ownership is concentrated in a 1,039-line module even though waiver execution is an independent transactional workflow. A dated 554-line review handoff also remains in the root after every finding in it was resolved.
 
 ## Goals / Non-Goals
 
@@ -34,7 +34,11 @@ The alternative was to remove schema compilation unconditionally, which would ma
 
 ### Put source-of-truth and advisory checks in the normal gate
 
-`mix verify` and `mix precommit` run `mix hex.audit` plus strict OpenSpec spec/change validation. The shell helper delegates to Mix instead of maintaining a second hand-written backend gate. This gives one authoritative sequence and prevents future drift.
+`mix verify` and `mix precommit` run Hex and production pnpm advisory audits plus strict OpenSpec spec/change validation. The shell helper delegates to Mix instead of maintaining a second hand-written backend gate. This gives one authoritative sequence and prevents future drift.
+
+### Reject compile-time module cycles
+
+The operator-workflow query resolves the importing schema dynamically only at the Relay global-id boundary, removing the query/schema compile cycle without changing runtime identity behavior. An xref-backed architecture test rejects compile-time cycles while allowing the three existing runtime-only Phoenix and OTP coordination cycles; forcing those runtime relationships through new indirection would increase abstraction without improving compile ownership.
 
 ### Remove the resolved review handoff
 

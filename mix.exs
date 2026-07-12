@@ -36,6 +36,7 @@ defmodule OfficeGraph.MixProject do
         precommit: :test,
         verify: :test,
         "architecture.conformance": :test,
+        "dependency.audit": :test,
         "frontend.verify.precompiled": :test,
         "spec.verify": :test,
         "static.analysis": :test,
@@ -96,6 +97,7 @@ defmodule OfficeGraph.MixProject do
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
+      "dependency.audit": ["hex.audit", "cmd --cd assets pnpm audit --prod"],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
         "assets.setup",
@@ -127,7 +129,7 @@ defmodule OfficeGraph.MixProject do
         "static.analysis",
         "typecheck",
         "architecture.conformance",
-        "hex.audit",
+        "dependency.audit",
         "frontend.verify.precompiled",
         "spec.verify",
         "test"
@@ -140,7 +142,7 @@ defmodule OfficeGraph.MixProject do
         "static.analysis",
         "typecheck",
         "architecture.conformance",
-        "hex.audit",
+        "dependency.audit",
         "frontend.verify.precompiled",
         "spec.verify",
         "test"

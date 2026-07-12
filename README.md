@@ -74,7 +74,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix bou
 nix --extra-experimental-features 'nix-command flakes' develop --command mix static.analysis
 nix --extra-experimental-features 'nix-command flakes' develop --command mix typecheck
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
-nix --extra-experimental-features 'nix-command flakes' develop --command mix hex.audit
+nix --extra-experimental-features 'nix-command flakes' develop --command mix dependency.audit
 nix --extra-experimental-features 'nix-command flakes' develop --command mix frontend.verify
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict

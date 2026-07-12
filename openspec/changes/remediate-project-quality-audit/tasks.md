@@ -4,6 +4,7 @@
 - [x] 1.2 Update Postgrex to the patched 0.22.3 lock and confirm the advisory clears.
 - [x] 1.3 Make the Relay schema checker skip redundant compilation only when the parent Mix gate declares compiled beams.
 - [x] 1.4 Add dependency-advisory and strict OpenSpec validation to the verify and precommit aliases, with one authoritative shell entrypoint.
+- [x] 1.5 Remove the GraphQL schema/query compile cycle and add a regression that rejects future compile-time module cycles.
 
 ## 2. Verification Context Refactor
 

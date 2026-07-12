@@ -164,7 +164,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         {:ok, id}
 
       :error ->
-        case Absinthe.Relay.Node.from_global_id(id, OfficeGraphWeb.GraphQL.Schema) do
+        schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+
+        case Absinthe.Relay.Node.from_global_id(id, schema) do
           {:ok, %{type: :work_packet, id: packet_id}} -> {:ok, packet_id}
           _other -> {:error, {:invalid_field, :id}}
         end
