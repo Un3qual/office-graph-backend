@@ -1,6 +1,6 @@
 ## 1. Audit Record And Baseline
 
-- [ ] 1.1 Write the evidence-backed project audit with severity, affected contracts, fix disposition, long-file judgment, and explicitly deferred structural gaps.
+- [x] 1.1 Write the evidence-backed project audit with severity, affected contracts, fix disposition, long-file judgment, and explicitly deferred structural gaps.
 - [x] 1.2 Capture clean Nix baseline evidence for OpenSpec, dependency advisories, backend checks, the complete backend suite, and frontend verification, including the canonical-alias omission reproduction.
 
 ## 2. Canonical Quality Gate
