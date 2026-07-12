@@ -50,11 +50,11 @@ defmodule OfficeGraph.BoundaryLayoutTest do
       |> Keyword.fetch!(:layers)
       |> Keyword.values()
       |> List.flatten()
-      |> Enum.reject(&String.contains?(&1, "*"))
       |> Enum.reject(fn module_name ->
-        module_name
-        |> then(&Module.concat([&1]))
-        |> Code.ensure_loaded?()
+        String.contains?(module_name, "*") or
+          module_name
+          |> then(&Module.concat([&1]))
+          |> Code.ensure_loaded?()
       end)
 
     assert missing_modules == []
