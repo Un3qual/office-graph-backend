@@ -14,6 +14,7 @@ defmodule OfficeGraph.Application do
     children = [
       OfficeGraphWeb.Telemetry,
       OfficeGraph.Repo,
+      {Oban, Application.fetch_env!(:office_graph, Oban)},
       {DNSCluster, query: Application.get_env(:office_graph, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: OfficeGraph.PubSub},
       # Start a worker by calling: OfficeGraph.Worker.start_link(arg)

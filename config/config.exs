@@ -28,6 +28,11 @@ config :office_graph,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :office_graph, Oban,
+  repo: OfficeGraph.Repo,
+  queues: [delivery: 10, integrations: 5, agents: 5],
+  plugins: [Oban.Plugins.Pruner]
+
 # Configure the endpoint
 config :office_graph, OfficeGraphWeb.Endpoint,
   url: [host: "localhost"],
