@@ -2,10 +2,9 @@ import {
   Environment,
   Network,
   RecordSource,
-  Store,
-  type FetchFunction
+  Store
 } from "relay-runtime";
-import { fetchGraphQL } from "./fetchGraphQL";
+import { executeGraphQL } from "./fetchGraphQL";
 
 export type RelayEnvironment = Environment;
 
@@ -20,11 +19,9 @@ const globalIDTypes = new Set([
 ]);
 
 export function createRelayEnvironment() {
-  const fetchRelay: FetchFunction = (request, variables) => fetchGraphQL(request, variables);
-
   return new Environment({
     getDataID: getOfficeGraphDataID,
-    network: Network.create(fetchRelay),
+    network: Network.create(executeGraphQL),
     store: new Store(new RecordSource(), {
       gcReleaseBufferSize: RELAY_GC_RELEASE_BUFFER_SIZE
     })

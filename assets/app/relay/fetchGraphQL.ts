@@ -1,4 +1,9 @@
-import type { GraphQLResponse, RequestParameters, Variables } from "relay-runtime";
+import {
+  Observable,
+  type GraphQLResponse,
+  type RequestParameters,
+  type Variables
+} from "relay-runtime";
 
 const GRAPHQL_FETCH_TIMEOUT_MS = 30_000;
 
@@ -20,11 +25,22 @@ export async function fetchGraphQL(
   request: RequestParameters,
   variables: Variables
 ): Promise<GraphQLResponse> {
+  return fetchGraphQLWithSignal(request, variables);
+}
+
+async function fetchGraphQLWithSignal(
+  request: RequestParameters,
+  variables: Variables,
+  disposalSignal?: AbortSignal
+): Promise<GraphQLResponse> {
   if (!request.text) {
     throw new Error(`Relay request "${request.name}" is missing compiled GraphQL text.`);
   }
 
   const controller = new AbortController();
+  const abortDisposedRequest = () => controller.abort(disposalSignal?.reason);
+  disposalSignal?.addEventListener("abort", abortDisposedRequest, { once: true });
+  if (disposalSignal?.aborted) abortDisposedRequest();
   const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_FETCH_TIMEOUT_MS);
 
   try {
@@ -63,7 +79,31 @@ export async function fetchGraphQL(
     return payload;
   } finally {
     clearTimeout(timeoutId);
+    disposalSignal?.removeEventListener("abort", abortDisposedRequest);
   }
+}
+
+export function executeGraphQL(request: RequestParameters, variables: Variables) {
+  return Observable.create<GraphQLResponse>((sink) => {
+    const controller = new AbortController();
+    let disposed = false;
+
+    void fetchGraphQLWithSignal(request, variables, controller.signal).then(
+      (payload) => {
+        if (disposed) return;
+        sink.next(payload);
+        sink.complete();
+      },
+      (error: unknown) => {
+        if (!disposed) sink.error(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  });
 }
 
 async function readGraphQLResponse(response: Response): Promise<GraphQLResponse | null> {

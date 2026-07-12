@@ -1,6 +1,6 @@
 import type { RequestParameters } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGraphQL, GraphQLResponseError } from "./fetchGraphQL";
+import { executeGraphQL, fetchGraphQL, GraphQLResponseError } from "./fetchGraphQL";
 
 describe("fetchGraphQL", () => {
   afterEach(() => {
@@ -184,6 +184,38 @@ describe("fetchGraphQL", () => {
       })
     );
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("aborts the underlying request on subscription disposal and ignores a late payload", async () => {
+    let resolveRequest!: (response: Response) => void;
+    let observedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((resolve) => {
+        resolveRequest = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const observer = {
+      next: vi.fn(),
+      error: vi.fn(),
+      complete: vi.fn()
+    };
+    const subscription = executeGraphQL(request("DisposedQuery"), {}).subscribe(observer);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    subscription.unsubscribe();
+
+    expect(observedSignal?.aborted).toBe(true);
+
+    resolveRequest(Response.json({ data: { late: true } }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observer.next).not.toHaveBeenCalled();
+    expect(observer.error).not.toHaveBeenCalled();
+    expect(observer.complete).not.toHaveBeenCalled();
   });
 });
 
