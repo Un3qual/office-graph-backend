@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useState } from "react";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
+import { Button } from "../../../src/ui/Button";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
@@ -37,7 +38,7 @@ export function OperatorInspector({
     <>
       {validationRequested && readiness && readinessInput ? (
         <AsyncBoundary
-          errorFallback={<ReadinessPanelError />}
+          errorFallback={<ReadinessPanelError onRetry={onRefresh} />}
           loadingFallback={
             <ReadinessPanel
               isValidating
@@ -99,6 +100,7 @@ function RunStatePanels({
         <>
           <RunPanel runId={runId} runState={null} state="error" />
           <VerificationPanel state="error" verification={null} />
+          <Button onPress={refresh}>Retry run state</Button>
         </>
       }
       loadingFallback={

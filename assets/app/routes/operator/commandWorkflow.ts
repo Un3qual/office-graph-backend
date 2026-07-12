@@ -34,6 +34,7 @@ import type {
 import {
   commandMutationSuccess,
   useCommandMutation,
+  type CommandMutationSuccess,
   type CommandMutationConfig
 } from "../../relay/commandMutation";
 import {
@@ -223,11 +224,18 @@ export function useOperatorCommand<
   TMutation extends MutationParameters,
   TInput,
   TResult
->(config: CommandMutationConfig<TMutation, TInput, TResult>, onAuthoritativeChange?: () => void) {
+>(
+  config: CommandMutationConfig<TMutation, TInput, TResult>,
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
+) {
   return useCommandMutation(config, onAuthoritativeChange);
 }
 
-export function useSubmitManualIntakeCommand(onAuthoritativeChange?: () => void) {
+export function useSubmitManualIntakeCommand(
+  onAuthoritativeChange?: (
+    success?: CommandMutationSuccess<SubmitManualIntakeResult>
+  ) => void
+) {
   return useOperatorCommand<
     SubmitManualIntakeMutation,
     SubmitManualIntakeVariables["input"],

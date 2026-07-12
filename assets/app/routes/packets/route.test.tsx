@@ -304,6 +304,96 @@ describe("packet workspace route", () => {
     expect(await screen.findByText("Current version 1")).toBeInTheDocument();
   });
 
+  it("returns to the first packet page and selects a newly created packet", async () => {
+    let created = false;
+    const createdPacket = packet({
+      id: "relay_packet_created",
+      operationId: "operation_created",
+      title: "Created packet"
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        if (variables.after === "cursor_1") {
+          return packetConnectionResponse([
+            packet({ id: "packet_2", title: "Second packet" })
+          ]);
+        }
+
+        return packetConnectionResponse(
+          created ? [createdPacket, packet()] : [packet()],
+          created ? {} : { hasNextPage: true, endCursor: "cursor_1" }
+        );
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return packetWorkspaceResponse(workspace());
+      }
+
+      expect(request.name).toBe("PacketsCreateWorkPacketMutation");
+      created = true;
+      return {
+        data: {
+          createWorkPacket: {
+            command: "create_work_packet",
+            operationId: "operation_created",
+            affectedIds: [
+              { type: "work_packet", id: "raw_packet_created" },
+              { type: "work_packet_version", id: "version_created" }
+            ],
+            packet: {
+              id: "raw_packet_created",
+              currentVersionId: "version_created",
+              title: "Created packet",
+              state: "ready"
+            },
+            packetVersion: {
+              id: "version_created",
+              versionNumber: 1,
+              lifecycleState: "ready"
+            }
+          }
+        }
+      };
+    });
+
+    renderWithRelay(network);
+    await screen.findByRole("button", { name: /First packet/i });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: /Second packet/i });
+
+    const createPacket = within(screen.getByRole("region", { name: "Create packet" }));
+    fireEvent.change(createPacket.getByLabelText("Packet title"), {
+      target: { value: "Created packet" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Objective"), {
+      target: { value: "Ship the packet workspace" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Context summary"), {
+      target: { value: "Current product context" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Requirements"), {
+      target: { value: "Preserve immutable history" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Success criteria"), {
+      target: { value: "The required check passes" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Source graph item IDs"), {
+      target: { value: "graph_1" }
+    });
+    fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
+      target: { value: "check_1" }
+    });
+    fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
+
+    const createdRow = await screen.findByRole("button", { name: /Created packet/i });
+    await waitFor(() => expect(createdRow).toHaveAttribute("aria-current", "true"));
+    expect(lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+      first: 50,
+      after: null
+    });
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+  });
+
   it("creates a new version with the exact current id and preserves immutable history", async () => {
     let detail = workspace();
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {

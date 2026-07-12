@@ -15,6 +15,7 @@ type Props = {
   canPageBackward: boolean;
   fetchKey: number;
   linkedRunId: string | null;
+  onManualIntakeAuthoritativeChange: (normalizedEventId?: string) => void;
   onNextPage: (cursor: string) => void;
   onPreviousPage: () => void;
   onSelectItem: (id: string) => void;
@@ -26,6 +27,7 @@ export function OperatorWorkspace({
   canPageBackward,
   fetchKey,
   linkedRunId,
+  onManualIntakeAuthoritativeChange,
   onNextPage,
   onPreviousPage,
   onSelectItem,
@@ -40,7 +42,11 @@ export function OperatorWorkspace({
         <InboxList
             canPageBackward={canPageBackward}
             canPageForward={canPageForward}
-            intake={workflow.canSubmitManualIntake ? <ManualIntakeForm onRefresh={onRefresh} /> : null}
+            intake={workflow.canSubmitManualIntake ? (
+              <ManualIntakeForm
+                onAuthoritativeChange={onManualIntakeAuthoritativeChange}
+              />
+            ) : null}
             onNextPage={() => {
               if (workflow.inbox.nextCursor !== null) onNextPage(workflow.inbox.nextCursor);
             }}

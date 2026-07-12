@@ -215,6 +215,7 @@ describe("operator route", () => {
 
   it("keeps the operator workspace visible when readiness validation fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let readinessReads = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return workflowConnectionResponse([operatorWorkflowItem()], variables);
@@ -225,7 +226,12 @@ describe("operator route", () => {
       }
 
       if (request.name === "OperatorPacketReadinessQuery") {
-        throw new Error("authorization secret_alpha denied readiness_9");
+        readinessReads += 1;
+        if (readinessReads === 1) {
+          throw new Error("authorization secret_alpha denied readiness_9");
+        }
+
+        return { data: { operatorPacketReadiness: operatorPacketReadiness() } };
       }
 
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -247,6 +253,15 @@ describe("operator route", () => {
     );
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(document.body).not.toHaveTextContent("readiness_9");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry packet readiness" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Packet Readiness" })).toHaveTextContent(
+        "Backend readiness"
+      );
+    });
+    expect(readinessReads).toBe(2);
   });
 
   it("shows the empty state without enabling workflow commands", async () => {
@@ -586,13 +601,19 @@ describe("operator route", () => {
 
   it("keeps inbox, item, and readiness context when a linked run fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let runReads = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return workflowConnectionResponse([operatorWorkflowItem()], variables);
       }
 
       if (request.name === "OperatorRunStateQuery") {
-        throw new Error("authorization secret_alpha denied run_9");
+        runReads += 1;
+        if (runReads === 1) {
+          throw new Error("authorization secret_alpha denied run_9");
+        }
+
+        return { data: { operatorRunState: operatorRunState() } };
       }
 
       throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -619,6 +640,15 @@ describe("operator route", () => {
     );
     expect(document.body).not.toHaveTextContent("secret_alpha");
     expect(document.body).not.toHaveTextContent("run_9");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run state" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent(
+        "Awaiting evidence acceptance"
+      );
+    });
+    expect(runReads).toBe(2);
   });
 
   it("renders command affordance states without leaking hidden or redacted policy details", async () => {
@@ -782,6 +812,73 @@ describe("operator route", () => {
 
     await waitFor(() => expect(workflowReads).toBe(2));
     expect(await screen.findByRole("button", { name: /evt_new/i })).toBeInTheDocument();
+  });
+
+  it("returns to the first inbox page and selects a newly submitted intake", async () => {
+    let submitted = false;
+    const firstItem = operatorWorkflowItem();
+    const secondItem = operatorWorkflowItem({
+      id: "operator_workflow_item_2",
+      normalizedEventId: "evt_2",
+      typedId: { type: "normalized_intake_event", id: "evt_2" }
+    });
+    const newItem = operatorWorkflowItem({
+      id: "operator_workflow_item_new",
+      normalizedEventId: "evt_new",
+      typedId: { type: "normalized_intake_event", id: "evt_new" }
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        if (variables.after === "cursor_1") {
+          return workflowConnectionResponse([secondItem], variables);
+        }
+
+        return workflowConnectionResponse(
+          submitted ? [newItem, firstItem] : [firstItem],
+          variables,
+          submitted ? {} : { hasNextPage: true, endCursor: "cursor_1" }
+        );
+      }
+
+      if (request.name === "OperatorSubmitManualIntakeMutation") {
+        submitted = true;
+        return {
+          data: {
+            submitManualIntake: {
+              command: "submit_manual_intake",
+              operationId: "operation_intake_new",
+              affectedIds: [{ type: "normalized_intake_event", id: "evt_new" }],
+              normalizedEventId: "evt_new",
+              proposedChangeIds: ["change_new"]
+            }
+          }
+        };
+      }
+
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: operatorRunState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    renderWithRelay(<OperatorRoute />, network);
+    await screen.findByRole("button", { name: /evt_1/i });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: /evt_2/i });
+
+    fireEvent.change(screen.getByLabelText("Manual intake"), {
+      target: { value: "Investigate the new deployment failure" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
+
+    const newRow = await screen.findByRole("button", { name: /evt_new/i });
+    await waitFor(() => expect(newRow).toHaveAttribute("aria-current", "true"));
+    expect(lastVariablesFor(network, "OperatorWorkflowRouteQuery")).toEqual({
+      first: 50,
+      after: null
+    });
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
 
   it("hides manual intake when the backend affordance is restricted", async () => {

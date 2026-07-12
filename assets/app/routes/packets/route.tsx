@@ -42,6 +42,18 @@ export default function PacketsRoute() {
   });
   const [requestedSelection, setRequestedSelection] = useState<PacketSelection | null>(null);
 
+  const selectPacket = (selection: PacketSelection) => {
+    setRequestedSelection(selection);
+
+    if (selection.kind === "operation_id") {
+      setNavigation({
+        hasNavigated: false,
+        page: defaultPacketsPage,
+        previousCursors: []
+      });
+    }
+  };
+
   const loadNextPage = (nextCursor: string) => {
     setRequestedSelection(null);
     setNavigation(({ page, previousCursors }) => ({
@@ -88,7 +100,7 @@ export default function PacketsRoute() {
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
         onRefresh={refresh}
-        onSelectPacket={setRequestedSelection}
+        onSelectPacket={selectPacket}
         page={navigation.page}
         requestedSelection={requestedSelection}
       />

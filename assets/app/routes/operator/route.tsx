@@ -20,6 +20,7 @@ type OperatorRouteContentProps = {
   linkedRunId: string | null;
   navigation: InboxNavigation;
   onNextPage: (cursor: string) => void;
+  onManualIntakeAuthoritativeChange: (normalizedEventId?: string) => void;
   onPreviousPage: () => void;
   onSelectItem: (id: string) => void;
   onRefresh: () => void;
@@ -38,6 +39,18 @@ export default function OperatorRoute() {
     previousCursors: []
   });
   const [requestedSelectedId, setRequestedSelectedId] = useState<string | null>(null);
+
+  const handleManualIntakeAuthoritativeChange = (normalizedEventId?: string) => {
+    if (normalizedEventId) {
+      setRequestedSelectedId(normalizedEventId);
+      setNavigation({
+        page: defaultOperatorInboxPage,
+        previousCursors: []
+      });
+    }
+
+    refresh();
+  };
 
   const selectItem = (id: string) => {
     setRequestedSelectedId(id);
@@ -91,6 +104,7 @@ export default function OperatorRoute() {
         fetchKey={fetchKey}
         linkedRunId={linkedRunId}
         navigation={navigation}
+        onManualIntakeAuthoritativeChange={handleManualIntakeAuthoritativeChange}
         onNextPage={loadNextPage}
         onPreviousPage={loadPreviousPage}
         onSelectItem={selectItem}
@@ -105,6 +119,7 @@ function OperatorRouteContent({
   fetchKey,
   linkedRunId,
   navigation,
+  onManualIntakeAuthoritativeChange,
   onNextPage,
   onPreviousPage,
   onSelectItem,
@@ -123,6 +138,7 @@ function OperatorRouteContent({
       canPageBackward={navigation.previousCursors.length > 0}
       fetchKey={fetchKey}
       linkedRunId={linkedRunId}
+      onManualIntakeAuthoritativeChange={onManualIntakeAuthoritativeChange}
       onNextPage={onNextPage}
       onPreviousPage={onPreviousPage}
       onSelectItem={onSelectItem}

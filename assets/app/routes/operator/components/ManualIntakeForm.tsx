@@ -4,12 +4,18 @@ import { FormFeedback } from "../../../../src/ui/FormFeedback";
 import { commandFeedback, manualReplayIdentity, submissionIdentity } from "../commandFormSupport";
 import { useSubmitManualIntakeCommand } from "../commandWorkflow";
 
-export function ManualIntakeForm({ onRefresh }: { onRefresh: () => void }) {
+export function ManualIntakeForm({
+  onAuthoritativeChange
+}: {
+  onAuthoritativeChange: (normalizedEventId?: string) => void;
+}) {
   const [body, setBody] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
-  const command = useSubmitManualIntakeCommand(onRefresh);
+  const command = useSubmitManualIntakeCommand(success =>
+    onAuthoritativeChange(success?.result.normalizedEventId)
+  );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

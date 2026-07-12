@@ -75,13 +75,14 @@ export function ReadinessPanel({
   );
 }
 
-export function ReadinessPanelError() {
+export function ReadinessPanelError({ onRetry }: { onRetry: () => void }) {
   return (
     <Panel ariaLabel="Packet Readiness">
       <h2>Packet Readiness</h2>
       <p className="error-text" role="alert">
         Unable to validate packet readiness.
       </p>
+      <Button onPress={onRetry}>Retry packet readiness</Button>
     </Panel>
   );
 }
