@@ -12,7 +12,7 @@ Office Graph SHALL include verification gates that fail when new architecture de
 #### Scenario: Full project verification runs
 
 - **WHEN** a developer or CI runs the named full-project verification or precommit alias
-- **THEN** the gate MUST compile the backend once with warnings as errors, validate the current Relay schema and frontend build, check locked dependencies for published advisories, and run strict validation for checked-in OpenSpec specs and changes
+- **THEN** the gate MUST compile the backend once with warnings as errors, run the complete backend test suite exactly once, validate the current Relay schema and frontend build, check locked dependencies for published advisories, and run strict validation for checked-in OpenSpec specs and changes
 
 #### Scenario: New exception is required
 

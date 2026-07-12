@@ -1,6 +1,6 @@
 ## Context
 
-OfficeGraph already enforces strict formatting, Credo, Boundary, duplicate-code, architecture-smell, Dialyzer, backend-test, frontend-test, Relay, typecheck, and production-build gates. The audit found gaps around that strong baseline: `mix verify` does not run strict OpenSpec or advisory checks, its frontend Relay step recompiles an already compiled backend, the GraphQL query/schema modules form a compile cycle, and verification command ownership is concentrated in a 1,039-line module even though waiver execution is an independent transactional workflow. A dated 554-line review handoff also remains in the root after every finding in it was resolved.
+OfficeGraph already enforces strict formatting, Credo, Boundary, duplicate-code, architecture-smell, Dialyzer, backend-test, frontend-test, Relay, typecheck, and production-build gates. The audit found gaps around that strong baseline: `mix verify` does not run strict OpenSpec or advisory checks, its focused architecture alias marks Mix's `test` task as already executed before the full backend suite, its frontend Relay step recompiles an already compiled backend, the GraphQL query/schema modules form a compile cycle, and verification command ownership is concentrated in a 1,039-line module even though waiver execution is an independent transactional workflow. A dated 554-line review handoff also remains in the root after every finding in it was resolved.
 
 ## Goals / Non-Goals
 
@@ -35,6 +35,8 @@ The alternative was to remove schema compilation unconditionally, which would ma
 ### Put source-of-truth and advisory checks in the normal gate
 
 `mix verify` and `mix precommit` run Hex and production pnpm advisory audits plus strict OpenSpec spec/change validation. The shell helper delegates to Mix instead of maintaining a second hand-written backend gate. This gives one authoritative sequence and prevents future drift.
+
+The full aliases run the complete backend test task directly and do not invoke the focused `architecture.conformance` alias first. The architecture tests are already part of the full suite; invoking the focused alias first causes Mix to treat the later `test` task as already executed and silently skip the rest of the backend tests.
 
 ### Reject compile-time module cycles
 

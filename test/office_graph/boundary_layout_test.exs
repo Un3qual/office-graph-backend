@@ -43,8 +43,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert "dependency.audit" in aliases[:verify]
     assert "spec.verify" in aliases[:verify]
     assert "frontend.verify.precompiled" in aliases[:verify]
+    assert "test" in aliases[:verify]
+    refute "architecture.conformance" in aliases[:verify]
     assert "dependency.audit" in aliases[:precommit]
     assert "spec.verify" in aliases[:precommit]
+    assert "test" in aliases[:precommit]
+    refute "architecture.conformance" in aliases[:precommit]
   end
 
   test "public context modules declare boundary contracts" do
