@@ -36,6 +36,8 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       {OfficeGraph.Authorization.Domain, OfficeGraph.Authorization.AuthorizationDecision},
     "operation_correlations" =>
       {OfficeGraph.Operations.Domain, OfficeGraph.Operations.OperationCorrelation},
+    "domain_events" =>
+      {OfficeGraph.DurableDelivery.Domain, OfficeGraph.DurableDelivery.DomainEvent},
     "audit_records" => {OfficeGraph.Audit.Domain, OfficeGraph.Audit.AuditRecord},
     "revisions" => {OfficeGraph.Revisions.Domain, OfficeGraph.Revisions.Revision},
     "tombstones" => {OfficeGraph.Tombstones.Domain, OfficeGraph.Tombstones.Tombstone},
@@ -197,6 +199,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
         where: "not is_nil(idempotency_key)"
       }
     },
+    OfficeGraph.DurableDelivery.DomainEvent => %{event_key: [:event_key]},
     OfficeGraph.Content.DocumentBlock => %{unique_document_position: [:document_id, :position]},
     OfficeGraph.Content.DocumentRevision => %{
       unique_document_revision: [:document_id, :revision_number]
@@ -974,7 +977,7 @@ defmodule OfficeGraph.Architecture.AshConformanceTest do
       end)
       |> Enum.filter(fn {_resource, tables} -> length(tables) > 1 end)
 
-    assert map_size(@expected_resources) == 46
+    assert map_size(@expected_resources) == 47
     assert duplicate_resources == []
     assert migration_tables() == expected_tables
   end

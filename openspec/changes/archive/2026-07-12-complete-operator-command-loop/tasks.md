@@ -45,5 +45,5 @@
 
 ## 9. Change Verification
 
-- [ ] 9.1 Run focused backend, GraphQL, JSON, authorization, migration, Relay, route, and production-build checks; then run strict OpenSpec validation, `mix verify`, and `git diff --check`.
-- [ ] 9.2 Synchronize all delta requirements into durable specs, archive `complete-operator-command-loop`, confirm no unintended active-change or compatibility references remain, and publish the stacked PR against `codex/close-completed-changes`.
+- [x] 9.1 Run focused backend, GraphQL, JSON, authorization, migration, Relay, route, and production-build checks; then run strict OpenSpec validation, `mix verify`, and `git diff --check`.
+- [x] 9.2 Synchronize all delta requirements into durable specs, archive `complete-operator-command-loop`, confirm no unintended active-change or compatibility references remain, and publish the finalization PR against `main`.

@@ -3127,6 +3127,12 @@ defmodule OfficeGraph.Integrations.ConcurrencyTest do
   defp cleanup_committed_scope!(organization_id, principal_ids, source_identities) do
     cleanup_work_run_verification_scope_by_id!(organization_id)
 
+    Repo.query!("DELETE FROM oban_jobs WHERE args->>'organization_id' = $1", [organization_id])
+
+    Repo.query!("DELETE FROM domain_events WHERE organization_id = $1::uuid", [
+      db_uuid(organization_id)
+    ])
+
     Repo.query!("DELETE FROM proposed_graph_changes WHERE organization_id = $1::uuid", [
       db_uuid(organization_id)
     ])

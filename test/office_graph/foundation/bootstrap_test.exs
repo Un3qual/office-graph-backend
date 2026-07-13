@@ -33,6 +33,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       assert first.session.organization_id == first.organization.id
       assert MapSet.member?(first.session.capabilities, "skeleton.read")
       assert MapSet.member?(first.session.capabilities, "verification.waive")
+      assert MapSet.member?(first.session.capabilities, "durable_delivery.read")
 
       assert Ash.get!(OfficeGraph.Tenancy.Organization, first.organization.id, authorize?: false)
       assert Ash.get!(OfficeGraph.Tenancy.Workspace, first.workspace.id, authorize?: false)
@@ -116,6 +117,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :skeleton_read,
             :manual_intake_submit,
             :proposed_change_apply,
+            :durable_delivery_read,
             :evidence_link,
             :verification_complete,
             :work_packet_version_create,
@@ -139,6 +141,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :skeleton_read,
             :manual_intake_submit,
             :proposed_change_apply,
+            :durable_delivery_read,
             :evidence_link,
             :verification_complete,
             :work_packet_version_create,

@@ -11,16 +11,18 @@ defmodule OfficeGraph.Application do
   def start(_type, _args) do
     maybe_install_ecto_dev_logger()
 
-    children = [
-      OfficeGraphWeb.Telemetry,
-      OfficeGraph.Repo,
-      {DNSCluster, query: Application.get_env(:office_graph, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: OfficeGraph.PubSub},
-      # Start a worker by calling: OfficeGraph.Worker.start_link(arg)
-      # {OfficeGraph.Worker, arg},
-      # Start to serve requests, typically the last entry
-      OfficeGraphWeb.Endpoint
-    ]
+    children =
+      [
+        OfficeGraphWeb.Telemetry,
+        OfficeGraph.Repo,
+        {DNSCluster, query: Application.get_env(:office_graph, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: OfficeGraph.PubSub}
+      ] ++
+        OfficeGraph.DurableDelivery.subscription_children() ++
+        [
+          {Oban, Application.fetch_env!(:office_graph, Oban)},
+          OfficeGraphWeb.Endpoint
+        ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options

@@ -23,12 +23,4 @@ if [ "${OFFICE_GRAPH_SKIP_COMPOSE:-0}" != "1" ]; then
   compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null
 fi
 
-mix compile --warnings-as-errors
-mix format --check-formatted
-mix boundary.check
-mix static.analysis
-mix typecheck
-mix architecture.conformance
-mix test
-openspec validate --specs --strict
-openspec validate --changes --strict
+exec mix verify

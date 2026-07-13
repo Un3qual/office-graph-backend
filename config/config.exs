@@ -13,6 +13,7 @@ config :office_graph,
     OfficeGraph.Identity.Domain,
     OfficeGraph.Authorization.Domain,
     OfficeGraph.Operations.Domain,
+    OfficeGraph.DurableDelivery.Domain,
     OfficeGraph.Audit.Domain,
     OfficeGraph.Revisions.Domain,
     OfficeGraph.Tombstones.Domain,
@@ -27,6 +28,11 @@ config :office_graph,
   allow_local_api_owner_bootstrap: false,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
+
+config :office_graph, Oban,
+  repo: OfficeGraph.Repo,
+  queues: [delivery: 10, integrations: 5, agents: 5],
+  plugins: [{Oban.Plugins.Pruner, max_age: 30 * 24 * 60 * 60}]
 
 # Configure the endpoint
 config :office_graph, OfficeGraphWeb.Endpoint,

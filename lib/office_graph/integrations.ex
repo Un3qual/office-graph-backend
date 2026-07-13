@@ -6,6 +6,7 @@ defmodule OfficeGraph.Integrations do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.DurableDelivery,
       OfficeGraph.Operations,
       OfficeGraph.ProposedChanges,
       OfficeGraph.Repo
@@ -15,6 +16,7 @@ defmodule OfficeGraph.Integrations do
   require Ash.Query
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.DurableDelivery
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
@@ -190,23 +192,27 @@ defmodule OfficeGraph.Integrations do
          normalized_event,
          "accepted"
        ) do
-    case ProposedChanges.create_for_manual_intake(
-           session_context,
-           operation,
-           normalized_event,
-           attrs
-         ) do
-      {:ok, proposed_changes} ->
-        {:ok,
-         %{
-           raw_archive: raw_archive,
-           normalized_event: normalized_event,
-           duplicate?: false,
-           proposed_changes: proposed_changes
-         }}
-
-      {:error, error} ->
-        {:error, error}
+    with {:ok, proposed_changes} <-
+           ProposedChanges.create_for_manual_intake(
+             session_context,
+             operation,
+             normalized_event,
+             attrs
+           ),
+         {:ok, _event} <-
+           DurableDelivery.record_and_enqueue(session_context, operation, %{
+             event_key: "manual-intake:#{normalized_event.id}:accepted",
+             event_kind: "manual_intake.accepted",
+             subject_kind: "normalized_intake_event",
+             subject_id: normalized_event.id
+           }) do
+      {:ok,
+       %{
+         raw_archive: raw_archive,
+         normalized_event: normalized_event,
+         duplicate?: false,
+         proposed_changes: proposed_changes
+       }}
     end
   end
 

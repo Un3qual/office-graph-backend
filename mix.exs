@@ -36,6 +36,9 @@ defmodule OfficeGraph.MixProject do
         precommit: :test,
         verify: :test,
         "architecture.conformance": :test,
+        "dependency.audit": :test,
+        "frontend.verify.precompiled": :test,
+        "spec.verify": :test,
         "static.analysis": :test,
         typecheck: :test
       ]
@@ -63,6 +66,7 @@ defmodule OfficeGraph.MixProject do
       {:absinthe, "~> 1.11"},
       {:absinthe_relay, "~> 1.6"},
       {:absinthe_plug, "~> 1.5"},
+      {:oban, "~> 2.20"},
       {:boundary, "~> 0.10.4", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
@@ -93,6 +97,7 @@ defmodule OfficeGraph.MixProject do
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_conformance_test.exs"
       ],
+      "dependency.audit": ["cmd mix hex.audit", "cmd --cd assets pnpm audit --prod"],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
         "assets.setup",
@@ -101,6 +106,14 @@ defmodule OfficeGraph.MixProject do
       ],
       "assets.deploy": ["assets.build", "phx.digest"],
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
+      "frontend.verify.precompiled": [
+        "assets.setup",
+        "cmd --cd assets env MIX_ENV=test OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
+      ],
+      "spec.verify": [
+        "cmd openspec validate --specs --strict",
+        "cmd openspec validate --changes --strict"
+      ],
       "static.analysis": [
         "credo --strict",
         "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
@@ -115,8 +128,9 @@ defmodule OfficeGraph.MixProject do
         "boundary.check",
         "static.analysis",
         "typecheck",
-        "architecture.conformance",
-        "frontend.verify",
+        "dependency.audit",
+        "frontend.verify.precompiled",
+        "spec.verify",
         "test"
       ],
       precommit: [
@@ -126,8 +140,9 @@ defmodule OfficeGraph.MixProject do
         "boundary.check",
         "static.analysis",
         "typecheck",
-        "architecture.conformance",
-        "frontend.verify",
+        "dependency.audit",
+        "frontend.verify.precompiled",
+        "spec.verify",
         "test"
       ]
     ]
@@ -136,6 +151,7 @@ defmodule OfficeGraph.MixProject do
   defp ex_dna_paths do
     [
       "lib/office_graph/*.ex",
+      "lib/office_graph/verification/*.ex",
       "lib/office_graph/runs/changes/*.ex",
       "lib/office_graph/work_graph/changes/*.ex",
       "lib/office_graph/work_graph/proposal_commands.ex",

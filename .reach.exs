@@ -13,6 +13,8 @@
       "OfficeGraph.Authorization.*",
       "OfficeGraph.Content",
       "OfficeGraph.Content.*",
+      "OfficeGraph.DurableDelivery",
+      "OfficeGraph.DurableDelivery.*",
       "OfficeGraph.ExternalRefs",
       "OfficeGraph.ExternalRefs.*",
       "OfficeGraph.Foundation",
@@ -39,6 +41,7 @@
       "OfficeGraph.Tombstones",
       "OfficeGraph.Tombstones.*",
       "OfficeGraph.Verification",
+      "OfficeGraph.Verification.*",
       "OfficeGraph.WorkContainers",
       "OfficeGraph.WorkGraph",
       "OfficeGraph.WorkGraph.*",
@@ -55,7 +58,8 @@
   calls: [
     forbidden: [
       {"OfficeGraph.*", ["OfficeGraphWeb.*"], except: ["OfficeGraph.Application"]},
-      {"OfficeGraph.*", ["Plug.*", "Phoenix.*", "Absinthe.*"]}
+      {"OfficeGraph.*", ["Plug.*", "Phoenix.*", "Absinthe.*"],
+       except: ["OfficeGraph.DurableDelivery.Subscriptions"]}
     ]
   ],
   source: [
