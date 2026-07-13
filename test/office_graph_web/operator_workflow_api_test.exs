@@ -376,7 +376,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     {:ok, sensitive_only} =
       submit_manual_intake(bootstrap.session, "safe-summary-sensitive-only",
         source_identity: "manual:sensitive-only",
-        body: "API_TOKEN=opaque-value-must-not-leak"
+        body: "AWS access key AKIAIOSFODNN7EXAMPLE"
       )
 
     page = graphql(conn, @relay_inbox_query, %{first: 10}, "operatorWorkflowItems")
@@ -388,26 +388,35 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     sensitive_only_row =
       Enum.find(rows, &(&1["normalizedEventId"] == sensitive_only.normalized_event.id))
 
-    assert first_row["title"] == "Investigate failed invoice export"
-    assert second_row["title"] == "Review delayed payroll import"
+    first_title =
+      "Manual intake received #{DateTime.to_iso8601(first.normalized_event.inserted_at)}"
+
+    second_title =
+      "Manual intake received #{DateTime.to_iso8601(second.normalized_event.inserted_at)}"
+
+    sensitive_only_title =
+      "Manual intake received #{DateTime.to_iso8601(sensitive_only.normalized_event.inserted_at)}"
+
+    assert first_row["title"] == first_title
+    assert second_row["title"] == second_title
+    assert sensitive_only_row["title"] == sensitive_only_title
+    assert first_title != second_title
 
     assert first_row["sourceSummary"] ==
-             "Investigate failed invoice export · 4 proposed changes"
+             "#{first_title} · 4 proposed changes"
 
     assert second_row["sourceSummary"] ==
-             "Review delayed payroll import · 4 proposed changes"
-
-    assert sensitive_only_row["title"] == "Manual intake proposal"
+             "#{second_title} · 4 proposed changes"
 
     assert sensitive_only_row["sourceSummary"] ==
-             "Manual intake proposal · 4 proposed changes"
+             "#{sensitive_only_title} · 4 proposed changes"
 
     assert Enum.all?(first_row["proposedActionPreviews"], fn preview ->
-             preview["title"] =~ "Investigate failed invoice export"
+             preview["title"] =~ first_title
            end)
 
     assert Enum.all?(second_row["proposedActionPreviews"], fn preview ->
-             preview["title"] =~ "Review delayed payroll import"
+             preview["title"] =~ second_title
            end)
 
     assert Enum.map(first_row["proposedActionPreviews"], & &1["action"]) == [
@@ -426,7 +435,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     refute encoded =~ "PRIVATE_ARCHIVE"
     refute encoded =~ "SECRET_SOURCE"
     refute encoded =~ "PRIVATE_SOURCE"
-    refute encoded =~ "opaque-value-must-not-leak"
+    refute encoded =~ "AKIAIOSFODNN7EXAMPLE"
     refute encoded =~ first.raw_archive.id
     refute encoded =~ second.raw_archive.id
     refute encoded =~ sensitive_only.raw_archive.id

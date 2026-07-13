@@ -33,17 +33,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   @default_operator_inbox_limit 50
   @max_operator_inbox_limit 100
   @relationship_summary_limit 20
-  @summary_max_length 120
-  @unsafe_summary_patterns [
-    ~r/\b(?:api[ _-]?key|secret|token|password|passwd|credential|private[ _-]?key|authorization|cookie|session)[a-z0-9_-]*\s*[:=]\s*\S+/iu,
-    ~r/\b(?:api[ _-]?key|secret|token|password|passwd|credential|private[ _-]?key)\s+(?:is|was)\s+\S+/iu,
-    ~r/\b(?:bearer|basic)\s+\S+/iu,
-    ~r/-----BEGIN [^-]+ PRIVATE KEY-----/iu,
-    ~r/https?:\/\/\S+/iu,
-    ~r/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/iu,
-    ~r/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu,
-    ~r/\b[a-z0-9_+\/=\-]{32,}\b/iu
-  ]
 
   def manual_intake_affordance(session_context) do
     affordance =
@@ -524,7 +513,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         applied_projection.audit_trace
       )
 
-    title = proposed_change_title(proposed_changes)
+    title = proposed_change_title(event)
     graph_relationships = applied_projection.graph_relationships
 
     %{
@@ -562,11 +551,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
-  defp proposed_change_title(proposed_changes) do
-    Enum.find_value(proposed_changes, fn proposed_change ->
-      safe_payload_summary(proposed_change.payload)
-    end) || "Manual intake proposal"
+  defp proposed_change_title(%{inserted_at: %DateTime{} = inserted_at}) do
+    "Manual intake received #{DateTime.to_iso8601(inserted_at)}"
   end
+
+  defp proposed_change_title(_event), do: "Manual intake"
 
   defp read_relationship_counts_by_event_id(_session_context, []), do: {:ok, %{}}
 
@@ -603,40 +592,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         status: proposed_change.status
       }
     end)
-  end
-
-  defp safe_payload_summary(payload) when is_map(payload) do
-    title = Map.get(payload, "title") || Map.get(payload, :title)
-    body = Map.get(payload, "body") || Map.get(payload, :body)
-
-    [title | summary_segments(body)]
-    |> Enum.find_value(&safe_summary_candidate/1)
-  end
-
-  defp safe_payload_summary(_payload), do: nil
-
-  defp summary_segments(body) when is_binary(body) do
-    body
-    |> String.split(~r/(?:[.!?]\s+|\n+)/u, trim: true)
-    |> Enum.map(&String.replace(&1, ~r/[.!?]+$/u, ""))
-  end
-
-  defp summary_segments(_body), do: []
-
-  defp safe_summary_candidate(candidate) when is_binary(candidate) do
-    candidate = candidate |> String.replace(~r/\s+/u, " ") |> String.trim()
-
-    if safe_summary_candidate?(candidate) do
-      String.slice(candidate, 0, @summary_max_length)
-    end
-  end
-
-  defp safe_summary_candidate(_candidate), do: nil
-
-  defp safe_summary_candidate?(candidate) do
-    candidate != "" and
-      String.match?(candidate, ~r/^[\p{L}\p{N}\s.,:;!?'"()&+\/-]+$/u) and
-      not Enum.any?(@unsafe_summary_patterns, &Regex.match?(&1, candidate))
   end
 
   defp proposed_action_label("create_signal"), do: "Proposed signal"
