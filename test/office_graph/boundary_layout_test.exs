@@ -29,10 +29,33 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
   test "boundary compiler is part of the backend verification path" do
     project_config = Mix.Project.config()
+    aliases = project_config[:aliases]
 
     assert :boundary in project_config[:compilers]
-    assert project_config[:aliases][:"boundary.check"] == ["compile --force --warnings-as-errors"]
-    assert "boundary.check" in project_config[:aliases][:verify]
+    assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
+    assert "boundary.check" in aliases[:verify]
+
+    assert aliases[:"dependency.audit"] == [
+             "cmd mix hex.audit",
+             "cmd --cd assets pnpm audit --prod"
+           ]
+
+    assert "dependency.audit" in aliases[:verify]
+    assert "spec.verify" in aliases[:verify]
+    assert "frontend.verify.precompiled" in aliases[:verify]
+
+    assert aliases[:"frontend.verify.precompiled"] == [
+             "assets.setup",
+             "cmd --cd assets env MIX_ENV=test OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
+           ]
+
+    assert Enum.at(aliases[:"static.analysis"], 1) =~ "lib/office_graph/verification/*.ex"
+    assert "test" in aliases[:verify]
+    refute "architecture.conformance" in aliases[:verify]
+    assert "dependency.audit" in aliases[:precommit]
+    assert "spec.verify" in aliases[:precommit]
+    assert "test" in aliases[:precommit]
+    refute "architecture.conformance" in aliases[:precommit]
   end
 
   test "public context modules declare boundary contracts" do
@@ -44,10 +67,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
   test "architecture layers name only loadable concrete modules" do
     {reach_config, _bindings} = Code.eval_file(".reach.exs")
+    layers = Keyword.fetch!(reach_config, :layers)
+
+    assert "OfficeGraph.Verification.*" in Keyword.fetch!(layers, :domain)
 
     missing_modules =
-      reach_config
-      |> Keyword.fetch!(:layers)
+      layers
       |> Keyword.values()
       |> List.flatten()
       |> Enum.reject(fn module_name ->
@@ -58,5 +83,34 @@ defmodule OfficeGraph.BoundaryLayoutTest do
       end)
 
     assert missing_modules == []
+  end
+
+  test "verification waiver execution has a focused internal owner" do
+    waiver = Module.concat(OfficeGraph.Verification, Waiver)
+
+    assert Code.ensure_loaded?(waiver)
+    assert function_exported?(waiver, :execute, 5)
+  end
+
+  test "module graph has no compile-time dependency cycles" do
+    mix = System.find_executable("mix")
+
+    {cycles, exit_status} =
+      System.cmd(
+        mix,
+        [
+          "xref",
+          "graph",
+          "--format",
+          "cycles",
+          "--label",
+          "compile-connected",
+          "--fail-above",
+          "0"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert exit_status == 0, cycles
   end
 end
