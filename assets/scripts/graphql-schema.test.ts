@@ -33,7 +33,7 @@ describe("GraphQL schema generation", () => {
 
     expect(invocation.status).toBe(0);
     expect(invocation.mixCalls).toEqual([
-      "run --no-start --no-compile -e OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()"
+      "run --no-start --no-compile -e OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()",
     ]);
   });
 
@@ -43,7 +43,7 @@ describe("GraphQL schema generation", () => {
     expect(invocation.status).toBe(0);
     expect(invocation.mixCalls).toEqual([
       "compile --quiet",
-      "run --no-start --no-compile -e OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()"
+      "run --no-start --no-compile -e OfficeGraphWeb.GraphQL.Schema |> Absinthe.Schema.to_sdl() |> IO.write()",
     ]);
   });
 });
@@ -61,7 +61,7 @@ printf '%s\\n' "$*" >> "$FAKE_MIX_LOG"
 if [ "$1" = "run" ]; then
   exec /bin/sh -c 'cat "$FAKE_SCHEMA_PATH"'
 fi
-`
+`,
   );
   chmodSync(fakeMix, 0o755);
 
@@ -75,12 +75,12 @@ fi
       ...extraEnvironment,
       FAKE_MIX_LOG: logPath,
       FAKE_SCHEMA_PATH: schemaPath,
-      PATH: `${directory}${delimiter}${process.env.PATH ?? ""}`
-    }
+      PATH: `${directory}${delimiter}${process.env.PATH ?? ""}`,
+    },
   });
 
   return {
     status: result.status,
-    mixCalls: readFileSync(logPath, "utf8").trim().split("\n")
+    mixCalls: readFileSync(logPath, "utf8").trim().split("\n"),
   };
 }
