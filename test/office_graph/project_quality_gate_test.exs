@@ -19,7 +19,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     verify = Mix.Project.config()[:aliases][:verify]
 
     assert "deps.unlock --check-unused" in verify
-    assert "cmd mix hex.audit" in verify
+    assert "dependency.audit" in verify
     refute Enum.any?(verify, &String.starts_with?(&1, "deps.unlock --unused"))
   end
 

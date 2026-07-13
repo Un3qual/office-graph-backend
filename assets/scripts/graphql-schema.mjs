@@ -35,7 +35,10 @@ if (current !== schema) {
 }
 
 function generateSchema() {
-  runMix(["compile", "--quiet"]);
+  if (process.env.OFFICE_GRAPH_SCHEMA_PRECOMPILED !== "1") {
+    runMix(["compile", "--quiet"]);
+  }
+
   const result = runMix(["run", "--no-start", "--no-compile", "-e", schemaExpression]);
 
   return `${result.stdout.trimEnd()}\n`;

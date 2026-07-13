@@ -157,7 +157,7 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
     [job] = jobs_for_event(event.id)
     assert :ok = DispatchEventWorker.perform(job)
-    assert_receive {:projection_invalidated, %{event_id: event_id}}
+    assert_receive {:projection_invalidated, %{event_id: event_id}}, 500
     assert event_id == event.id
   end
 

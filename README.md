@@ -95,4 +95,23 @@ Focused developer commands remain available inside the Nix shell:
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/walking_skeleton_test.exs
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
 nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir assets test
+nix --extra-experimental-features 'nix-command flakes' develop --command mix dependency.audit
+nix --extra-experimental-features 'nix-command flakes' develop --command mix frontend.verify
+nix --extra-experimental-features 'nix-command flakes' develop --command mix test
+nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --specs --strict
+nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
+```
+
+The historical script name remains for compatibility and delegates to the
+canonical `bin/verify` entry point:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
+```
+
+If Postgres is already provided outside Docker Compose, skip the local Compose
+startup:
+
+```sh
+OFFICE_GRAPH_SKIP_COMPOSE=1 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend
 ```

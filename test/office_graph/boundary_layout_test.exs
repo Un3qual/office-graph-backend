@@ -29,10 +29,23 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
   test "boundary compiler is part of the backend verification path" do
     project_config = Mix.Project.config()
+    aliases = project_config[:aliases]
 
     assert :boundary in project_config[:compilers]
-    assert project_config[:aliases][:"boundary.check"] == ["compile --force --warnings-as-errors"]
-    assert "boundary.check" in project_config[:aliases][:verify]
+    assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
+    assert "boundary.check" in aliases[:verify]
+
+    assert aliases[:"dependency.audit"] == [
+             "cmd mix hex.audit",
+             "cmd --cd assets pnpm audit --prod"
+           ]
+
+    assert "dependency.audit" in aliases[:verify]
+    assert "spec.verify" in aliases[:verify]
+    assert "frontend.verify.precompiled" in aliases[:verify]
+    assert "test" in aliases[:verify]
+    refute "architecture.conformance" in aliases[:verify]
+    assert aliases[:precommit] == ["verify"]
   end
 
   test "public context modules declare boundary contracts" do
@@ -58,5 +71,22 @@ defmodule OfficeGraph.BoundaryLayoutTest do
       end)
 
     assert missing_modules == []
+  end
+
+  test "verification waiver execution has a focused internal owner" do
+    waiver = Module.concat(OfficeGraph.Verification, Waiver)
+
+    assert Code.ensure_loaded?(waiver)
+    assert function_exported?(waiver, :execute, 5)
+  end
+
+  test "module graph has no compile-time dependency cycles" do
+    mix = System.find_executable("mix")
+
+    {cycles, exit_status} =
+      System.cmd(mix, ["xref", "graph", "--format", "cycles"], stderr_to_stdout: true)
+
+    assert exit_status == 0, cycles
+    refute cycles =~ " compile)", cycles
   end
 end

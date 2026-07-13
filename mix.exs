@@ -36,6 +36,9 @@ defmodule OfficeGraph.MixProject do
         precommit: :test,
         verify: :test,
         "architecture.conformance": :test,
+        "dependency.audit": :test,
+        "frontend.verify.precompiled": :test,
+        "spec.verify": :test,
         "static.analysis": :test,
         typecheck: :test
       ]
@@ -94,6 +97,7 @@ defmodule OfficeGraph.MixProject do
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
       ],
+      "dependency.audit": ["cmd mix hex.audit", "cmd --cd assets pnpm audit --prod"],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
         "assets.setup",
@@ -102,7 +106,14 @@ defmodule OfficeGraph.MixProject do
       ],
       "assets.deploy": ["assets.build", "phx.digest"],
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
-      "frontend.audit": ["assets.setup", "cmd --cd assets pnpm audit --audit-level high"],
+      "frontend.verify.precompiled": [
+        "assets.setup",
+        "cmd --cd assets env OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
+      ],
+      "spec.verify": [
+        "cmd openspec validate --specs --strict",
+        "cmd openspec validate --changes --strict"
+      ],
       "static.analysis": [
         "credo --strict",
         "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
@@ -119,12 +130,10 @@ defmodule OfficeGraph.MixProject do
         "boundary.check",
         "static.analysis",
         "typecheck",
-        "cmd mix hex.audit",
-        "cmd openspec validate --specs --strict",
-        "cmd openspec validate --changes --strict",
+        "dependency.audit",
+        "spec.verify",
         "cmd ./bin/check-spec-purposes",
-        "frontend.audit",
-        "frontend.verify",
+        "frontend.verify.precompiled",
         "production.build",
         "test"
       ],

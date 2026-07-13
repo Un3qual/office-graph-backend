@@ -1,7 +1,10 @@
 # durable-work-delivery Specification
 
 ## Purpose
-Define Postgres-backed job delivery, retry, telemetry, and terminal-history guarantees for durable work.
+Define the canonical requirements for typed, transactional, Postgres-backed
+asynchronous work delivery, including retries, terminal failure handling,
+scoped operator visibility, and operational telemetry.
+
 ## Requirements
 ### Requirement: Durable Work Uses Postgres-Backed Jobs
 

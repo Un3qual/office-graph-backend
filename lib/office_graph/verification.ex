@@ -20,9 +20,9 @@ defmodule OfficeGraph.Verification do
   alias OfficeGraph.Content
   alias OfficeGraph.Operations
   alias OfficeGraph.Repo
-  alias OfficeGraph.{Audit, Revisions}
   alias OfficeGraph.Runs
   alias OfficeGraph.Verification.ResultSlotPolicy
+  alias OfficeGraph.Verification.Waiver
   alias OfficeGraph.WorkGraph
 
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
@@ -38,11 +38,23 @@ defmodule OfficeGraph.Verification do
     VerificationResult
   }
 
+  import OfficeGraph.Verification.CommandSupport,
+    only: [
+      fetch_optional_scoped: 3,
+      fetch_scoped: 3,
+      fetch_scoped!: 3,
+      lock_operation!: 1,
+      lock_optional_scoped!: 3,
+      normalize_transaction_result: 1,
+      trace!: 4,
+      validate_scope: 2,
+      validate_scope!: 2
+    ]
+
   require Ash.Query
 
   @evidence_candidate_create_action "evidence_candidate.create"
   @evidence_accept_action "evidence.accept"
-  @verification_waive_action "verification.waive"
   @evidence_results ["passed", "failed"]
 
   def get_candidate_for_accept_command(session_context, id) do
@@ -120,29 +132,7 @@ defmodule OfficeGraph.Verification do
 
   def waive_required_check(session_context, operation, run, required_check, attrs)
       when is_map(run) and is_map(required_check) and is_map(attrs) do
-    command_input =
-      attrs
-      |> Map.put(:run_id, run.id)
-      |> Map.put(:run_required_check_id, required_check.id)
-
-    with :ok <- Operations.validate_operation_context(session_context, operation),
-         :ok <- Operations.validate_operation_action(operation, @verification_waive_action),
-         :ok <- Operations.validate_command_replay(operation, command_input),
-         :ok <-
-           Authorization.authorize_operation(
-             session_context,
-             operation,
-             :verification_waive,
-             organization_id: session_context.organization_id
-           ),
-         :ok <- validate_waiver_attrs(attrs) do
-      waive_required_check_record(
-        session_context,
-        operation,
-        %{run_id: run.id, required_check_id: required_check.id},
-        attrs
-      )
-    end
+    Waiver.execute(session_context, operation, run, required_check, attrs)
   end
 
   def passed_evidence_input_acceptable?(attrs) when is_map(attrs) do
@@ -248,169 +238,6 @@ defmodule OfficeGraph.Verification do
       end
     end)
     |> normalize_transaction_result()
-  end
-
-  defp waive_required_check_record(session_context, operation, target, attrs) do
-    Repo.transaction(fn ->
-      _operation = lock_operation!(operation.id)
-      run = lock_scoped!(Run, session_context, target.run_id)
-      required_checks = lock_run_required_checks!(run.id)
-
-      case existing_waiver_for_operation(session_context, operation) do
-        {:ok, nil} ->
-          waive_locked_required_check!(
-            session_context,
-            operation,
-            run,
-            required_checks,
-            target.required_check_id,
-            attrs
-          )
-
-        {:ok, verification_result} ->
-          replay_waiver!(run, required_checks, verification_result, target.required_check_id)
-
-        {:error, error} ->
-          Repo.rollback(error)
-      end
-    end)
-    |> normalize_transaction_result()
-  end
-
-  defp waive_locked_required_check!(
-         session_context,
-         operation,
-         run,
-         required_checks,
-         required_check_id,
-         attrs
-       ) do
-    required_check = validate_pending_required_check!(run, required_checks, required_check_id)
-    validate_expected_run_state!(run, attrs)
-
-    case Runs.validate_required_check_contract(run, required_check) do
-      :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
-    end
-
-    verification_check =
-      fetch_scoped!(VerificationCheck, session_context, required_check.verification_check_id)
-
-    verification_result =
-      Repo.ash_create!(
-        VerificationResult,
-        %{
-          id: Ecto.UUID.generate(),
-          organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id,
-          verification_check_id: required_check.verification_check_id,
-          evidence_item_id: nil,
-          operation_id: operation.id,
-          work_run_id: run.id,
-          work_packet_version_id: run.work_packet_version_id,
-          target_graph_item_id: verification_check.graph_item_id,
-          actor_principal_id: session_context.principal_id,
-          policy_basis: attrs[:policy_basis],
-          reason: attrs[:reason],
-          recorded_at: DateTime.utc_now(),
-          result: "waived"
-        }
-      )
-
-    %{run: updated_run, required_check: updated_required_check} =
-      case Runs.apply_waived_verification_result(run, verification_result) do
-        {:ok, result} -> result
-        {:error, error} -> Repo.rollback(error)
-      end
-
-    trace!(
-      operation,
-      "verification_result.waive",
-      "verification_result",
-      verification_result.id
-    )
-
-    trace!(
-      operation,
-      "run_required_check.waive",
-      "run_required_check",
-      updated_required_check.id
-    )
-
-    %{
-      verification_result: verification_result,
-      required_check: updated_required_check,
-      run: updated_run
-    }
-  end
-
-  defp replay_waiver!(run, required_checks, verification_result, required_check_id) do
-    required_check =
-      Enum.find(required_checks, &(&1.id == required_check_id)) ||
-        Repo.rollback({:run_required_check_mismatch, run.id, required_check_id})
-
-    if verification_result.result == "waived" and
-         verification_result.work_run_id == run.id and
-         verification_result.verification_check_id == required_check.verification_check_id do
-      %{
-        verification_result: verification_result,
-        required_check: required_check,
-        run: run
-      }
-    else
-      Repo.rollback({:verification_waiver_operation_conflict, verification_result.id})
-    end
-  end
-
-  defp validate_pending_required_check!(run, required_checks, required_check_id) do
-    case Enum.find(required_checks, &(&1.id == required_check_id)) do
-      nil ->
-        Repo.rollback({:run_required_check_mismatch, run.id, required_check_id})
-
-      %{state: "pending"} = required_check ->
-        required_check
-
-      required_check ->
-        Repo.rollback({:run_required_check_not_pending, required_check.id, required_check.state})
-    end
-  end
-
-  defp validate_expected_run_state!(run, attrs) do
-    if run.execution_state == attrs[:expected_execution_state] and
-         run.verification_state == attrs[:expected_verification_state] do
-      :ok
-    else
-      Repo.rollback({:stale_work_run_state, run.id, run.execution_state, run.verification_state})
-    end
-  end
-
-  defp validate_waiver_attrs(attrs) do
-    Enum.find_value([:reason, :policy_basis], :ok, fn field ->
-      case attrs[field] do
-        value when is_binary(value) ->
-          if String.trim(value) == "", do: {:error, {:invalid_waiver_input, field}}
-
-        _other ->
-          {:error, {:invalid_waiver_input, field}}
-      end
-    end)
-  end
-
-  defp existing_waiver_for_operation(session_context, operation) do
-    VerificationResult
-    |> Ash.Query.filter(
-      organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and operation_id == ^operation.id
-    )
-    |> Ash.read_one(authorize?: false)
-  end
-
-  defp lock_run_required_checks!(run_id) do
-    RunRequiredCheck
-    |> Ash.Query.filter(run_id == ^run_id)
-    |> Ash.Query.sort(position: :asc, id: :asc)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read!(authorize?: false)
   end
 
   defp create_evidence_candidate_record!(session_context, operation, attrs) do
@@ -604,12 +431,6 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp fetch_optional_scoped(_resource, _session_context, nil), do: {:ok, nil}
-
-  defp fetch_optional_scoped(resource, session_context, id) do
-    fetch_scoped(resource, session_context, id)
-  end
-
   defp validate_run_requires_check(nil, _verification_check), do: :ok
 
   defp validate_run_requires_check(work_run, verification_check) do
@@ -643,32 +464,6 @@ defmodule OfficeGraph.Verification do
             observation.graph_item_id == verification_check.graph_item_id))
   end
 
-  defp fetch_scoped(resource, session_context, id) do
-    resource
-    |> Ash.Query.filter(id == ^id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
-        {:error, {:not_found, resource, id}}
-
-      {:ok, record} ->
-        case validate_scope(session_context, record) do
-          :ok -> {:ok, record}
-          {:error, error} -> {:error, error}
-        end
-
-      {:error, error} ->
-        {:error, error}
-    end
-  end
-
-  defp fetch_scoped!(resource, session_context, id) do
-    case fetch_scoped(resource, session_context, id) do
-      {:ok, record} -> record
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
   defp lock_candidate!(id) do
     EvidenceCandidate
     |> Ash.Query.filter(id == ^id)
@@ -679,30 +474,6 @@ defmodule OfficeGraph.Verification do
       {:ok, candidate} -> candidate
       {:error, error} -> Repo.rollback(error)
     end
-  end
-
-  defp lock_scoped!(resource, session_context, id) do
-    resource
-    |> Ash.Query.filter(id == ^id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
-        Repo.rollback({:not_found, resource, id})
-
-      {:ok, record} ->
-        validate_scope!(session_context, record)
-        record
-
-      {:error, error} ->
-        Repo.rollback(error)
-    end
-  end
-
-  defp lock_optional_scoped!(_resource, _session_context, nil), do: nil
-
-  defp lock_optional_scoped!(resource, session_context, id) do
-    lock_scoped!(resource, session_context, id)
   end
 
   defp validate_evidence_result!(result) when result in @evidence_results, do: :ok
@@ -982,13 +753,6 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp lock_operation!(operation_id) do
-    case Operations.lock_operation(operation_id) do
-      {:ok, operation} -> operation
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
   defp read_verification_result_for_evidence(evidence_item_id) do
     VerificationResult
     |> Ash.Query.filter(evidence_item_id == ^evidence_item_id)
@@ -1029,30 +793,6 @@ defmodule OfficeGraph.Verification do
     )
   end
 
-  defp trace!(operation, action, resource_type, resource_id) do
-    Audit.record!(operation, action, resource_type, resource_id)
-    Revisions.record!(operation, resource_type, resource_id, action, action)
-  end
-
-  defp validate_scope(session_context, record) do
-    if record.organization_id == session_context.organization_id and
-         record.workspace_id == session_context.workspace_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  defp validate_scope!(session_context, record) do
-    case validate_scope(session_context, record) do
-      :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
   defp unwrap_notification_result({record, _notifications}), do: record
   defp unwrap_notification_result(record), do: record
-
-  defp normalize_transaction_result({:ok, result}), do: {:ok, result}
-  defp normalize_transaction_result({:error, error}), do: {:error, error}
 end
