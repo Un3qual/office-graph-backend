@@ -251,12 +251,14 @@ defmodule OfficeGraph.Runs do
            ),
          {:ok, run} <- fetch_scoped(Run, session_context, run_id),
          {:ok, required_checks} <- read_run_required_checks(run),
-         {:ok, verification_results} <- read_verification_results(run) do
+         {:ok, verification_results} <- read_verification_results(run),
+         {:ok, child_counts} <- projection_child_counts(run) do
       {:ok,
        %{
          run: run,
          verification_results: verification_results,
-         missing_evidence: missing_evidence(required_checks, verification_results)
+         missing_evidence: missing_evidence(required_checks, verification_results),
+         child_counts: child_counts
        }}
     end
   end

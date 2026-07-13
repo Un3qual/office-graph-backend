@@ -257,6 +257,72 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert second_related["pageInfo"]["hasPreviousPage"] == true
   end
 
+  test "compact workflow summaries retain the latest linked run", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, intake} = submit_manual_intake(bootstrap.session, "compact-run-link")
+    {:ok, applied} = apply_changes(bootstrap.session, intake.proposed_changes)
+
+    packets =
+      Enum.map(1..16, fn index ->
+        {:ok, packet} =
+          OperatorCommandFixtures.create_ready_packet(
+            bootstrap.session,
+            [applied.verification_check],
+            %{
+              title: "Compact run link packet #{index}",
+              objective: "Keep the linked run reachable from the operator inbox.",
+              context_summary: "Many related packets must not displace the active run.",
+              requirements: "Retain the latest run in the bounded relationship summary.",
+              success_criteria: "The compact graph link page includes the linked run.",
+              autonomy_posture: "human_supervised"
+            },
+            idempotency_key: "compact-run-link-packet-#{index}"
+          )
+
+        packet
+      end)
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :work_run_start,
+        idempotency_key: "compact-run-link-start"
+      )
+
+    {:ok, run_result} =
+      OfficeGraph.Runs.start_run(
+        bootstrap.session,
+        operation,
+        List.last(packets).version,
+        %{
+          objective: "Run retained beyond the compact relationship limit.",
+          source_surface: "operator_workflow_graphql_test",
+          reason: "Prove the latest run remains linked.",
+          authority_posture: "human_supervised"
+        }
+      )
+
+    item =
+      graphql(
+        conn,
+        """
+        query CompactRunLink($id: ID!) {
+          operatorWorkflowItem(id: $id) {
+            status
+            graphLinks { type id }
+            relationshipSummary { graphLinks hasMore }
+          }
+        }
+        """,
+        %{id: intake.normalized_event.id},
+        "operatorWorkflowItem"
+      )
+
+    assert item["status"] == "running"
+    assert length(item["graphLinks"]) == 20
+    assert item["relationshipSummary"] == %{"graphLinks" => 21, "hasMore" => true}
+
+    assert %{"type" => "work_run", "id" => run_result.run.id} in item["graphLinks"]
+  end
+
   test "GraphQL exposes Relay node ids and connection pagination for operator workflow items",
        %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -620,6 +686,20 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert hd(run_state["evidenceCandidates"])["executionObservationId"] ==
              observation_result.observation.id
+
+    pending_outcome =
+      graphql(
+        conn,
+        """
+        query PendingOutcome($id: ID!) {
+          operatorVerificationOutcome(id: $id) { status }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorVerificationOutcome"
+      )
+
+    assert pending_outcome["status"] == "awaiting_evidence_acceptance"
 
     {:ok, accepted} =
       accept_candidate(bootstrap.session, candidate, key: "graphql-run", result: "passed")

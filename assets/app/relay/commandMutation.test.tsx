@@ -20,6 +20,25 @@ describe("command mutation failure mapping", () => {
     });
   });
 
+  it("maps array-form validation fields without collapsing them into a generic error", () => {
+    const failure = graphQLError([
+      error("Validation failed.", "validation_failed", {
+        fields: [
+          { field: "source_graph_item_ids", message: "is invalid" },
+          { field: "verification_check_ids", message: "is invalid" },
+        ],
+      }),
+    ]);
+
+    expect(mapCommandFailure(failure)).toEqual({
+      status: "field-error",
+      fields: [
+        { field: "source_graph_item_ids", message: "is invalid" },
+        { field: "verification_check_ids", message: "is invalid" },
+      ],
+    });
+  });
+
   it.each([
     "active_work_run",
     "idempotency_conflict",

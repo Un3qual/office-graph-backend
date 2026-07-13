@@ -537,7 +537,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       command_affordances: command_affordances,
       operation_watermark: event.operation_id,
       source_watermark: event.operation_id,
-      graph_links: Enum.take(graph_links, @relationship_summary_limit),
+      graph_links: compact_graph_links(graph_links),
       graph_relationships: Enum.take(graph_relationships, @relationship_summary_limit),
       relationship_summary: %{
         graph_links: exact_relationship_counts.graph_links,
@@ -549,6 +549,22 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       audit_trace: applied_projection.audit_trace,
       revision_trace: applied_projection.revision_trace
     }
+  end
+
+  defp compact_graph_links(graph_links) do
+    compact_links = Enum.take(graph_links, @relationship_summary_limit)
+
+    case Enum.find(graph_links, &(&1.type == "work_run")) do
+      nil ->
+        compact_links
+
+      latest_run ->
+        if latest_run in compact_links do
+          compact_links
+        else
+          List.replace_at(compact_links, -1, latest_run)
+        end
+    end
   end
 
   defp proposed_change_title(%{id: id, inserted_at: %DateTime{} = inserted_at})

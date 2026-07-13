@@ -83,5 +83,5 @@ fi
 
 mix local.hex --force --if-missing
 mix local.rebar --force --if-missing
-mix deps.get
+mix deps.get --check-locked
 mix verify

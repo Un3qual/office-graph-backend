@@ -142,7 +142,7 @@ defmodule OfficeGraph.Projections.RunState do
       {:ok,
        %{
          type: "verification_outcome",
-         status: verification_outcome_status(summary.run),
+         status: run_status(summary, []),
          run: %{
            id: summary.run.id,
            aggregate_state: summary.run.aggregate_state,
@@ -155,16 +155,6 @@ defmodule OfficeGraph.Projections.RunState do
        }}
     end
   end
-
-  defp verification_outcome_status(run)
-       when run.verification_state == "verified" or run.aggregate_state == "verified",
-       do: "verified"
-
-  defp verification_outcome_status(run)
-       when run.verification_state == "failed" or run.aggregate_state == "failed",
-       do: "failed"
-
-  defp verification_outcome_status(_run), do: "awaiting_evidence"
 
   defp outcome_watermark(run, results, missing) do
     {run.id, run.aggregate_state, run.execution_state, run.verification_state, results, missing}

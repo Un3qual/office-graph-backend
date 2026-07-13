@@ -159,14 +159,7 @@ export function mapCommandFailure(
 function mapPayloadErrors(
   errors: readonly SafePayloadError[],
 ): Exclude<CommandMutationState<never>, { status: "idle" | "pending" | "success" }> {
-  const fields = errors.flatMap((payloadError) => {
-    const extensions = payloadError.extensions;
-    const field = extensions?.field;
-
-    return extensions?.code === "validation_failed" && typeof field === "string"
-      ? [{ field, message: payloadError.message }]
-      : [];
-  });
+  const fields = errors.flatMap(validationFieldErrors);
 
   if (fields.length > 0) {
     return { status: "field-error", fields };
@@ -189,4 +182,27 @@ function mapPayloadErrors(
   }
 
   return { status: "error", code, message: firstError.message };
+}
+
+function validationFieldErrors(payloadError: SafePayloadError): readonly CommandFieldError[] {
+  const extensions = payloadError.extensions;
+
+  if (extensions?.code !== "validation_failed") {
+    return [];
+  }
+
+  const field = extensions.field;
+
+  if (typeof field === "string") {
+    return [{ field, message: payloadError.message }];
+  }
+
+  return Array.isArray(extensions.fields)
+    ? extensions.fields.flatMap((candidate) => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+
+        const { field, message } = candidate as Record<string, unknown>;
+        return typeof field === "string" && typeof message === "string" ? [{ field, message }] : [];
+      })
+    : [];
 }

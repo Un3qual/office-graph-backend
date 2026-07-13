@@ -48,7 +48,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
               [
                 "local.hex --force --if-missing",
                 "local.rebar --force --if-missing",
-                "deps.get",
+                "deps.get --check-locked",
                 "verify"
               ]}
 
