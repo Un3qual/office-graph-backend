@@ -291,6 +291,14 @@ pagination on refresh, remove the last dead form helper, and enforce executable
 route architecture from parsed TypeScript/GraphQL facts with adversarial
 fixtures for comments, aliases, and computed imports.
 
+### REVIEW-010 — P3: Wrapped-field traversal grew quadratically
+
+The first wrapped Ash error fix concatenated each recursively extracted field
+list, which strict Reach correctly rejected as an O(n²) accumulator pattern.
+
+**Disposition:** use a linear reversed accumulator that preserves field order
+and remains total for malformed improper error lists.
+
 ## Structural Follow-Ups Requiring Separate OpenSpec Changes
 
 These are confirmed mismatches, not dismissed findings. They are not partially implemented in this remediation because each changes durable data contracts and compatibility behavior.
@@ -318,12 +326,12 @@ an equivalent structural gate before the implementation. The final branch then
 passed `./bin/verify` twice from the pinned Nix environment without changing the
 worktree:
 
-- ExUnit seed `247511`: 444 backend tests; 156 frontend tests; strict Credo,
+- ExUnit seed `729796`: 445 backend tests; 163 frontend tests; strict Credo,
   ExDNA, Reach, Dialyzer, dependency advisories, all 96 canonical specs plus the
   active change, Relay generation, type-checking, linting, and production
   client, SSR, and backend builds.
-- ExUnit seed `847860`: the same complete gate, with 444 backend tests and 156
-  frontend tests.
+- A second independently randomized run passed the same complete gate with 445
+  backend tests and 163 frontend tests.
 
 The stacked base `codex/project-quality-audit` remained at commit `6276585` and
 is an ancestor of the verified branch head.
