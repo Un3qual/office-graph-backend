@@ -135,6 +135,49 @@ describe("packet route data architecture", () => {
     expect(operatorOnlyDependencies).toEqual([]);
     expect(duplicatedSharedClasses).toEqual([]);
   });
+
+  it("expands finite template-generated classes in reachable shared components", () => {
+    const buttonPath = join(assetsRoot, "src/ui/Button.tsx");
+    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath);
+
+    expect(buttonClasses).toEqual(
+      expect.arrayContaining(["ui-button", "ui-button-primary", "ui-button-secondary"]),
+    );
+  });
+
+  it("fails closed when a generated class has an unbounded template span", () => {
+    const source = `
+      function DynamicClass({ suffix }: { suffix: string }) {
+        return <div className={\`ui-\${suffix}\`} />;
+      }
+    `;
+
+    expect(() => classNames(source, "dynamic-class.tsx")).toThrowError(
+      "Unsupported dynamic className template span: suffix",
+    );
+  });
+
+  it("fails closed when any conditional template branch is unbounded", () => {
+    const source = `
+      function DynamicClass({ active, suffix }: { active: boolean; suffix: string }) {
+        return <div className={\`ui-\${active ? "active" : suffix}\`} />;
+      }
+    `;
+
+    expect(() => classNames(source, "conditional-class.tsx")).toThrowError(
+      'Unsupported dynamic className template span: active ? "active" : suffix',
+    );
+  });
+
+  it("distinguishes stylesheet owners from scoped class references", () => {
+    const owners = stylesheetClassesFromSource(`
+      .packet-command-card .ui-form-feedback { margin-top: 8px; }
+      .packet-command-card { display: grid; }
+      .ui-owning-control[data-kind="error"] { color: red; }
+    `);
+
+    expect([...owners].sort()).toEqual(["packet-command-card", "ui-owning-control"]);
+  });
 });
 
 function localDependencyFiles(entries: string[]) {
@@ -194,11 +237,21 @@ function classNames(source: string, filename: string) {
   );
   const names = new Set<string>();
 
+  const addTokens = (value: string) => {
+    for (const token of value.split(/\s+/)) {
+      if (/^[a-z][\w-]*$/i.test(token)) names.add(token);
+    }
+  };
+
   const collectTokens = (node: ts.Node) => {
+    if (ts.isTemplateExpression(node)) {
+      for (const value of finiteTemplateValues(node, sourceFile)) addTokens(value);
+      return;
+    }
+
     if (ts.isStringLiteralLike(node)) {
-      for (const token of node.text.split(/\s+/)) {
-        if (/^[a-z][\w-]*$/i.test(token)) names.add(token);
-      }
+      addTokens(node.text);
+      return;
     }
 
     ts.forEachChild(node, collectTokens);
@@ -222,7 +275,103 @@ function classNames(source: string, filename: string) {
   return [...names];
 }
 
+function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.SourceFile) {
+  let values = [template.head.text];
+
+  for (const span of template.templateSpans) {
+    const spanValues = finiteSpanValues(span.expression, sourceFile);
+    if (spanValues.length === 0) {
+      throw new Error(
+        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
+      );
+    }
+
+    values = values.flatMap((prefix) =>
+      spanValues.map((spanValue) => `${prefix}${spanValue}${span.literal.text}`),
+    );
+  }
+
+  return values;
+}
+
+function finiteSpanValues(expression: ts.Expression, sourceFile: ts.SourceFile): string[] {
+  if (ts.isStringLiteralLike(expression)) return [expression.text];
+
+  if (ts.isConditionalExpression(expression)) {
+    const whenTrue = finiteSpanValues(expression.whenTrue, sourceFile);
+    const whenFalse = finiteSpanValues(expression.whenFalse, sourceFile);
+    return whenTrue.length > 0 && whenFalse.length > 0 ? [...whenTrue, ...whenFalse] : [];
+  }
+
+  if (ts.isIdentifier(expression)) {
+    return literalPropertyValues(expression.text, sourceFile);
+  }
+
+  return [];
+}
+
+function literalPropertyValues(identifier: string, sourceFile: ts.SourceFile) {
+  const typeNames = new Set<string>();
+  const values = new Set<string>();
+
+  walk(sourceFile, (node) => {
+    if (ts.isBindingElement(node) && ts.isIdentifier(node.name) && node.name.text === identifier) {
+      const declaration = node.parent.parent;
+      if (
+        ts.isParameter(declaration) &&
+        declaration.type &&
+        ts.isTypeReferenceNode(declaration.type) &&
+        ts.isIdentifier(declaration.type.typeName)
+      ) {
+        typeNames.add(declaration.type.typeName.text);
+      }
+    }
+  });
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isTypeAliasDeclaration(statement) && typeNames.has(statement.name.text)) {
+      walk(statement.type, (node) => {
+        if (
+          ts.isPropertySignature(node) &&
+          node.type &&
+          (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+          node.name.text === identifier
+        ) {
+          const members = ts.isUnionTypeNode(node.type) ? node.type.types : [node.type];
+          for (const member of members) {
+            if (ts.isLiteralTypeNode(member) && ts.isStringLiteralLike(member.literal)) {
+              values.add(member.literal.text);
+            }
+          }
+        }
+      });
+    }
+  }
+
+  return [...values];
+}
+
+function walk(node: ts.Node, visit: (node: ts.Node) => void) {
+  visit(node);
+  ts.forEachChild(node, (child) => walk(child, visit));
+}
+
 function stylesheetClasses(relativePath: string) {
   const styles = readFileSync(join(assetsRoot, relativePath), "utf8");
-  return new Set(Array.from(styles.matchAll(/\.([a-z_][\w-]*)/gi), (match) => match[1]));
+  return stylesheetClassesFromSource(styles);
+}
+
+function stylesheetClassesFromSource(styles: string) {
+  const withoutComments = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  const owners = new Set<string>();
+
+  for (const match of withoutComments.matchAll(/(?:^|[{}])\s*([^@{}\s][^{}]*?)\s*\{/g)) {
+    const selectorList = match[1];
+    for (const selector of selectorList.split(",")) {
+      const owner = selector.match(/\.([a-z_][\w-]*)/i)?.[1];
+      if (owner) owners.add(owner);
+    }
+  }
+
+  return owners;
 }
