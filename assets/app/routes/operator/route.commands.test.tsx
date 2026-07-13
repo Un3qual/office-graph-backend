@@ -106,6 +106,98 @@ describe("operator route reads", () => {
     });
   });
 
+  it("refetches overflow command choices after an authoritative mutation refresh", async () => {
+    let optionReads = 0;
+    const overflowRunState = support.operatorRunState({
+      commandOptionsOverflow: true,
+      commandOptionSummary: {
+        observation: 21,
+        evidenceCandidate: 1,
+        evidenceAcceptance: 1,
+        waiver: 1,
+      },
+      commandAffordances: [support.enabledCommandAffordance("record_execution_observation")],
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return support.workflowConnectionResponse([support.operatorWorkflowItem()], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: overflowRunState } };
+      }
+      if (request.name === "OperatorRunCommandOptionPageQuery") {
+        optionReads += 1;
+        const secondPage = variables.observationAfter === "option_cursor_1";
+        const label =
+          optionReads > 2
+            ? "Refreshed overflow choice"
+            : secondPage
+              ? "Second-page overflow choice"
+              : "Original overflow choice";
+        const cursor = secondPage ? "option_cursor_2" : "option_cursor_1";
+        return {
+          data: {
+            observation: {
+              edges: [
+                {
+                  cursor,
+                  node: {
+                    observation: support.observationCommandOption({ label }),
+                    evidenceCandidate: null,
+                    evidenceAcceptance: null,
+                    waiver: null,
+                  },
+                },
+              ],
+              pageInfo: {
+                hasNextPage: !secondPage,
+                hasPreviousPage: secondPage,
+                startCursor: cursor,
+                endCursor: cursor,
+              },
+            },
+          },
+        };
+      }
+      if (request.name === "OperatorRecordExecutionObservationMutation") {
+        return {
+          data: {
+            recordExecutionObservation: {
+              command: "record_execution_observation",
+              operationId: "operation_observation_refresh",
+              affectedIds: [],
+              observation: { id: "observation_refresh", normalizedStatus: "succeeded" },
+              run: { id: "run_1", executionState: "completed", verificationState: "pending" },
+            },
+          },
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(<OperatorRoute />, network);
+
+    expect(
+      await screen.findByRole("option", { name: "Original overflow choice" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next observation choices" }));
+    expect(
+      await screen.findByRole("option", { name: "Second-page overflow choice" }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Observation rationale"), {
+      target: { value: "Refresh the authoritative overflow options." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record execution observation" }));
+
+    expect(
+      await screen.findByRole("option", { name: "Refreshed overflow choice" }),
+    ).toBeInTheDocument();
+    expect(optionReads).toBe(3);
+    expect(support.lastVariablesFor(network, "OperatorRunCommandOptionPageQuery")).toMatchObject({
+      observationAfter: null,
+    });
+  });
+
   it("validates locally derived packet readiness before exposing backend commands", async () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "OperatorWorkflowRouteQuery") {

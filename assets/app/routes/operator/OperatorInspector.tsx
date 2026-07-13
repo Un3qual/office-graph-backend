@@ -171,7 +171,13 @@ function LoadedRunStatePanels({
         state="loaded"
       />
       {runState.commandOptionsOverflow ? (
-        <PagedCommandForms key={runId} onRefresh={onRefresh} runId={runId} runState={runState} />
+        <PagedCommandForms
+          fetchKey={fetchKey}
+          key={`${runId}:${fetchKey}`}
+          onRefresh={onRefresh}
+          runId={runId}
+          runState={runState}
+        />
       ) : (
         <>
           <RunCommandForm onRefresh={onRefresh} runState={runState} />
@@ -184,10 +190,12 @@ function LoadedRunStatePanels({
 }
 
 function PagedCommandForms({
+  fetchKey,
   onRefresh,
   runId,
   runState,
 }: {
+  fetchKey: number;
   onRefresh: () => void;
   runId: string;
   runState: OperatorRunState;
@@ -219,7 +227,7 @@ function PagedCommandForms({
       loadEvidenceAcceptance: overflow.evidenceAcceptance,
       loadWaiver: overflow.waiver,
     },
-    { fetchPolicy: "network-only" },
+    { fetchKey, fetchPolicy: "network-only" },
   );
   const page = <K extends keyof typeof cursors>(
     key: K,

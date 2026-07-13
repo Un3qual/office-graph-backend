@@ -29,10 +29,6 @@ export function defaultValues(affordance: Affordance, field: string) {
   return [...(affordance.inputDefaults.find((item) => item.field === field)?.values ?? [])];
 }
 
-export function targetValues(affordance: Affordance, type: string) {
-  return (affordance.targetIds ?? []).filter((item) => item.type === type).map((item) => item.id);
-}
-
 export function commandFeedback<TResult>(
   state: CommandMutationState<TResult>,
 ): FormFeedbackMessage | null {

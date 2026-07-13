@@ -339,6 +339,103 @@ describe("operator route reads", () => {
     });
   });
 
+  it("refetches relationship overflow detail after an authoritative proposal refresh", async () => {
+    let relationshipReads = 0;
+    const proposalAffordance = {
+      identity: "apply_proposed_changes",
+      state: "enabled",
+      reasonCodes: [],
+      blockerReasons: [],
+      safeExplanation: "Apply pending proposed changes for this intake.",
+      requiredFields: ["normalized_event_id", "proposed_change_ids"],
+      inputDefaults: [
+        { field: "normalized_event_id", value: "evt_1", values: [] },
+        { field: "proposed_change_ids", value: null, values: ["change_1"] },
+      ],
+      targetIds: [{ type: "normalized_intake_event", id: "evt_1" }],
+      traceLinks: [],
+      decisionLinks: [],
+    };
+    const item = support.operatorWorkflowItem({
+      status: "pending_triage",
+      allowedNextActions: ["apply_proposed_changes"],
+      commandAffordances: [proposalAffordance],
+      relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "OperatorWorkflowRouteQuery") {
+        return support.workflowConnectionResponse([item], variables);
+      }
+      if (request.name === "OperatorRunStateQuery") {
+        return { data: { operatorRunState: support.operatorRunState() } };
+      }
+      if (request.name === "OperatorRelationshipDetailsQuery") {
+        relationshipReads += 1;
+        const secondPage = variables.after === "relationship_cursor_1";
+        const title =
+          relationshipReads > 2
+            ? "Refreshed relationship"
+            : secondPage
+              ? "Second-page relationship"
+              : "Original relationship";
+        const cursor = secondPage ? "relationship_cursor_2" : "relationship_cursor_1";
+        return {
+          data: {
+            operatorRelationshipDetails: {
+              edges: [
+                {
+                  cursor,
+                  node: {
+                    kind: "graph_link",
+                    stableId: `task:task_${relationshipReads}`,
+                    title,
+                    status: "open",
+                    relationshipType: "task",
+                  },
+                },
+              ],
+              pageInfo: {
+                hasNextPage: !secondPage,
+                hasPreviousPage: secondPage,
+                startCursor: cursor,
+                endCursor: cursor,
+              },
+            },
+          },
+        };
+      }
+      if (request.name === "OperatorApplyProposedChangesMutation") {
+        return {
+          data: {
+            applyProposedChanges: {
+              command: "apply_proposed_changes",
+              operationId: "operation_apply_refresh",
+              affectedIds: [],
+              signal: { id: "signal_1" },
+              task: { id: "task_1" },
+              reviewFinding: null,
+              verificationCheck: null,
+            },
+          },
+        };
+      }
+      throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByText("Original relationship · Task")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next relationship page" }));
+    expect(await screen.findByText("Second-page relationship · Task")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply proposed changes" }));
+
+    expect(await screen.findByText("Refreshed relationship · Task")).toBeInTheDocument();
+    expect(relationshipReads).toBe(3);
+    expect(support.lastVariablesFor(network, "OperatorRelationshipDetailsQuery")).toMatchObject({
+      after: null,
+    });
+  });
+
   it("updates the selected row and derived workflow panels from Relay data", async () => {
     const secondItem = support.operatorWorkflowItem({
       id: "operator_workflow_item_global_2",

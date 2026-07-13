@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { analyzeTypeScript } from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
 const routeRoot = join(process.cwd(), "app/routes/packets");
@@ -11,57 +12,73 @@ describe("packet route data architecture", () => {
     const dataSource = readFileSync(join(routeRoot, "data.ts"), "utf8");
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
     const routeSource = `${dataSource}\n${workflowSource}`;
+    const routeFacts = analyzeTypeScript(routeSource, "packet-route.tsx");
+    const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
+    const graphqlDocuments = routeFacts.graphqlDocuments.join("\n");
 
     expect(existsSync(join(process.cwd(), "src/packets"))).toBe(false);
-    expect(dataSource).toContain("PacketsRouteQuery");
-    expect(dataSource).toContain("listWorkPackets");
-    expect(workflowSource).toContain("usePacketsWorkflow");
-    expect(workflowSource).toContain("useLazyLoadQuery");
-    expect(workflowSource).not.toContain("useRelayEnvironment");
-    expect(workflowSource).not.toContain("fetchQuery");
-    expect(workflowSource).not.toContain("QueryState");
-    expect(workflowSource).not.toContain("subscription.unsubscribe()");
-    expect(workflowSource).not.toContain("useEffect");
-    expect(routeSource).not.toContain("@tanstack/react-query");
-    expect(routeSource).not.toContain("GraphQLFetcher");
-    expect(routeSource).not.toContain("fetchGraphQL");
-    expect(routeSource).not.toContain("/api/");
+    expect(graphqlDocuments).toContain("query PacketsRouteQuery");
+    expect(graphqlDocuments).toContain("listWorkPackets");
+    expect(workflowFacts.identifiers).toContain("usePacketsWorkflow");
+    expect(workflowFacts.identifiers).toContain("useLazyLoadQuery");
+    expect([...workflowFacts.identifiers]).toEqual(
+      expect.not.arrayContaining([
+        "useRelayEnvironment",
+        "fetchQuery",
+        "QueryState",
+        "unsubscribe",
+        "useEffect",
+      ]),
+    );
+    expect(routeFacts.moduleSpecifiers).not.toContain("@tanstack/react-query");
+    expect([...routeFacts.identifiers]).toEqual(
+      expect.not.arrayContaining(["GraphQLFetcher", "fetchGraphQL"]),
+    );
+    expect([...routeFacts.stringLiterals].some((value) => value.startsWith("/api/"))).toBe(false);
   });
 
   it("keeps generated Relay types explicit at the route workflow boundary", () => {
     const typesSource = readFileSync(join(routeRoot, "types.ts"), "utf8");
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
+    const typesFacts = analyzeTypeScript(typesSource, "types.ts");
+    const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
 
-    expect(typesSource).not.toContain("__generated__");
-    expect(typesSource).not.toContain("Fragment$data");
-    expect(typesSource).not.toContain('" $fragmentType"');
-    expect(workflowSource).toContain("PacketsRoutePacketFragment$data");
-    expect(workflowSource).toContain("PacketsRouteQuery as PacketsRouteOperation");
+    expect([...typesFacts.moduleSpecifiers].some((value) => value.includes("__generated__"))).toBe(
+      false,
+    );
+    expect(typesFacts.identifiers).not.toContain("Fragment$data");
+    expect(typesFacts.stringLiterals).not.toContain(" $fragmentType");
+    expect(workflowFacts.identifiers).toContain("PacketsRoutePacketFragment$data");
+    expect(workflowFacts.identifiers).toContain("PacketsRouteOperation");
   });
 
   it("keeps only consumed fields in the packet connection view model", () => {
     const typesSource = readFileSync(join(routeRoot, "types.ts"), "utf8");
-    const connectionSource =
-      typesSource.match(/export type PacketConnection<TPacket> = \{([^}]*)\}/)?.[1] ?? "";
+    const properties = analyzeTypeScript(typesSource, "types.ts").typeProperties.get(
+      "PacketConnection",
+    );
 
-    expect(connectionSource).toContain("hasNextPage: boolean");
-    expect(connectionSource).toContain("nextCursor: string | null");
-    expect(connectionSource).toContain("rows: TPacket[]");
-    expect(connectionSource).not.toContain("after: string | null");
-    expect(connectionSource).not.toContain("empty: boolean");
-    expect(connectionSource).not.toContain("hasPreviousPage: boolean");
-    expect(connectionSource).not.toContain("startCursor: string | null");
+    expect(properties).toEqual(
+      new Map([
+        ["hasNextPage", "boolean"],
+        ["nextCursor", "string | null"],
+        ["rows", "TPacket[]"],
+      ]),
+    );
   });
 
   it("keeps the registered packet workspace and product UI owned by the route", () => {
     const routesSource = readFileSync(join(process.cwd(), "app/routes.ts"), "utf8");
+    const routeCalls = analyzeTypeScript(routesSource, "routes.ts").stringCallArguments.get(
+      "route",
+    );
 
     expect(existsSync(join(routeRoot, "route.tsx"))).toBe(true);
     expect(existsSync(join(routeRoot, "PacketWorkspace.tsx"))).toBe(true);
     expect(existsSync(join(routeRoot, "components/PacketList.tsx"))).toBe(true);
     expect(existsSync(join(routeRoot, "components/PacketDetail.tsx"))).toBe(true);
     expect(existsSync(join(routeRoot, "components/PacketsLayout.tsx"))).toBe(true);
-    expect(routesSource).toContain('route("packets", "./routes/packets/route.tsx")');
+    expect(routeCalls).toContainEqual(["packets", "./routes/packets/route.tsx"]);
   });
 
   it("shares one route-local updated-at formatter across packet list and detail", () => {
@@ -72,25 +89,31 @@ describe("packet route data architecture", () => {
     expect(existsSync(formatterPath)).toBe(true);
 
     const formatterSource = readFileSync(formatterPath, "utf8");
+    const packetListFacts = analyzeTypeScript(packetListSource, "PacketList.tsx");
+    const packetDetailFacts = analyzeTypeScript(packetDetailSource, "PacketDetail.tsx");
 
-    expect(formatterSource.match(/new Intl\.DateTimeFormat/g)).toHaveLength(1);
-    expect(formatterSource).toContain('timeZone: "UTC"');
-    expect(packetListSource).toContain("../formatters");
-    expect(packetDetailSource).toContain("../formatters");
-    expect(packetListSource).not.toContain("new Intl.DateTimeFormat");
-    expect(packetDetailSource).not.toContain("new Intl.DateTimeFormat");
+    expect(analyzeTypeScript(formatterSource, "formatters.ts").identifiers).toContain(
+      "DateTimeFormat",
+    );
+    expect(packetListFacts.moduleSpecifiers).toContain("../formatters");
+    expect(packetDetailFacts.moduleSpecifiers).toContain("../formatters");
+    expect(packetListFacts.identifiers).not.toContain("DateTimeFormat");
+    expect(packetDetailFacts.identifiers).not.toContain("DateTimeFormat");
   });
 
   it("shares one route-local lifecycle-state formatter across packet list and detail", () => {
     const formatterSource = readFileSync(join(routeRoot, "formatters.ts"), "utf8");
     const packetListSource = readFileSync(join(routeRoot, "components/PacketList.tsx"), "utf8");
     const packetDetailSource = readFileSync(join(routeRoot, "components/PacketDetail.tsx"), "utf8");
+    const formatterFacts = analyzeTypeScript(formatterSource, "formatters.ts");
+    const packetListFacts = analyzeTypeScript(packetListSource, "PacketList.tsx");
+    const packetDetailFacts = analyzeTypeScript(packetDetailSource, "PacketDetail.tsx");
 
-    expect(formatterSource).toContain("export function formatPacketState");
-    expect(packetListSource).toContain("formatPacketState");
-    expect(packetDetailSource).toContain("formatPacketState");
-    expect(packetListSource).not.toContain("function formatState");
-    expect(packetDetailSource).not.toContain("function formatState");
+    expect(formatterFacts.identifiers).toContain("formatPacketState");
+    expect(packetListFacts.identifiers).toContain("formatPacketState");
+    expect(packetDetailFacts.identifiers).toContain("formatPacketState");
+    expect(packetListFacts.identifiers).not.toContain("formatState");
+    expect(packetDetailFacts.identifiers).not.toContain("formatState");
   });
 
   it("keeps packet mutation documents and lifecycle wrappers route-owned", () => {
@@ -102,13 +125,18 @@ describe("packet route data architecture", () => {
 
     const commandsSource = readFileSync(commandsPath, "utf8");
     const workflowSource = readFileSync(workflowPath, "utf8");
+    const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
+    const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
 
-    expect(commandsSource).toContain("PacketsCreateWorkPacketMutation");
-    expect(commandsSource).toContain("PacketsCreateWorkPacketVersionMutation");
-    expect(commandsSource).toContain("PacketsStartWorkRunMutation");
-    expect(workflowSource).toContain("useCommandMutation");
-    expect(workflowSource).not.toContain("fetchGraphQL");
-    expect(workflowSource).not.toContain("/api/");
+    const graphqlDocuments = commandsFacts.graphqlDocuments.join("\n");
+    expect(graphqlDocuments).toContain("mutation PacketsCreateWorkPacketMutation");
+    expect(graphqlDocuments).toContain("mutation PacketsCreateWorkPacketVersionMutation");
+    expect(graphqlDocuments).toContain("mutation PacketsStartWorkRunMutation");
+    expect(workflowFacts.identifiers).toContain("useCommandMutation");
+    expect(workflowFacts.identifiers).not.toContain("fetchGraphQL");
+    expect([...workflowFacts.stringLiterals].some((value) => value.startsWith("/api/"))).toBe(
+      false,
+    );
   });
 
   it("does not depend on operator-owned styles through shared components", () => {

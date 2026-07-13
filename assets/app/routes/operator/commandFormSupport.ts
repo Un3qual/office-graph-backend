@@ -7,7 +7,6 @@ export {
   defaultValues,
   enabledAffordance,
   submissionIdentity,
-  targetValues,
 } from "../../relay/commandFormSupport";
 
 export async function manualReplayIdentity(body: string) {

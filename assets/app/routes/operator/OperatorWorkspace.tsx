@@ -59,7 +59,7 @@ export function OperatorWorkspace({
       }
       detail={
         <>
-          <ItemSummary item={workflow.selectedItem} />
+          <ItemSummary fetchKey={fetchKey} item={workflow.selectedItem} />
           <PacketCommandForm
             item={workflow.selectedItem}
             onRefresh={onRefresh}

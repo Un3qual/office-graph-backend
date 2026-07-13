@@ -11,10 +11,11 @@ import { OperatorRelationshipDetailsQuery } from "../data";
 import type { OperatorRelationshipDetailsQuery as OperatorRelationshipDetailsOperation } from "../../../relay/__generated__/OperatorRelationshipDetailsQuery.graphql";
 
 type Props = {
+  fetchKey?: number;
   item: OperatorWorkflowItem | null;
 };
 
-export function ItemSummary({ item }: Props) {
+export function ItemSummary({ fetchKey, item }: Props) {
   return (
     <section aria-label="Item detail" className="detail-pane">
       <div className="detail-header">
@@ -74,7 +75,8 @@ export function ItemSummary({ item }: Props) {
           />
           {item.relationshipSummary.hasMore ? (
             <RelationshipOverflowDetails
-              key={item.normalizedEventId}
+              fetchKey={fetchKey}
+              key={`${item.normalizedEventId}:${fetchKey ?? "initial"}`}
               normalizedEventId={item.normalizedEventId}
             />
           ) : null}
@@ -84,13 +86,19 @@ export function ItemSummary({ item }: Props) {
   );
 }
 
-function RelationshipOverflowDetails({ normalizedEventId }: { normalizedEventId: string }) {
+function RelationshipOverflowDetails({
+  fetchKey,
+  normalizedEventId,
+}: {
+  fetchKey?: number;
+  normalizedEventId: string;
+}) {
   const [cursors, setCursors] = useState<Array<string | null>>([null]);
   const after = cursors.at(-1) ?? null;
   const data = useLazyLoadQuery<OperatorRelationshipDetailsOperation>(
     OperatorRelationshipDetailsQuery,
     { id: normalizedEventId, first: 5, after },
-    { fetchPolicy: "network-only" },
+    { fetchKey, fetchPolicy: "network-only" },
   );
   const connection = data.operatorRelationshipDetails;
 
