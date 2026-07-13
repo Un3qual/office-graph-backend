@@ -136,7 +136,7 @@ describe("packet route data architecture", () => {
     expect(duplicatedSharedClasses).toEqual([]);
   });
 
-  it("expands finite template-generated classes in reachable shared components", () => {
+  it("collects Button's explicit finite emitted classes", () => {
     const buttonPath = join(assetsRoot, "src/ui/Button.tsx");
     const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath);
 
@@ -155,6 +155,33 @@ describe("packet route data architecture", () => {
     expect(() => classNames(source, "dynamic-class.tsx")).toThrowError(
       "Unsupported dynamic className template span: suffix",
     );
+  });
+
+  it("rejects local identifier indirection in a className initializer", () => {
+    const source = `
+      function LocalClass({ primary }: { primary: boolean }) {
+        const buttonClass = primary ? "ui-button-primary" : "ui-button-secondary";
+        return <button className={buttonClass} />;
+      }
+    `;
+
+    expect(() => classNames(source, "local-class.tsx")).toThrowError(
+      "Unsupported className expression: buttonClass",
+    );
+  });
+
+  it("allows caller-supplied classes through a destructured ClassName prop", () => {
+    const source = `
+      function Shell({ contentClassName }: { contentClassName: string }) {
+        return <div className={contentClassName} />;
+      }
+
+      function Caller() {
+        return <Shell contentClassName="packet-workspace" />;
+      }
+    `;
+
+    expect(classNames(source, "class-name-prop.tsx")).toEqual(["packet-workspace"]);
   });
 
   it("fails closed when any conditional template branch is unbounded", () => {
@@ -243,21 +270,98 @@ function classNames(source: string, filename: string) {
     }
   };
 
-  const collectTokens = (node: ts.Node) => {
-    if (ts.isTemplateExpression(node)) {
-      for (const value of finiteTemplateValues(node, sourceFile)) addTokens(value);
+  const collectExpression = (expression: ts.Expression, passThrough = new Set<string>()) => {
+    if (ts.isStringLiteralLike(expression)) {
+      addTokens(expression.text);
       return;
     }
 
-    if (ts.isStringLiteralLike(node)) {
-      addTokens(node.text);
+    if (ts.isTemplateExpression(expression)) {
+      for (const value of finiteTemplateValues(expression, sourceFile)) addTokens(value);
       return;
     }
 
-    ts.forEachChild(node, collectTokens);
+    if (ts.isConditionalExpression(expression)) {
+      collectExpression(expression.whenTrue, passThrough);
+      collectExpression(expression.whenFalse, passThrough);
+      return;
+    }
+
+    if (ts.isArrowFunction(expression) && !ts.isBlock(expression.body)) {
+      const arrowPassThrough = new Set(passThrough);
+      for (const parameter of expression.parameters) {
+        if (ts.isIdentifier(parameter.name)) arrowPassThrough.add(parameter.name.text);
+      }
+      collectExpression(expression.body, arrowPassThrough);
+      return;
+    }
+
+    if (ts.isArrayLiteralExpression(expression)) {
+      for (const element of expression.elements) {
+        if (ts.isSpreadElement(element)) unsupportedClassExpression(element, sourceFile);
+        collectExpression(element, passThrough);
+      }
+      return;
+    }
+
+    if (ts.isParenthesizedExpression(expression)) {
+      collectExpression(expression.expression, passThrough);
+      return;
+    }
+
+    if (ts.isIdentifier(expression)) {
+      if (
+        expression.text === "undefined" ||
+        passThrough.has(expression.text) ||
+        isDestructuredClassNameParameter(expression.text, sourceFile)
+      ) {
+        return;
+      }
+      unsupportedClassExpression(expression, sourceFile);
+    }
+
+    if (expression.kind === ts.SyntaxKind.NullKeyword) return;
+
+    if (ts.isCallExpression(expression)) {
+      if (
+        ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "composeRenderProps" &&
+        expression.arguments.length === 2 &&
+        ts.isIdentifier(expression.arguments[0]) &&
+        isDestructuredClassNameParameter(expression.arguments[0].text, sourceFile) &&
+        ts.isArrowFunction(expression.arguments[1])
+      ) {
+        collectExpression(expression.arguments[1], passThrough);
+        return;
+      }
+
+      if (
+        ts.isPropertyAccessExpression(expression.expression) &&
+        expression.expression.name.text === "filter" &&
+        expression.arguments.length === 1 &&
+        ts.isIdentifier(expression.arguments[0]) &&
+        expression.arguments[0].text === "Boolean"
+      ) {
+        collectExpression(expression.expression.expression, passThrough);
+        return;
+      }
+
+      if (
+        ts.isPropertyAccessExpression(expression.expression) &&
+        expression.expression.name.text === "join" &&
+        expression.arguments.length === 1 &&
+        ts.isStringLiteralLike(expression.arguments[0]) &&
+        expression.arguments[0].text === " "
+      ) {
+        collectExpression(expression.expression.expression, passThrough);
+        return;
+      }
+    }
+
+    unsupportedClassExpression(expression, sourceFile);
   };
 
-  const visit = (node: ts.Node) => {
+  walk(sourceFile, (node) => {
     const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
 
     if (
@@ -265,13 +369,16 @@ function classNames(source: string, filename: string) {
       (attributeName === "className" || attributeName?.endsWith("ClassName")) &&
       node.initializer
     ) {
-      collectTokens(node.initializer);
+      if (ts.isStringLiteral(node.initializer)) {
+        addTokens(node.initializer.text);
+      } else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+        collectExpression(node.initializer.expression);
+      } else {
+        throw new Error(`Unsupported ${attributeName} initializer in ${filename}`);
+      }
     }
+  });
 
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
   return [...names];
 }
 
@@ -279,8 +386,16 @@ function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.So
   let values = [template.head.text];
 
   for (const span of template.templateSpans) {
-    const spanValues = finiteSpanValues(span.expression, sourceFile);
-    if (spanValues.length === 0) {
+    if (!ts.isConditionalExpression(span.expression)) {
+      throw new Error(
+        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
+      );
+    }
+
+    const spanValues = [span.expression.whenTrue, span.expression.whenFalse].flatMap((branch) =>
+      ts.isStringLiteralLike(branch) ? [branch.text] : [],
+    );
+    if (spanValues.length !== 2) {
       throw new Error(
         `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
       );
@@ -294,61 +409,26 @@ function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.So
   return values;
 }
 
-function finiteSpanValues(expression: ts.Expression, sourceFile: ts.SourceFile): string[] {
-  if (ts.isStringLiteralLike(expression)) return [expression.text];
+function isDestructuredClassNameParameter(identifier: string, sourceFile: ts.SourceFile) {
+  if (identifier !== "className" && !identifier.endsWith("ClassName")) return false;
 
-  if (ts.isConditionalExpression(expression)) {
-    const whenTrue = finiteSpanValues(expression.whenTrue, sourceFile);
-    const whenFalse = finiteSpanValues(expression.whenFalse, sourceFile);
-    return whenTrue.length > 0 && whenFalse.length > 0 ? [...whenTrue, ...whenFalse] : [];
-  }
-
-  if (ts.isIdentifier(expression)) {
-    return literalPropertyValues(expression.text, sourceFile);
-  }
-
-  return [];
-}
-
-function literalPropertyValues(identifier: string, sourceFile: ts.SourceFile) {
-  const typeNames = new Set<string>();
-  const values = new Set<string>();
-
+  let found = false;
   walk(sourceFile, (node) => {
-    if (ts.isBindingElement(node) && ts.isIdentifier(node.name) && node.name.text === identifier) {
-      const declaration = node.parent.parent;
-      if (
-        ts.isParameter(declaration) &&
-        declaration.type &&
-        ts.isTypeReferenceNode(declaration.type) &&
-        ts.isIdentifier(declaration.type.typeName)
-      ) {
-        typeNames.add(declaration.type.typeName.text);
-      }
+    if (
+      ts.isBindingElement(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === identifier &&
+      ts.isObjectBindingPattern(node.parent) &&
+      ts.isParameter(node.parent.parent)
+    ) {
+      found = true;
     }
   });
+  return found;
+}
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isTypeAliasDeclaration(statement) && typeNames.has(statement.name.text)) {
-      walk(statement.type, (node) => {
-        if (
-          ts.isPropertySignature(node) &&
-          node.type &&
-          (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-          node.name.text === identifier
-        ) {
-          const members = ts.isUnionTypeNode(node.type) ? node.type.types : [node.type];
-          for (const member of members) {
-            if (ts.isLiteralTypeNode(member) && ts.isStringLiteralLike(member.literal)) {
-              values.add(member.literal.text);
-            }
-          }
-        }
-      });
-    }
-  }
-
-  return [...values];
+function unsupportedClassExpression(expression: ts.Node, sourceFile: ts.SourceFile): never {
+  throw new Error(`Unsupported className expression: ${expression.getText(sourceFile)}`);
 }
 
 function walk(node: ts.Node, visit: (node: ts.Node) => void) {
