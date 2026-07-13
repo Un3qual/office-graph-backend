@@ -7,7 +7,7 @@ services:
       POSTGRES_DB: office_graph_dev
     ports:
       - target: 5432
-        published: "${OFFICE_GRAPH_POSTGRES_PORT:-0}"
+        published: "${OFFICE_GRAPH_POSTGRES_PORT:-55432}"
         host_ip: 127.0.0.1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U office_graph -d office_graph_dev"]

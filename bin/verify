@@ -19,15 +19,11 @@ elif [ -n "$requested_postgres_port" ] && [ "$requested_postgres_port" != "0" ];
   OFFICE_GRAPH_POSTGRES_PORT=$requested_postgres_port
   postgres_port_display=$OFFICE_GRAPH_POSTGRES_PORT
 else
-  unset OFFICE_GRAPH_POSTGRES_PORT
+  OFFICE_GRAPH_POSTGRES_PORT=0
   postgres_port_display=auto
 fi
 
-export COMPOSE_PROJECT_NAME MIX_TEST_PARTITION
-
-if [ "$postgres_port_display" != "auto" ]; then
-  export OFFICE_GRAPH_POSTGRES_PORT
-fi
+export COMPOSE_PROJECT_NAME MIX_TEST_PARTITION OFFICE_GRAPH_POSTGRES_PORT
 
 if [ "${1:-}" = "--print-environment" ]; then
   printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
