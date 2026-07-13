@@ -623,6 +623,20 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         key: "graphql-run"
       )
 
+    awaiting_evidence_outcome =
+      graphql(
+        conn,
+        """
+        query AwaitingEvidenceOutcome($id: ID!) {
+          operatorVerificationOutcome(id: $id) { status sourceWatermark }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorVerificationOutcome"
+      )
+
+    assert awaiting_evidence_outcome["status"] == "awaiting_evidence"
+
     {:ok, candidate} =
       create_evidence_candidate(
         bootstrap.session,
@@ -692,7 +706,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         conn,
         """
         query PendingOutcome($id: ID!) {
-          operatorVerificationOutcome(id: $id) { status }
+          operatorVerificationOutcome(id: $id) { status sourceWatermark }
         }
         """,
         %{id: run_result.run.id},
@@ -700,6 +714,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       )
 
     assert pending_outcome["status"] == "awaiting_evidence_acceptance"
+
+    refute pending_outcome["sourceWatermark"] ==
+             awaiting_evidence_outcome["sourceWatermark"]
 
     {:ok, accepted} =
       accept_candidate(bootstrap.session, candidate, key: "graphql-run", result: "passed")
@@ -1278,6 +1295,56 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert length(outcome["verificationResults"]) == 25
     assert outcome["missingEvidence"] == []
+
+    before_late_observation =
+      graphql(
+        conn,
+        """
+        query RunStateBeforeLateObservation($id: ID!) {
+          operatorRunState(id: $id) {
+            status
+            sourceWatermark
+            childSummary { observations }
+            observations { id }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunState"
+      )
+
+    assert before_late_observation["status"] == "verified"
+    assert before_late_observation["childSummary"]["observations"] == 25
+    assert length(before_late_observation["observations"]) == 20
+
+    {:ok, _late_observation} =
+      record_observation(bootstrap.session, run_result.run, List.first(checks),
+        key: "untruncated-outcome-late"
+      )
+
+    after_late_observation =
+      graphql(
+        conn,
+        """
+        query RunStateAfterLateObservation($id: ID!) {
+          operatorRunState(id: $id) {
+            status
+            sourceWatermark
+            childSummary { observations }
+            observations { id }
+          }
+        }
+        """,
+        %{id: run_result.run.id},
+        "operatorRunState"
+      )
+
+    assert after_late_observation["status"] == "verified"
+    assert after_late_observation["childSummary"]["observations"] == 26
+    assert after_late_observation["observations"] == before_late_observation["observations"]
+
+    refute after_late_observation["sourceWatermark"] ==
+             before_late_observation["sourceWatermark"]
   end
 
   test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do

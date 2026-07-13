@@ -137,7 +137,7 @@ defmodule OfficeGraph.Projections.RunState do
       missing_evidence = Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
 
       {:ok,
-       %{
+       with_source_watermark(%{
          type: "verification_outcome",
          status: run_status(summary, []),
          run: %{
@@ -147,17 +147,9 @@ defmodule OfficeGraph.Projections.RunState do
            verification_state: summary.run.verification_state
          },
          verification_results: verification_results,
-         missing_evidence: missing_evidence,
-         source_watermark: outcome_watermark(summary.run, verification_results, missing_evidence)
-       }}
+         missing_evidence: missing_evidence
+       })}
     end
-  end
-
-  defp outcome_watermark(run, results, missing) do
-    {run.id, run.aggregate_state, run.execution_state, run.verification_state, results, missing}
-    |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.url_encode64(padding: false)
   end
 
   defp read_evidence_candidates(session_context, run_id, limit) do
@@ -227,7 +219,6 @@ defmodule OfficeGraph.Projections.RunState do
       command_option_summary: command_option_summary,
       command_option_availability: command_option_availability,
       child_summary: child_summary(summary),
-      source_watermark: source_watermark(summary, evidence_candidates, status),
       packet: %{
         id: summary.packet.id,
         title: summary.packet.title,
@@ -299,6 +290,7 @@ defmodule OfficeGraph.Projections.RunState do
         |> Enum.take(@child_summary_limit)
         |> Enum.map(&missing_evidence_projection/1)
     }
+    |> with_source_watermark()
   end
 
   defp child_summary(summary) do
@@ -1111,76 +1103,13 @@ defmodule OfficeGraph.Projections.RunState do
     %{verification_check_id: verification_check_id, reason: reason}
   end
 
-  defp source_watermark(summary, evidence_candidates, status) do
-    %{
-      status: status,
-      packet: %{
-        id: summary.packet.id,
-        title: summary.packet.title,
-        state: summary.packet.state
-      },
-      packet_version: %{
-        id: summary.packet_version.id,
-        version_number: summary.packet_version.version_number,
-        lifecycle_state: summary.packet_version.lifecycle_state,
-        objective: summary.packet_version.objective
-      },
-      run: %{
-        id: summary.run.id,
-        aggregate_state: summary.run.aggregate_state,
-        execution_state: summary.run.execution_state,
-        verification_state: summary.run.verification_state
-      },
-      required_checks:
-        Enum.map(summary.required_checks, fn required_check ->
-          %{
-            id: required_check.id,
-            verification_check_id: required_check.verification_check_id,
-            state: required_check.state
-          }
-        end),
-      observations:
-        Enum.map(summary.observations, fn observation ->
-          %{
-            id: observation.id,
-            verification_check_id: observation.verification_check_id,
-            graph_item_id: observation.graph_item_id,
-            normalized_status: observation.normalized_status,
-            freshness_state: observation.freshness_state,
-            trust_basis: observation.trust_basis,
-            source_kind: observation.source_kind,
-            source_identity: observation.source_identity
-          }
-        end),
-      evidence_candidates: Enum.map(evidence_candidates, &evidence_candidate_projection/1),
-      evidence_items:
-        Enum.map(summary.evidence_items, fn evidence_item ->
-          %{
-            id: evidence_item.id,
-            state: evidence_item.state,
-            candidate_id: evidence_item.candidate_id,
-            work_run_id: evidence_item.work_run_id
-          }
-        end),
-      verification_results:
-        Enum.map(summary.verification_results, fn result ->
-          %{
-            id: result.id,
-            result: result.result,
-            verification_check_id: result.verification_check_id,
-            evidence_item_id: result.evidence_item_id,
-            operation_id: result.operation_id,
-            actor_principal_id: result.actor_principal_id,
-            policy_basis: result.policy_basis,
-            target_graph_item_id: result.target_graph_item_id,
-            work_run_id: result.work_run_id,
-            work_packet_version_id: result.work_packet_version_id
-          }
-        end),
-      missing_evidence: Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
-    }
-    |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.url_encode64(padding: false)
+  defp with_source_watermark(projection) do
+    watermark =
+      projection
+      |> :erlang.term_to_binary()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.url_encode64(padding: false)
+
+    Map.put(projection, :source_watermark, watermark)
   end
 end

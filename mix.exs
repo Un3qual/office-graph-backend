@@ -35,6 +35,7 @@ defmodule OfficeGraph.MixProject do
       preferred_envs: [
         precommit: :test,
         verify: :test,
+        "architecture.check": :test,
         "architecture.conformance": :test,
         "dependency.audit": :test,
         "frontend.verify.precompiled": :test,
@@ -121,6 +122,9 @@ defmodule OfficeGraph.MixProject do
       ],
       typecheck: ["dialyzer --quiet-with-result"],
       release: ["assets.deploy", "release"],
+      "architecture.check": [
+        "xref graph --format cycles --label compile-connected --fail-above 0"
+      ],
       "boundary.check": ["compile --force --warnings-as-errors"],
       "production.build": ["cmd env MIX_ENV=prod mix compile --warnings-as-errors"],
       verify: [
@@ -128,6 +132,7 @@ defmodule OfficeGraph.MixProject do
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
+        "architecture.check",
         "static.analysis",
         "typecheck",
         "dependency.audit",

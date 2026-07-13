@@ -1,5 +1,5 @@
 defmodule OfficeGraph.BoundaryLayoutTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   @public_contexts [
     OfficeGraph.Foundation,
@@ -34,6 +34,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert :boundary in project_config[:compilers]
     assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
     assert "boundary.check" in aliases[:verify]
+
+    assert aliases[:"architecture.check"] == [
+             "xref graph --format cycles --label compile-connected --fail-above 0"
+           ]
+
+    assert "architecture.check" in aliases[:verify]
 
     assert aliases[:"dependency.audit"] == [
              "cmd mix hex.audit",
@@ -87,27 +93,5 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
     assert Code.ensure_loaded?(waiver)
     assert function_exported?(waiver, :execute, 5)
-  end
-
-  test "module graph has no compile-time dependency cycles" do
-    mix = System.find_executable("mix")
-
-    {cycles, exit_status} =
-      System.cmd(
-        mix,
-        [
-          "xref",
-          "graph",
-          "--format",
-          "cycles",
-          "--label",
-          "compile-connected",
-          "--fail-above",
-          "0"
-        ],
-        stderr_to_stdout: true
-      )
-
-    assert exit_status == 0, cycles
   end
 end
