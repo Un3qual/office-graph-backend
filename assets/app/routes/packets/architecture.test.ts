@@ -184,6 +184,23 @@ describe("packet route data architecture", () => {
     expect(classNames(source, "class-name-prop.tsx")).toEqual(["packet-workspace"]);
   });
 
+  it("does not borrow a className pass-through binding from another function", () => {
+    const source = `
+      function PassThrough({ className }: { className: string }) {
+        return <div className={className} />;
+      }
+
+      function Local() {
+        const className = "operator-only";
+        return <div className={className} />;
+      }
+    `;
+
+    expect(() => classNames(source, "lexical-class-name.tsx")).toThrowError(
+      "Unsupported className expression: className",
+    );
+  });
+
   it("fails closed when any conditional template branch is unbounded", () => {
     const source = `
       function DynamicClass({ active, suffix }: { active: boolean; suffix: string }) {
@@ -310,11 +327,7 @@ function classNames(source: string, filename: string) {
     }
 
     if (ts.isIdentifier(expression)) {
-      if (
-        expression.text === "undefined" ||
-        passThrough.has(expression.text) ||
-        isDestructuredClassNameParameter(expression.text, sourceFile)
-      ) {
+      if (expression.text === "undefined" || passThrough.has(expression.text)) {
         return;
       }
       unsupportedClassExpression(expression, sourceFile);
@@ -328,7 +341,7 @@ function classNames(source: string, filename: string) {
         expression.expression.text === "composeRenderProps" &&
         expression.arguments.length === 2 &&
         ts.isIdentifier(expression.arguments[0]) &&
-        isDestructuredClassNameParameter(expression.arguments[0].text, sourceFile) &&
+        passThrough.has(expression.arguments[0].text) &&
         ts.isArrowFunction(expression.arguments[1])
       ) {
         collectExpression(expression.arguments[1], passThrough);
@@ -372,7 +385,7 @@ function classNames(source: string, filename: string) {
       if (ts.isStringLiteral(node.initializer)) {
         addTokens(node.initializer.text);
       } else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
-        collectExpression(node.initializer.expression);
+        collectExpression(node.initializer.expression, destructuredClassNameParameters(node));
       } else {
         throw new Error(`Unsupported ${attributeName} initializer in ${filename}`);
       }
@@ -409,22 +422,25 @@ function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.So
   return values;
 }
 
-function isDestructuredClassNameParameter(identifier: string, sourceFile: ts.SourceFile) {
-  if (identifier !== "className" && !identifier.endsWith("ClassName")) return false;
+function destructuredClassNameParameters(node: ts.Node) {
+  let current = node.parent;
+  while (current && !ts.isFunctionLike(current)) current = current.parent;
 
-  let found = false;
-  walk(sourceFile, (node) => {
-    if (
-      ts.isBindingElement(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === identifier &&
-      ts.isObjectBindingPattern(node.parent) &&
-      ts.isParameter(node.parent.parent)
-    ) {
-      found = true;
+  const parameters = new Set<string>();
+  for (const parameter of current?.parameters ?? []) {
+    if (!ts.isObjectBindingPattern(parameter.name)) continue;
+
+    for (const binding of parameter.name.elements) {
+      if (
+        ts.isIdentifier(binding.name) &&
+        (binding.name.text === "className" || binding.name.text.endsWith("ClassName"))
+      ) {
+        parameters.add(binding.name.text);
+      }
     }
-  });
-  return found;
+  }
+
+  return parameters;
 }
 
 function unsupportedClassExpression(expression: ts.Node, sourceFile: ts.SourceFile): never {
