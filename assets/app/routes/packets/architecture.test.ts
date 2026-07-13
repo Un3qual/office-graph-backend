@@ -1,7 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
+const assetsRoot = process.cwd();
 const routeRoot = join(process.cwd(), "app/routes/packets");
 
 describe("packet route data architecture", () => {
@@ -108,4 +110,119 @@ describe("packet route data architecture", () => {
     expect(workflowSource).not.toContain("fetchGraphQL");
     expect(workflowSource).not.toContain("/api/");
   });
+
+  it("does not depend on operator-owned styles through shared components", () => {
+    const packetDependencies = localDependencyFiles(sourceFiles(routeRoot));
+    const consumedClasses = new Set(
+      packetDependencies.flatMap((file) => classNames(readFileSync(file, "utf8"), file)),
+    );
+    const sharedClasses = stylesheetClasses("src/styles/shared.css");
+    const operatorClasses = stylesheetClasses("src/styles/operator.css");
+    const packetClasses = stylesheetClasses("src/styles/packets.css");
+
+    const operatorOnlyDependencies = [...consumedClasses]
+      .filter(
+        (className) =>
+          operatorClasses.has(className) &&
+          !sharedClasses.has(className) &&
+          !packetClasses.has(className),
+      )
+      .sort();
+    const duplicatedSharedClasses = [...sharedClasses]
+      .filter((className) => operatorClasses.has(className) || packetClasses.has(className))
+      .sort();
+
+    expect(operatorOnlyDependencies).toEqual([]);
+    expect(duplicatedSharedClasses).toEqual([]);
+  });
 });
+
+function localDependencyFiles(entries: string[]) {
+  const pending = [...entries];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || visited.has(file)) continue;
+
+    visited.add(file);
+    const source = readFileSync(file, "utf8");
+
+    for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
+      if (!fileName.startsWith(".")) continue;
+
+      const dependency = resolveSourceFile(resolve(dirname(file), fileName));
+      if (dependency && !visited.has(dependency)) pending.push(dependency);
+    }
+  }
+
+  return [...visited];
+}
+
+function sourceFiles(path: string): string[] {
+  return readdirSync(path).flatMap((entry) => {
+    const fullPath = join(path, entry);
+    const stats = statSync(fullPath);
+
+    if (stats.isDirectory()) return sourceFiles(fullPath);
+
+    return /\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry) ? [fullPath] : [];
+  });
+}
+
+function resolveSourceFile(path: string) {
+  for (const candidate of [
+    path,
+    `${path}.ts`,
+    `${path}.tsx`,
+    join(path, "index.ts"),
+    join(path, "index.tsx"),
+  ]) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function classNames(source: string, filename: string) {
+  const sourceFile = ts.createSourceFile(
+    filename,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const names = new Set<string>();
+
+  const collectTokens = (node: ts.Node) => {
+    if (ts.isStringLiteralLike(node)) {
+      for (const token of node.text.split(/\s+/)) {
+        if (/^[a-z][\w-]*$/i.test(token)) names.add(token);
+      }
+    }
+
+    ts.forEachChild(node, collectTokens);
+  };
+
+  const visit = (node: ts.Node) => {
+    const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
+
+    if (
+      ts.isJsxAttribute(node) &&
+      (attributeName === "className" || attributeName?.endsWith("ClassName")) &&
+      node.initializer
+    ) {
+      collectTokens(node.initializer);
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return [...names];
+}
+
+function stylesheetClasses(relativePath: string) {
+  const styles = readFileSync(join(assetsRoot, relativePath), "utf8");
+  return new Set(Array.from(styles.matchAll(/\.([a-z_][\w-]*)/gi), (match) => match[1]));
+}
