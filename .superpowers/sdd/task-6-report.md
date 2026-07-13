@@ -77,3 +77,24 @@ that current branch regression before claiming the canonical static gate green.
 
 - `e6fe37f` — isolate test worker and proposed-change modules.
 - `e7a909f` — split backend/frontend suites and CSS by behavior ownership.
+
+## Maintainability Review Remediation
+
+- Replaced five helper-injecting `__using__` blocks with minimal case/import/
+  alias/attribute macros. Helper implementations now compile once as ordinary
+  support-module functions; an AST conformance check rejects future injected
+  `def` or `defp` blocks.
+- Replaced line-based GraphQL field discovery with Elixir AST traversal. The
+  gate now discovers ordinary fields and nested Relay `connection field`
+  declarations, including all three previously missed operator connections.
+- Promoted the active manual API inventory from an archived change artifact to
+  `openspec/specs/backend-model-ownership/api-migration-ledger.md` and recorded
+  the three connection fields with owner, reason, replacement, proof, and
+  retirement metadata.
+- Removed source-string assertions from resource conformance. Ash action and
+  exported-function contracts use runtime introspection; the irreducible
+  Verification-to-Runs call-shape check is AST-based and explicitly tagged as a
+  source-boundary heuristic.
+- Review-fix verification: architecture conformance 73 passed; all 12 affected
+  split suites 182 passed; strict Credo found no issues; all 96 OpenSpec items
+  passed strict validation.

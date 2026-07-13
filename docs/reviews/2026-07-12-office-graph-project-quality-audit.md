@@ -187,6 +187,63 @@ The command-loop test is 4,528 lines, concurrency 3,670, Ash conformance 2,756, 
 
 **Disposition:** split the highest-value files around stable behavior/route ownership and shared fixtures after regressions land; preserve generated artifacts and cohesive historical migrations.
 
+## Independent Review And Stack-Integration Findings
+
+The first remediation pass was independently reviewed, then merged with the
+newer stacked base PR #22. That follow-up found the issues below; they are part
+of this remediation rather than deferred debt.
+
+### REVIEW-001 — P2: Split test suites injected thousands of helper lines into every module
+
+The initial test split moved shared setup into five `__using__/1` macros, but
+the macros still quoted every private fixture and scanner into each consuming
+test module. The files were easier to browse while compilation, dependency
+visibility, and ownership remained poor.
+
+**Disposition:** compile helper implementations once in ordinary support
+modules and keep macros limited to case setup, imports, aliases, and required
+attributes.
+
+### REVIEW-002 — P2: Manual GraphQL connection fields escaped the API ledger
+
+The API conformance scanner recognized source lines beginning with `field`, but
+Absinthe Relay connections use the nested `connection field` DSL. The three
+operator connections therefore existed without current ledger entries while
+the gate reported success.
+
+**Disposition:** discover the DSL through Elixir AST traversal, regression-test
+all three connection fields, and promote the API migration ledger from an old
+change archive into canonical specification ownership.
+
+### REVIEW-003 — P2: Packet styles depended on operator stylesheet import order
+
+Packet components consume empty-state, feedback, badge, and eyebrow primitives
+that the first split left in `operator.css`. The packet route worked only
+because the global stylesheet imported operator styles before packet styles.
+
+**Disposition:** move cross-route primitives to `shared.css`, keep route-owned
+selectors local, and enforce ownership from the packet component dependency
+graph and TypeScript AST class usage.
+
+### REVIEW-004 — P2: Extracted verification modules weakened quality-gate coverage
+
+The stacked base extracted `OfficeGraph.Verification.CommandSupport` and
+`Waiver`, but the Reach layer and ExDNA input paths covered only the former
+single-file module. Its precompiled Relay alias also omitted `MIX_ENV=test`,
+and the compile-cycle assertion searched for the wrong xref annotation.
+
+**Disposition:** include the namespace in Reach and clone analysis, pin the
+schema subprocess environment, and make xref fail directly on any
+compile-connected cycle.
+
+### REVIEW-005 — P2: Executable source-string checks remained outside the heuristic suite
+
+Several resource-conformance assertions still inferred behavior from function
+name substrings after Task 7.5 was marked complete.
+
+**Disposition:** replace them with AST or runtime introspection where possible;
+move irreducible source heuristics into the explicitly named heuristic module.
+
 ## Structural Follow-Ups Requiring Separate OpenSpec Changes
 
 These are confirmed mismatches, not dismissed findings. They are not partially implemented in this remediation because each changes durable data contracts and compatibility behavior.
