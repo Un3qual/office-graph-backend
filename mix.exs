@@ -108,7 +108,7 @@ defmodule OfficeGraph.MixProject do
       "frontend.verify": ["assets.setup", "cmd --cd assets pnpm run verify"],
       "frontend.verify.precompiled": [
         "assets.setup",
-        "cmd --cd assets env OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
+        "cmd --cd assets env MIX_ENV=test OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
       ],
       "spec.verify": [
         "cmd openspec validate --specs --strict",
@@ -151,6 +151,7 @@ defmodule OfficeGraph.MixProject do
   defp ex_dna_paths do
     [
       "lib/office_graph/*.ex",
+      "lib/office_graph/verification/*.ex",
       "lib/office_graph/runs/changes/*.ex",
       "lib/office_graph/work_graph/changes/*.ex",
       "lib/office_graph/work_graph/proposal_commands.ex",

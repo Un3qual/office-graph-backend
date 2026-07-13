@@ -41,6 +41,7 @@
       "OfficeGraph.Tombstones",
       "OfficeGraph.Tombstones.*",
       "OfficeGraph.Verification",
+      "OfficeGraph.Verification.*",
       "OfficeGraph.WorkContainers",
       "OfficeGraph.WorkGraph",
       "OfficeGraph.WorkGraph.*",

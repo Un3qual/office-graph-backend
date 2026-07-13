@@ -43,6 +43,13 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert "dependency.audit" in aliases[:verify]
     assert "spec.verify" in aliases[:verify]
     assert "frontend.verify.precompiled" in aliases[:verify]
+
+    assert aliases[:"frontend.verify.precompiled"] == [
+             "assets.setup",
+             "cmd --cd assets env MIX_ENV=test OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
+           ]
+
+    assert Enum.at(aliases[:"static.analysis"], 1) =~ "lib/office_graph/verification/*.ex"
     assert "test" in aliases[:verify]
     refute "architecture.conformance" in aliases[:verify]
     assert "dependency.audit" in aliases[:precommit]
@@ -60,10 +67,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
   test "architecture layers name only loadable concrete modules" do
     {reach_config, _bindings} = Code.eval_file(".reach.exs")
+    layers = Keyword.fetch!(reach_config, :layers)
+
+    assert "OfficeGraph.Verification.*" in Keyword.fetch!(layers, :domain)
 
     missing_modules =
-      reach_config
-      |> Keyword.fetch!(:layers)
+      layers
       |> Keyword.values()
       |> List.flatten()
       |> Enum.reject(fn module_name ->
@@ -87,9 +96,21 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     mix = System.find_executable("mix")
 
     {cycles, exit_status} =
-      System.cmd(mix, ["xref", "graph", "--format", "cycles"], stderr_to_stdout: true)
+      System.cmd(
+        mix,
+        [
+          "xref",
+          "graph",
+          "--format",
+          "cycles",
+          "--label",
+          "compile-connected",
+          "--fail-above",
+          "0"
+        ],
+        stderr_to_stdout: true
+      )
 
     assert exit_status == 0, cycles
-    refute cycles =~ " compile)", cycles
   end
 end
