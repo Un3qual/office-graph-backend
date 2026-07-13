@@ -81,4 +81,7 @@ if [ "$skip_compose" != "1" ]; then
   fi
 fi
 
+mix local.hex --force --if-missing
+mix local.rebar --force --if-missing
+mix deps.get
 mix verify

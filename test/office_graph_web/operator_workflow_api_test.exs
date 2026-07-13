@@ -1018,7 +1018,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         "operatorRunState"
       )
 
-    assert compact_invalid["commandOptions"]["observation"] == []
+    assert compact_invalid["commandOptions"]["observation"] == [
+             %{"key" => List.last(run_result.required_checks).id}
+           ]
+
     assert compact_invalid["commandOptionSummary"]["observation"] == 1
     assert "record_execution_observation" in compact_invalid["allowedNextActions"]
 
@@ -1296,6 +1299,16 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert Enum.map(first_versions, & &1["title"]) == [
              "Packet workspace version one",
              "Packet workspace version two"
+           ]
+
+    assert Enum.map(first_versions, & &1["sourceGraphItemIds"]) == [
+             [verification_check.graph_item_id],
+             [verification_check.graph_item_id]
+           ]
+
+    assert Enum.map(first_versions, & &1["verificationCheckIds"]) == [
+             [verification_check.id],
+             [verification_check.id]
            ]
 
     second_workspace =

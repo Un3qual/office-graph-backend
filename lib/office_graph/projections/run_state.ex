@@ -100,7 +100,7 @@ defmodule OfficeGraph.Projections.RunState do
                session_context,
                run_id,
                nil,
-               1
+               @child_summary_limit
              )
            ) do
         {:ok, %{rows: rows}} ->
@@ -113,14 +113,22 @@ defmodule OfficeGraph.Projections.RunState do
     end)
   end
 
-  defp command_option_insight(_kind, []), do: %{count: 0, option: nil}
+  defp command_option_insight(_kind, []), do: %{count: 0, option: nil, options: []}
 
-  defp command_option_insight(kind, [row | _rest]) do
-    choice = command_option_choice(kind, row)
+  defp command_option_insight(kind, [row | _rest] = rows) do
+    kind = String.to_existing_atom(kind)
+
+    options =
+      rows
+      |> Enum.map(&command_option_choice(Atom.to_string(kind), &1))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Map.get(&1, kind))
+      |> Enum.reject(&is_nil/1)
 
     %{
       count: List.last(row),
-      option: choice && Map.get(choice, String.to_existing_atom(kind))
+      option: List.first(options),
+      options: options
     }
   end
 
@@ -220,7 +228,13 @@ defmodule OfficeGraph.Projections.RunState do
       status: status,
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
-      command_options: command_options(summary, evidence_candidates, verification_checks_by_id),
+      command_options:
+        command_options(
+          summary,
+          evidence_candidates,
+          verification_checks_by_id,
+          command_option_insights
+        ),
       command_options_overflow:
         Enum.any?(command_option_summary, &(elem(&1, 1) > @child_summary_limit)),
       command_option_summary: command_option_summary,
@@ -654,14 +668,24 @@ defmodule OfficeGraph.Projections.RunState do
     end
   end
 
-  defp command_options(summary, evidence_candidates, verification_checks_by_id) do
-    %{
+  defp command_options(
+         summary,
+         evidence_candidates,
+         verification_checks_by_id,
+         command_option_insights
+       ) do
+    compact_options = %{
       observation: observation_options(summary, verification_checks_by_id),
       evidence_candidate: evidence_candidate_options(summary, verification_checks_by_id),
       evidence_acceptance:
         evidence_acceptance_options(summary, evidence_candidates, verification_checks_by_id),
       waiver: waiver_options(summary, verification_checks_by_id)
     }
+
+    authoritative_options =
+      Map.new(command_option_insights, fn {kind, insight} -> {kind, insight.options} end)
+
+    Map.merge(compact_options, authoritative_options)
   end
 
   defp observation_options(summary, verification_checks_by_id) do

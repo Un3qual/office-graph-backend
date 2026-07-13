@@ -604,6 +604,21 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     count
   end
 
+  def run_verification_result_count(run_id, verification_check_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM verification_results
+        WHERE work_run_id = $1::uuid
+          AND verification_check_id = $2::uuid
+        """,
+        [db_uuid(run_id), db_uuid(verification_check_id)]
+      )
+
+    count
+  end
+
   def owner_bootstrap_counts(organization_slug, owner_email) do
     %{rows: [[principal_count, profile_count, session_count, assignment_count, policy_count]]} =
       Repo.query!(

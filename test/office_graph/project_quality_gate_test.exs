@@ -42,7 +42,15 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     assert compose_published_port("") == "55432"
     assert compose_published_port("0") == "0"
     assert compose_published_port("61234") == "61234"
-    assert verify_startup_published_port() == "0"
+
+    assert verify_startup_contract() ==
+             {"0",
+              [
+                "local.hex --force --if-missing",
+                "local.rebar --force --if-missing",
+                "deps.get",
+                "verify"
+              ]}
 
     {overridden_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
@@ -79,7 +87,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     |> get_in(["services", "postgres", "ports", Access.at(0), "published"])
   end
 
-  defp verify_startup_published_port do
+  defp verify_startup_contract do
     fixture_dir =
       Path.join(System.tmp_dir!(), "office_graph_verify_#{System.unique_integer([:positive])}")
 
@@ -87,6 +95,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     on_exit(fn -> File.rm_rf!(fixture_dir) end)
 
     port_log = Path.join(fixture_dir, "postgres-port")
+    mix_log = Path.join(fixture_dir, "mix-invocations")
     docker = Path.join(fixture_dir, "docker")
     mix = Path.join(fixture_dir, "mix")
 
@@ -114,7 +123,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     esac
     """)
 
-    File.write!(mix, "#!/usr/bin/env sh\nexit 0\n")
+    File.write!(mix, "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> \"$VERIFY_MIX_LOG\"\n")
     File.chmod!(docker, 0o755)
     File.chmod!(mix, 0o755)
 
@@ -123,12 +132,13 @@ defmodule OfficeGraph.ProjectQualityGateTest do
         env: [
           {"PATH", fixture_dir <> ":" <> System.fetch_env!("PATH")},
           {"VERIFY_PORT_LOG", port_log},
+          {"VERIFY_MIX_LOG", mix_log},
           {"OFFICE_GRAPH_POSTGRES_PORT", ""}
         ],
         stderr_to_stdout: true
       )
 
-    File.read!(port_log)
+    {File.read!(port_log), mix_log |> File.read!() |> String.split("\n", trim: true)}
   end
 
   defp expand_alias("test", _aliases), do: ["test"]

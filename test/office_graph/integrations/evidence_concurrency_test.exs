@@ -177,6 +177,106 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
     end
   end
 
+  test "different candidates concurrently compete for one run verification result slot" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "evidence-result-slot-race-#{suffix}"
+    workspace_slug = "evidence-result-slot-race-workspace-#{suffix}"
+    owner_email = "evidence-result-slot-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, run, verification_check, candidates} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Evidence Result Slot Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Evidence Result Slot Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Evidence Result Slot Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "result-slot-#{suffix}")
+
+          {:ok, run_result} =
+            create_concurrency_ready_run(bootstrap.session, [verification_check], suffix)
+
+          candidates =
+            Enum.map(1..2, fn index ->
+              key = "result-slot-#{suffix}-#{index}"
+
+              {:ok, observation_result} =
+                record_concurrency_observation(
+                  bootstrap.session,
+                  run_result.run,
+                  verification_check,
+                  key
+                )
+
+              {:ok, candidate} =
+                create_concurrency_candidate(
+                  bootstrap.session,
+                  run_result.run,
+                  verification_check,
+                  observation_result.observation,
+                  key
+                )
+
+              candidate
+            end)
+
+          {bootstrap, run_result.run, verification_check, candidates}
+        end)
+
+      results =
+        candidates
+        |> Enum.with_index(1)
+        |> Enum.map(fn {candidate, index} ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              {:ok, operation} =
+                Operations.start_operation(bootstrap.session, :evidence_accept,
+                  idempotency_key: "evidence-result-slot-race-#{suffix}-#{index}"
+                )
+
+              Verification.accept_evidence_candidate(
+                bootstrap.session,
+                operation,
+                candidate,
+                %{
+                  title: "Concurrent result slot evidence #{index}",
+                  body: "Only one candidate may occupy the run verification result slot.",
+                  result: "passed",
+                  acceptance_policy_basis: "owner_acceptance"
+                }
+              )
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [_accepted] = for({:ok, result} <- results, do: result)
+
+      assert [{run.id, verification_check.id}] ==
+               for(
+                 {:error, {:verification_result_slot_conflict, run_id, verification_check_id}} <-
+                   results,
+                 do: {run_id, verification_check_id}
+               )
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 run_verification_result_count(run.id, verification_check.id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
   test "evidence acceptance replays one operation across different candidate locks" do
     suffix = System.unique_integer([:positive])
     organization_slug = "evidence-accept-operation-race-#{suffix}"

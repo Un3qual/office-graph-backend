@@ -76,8 +76,10 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     with :ok <- authorize_read(session_context),
          {:ok, _packet} <- read_packet(session_context, packet_id),
          {:ok, after_key} <- decode_version_cursor(after_cursor),
-         {:ok, versions} <- read_versions_page(session_context, packet_id, after_key, limit + 1) do
-      page_versions = Enum.take(versions, limit)
+         {:ok, versions} <- read_versions_page(session_context, packet_id, after_key, limit + 1),
+         page_versions = Enum.take(versions, limit),
+         {:ok, source_references} <- read_source_references(session_context, page_versions),
+         {:ok, required_checks} <- read_required_checks(session_context, page_versions) do
       has_next_page? = length(versions) > limit
 
       {:ok,
@@ -85,7 +87,7 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          edges:
            Enum.map(page_versions, fn version ->
              %{
-               node: version_history_projection(version),
+               node: version_projection(version, source_references, required_checks),
                cursor: version_cursor(version)
              }
            end),
@@ -206,9 +208,10 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     |> Ash.Query.filter(
       work_packet_version_id == ^current_version_id and
         organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and state not in ["failed", "verified"] and
-        aggregate_state not in ["failed", "verified"] and
-        verification_state not in ["failed", "verified"]
+        workspace_id == ^session_context.workspace_id and
+        (is_nil(state) or state not in ["failed", "verified"]) and
+        (is_nil(aggregate_state) or aggregate_state not in ["failed", "verified"]) and
+        (is_nil(verification_state) or verification_state not in ["failed", "verified"])
     )
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(1)
@@ -290,24 +293,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
       source_graph_item_ids: ids_for_version(source_references, version.id, :graph_item_id),
       verification_check_ids:
         ids_for_version(required_checks, version.id, :verification_check_id),
-      operation_id: version.operation_id,
-      inserted_at: version.inserted_at
-    }
-  end
-
-  defp version_history_projection(version) do
-    %{
-      id: version.id,
-      version_number: version.version_number,
-      lifecycle_state: version.lifecycle_state,
-      title: version.title,
-      objective: version.objective,
-      context_summary: version.context_summary,
-      requirements: version.requirements,
-      success_criteria: version.success_criteria,
-      autonomy_posture: version.autonomy_posture,
-      source_graph_item_ids: [],
-      verification_check_ids: [],
       operation_id: version.operation_id,
       inserted_at: version.inserted_at
     }
