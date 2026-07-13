@@ -263,3 +263,20 @@ These are confirmed mismatches, not dismissed findings. They are not partially i
 ## Completion Standard
 
 The remediation is complete only when each in-scope finding above has a red/green or structural verification, strict OpenSpec validation passes, dependency advisories are clear, the canonical Nix-backed gate runs the actual full suite and all frontend/build checks, an independent reviewer finds no material issue, the worktree is clean, and the ready PR targets the current open PR branch.
+
+## Verification Evidence
+
+Every behavior correction was introduced with a focused failing regression or
+an equivalent structural gate before the implementation. The final branch then
+passed `./bin/verify` twice from the pinned Nix environment without changing the
+worktree:
+
+- ExUnit seed `247511`: 444 backend tests; 156 frontend tests; strict Credo,
+  ExDNA, Reach, Dialyzer, dependency advisories, all 96 canonical specs plus the
+  active change, Relay generation, type-checking, linting, and production
+  client, SSR, and backend builds.
+- ExUnit seed `847860`: the same complete gate, with 444 backend tests and 156
+  frontend tests.
+
+The stacked base `codex/project-quality-audit` remained at commit `6276585` and
+is an ancestor of the verified branch head.
