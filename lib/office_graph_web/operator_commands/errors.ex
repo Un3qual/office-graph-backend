@@ -214,8 +214,13 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
     field_error("A field has an invalid value.", field)
   end
 
+  def classify(%Ash.Error.Invalid{} = error) do
+    fields = validation_fields(error)
+    result(:validation, "validation_failed", "Validation failed.", %{}, fields)
+  end
+
   def classify(%Ash.Changeset{} = changeset) do
-    fields = changeset_fields(changeset.errors)
+    fields = validation_fields(changeset)
     result(:validation, "validation_failed", "Validation failed.", %{}, fields)
   end
 
@@ -235,19 +240,41 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
     ])
   end
 
-  defp changeset_field(%{field: field}) do
+  defp validation_fields(%Ash.Error.Invalid{errors: errors, changeset: changeset}) do
+    case validation_fields(errors) do
+      [] -> validation_fields(changeset)
+      fields -> fields
+    end
+  end
+
+  defp validation_fields(%Ash.Changeset{errors: errors}), do: validation_fields(errors)
+  defp validation_fields(%{errors: errors}), do: validation_fields(errors)
+
+  defp validation_fields(%{field: field}) do
+    [validation_field(field)]
+  end
+
+  defp validation_fields(%{fields: fields}), do: validation_field_list(fields)
+
+  defp validation_fields([]), do: []
+
+  defp validation_fields([error | errors]) do
+    validation_fields(error) ++ validation_fields(errors)
+  end
+
+  defp validation_fields(_malformed), do: []
+
+  defp validation_field(field) do
     %{field: sanitize_field(field), message: "is invalid"}
   end
 
-  defp changeset_field(_error), do: %{field: nil, message: "is invalid"}
+  defp validation_field_list([]), do: []
 
-  defp changeset_fields([]), do: []
-
-  defp changeset_fields([error | errors]) do
-    [changeset_field(error) | changeset_fields(errors)]
+  defp validation_field_list([field | fields]) do
+    [validation_field(field) | validation_field_list(fields)]
   end
 
-  defp changeset_fields(_malformed), do: []
+  defp validation_field_list(_malformed), do: []
 
   defp result(category, code, detail, metadata \\ %{}, fields \\ []) do
     %{

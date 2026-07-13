@@ -318,6 +318,51 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
       end
     end
 
+    test "wrapped Ash validation errors preserve every safe field without exposing details" do
+      error = %Ash.Error.Invalid{
+        errors: [
+          %Ash.Error.Changes.InvalidAttribute{
+            field: :title,
+            message: "SELECT credentials FROM secrets",
+            value: "databasecredentials",
+            has_value?: true
+          },
+          %Ash.Error.Invalid{
+            errors: [
+              %Ash.Error.Changes.Required{
+                field: :body,
+                type: :attribute,
+                resource: OfficeGraph.WorkGraph.Signal
+              },
+              %Ash.Error.Changes.InvalidChanges{
+                fields: [:requirements, {:unsafe, :field}],
+                message: "adaptertimeout",
+                value: %{token: "must-not-leak"}
+              }
+            ]
+          }
+        ]
+      }
+
+      fields = [
+        %{field: "title", message: "is invalid"},
+        %{field: "body", message: "is invalid"},
+        %{field: "requirements", message: "is invalid"},
+        %{field: "invalid", message: "is invalid"}
+      ]
+
+      assert %{fields: ^fields, metadata: %{}} = Errors.classify(error)
+
+      assert_adapter_error(error, 422, "validation_failed", "Validation failed.", %{
+        fields: fields
+      })
+
+      rendered = inspect(Errors.classify(error))
+      refute rendered =~ "credentials"
+      refute rendered =~ "adaptertimeout"
+      refute rendered =~ "must-not-leak"
+    end
+
     test "nested forbidden and generic fallback retain adapter parity without unsafe fields" do
       nested_forbidden = %{errors: [%{errors: [struct(Ash.Error.Forbidden)]}]}
 
