@@ -1,3 +1,4 @@
+import { parse, visit as visitGraphQL } from "graphql";
 import ts from "typescript";
 
 export function analyzeTypeScript(source: string, filename = "architecture-fixture.tsx") {
@@ -8,17 +9,21 @@ export function analyzeTypeScript(source: string, filename = "architecture-fixtu
     true,
     filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+  const importedNames = importedCanonicalNames(sourceFile);
   const identifiers = new Set<string>();
   const moduleSpecifiers = new Set<string>();
-  const graphqlDocuments: string[] = [];
+  const graphqlOperations = new Set<string>();
+  const graphqlFields = new Set<string>();
+  const graphqlParseErrors: string[] = [];
   const stringLiterals = new Set<string>();
   const stringCallArguments = new Map<string, string[][]>();
   const typeProperties = new Map<string, Map<string, string>>();
   const typedCalls = new Map<string, Set<string>>();
 
   const addModuleSpecifier = (expression: ts.Expression | undefined) => {
-    if (expression && ts.isStringLiteralLike(expression)) {
-      moduleSpecifiers.add(expression.text);
+    const specifier = expression ? staticStringValue(expression) : null;
+    if (specifier !== null) {
+      moduleSpecifiers.add(specifier);
     } else if (expression) {
       moduleSpecifiers.add("<non-static dynamic import>");
     }
@@ -41,11 +46,12 @@ export function analyzeTypeScript(source: string, filename = "architecture-fixtu
       }
 
       if (ts.isIdentifier(node.expression) && node.typeArguments?.length) {
-        const typeArguments = typedCalls.get(node.expression.text) ?? new Set<string>();
+        const callName = importedNames.get(node.expression.text) ?? node.expression.text;
+        const typeArguments = typedCalls.get(callName) ?? new Set<string>();
         for (const typeArgument of node.typeArguments) {
           typeArguments.add(typeArgument.getText(sourceFile));
         }
-        typedCalls.set(node.expression.text, typeArguments);
+        typedCalls.set(callName, typeArguments);
       }
 
       if (ts.isIdentifier(node.expression)) {
@@ -72,7 +78,24 @@ export function analyzeTypeScript(source: string, filename = "architecture-fixtu
       ts.isIdentifier(node.tag) &&
       node.tag.text === "graphql"
     ) {
-      graphqlDocuments.push(node.template.getText(sourceFile));
+      if (ts.isNoSubstitutionTemplateLiteral(node.template)) {
+        try {
+          visitGraphQL(parse(node.template.text), {
+            Field(field) {
+              graphqlFields.add(field.name.value);
+            },
+            OperationDefinition(operation) {
+              if (operation.name) graphqlOperations.add(operation.name.value);
+            },
+          });
+        } catch (error) {
+          graphqlParseErrors.push(
+            error instanceof Error ? error.message : "Unable to parse GraphQL document.",
+          );
+        }
+      } else {
+        graphqlParseErrors.push("GraphQL documents must be static template literals.");
+      }
     }
 
     ts.forEachChild(node, visit);
@@ -83,10 +106,42 @@ export function analyzeTypeScript(source: string, filename = "architecture-fixtu
   return {
     identifiers,
     moduleSpecifiers,
-    graphqlDocuments,
+    graphqlOperations,
+    graphqlFields,
+    graphqlParseErrors,
     stringLiterals,
     stringCallArguments,
     typeProperties,
     typedCalls,
   };
+}
+
+function importedCanonicalNames(sourceFile: ts.SourceFile) {
+  const names = new Map<string, string>();
+
+  const visit = (node: ts.Node) => {
+    if (ts.isImportSpecifier(node)) {
+      names.set(node.name.text, node.propertyName?.text ?? node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return names;
+}
+
+function staticStringValue(expression: ts.Expression): string | null {
+  if (ts.isStringLiteralLike(expression)) return expression.text;
+  if (ts.isParenthesizedExpression(expression)) return staticStringValue(expression.expression);
+
+  if (
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.PlusToken
+  ) {
+    const left = staticStringValue(expression.left);
+    const right = staticStringValue(expression.right);
+    return left === null || right === null ? null : left + right;
+  }
+
+  return null;
 }

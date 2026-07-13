@@ -9,16 +9,17 @@ const routeRoot = join(process.cwd(), "app/routes/packets");
 
 describe("packet route data architecture", () => {
   it("keeps the packet query and product state owned by the route", () => {
-    const dataSource = readFileSync(join(routeRoot, "data.ts"), "utf8");
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
-    const routeSource = `${dataSource}\n${workflowSource}`;
+    const routeSource = sourceFiles(routeRoot)
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
     const routeFacts = analyzeTypeScript(routeSource, "packet-route.tsx");
     const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
-    const graphqlDocuments = routeFacts.graphqlDocuments.join("\n");
 
     expect(existsSync(join(process.cwd(), "src/packets"))).toBe(false);
-    expect(graphqlDocuments).toContain("query PacketsRouteQuery");
-    expect(graphqlDocuments).toContain("listWorkPackets");
+    expect(routeFacts.graphqlParseErrors).toEqual([]);
+    expect(routeFacts.graphqlOperations).toContain("PacketsRouteQuery");
+    expect(routeFacts.graphqlFields).toContain("listWorkPackets");
     expect(workflowFacts.identifiers).toContain("usePacketsWorkflow");
     expect(workflowFacts.identifiers).toContain("useLazyLoadQuery");
     expect([...workflowFacts.identifiers]).toEqual(
@@ -31,6 +32,7 @@ describe("packet route data architecture", () => {
       ]),
     );
     expect(routeFacts.moduleSpecifiers).not.toContain("@tanstack/react-query");
+    expect(routeFacts.moduleSpecifiers).not.toContain("<non-static dynamic import>");
     expect([...routeFacts.identifiers]).toEqual(
       expect.not.arrayContaining(["GraphQLFetcher", "fetchGraphQL"]),
     );
@@ -128,10 +130,10 @@ describe("packet route data architecture", () => {
     const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
     const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
 
-    const graphqlDocuments = commandsFacts.graphqlDocuments.join("\n");
-    expect(graphqlDocuments).toContain("mutation PacketsCreateWorkPacketMutation");
-    expect(graphqlDocuments).toContain("mutation PacketsCreateWorkPacketVersionMutation");
-    expect(graphqlDocuments).toContain("mutation PacketsStartWorkRunMutation");
+    expect(commandsFacts.graphqlParseErrors).toEqual([]);
+    expect(commandsFacts.graphqlOperations).toContain("PacketsCreateWorkPacketMutation");
+    expect(commandsFacts.graphqlOperations).toContain("PacketsCreateWorkPacketVersionMutation");
+    expect(commandsFacts.graphqlOperations).toContain("PacketsStartWorkRunMutation");
     expect(workflowFacts.identifiers).toContain("useCommandMutation");
     expect(workflowFacts.identifiers).not.toContain("fetchGraphQL");
     expect([...workflowFacts.stringLiterals].some((value) => value.startsWith("/api/"))).toBe(

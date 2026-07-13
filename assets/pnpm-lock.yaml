@@ -66,6 +66,9 @@ importers:
       babel-plugin-relay:
         specifier: ^21.0.1
         version: 21.0.1
+      graphql:
+        specifier: 15.3.0
+        version: 15.3.0
       jsdom:
         specifier: ^26.0.0
         version: 26.1.0

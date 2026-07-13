@@ -12,11 +12,12 @@ describe("operator route architecture", () => {
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
     const routeFacts = analyzeTypeScript(source, "operator-route.tsx");
     const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
-    const graphqlDocuments = routeFacts.graphqlDocuments.join("\n");
 
     expect(existsSync(join(assetsRoot, "src/operator"))).toBe(false);
     expect(routeFacts.moduleSpecifiers).not.toContain("@tanstack/react-query");
-    expect(graphqlDocuments).not.toContain("operatorInbox");
+    expect(routeFacts.moduleSpecifiers).not.toContain("<non-static dynamic import>");
+    expect(routeFacts.graphqlParseErrors).toEqual([]);
+    expect(routeFacts.graphqlFields).not.toContain("operatorInbox");
     expect([...routeFacts.identifiers]).toEqual(
       expect.not.arrayContaining([
         "GraphQLFetcher",
@@ -33,9 +34,13 @@ describe("operator route architecture", () => {
         "useEffect",
       ]),
     );
-    expect(graphqlDocuments).toContain("query OperatorWorkflowRouteQuery");
-    expect(graphqlDocuments).toContain("query OperatorPacketReadinessQuery");
-    expect(graphqlDocuments).toContain("query OperatorRunStateQuery");
+    expect([...routeFacts.graphqlOperations]).toEqual(
+      expect.arrayContaining([
+        "OperatorWorkflowRouteQuery",
+        "OperatorPacketReadinessQuery",
+        "OperatorRunStateQuery",
+      ]),
+    );
     expect(workflowFacts.typedCalls.get("useLazyLoadQuery")).toEqual(
       new Set([
         "OperatorWorkflowRouteOperation",
@@ -77,12 +82,9 @@ describe("operator route architecture", () => {
     const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
     const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
 
-    expect(commandsFacts.graphqlDocuments.join("\n")).toContain(
-      "mutation OperatorSubmitManualIntakeMutation",
-    );
-    expect(commandsFacts.graphqlDocuments.join("\n")).toContain(
-      "mutation OperatorWaiveVerificationCheckMutation",
-    );
+    expect(commandsFacts.graphqlParseErrors).toEqual([]);
+    expect(commandsFacts.graphqlOperations).toContain("OperatorSubmitManualIntakeMutation");
+    expect(commandsFacts.graphqlOperations).toContain("OperatorWaiveVerificationCheckMutation");
     expect(workflowFacts.identifiers).toContain("useCommandMutation");
     expect(workflowFacts.identifiers).not.toContain("fetchGraphQL");
     expect([...workflowFacts.stringLiterals].some((value) => value.startsWith("/api/"))).toBe(
@@ -96,9 +98,8 @@ describe("operator route architecture", () => {
     const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
     const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
 
-    expect(commandsFacts.graphqlDocuments.join("\n")).not.toContain(
-      "mutation OperatorStartWorkRunMutation",
-    );
+    expect(commandsFacts.graphqlParseErrors).toEqual([]);
+    expect(commandsFacts.graphqlOperations).not.toContain("OperatorStartWorkRunMutation");
     expect(workflowFacts.identifiers).not.toContain("useStartWorkRunCommand");
     expect(
       existsSync(

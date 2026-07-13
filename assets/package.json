@@ -45,6 +45,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "babel-plugin-relay": "^21.0.1",
+    "graphql": "15.3.0",
     "jsdom": "^26.0.0",
     "relay-compiler": "^21.0.1",
     "typescript": "^5.8.0",

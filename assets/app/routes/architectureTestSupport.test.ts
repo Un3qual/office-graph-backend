@@ -15,4 +15,46 @@ describe("TypeScript architecture facts", () => {
     expect(facts.identifiers).toContain("fetchQuery");
     expect(facts.identifiers).toContain("runQuery");
   });
+
+  it("fails closed for identifier imports and folds concatenated static imports", () => {
+    const facts = analyzeTypeScript(`
+      const target = "./runtime-target";
+      void import(target);
+      void import("./routes/" + "safe-route");
+    `);
+
+    expect(facts.moduleSpecifiers).toContain("<non-static dynamic import>");
+    expect(facts.moduleSpecifiers).toContain("./routes/safe-route");
+  });
+
+  it("derives GraphQL operation and selection facts without comment or string matches", () => {
+    const facts = analyzeTypeScript(`
+      const query = graphql\`
+        # query CommentOnlyQuery { operatorInbox }
+        query RealQuery {
+          current: operatorWorkflowItems(first: 1) {
+            # operatorInbox
+            nodes { id note(value: "operatorInbox") }
+          }
+        }
+      \`;
+    `);
+
+    expect(facts).toMatchObject({
+      graphqlOperations: new Set(["RealQuery"]),
+      graphqlFields: new Set(["operatorWorkflowItems", "nodes", "id", "note"]),
+    });
+  });
+
+  it("canonicalizes aliased imported typed calls", () => {
+    const facts = analyzeTypeScript(`
+      import { useLazyLoadQuery as loadQuery } from "react-relay";
+      const data = loadQuery<OperatorWorkflowRouteOperation>(query, variables);
+    `);
+
+    expect(facts.typedCalls.get("useLazyLoadQuery")).toEqual(
+      new Set(["OperatorWorkflowRouteOperation"]),
+    );
+    expect(facts.typedCalls.has("loadQuery")).toBe(false);
+  });
 });
