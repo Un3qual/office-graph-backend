@@ -8,11 +8,17 @@ config :office_graph, allow_local_api_owner_bootstrap: true
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :office_graph, OfficeGraph.Repo,
-  username: "office_graph",
-  password: "office_graph",
-  hostname: "localhost",
-  port: 55432,
-  database: "office_graph_test#{System.get_env("MIX_TEST_PARTITION")}",
+  username: System.get_env("OFFICE_GRAPH_TEST_DATABASE_USERNAME", "office_graph"),
+  password: System.get_env("OFFICE_GRAPH_TEST_DATABASE_PASSWORD", "office_graph"),
+  hostname: System.get_env("OFFICE_GRAPH_TEST_DATABASE_HOST", "localhost"),
+  port:
+    String.to_integer(
+      System.get_env("OFFICE_GRAPH_TEST_DATABASE_PORT") ||
+        System.get_env("OFFICE_GRAPH_POSTGRES_PORT", "55432")
+    ),
+  database:
+    System.get_env("OFFICE_GRAPH_TEST_DATABASE_NAME", "office_graph_test") <>
+      System.get_env("MIX_TEST_PARTITION", ""),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 

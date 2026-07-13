@@ -1,7 +1,7 @@
 # scope-hierarchy-implementation-plan Specification
 
 ## Purpose
-TBD - created by archiving change design-scope-hierarchy-implementation. Update Purpose after archive.
+Define ownership and sequencing for implementing the tenant scope hierarchy.
 ## Requirements
 ### Requirement: Scope Hierarchy Implementation Ownership
 Office Graph SHALL plan scope hierarchy implementation as an

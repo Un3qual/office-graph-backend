@@ -17,9 +17,10 @@ Docker/Compose CLI used by the local Postgres helpers. It also sets
 project-local `MIX_HOME` and `HEX_HOME` paths so old user-global Mix archives do
 not leak into this runtime.
 
-## Postgres
+## Local Postgres
 
-Start local Postgres with Docker Compose:
+The canonical verification command starts and waits for an isolated Postgres
+service automatically. For focused development, start the default service with:
 
 ```sh
 docker compose up -d postgres
@@ -65,15 +66,35 @@ docker compose up -d postgres
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
 ```
 
-Run individual project gates:
+Run the canonical repository gate:
 
 ```sh
-nix --extra-experimental-features 'nix-command flakes' develop --command mix compile --warnings-as-errors
-nix --extra-experimental-features 'nix-command flakes' develop --command mix format --check-formatted
-nix --extra-experimental-features 'nix-command flakes' develop --command mix boundary.check
-nix --extra-experimental-features 'nix-command flakes' develop --command mix static.analysis
-nix --extra-experimental-features 'nix-command flakes' develop --command mix typecheck
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify
+```
+
+`bin/verify` derives a stable Compose project name and test database partition
+from the worktree path, then asks Docker to allocate an available loopback host
+port so concurrent worktrees do not share database state or contend for a small
+fixed port range. `COMPOSE_PROJECT_NAME`, `OFFICE_GRAPH_POSTGRES_PORT`, and
+`MIX_TEST_PARTITION` override those defaults.
+
+When PostgreSQL is managed externally, skip Compose and provide explicit test
+connection settings:
+
+```sh
+OFFICE_GRAPH_SKIP_COMPOSE=1 \
+OFFICE_GRAPH_TEST_DATABASE_HOST=localhost \
+OFFICE_GRAPH_TEST_DATABASE_PORT=5432 \
+MIX_TEST_PARTITION=_local \
+nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify
+```
+
+Focused developer commands remain available inside the Nix shell:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/walking_skeleton_test.exs
 nix --extra-experimental-features 'nix-command flakes' develop --command mix architecture.conformance
+nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir assets test
 nix --extra-experimental-features 'nix-command flakes' develop --command mix dependency.audit
 nix --extra-experimental-features 'nix-command flakes' develop --command mix frontend.verify
 nix --extra-experimental-features 'nix-command flakes' develop --command mix test
@@ -81,9 +102,8 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
 
-Or run the full project gate as one command. The historical script name remains
-for compatibility, but it now delegates to the authoritative `mix verify`
-alias:
+The historical script name remains for compatibility and delegates to the
+canonical `bin/verify` entry point:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/verify-backend

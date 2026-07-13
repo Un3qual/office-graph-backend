@@ -1,7 +1,7 @@
 # verification-evidence Specification
 
 ## Purpose
-TBD - created by archiving change design-runs-and-verification. Update Purpose after archive.
+Define explicit checks and admissible evidence used to verify completion.
 ## Requirements
 ### Requirement: Verification Uses Explicit Checks
 

@@ -8,12 +8,12 @@ describe("packet route workflow", () => {
     expect(
       packetConnectionFromRows(rows, {
         endCursor: "cursor_1",
-        hasNextPage: true
-      })
+        hasNextPage: true,
+      }),
     ).toEqual({
       hasNextPage: true,
       nextCursor: "cursor_1",
-      rows
+      rows,
     });
   });
 
@@ -21,11 +21,11 @@ describe("packet route workflow", () => {
     expect(
       packetConnectionFromRows([packet()], {
         endCursor: null,
-        hasNextPage: true
-      })
+        hasNextPage: true,
+      }),
     ).toMatchObject({
       hasNextPage: false,
-      nextCursor: null
+      nextCursor: null,
     });
   });
 
@@ -34,9 +34,7 @@ describe("packet route workflow", () => {
 
     expect(selectedPacketId(rows, null)).toBe("packet_1");
     expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_2" })).toBe("packet_2");
-    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_missing" })).toBe(
-      "packet_1"
-    );
+    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_missing" })).toBe("packet_1");
     expect(selectedPacketId([], { kind: "relay_id", value: "packet_2" })).toBeNull();
   });
 
@@ -46,21 +44,21 @@ describe("packet route workflow", () => {
       packet({
         id: "relay_packet_created",
         operationId: "operation_created",
-        title: "Created packet"
-      })
+        title: "Created packet",
+      }),
     ];
 
-    expect(
-      selectedPacketId(rows, { kind: "operation_id", value: "operation_created" })
-    ).toBe("relay_packet_created");
+    expect(selectedPacketId(rows, { kind: "operation_id", value: "operation_created" })).toBe(
+      "relay_packet_created",
+    );
   });
 
   it("does not fall back to an unrelated packet when an operation selection is absent", () => {
     expect(
       selectedPacketId([packet()], {
         kind: "operation_id",
-        value: "operation_missing"
-      })
+        value: "operation_missing",
+      }),
     ).toBeNull();
   });
 });
@@ -73,7 +71,7 @@ function packet(overrides: Partial<Packet> = {}): Packet {
     currentVersionId: "version_1",
     operationId: "operation_1",
     updatedAt: "2026-07-09T12:00:00Z",
-    ...overrides
+    ...overrides,
   };
 }
 

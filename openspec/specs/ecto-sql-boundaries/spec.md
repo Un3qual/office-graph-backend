@@ -1,7 +1,7 @@
 # ecto-sql-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Define the narrow, documented cases where direct Ecto or SQL access is permitted.
 ## Requirements
 ### Requirement: Approved Direct SQL Paths
 Direct Ecto queries and explicit SQL SHALL be allowed only for context-owned

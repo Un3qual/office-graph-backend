@@ -25,12 +25,8 @@ describe("shared UI primitives", () => {
           Try again later.
         </EmptyState>
         <TextField label="Search" placeholder="Search records" />
-        <NavRail
-          brand="OG"
-          ariaLabel="Sections"
-          items={[{ label: "Reports" }]}
-        />
-      </>
+        <NavRail brand="OG" ariaLabel="Sections" items={[{ label: "Reports" }]} />
+      </>,
     );
 
     expect(screen.getByText("Ready")).toHaveAttribute("data-tone", "green");
@@ -44,15 +40,18 @@ describe("shared UI primitives", () => {
 
   it("preserves render-prop class names on buttons", () => {
     render(
-      <Button className={({ isDisabled }) => (isDisabled ? "state-disabled" : "state-enabled")} isDisabled>
+      <Button
+        className={({ isDisabled }) => (isDisabled ? "state-disabled" : "state-enabled")}
+        isDisabled
+      >
         Stateful
-      </Button>
+      </Button>,
     );
 
     expect(screen.getByRole("button", { name: "Stateful" })).toHaveClass(
       "ui-button",
       "ui-button-secondary",
-      "state-disabled"
+      "state-disabled",
     );
   });
 
@@ -65,45 +64,52 @@ describe("shared UI primitives", () => {
           items={[
             { label: "Inbox", to: "/inbox" },
             { label: "Activity", to: "/activity" },
-            { label: "Reports" }
+            { label: "Reports" },
           ]}
         />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox");
-    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
-    expect(screen.getByRole("link", { name: "Activity" })).not.toHaveAttribute(
-      "aria-current"
-    );
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Activity" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("button", { name: "Reports" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
   });
 
   it("keeps product navigation available in compact layouts", () => {
-    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const styles = readFileSync(join(process.cwd(), "src/styles/shared.css"), "utf8");
     const compactBreakpoint = styles.indexOf("@media (max-width: 980px)");
 
     expect(compactBreakpoint).toBeGreaterThan(-1);
 
     const compactStyles = styles.slice(compactBreakpoint);
 
-    expect(compactStyles).not.toMatch(
-      /\.ui-nav-rail\s*\{[^}]*display:\s*none\s*;/
-    );
+    expect(compactStyles).not.toMatch(/\.ui-nav-rail\s*\{[^}]*display:\s*none\s*;/);
     expect(compactStyles).toMatch(/\.ui-nav-rail\s*\{[^}]*display:\s*grid\s*;/);
-    expect(compactStyles).toMatch(
-      /\.ui-nav-rail nav\s*\{[^}]*overflow-x:\s*auto\s*;/
-    );
+    expect(compactStyles).toMatch(/\.ui-nav-rail nav\s*\{[^}]*overflow-x:\s*auto\s*;/);
+  });
+
+  it("does not retain pre-primitive style aliases", () => {
+    const styles = readFileSync(join(process.cwd(), "src/styles/shared.css"), "utf8");
+
+    for (const alias of [
+      "brand-mark",
+      "icon-rail",
+      "rail-item",
+      "rail-item-active",
+      "empty-state",
+      "error-state",
+      "status-badge",
+      "panel-rows",
+      "inspector-panel",
+    ]) {
+      expect(styles).not.toMatch(new RegExp(`\\.${alias}(?=[\\s,:\\[])`));
+    }
   });
 
   it("renders pending and caller-owned form feedback accessibly", () => {
-    const { rerender } = render(
-      <FormFeedback pendingMessage="Saving changes." />
-    );
+    const { rerender } = render(<FormFeedback pendingMessage="Saving changes." />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Saving changes.");
 
@@ -112,20 +118,16 @@ describe("shared UI primitives", () => {
         feedback={{
           kind: "field",
           field: "title",
-          message: "A title is required."
+          message: "A title is required.",
         }}
-      />
+      />,
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("A title is required.");
     expect(screen.getByRole("alert")).toHaveAttribute("data-kind", "field");
     expect(screen.getByRole("alert")).toHaveAttribute("data-field", "title");
 
-    rerender(
-      <FormFeedback
-        feedback={{ kind: "conflict", message: "Refresh before retrying." }}
-      />
-    );
+    rerender(<FormFeedback feedback={{ kind: "conflict", message: "Refresh before retrying." }} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Refresh before retrying.");
     expect(screen.getByRole("alert")).toHaveAttribute("data-kind", "conflict");

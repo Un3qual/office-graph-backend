@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0901ffcd5d01a6570fcb8d4ede4114ec>>
+ * @generated SignedSource<<05bae68b4be8a047e767f9dbf0a47b8a>>
  * @lightSyntaxTransform
  */
 
@@ -10,7 +10,33 @@
 import { ReaderInlineDataFragment } from 'relay-runtime';
 import { FragmentRefs } from "relay-runtime";
 export type OperatorRunStateFragment$data = {
+  readonly activity: {
+    readonly edges: ReadonlyArray<{
+      readonly cursor: string | null | undefined;
+      readonly node: {
+        readonly kind: string;
+        readonly stableId: string;
+        readonly status: string;
+        readonly title: string;
+      } | null | undefined;
+    } | null | undefined> | null | undefined;
+    readonly pageInfo: {
+      readonly endCursor: string | null | undefined;
+      readonly hasNextPage: boolean;
+      readonly hasPreviousPage: boolean;
+      readonly startCursor: string | null | undefined;
+    };
+  } | null | undefined;
   readonly allowedNextActions: ReadonlyArray<string>;
+  readonly childSummary: {
+    readonly evidenceCandidates: number;
+    readonly evidenceItems: number;
+    readonly hasMore: boolean;
+    readonly missingEvidence: number;
+    readonly observations: number;
+    readonly requiredChecks: number;
+    readonly verificationResults: number;
+  };
   readonly commandAffordances: ReadonlyArray<{
     readonly blockerReasons: ReadonlyArray<string>;
     readonly identity: string;
@@ -28,6 +54,61 @@ export type OperatorRunStateFragment$data = {
       readonly type: string;
     }>;
   }>;
+  readonly commandOptionSummary: {
+    readonly evidenceAcceptance: number;
+    readonly evidenceCandidate: number;
+    readonly observation: number;
+    readonly waiver: number;
+  };
+  readonly commandOptions: {
+    readonly evidenceAcceptance: ReadonlyArray<{
+      readonly acceptancePolicyBasis: string;
+      readonly evidenceCandidateId: string;
+      readonly key: string;
+      readonly label: string;
+      readonly result: string;
+    }>;
+    readonly evidenceCandidate: ReadonlyArray<{
+      readonly executionObservationId: string;
+      readonly freshnessState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly sensitivity: string;
+      readonly sourceIdentity: string;
+      readonly sourceKind: string;
+      readonly trustBasis: string;
+      readonly verificationCheckId: string;
+      readonly workRunId: string;
+    }>;
+    readonly observation: ReadonlyArray<{
+      readonly defaultOutcomeKey: string;
+      readonly freshnessState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly observationSourceIdentity: string;
+      readonly observationSourceKind: string;
+      readonly outcomes: ReadonlyArray<{
+        readonly key: string;
+        readonly label: string;
+        readonly normalizedStatus: string;
+        readonly observedStatus: string;
+      }>;
+      readonly runId: string;
+      readonly sourceGraphItemId: string;
+      readonly trustBasis: string;
+      readonly verificationCheckId: string;
+    }>;
+    readonly waiver: ReadonlyArray<{
+      readonly expectedExecutionState: string;
+      readonly expectedVerificationState: string;
+      readonly key: string;
+      readonly label: string;
+      readonly policyBasis: string;
+      readonly runId: string;
+      readonly runRequiredCheckId: string;
+    }>;
+  };
+  readonly commandOptionsOverflow: boolean;
   readonly evidenceCandidates: ReadonlyArray<{
     readonly claim: string;
     readonly executionObservationId: string | null | undefined;
@@ -109,6 +190,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "0d19e6b73fe4c73735a088fa95e9ad78";
+(node as any).hash = "c03edc0383ecebfff0f5b3f5a9eb679f";
 
 export default node;

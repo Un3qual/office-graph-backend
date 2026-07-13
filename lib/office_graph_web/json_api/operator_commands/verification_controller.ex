@@ -4,7 +4,8 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.VerificationController do
   alias OfficeGraph.Operations
   alias OfficeGraph.Verification
   alias OfficeGraphWeb.JsonApi.Common.Errors
-  alias OfficeGraphWeb.JsonApi.OperatorCommands.{Input, Serializer}
+  alias OfficeGraphWeb.JsonApi.OperatorCommands.Serializer
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def create_evidence_candidate(conn, params) do

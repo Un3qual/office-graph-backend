@@ -1,7 +1,7 @@
 import { useRef, type FormEvent } from "react";
 import { Button } from "../../../../src/ui/Button";
-import { FormFeedback } from "../../../../src/ui/FormFeedback";
-import { commandFeedback, submissionIdentity } from "../../../relay/commandFormSupport";
+import { CommandFormFeedback } from "../../../relay/CommandFormFeedback";
+import { submissionIdentity } from "../../../relay/commandFormSupport";
 import { useCreateWorkPacketVersionCommand } from "../commandWorkflow";
 import type { PacketWorkspaceDetail } from "../types";
 import { PacketContractFields, packetContractInput } from "./PacketContractFields";
@@ -13,6 +13,7 @@ type Props = {
 
 export function PacketEditor({ onRefresh, workspace }: Props) {
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const command = useCreateWorkPacketVersionCommand(() => onRefresh());
   const version = workspace.currentVersion;
 
@@ -22,7 +23,7 @@ export function PacketEditor({ onRefresh, workspace }: Props) {
     const input = {
       ...contract,
       packetId: workspace.packet.id,
-      expectedCurrentVersionId: version.id
+      expectedCurrentVersionId: version.id,
     };
     attempt.current = submissionIdentity(attempt.current, input);
     command.submit({ ...input, idempotencyKey: attempt.current.key });
@@ -34,18 +35,24 @@ export function PacketEditor({ onRefresh, workspace }: Props) {
         <p className="eyebrow">Immutable edit</p>
         <h3>Create the next version</h3>
       </header>
-      <form key={version.id} onSubmit={submit}>
+      <form key={version.id} onSubmit={submit} ref={formRef}>
         <fieldset disabled={command.state.status === "pending"}>
-          <PacketContractFields titleLabel="Version title" version={version} />
+          <PacketContractFields
+            commandState={command.state}
+            errorScope="packet-version"
+            titleLabel="Version title"
+            version={version}
+          />
           <Button type="submit" variant="primary">
             {command.state.status === "pending" ? "Saving new version" : "Save new version"}
           </Button>
         </fieldset>
-        <FormFeedback
-          feedback={commandFeedback(command.state)}
+        <CommandFormFeedback
+          formRef={formRef}
           pendingMessage={
             command.state.status === "pending" ? "Saving an immutable packet version..." : null
           }
+          state={command.state}
         />
       </form>
     </section>

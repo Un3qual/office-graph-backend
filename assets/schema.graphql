@@ -776,14 +776,15 @@ interface Node {
 
 type RootQueryType {
   health: String!
-  operatorInbox(limit: Int, afterCursor: String): OperatorInbox!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
+  operatorRelationshipDetails(after: String, first: Int!, id: ID!): OperatorRelationshipDetailConnection
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
   operatorPacketWorkspace(id: ID!): OperatorPacketWorkspace!
   operatorPacketCreateAffordance: OperatorCommandAffordance!
   operatorManualIntakeAffordance: OperatorCommandAffordance!
   operatorRunState(id: ID!): OperatorRunState!
+  operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
   operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
   node(
     "The ID of an object."
@@ -1130,6 +1131,12 @@ type OperatorProposedChangeStatus {
   total: Int!
 }
 
+type OperatorProposedActionPreview {
+  action: String!
+  title: String!
+  status: String!
+}
+
 type OperatorGraphLink {
   type: String!
   id: ID!
@@ -1170,6 +1177,12 @@ type OperatorCommandInputDefault {
   values: [String!]!
 }
 
+type OperatorRelationshipSummary {
+  graphLinks: Int!
+  graphRelationships: Int!
+  hasMore: Boolean!
+}
+
 type OperatorWorkflowItem implements Node {
   "The ID of an object"
   id: ID!
@@ -1181,6 +1194,12 @@ type OperatorWorkflowItem implements Node {
   normalizedEventId: ID!
 
   duplicateOfId: ID
+
+  title: String!
+
+  sourceSummary: String!
+
+  proposedActionPreviews: [OperatorProposedActionPreview!]!
 
   status: String!
 
@@ -1204,6 +1223,8 @@ type OperatorWorkflowItem implements Node {
 
   graphRelationships: [OperatorGraphRelationship!]!
 
+  relationshipSummary: OperatorRelationshipSummary!
+
   auditTrace: OperatorTrace!
 
   revisionTrace: OperatorTrace!
@@ -1214,15 +1235,19 @@ type OperatorWorkflowItemConnection {
   edges: [OperatorWorkflowItemEdge]
 }
 
-type OperatorInbox {
-  type: String!
-  empty: Boolean!
-  hasMore: Boolean!
-  limit: Int!
-  nextCursor: String
-  afterCursor: String
-  sourceWatermark: ID
-  rows: [OperatorWorkflowItem!]!
+type OperatorRelationshipDetail {
+  kind: String!
+  stableId: ID!
+  title: String!
+  status: String
+  sourceGraphItemId: ID
+  targetGraphItemId: ID
+  relationshipType: String!
+}
+
+type OperatorRelationshipDetailConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRelationshipDetailEdge]
 }
 
 type OperatorRequiredCheck {
@@ -1275,6 +1300,11 @@ type OperatorPacketWorkspaceVersion {
   insertedAt: DateTime!
 }
 
+type OperatorPacketWorkspaceVersionConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorPacketWorkspaceVersionEdge]
+}
+
 type OperatorPacketWorkspace {
   type: String!
   sourceWatermark: ID!
@@ -1285,7 +1315,7 @@ type OperatorPacketWorkspace {
   commandAffordances: [OperatorCommandAffordance!]!
   packet: OperatorPacketWorkspacePacket!
   currentVersion: OperatorPacketWorkspaceVersion!
-  versions: [OperatorPacketWorkspaceVersion!]!
+  versionHistory(after: String, first: Int!): OperatorPacketWorkspaceVersionConnection
 }
 
 type OperatorRunRef {
@@ -1356,11 +1386,119 @@ type OperatorMissingEvidence {
   reason: String!
 }
 
+type OperatorRunActivity {
+  kind: String!
+  stableId: ID!
+  title: String!
+  status: String!
+}
+
+type OperatorRunActivityConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRunActivityEdge]
+}
+
+type OperatorRunChildSummary {
+  requiredChecks: Int!
+  observations: Int!
+  evidenceCandidates: Int!
+  evidenceItems: Int!
+  verificationResults: Int!
+  missingEvidence: Int!
+  hasMore: Boolean!
+}
+
+type OperatorObservationCommandOption {
+  key: ID!
+  label: String!
+  runId: ID!
+  verificationCheckId: ID!
+  sourceGraphItemId: ID!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  defaultOutcomeKey: String!
+  outcomes: [OperatorObservationOutcomeOption!]!
+}
+
+type OperatorObservationOutcomeOption {
+  key: String!
+  label: String!
+  observedStatus: String!
+  normalizedStatus: String!
+}
+
+type OperatorEvidenceCandidateCommandOption {
+  key: ID!
+  label: String!
+  workRunId: ID!
+  verificationCheckId: ID!
+  executionObservationId: ID!
+  sourceKind: String!
+  sourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  sensitivity: String!
+}
+
+type OperatorEvidenceAcceptanceCommandOption {
+  key: ID!
+  label: String!
+  evidenceCandidateId: ID!
+  result: String!
+  acceptancePolicyBasis: String!
+}
+
+type OperatorWaiverCommandOption {
+  key: ID!
+  label: String!
+  runId: ID!
+  runRequiredCheckId: ID!
+  expectedExecutionState: String!
+  expectedVerificationState: String!
+  policyBasis: String!
+}
+
+type OperatorRunCommandOptions {
+  observation: [OperatorObservationCommandOption!]!
+  evidenceCandidate: [OperatorEvidenceCandidateCommandOption!]!
+  evidenceAcceptance: [OperatorEvidenceAcceptanceCommandOption!]!
+  waiver: [OperatorWaiverCommandOption!]!
+}
+
+type OperatorRunCommandOptionChoice {
+  kind: String!
+  key: ID!
+  label: String!
+  observation: OperatorObservationCommandOption
+  evidenceCandidate: OperatorEvidenceCandidateCommandOption
+  evidenceAcceptance: OperatorEvidenceAcceptanceCommandOption
+  waiver: OperatorWaiverCommandOption
+}
+
+type OperatorRunCommandOptionChoiceConnection {
+  pageInfo: PageInfo!
+  edges: [OperatorRunCommandOptionChoiceEdge]
+}
+
+type OperatorRunCommandOptionSummary {
+  observation: Int!
+  evidenceCandidate: Int!
+  evidenceAcceptance: Int!
+  waiver: Int!
+}
+
 type OperatorRunState {
   type: String!
   status: String!
   allowedNextActions: [String!]!
   commandAffordances: [OperatorCommandAffordance!]!
+  commandOptions: OperatorRunCommandOptions!
+  commandOptionsOverflow: Boolean!
+  commandOptionSummary: OperatorRunCommandOptionSummary!
+  childSummary: OperatorRunChildSummary!
+  activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
   packet: OperatorPacketRef!
   packetVersion: OperatorPacketVersionRef!
@@ -1405,6 +1543,26 @@ type PageInfo {
 
   "When paginating forwards, the cursor to continue."
   endCursor: String
+}
+
+type OperatorRunCommandOptionChoiceEdge {
+  node: OperatorRunCommandOptionChoice
+  cursor: String
+}
+
+type OperatorRunActivityEdge {
+  node: OperatorRunActivity
+  cursor: String
+}
+
+type OperatorPacketWorkspaceVersionEdge {
+  node: OperatorPacketWorkspaceVersion
+  cursor: String
+}
+
+type OperatorRelationshipDetailEdge {
+  node: OperatorRelationshipDetail
+  cursor: String
 }
 
 type OperatorWorkflowItemEdge {

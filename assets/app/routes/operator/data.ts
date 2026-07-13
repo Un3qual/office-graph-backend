@@ -34,6 +34,13 @@ export const OperatorWorkflowItemFragment = graphql`
     }
     normalizedEventId
     duplicateOfId
+    title
+    sourceSummary
+    proposedActionPreviews {
+      action
+      title
+      status
+    }
     status
     reasonCodes
     source {
@@ -78,6 +85,11 @@ export const OperatorWorkflowItemFragment = graphql`
       targetGraphItemId
       relationshipType
     }
+    relationshipSummary {
+      graphLinks
+      graphRelationships
+      hasMore
+    }
     auditTrace {
       operationId
       resourceCount
@@ -85,6 +97,18 @@ export const OperatorWorkflowItemFragment = graphql`
     revisionTrace {
       operationId
       resourceCount
+    }
+  }
+`;
+
+export const OperatorRelationshipDetailsQuery = graphql`
+  query OperatorRelationshipDetailsQuery($id: ID!, $first: Int!, $after: String) {
+    operatorRelationshipDetails(id: $id, first: $first, after: $after) {
+      edges {
+        cursor
+        node { kind stableId title status relationshipType }
+      }
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
   }
 `;
@@ -129,7 +153,12 @@ export const OperatorPacketReadinessQuery = graphql`
 `;
 
 export const OperatorRunStateFragment = graphql`
-  fragment OperatorRunStateFragment on OperatorRunState @inline {
+  fragment OperatorRunStateFragment on OperatorRunState
+  @inline
+  @argumentDefinitions(
+    activityFirst: { type: "Int!", defaultValue: 5 }
+    activityAfter: { type: "String" }
+  ) {
     type
     status
     allowedNextActions
@@ -146,6 +175,77 @@ export const OperatorRunStateFragment = graphql`
         values
       }
       targetIds { type id }
+    }
+    commandOptions {
+      observation {
+        key
+        label
+        runId
+        verificationCheckId
+        sourceGraphItemId
+        observationSourceKind
+        observationSourceIdentity
+        freshnessState
+        trustBasis
+        defaultOutcomeKey
+        outcomes {
+          key
+          label
+          observedStatus
+          normalizedStatus
+        }
+      }
+      evidenceCandidate {
+        key
+        label
+        workRunId
+        verificationCheckId
+        executionObservationId
+        sourceKind
+        sourceIdentity
+        freshnessState
+        trustBasis
+        sensitivity
+      }
+      evidenceAcceptance {
+        key
+        label
+        evidenceCandidateId
+        result
+        acceptancePolicyBasis
+      }
+      waiver {
+        key
+        label
+        runId
+        runRequiredCheckId
+        expectedExecutionState
+        expectedVerificationState
+        policyBasis
+      }
+    }
+    commandOptionsOverflow
+    commandOptionSummary {
+      observation
+      evidenceCandidate
+      evidenceAcceptance
+      waiver
+    }
+    childSummary {
+      requiredChecks
+      observations
+      evidenceCandidates
+      evidenceItems
+      verificationResults
+      missingEvidence
+      hasMore
+    }
+    activity(first: $activityFirst, after: $activityAfter) {
+      edges {
+        cursor
+        node { kind stableId title status }
+      }
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
     sourceWatermark
     packet {
@@ -217,10 +317,75 @@ export const OperatorRunStateFragment = graphql`
   }
 `;
 
+export const OperatorRunCommandOptionPageQuery = graphql`
+  query OperatorRunCommandOptionPageQuery(
+    $id: ID!
+    $first: Int!
+    $observationAfter: String
+    $evidenceCandidateAfter: String
+    $evidenceAcceptanceAfter: String
+    $waiverAfter: String
+    $loadObservation: Boolean!
+    $loadEvidenceCandidate: Boolean!
+    $loadEvidenceAcceptance: Boolean!
+    $loadWaiver: Boolean!
+  ) {
+    observation: operatorRunCommandOptionPage(
+      id: $id, kind: "observation", first: $first, after: $observationAfter
+    ) @include(if: $loadObservation) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    evidenceCandidate: operatorRunCommandOptionPage(
+      id: $id, kind: "evidence_candidate", first: $first, after: $evidenceCandidateAfter
+    ) @include(if: $loadEvidenceCandidate) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    evidenceAcceptance: operatorRunCommandOptionPage(
+      id: $id, kind: "evidence_acceptance", first: $first, after: $evidenceAcceptanceAfter
+    ) @include(if: $loadEvidenceAcceptance) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+    waiver: operatorRunCommandOptionPage(
+      id: $id, kind: "waiver", first: $first, after: $waiverAfter
+    ) @include(if: $loadWaiver) {
+      ...OperatorRunCommandOptionPageConnectionFragment
+    }
+  }
+`;
+
+export const OperatorRunCommandOptionPageConnectionFragment = graphql`
+  fragment OperatorRunCommandOptionPageConnectionFragment on OperatorRunCommandOptionChoiceConnection @inline {
+        edges {
+          cursor
+          node {
+            observation {
+              key label runId verificationCheckId sourceGraphItemId
+              observationSourceKind observationSourceIdentity freshnessState trustBasis
+              defaultOutcomeKey
+              outcomes { key label observedStatus normalizedStatus }
+            }
+            evidenceCandidate {
+              key label workRunId verificationCheckId executionObservationId
+              sourceKind sourceIdentity freshnessState trustBasis sensitivity
+            }
+            evidenceAcceptance {
+              key label evidenceCandidateId result acceptancePolicyBasis
+            }
+            waiver {
+              key label runId runRequiredCheckId expectedExecutionState
+              expectedVerificationState policyBasis
+            }
+          }
+        }
+        pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+  }
+`;
+
 export const OperatorRunStateQuery = graphql`
-  query OperatorRunStateQuery($id: ID!) {
+  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String) {
     operatorRunState(id: $id) {
       ...OperatorRunStateFragment
+        @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
     }
   }
 `;

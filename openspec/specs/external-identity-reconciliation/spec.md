@@ -1,7 +1,7 @@
 # external-identity-reconciliation Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authentication. Update Purpose after archive.
+Define how SSO and SCIM identities reconcile to one durable principal.
 ## Requirements
 ### Requirement: SSO And SCIM Reconcile To One Principal
 Office Graph SHALL reconcile login-time SSO identities and provisioning-time

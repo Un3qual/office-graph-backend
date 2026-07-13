@@ -8,25 +8,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   alias OfficeGraphWeb.RequestSession
 
   object :operator_workflow_queries do
-    field :operator_inbox, non_null(:operator_inbox) do
-      arg(:limit, :integer)
-      arg(:after_cursor, :string)
-
-      resolve(fn args, resolution ->
-        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, inbox} <- Projections.operator_inbox(session_context, args) do
-          {:ok, inbox}
-        else
-          error -> Errors.to_absinthe(error)
-        end
-      end)
-    end
-
     connection field :operator_workflow_items,
                  node_type: :operator_workflow_item,
                  paginate: :forward do
       resolve(fn args, resolution ->
-        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+        with :ok <- validate_first(args),
+             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, :forward, limit} <- Connection.limit(args, 100),
              {:ok, page} <-
                Projections.operator_workflow_items_page(session_context,
@@ -63,6 +50,36 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, item} <- Projections.operator_workflow_item(session_context, id) do
           {:ok, item}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
+    connection field :operator_relationship_details,
+                 node_type: :operator_relationship_detail,
+                 paginate: :forward do
+      arg(:id, non_null(:id))
+
+      resolve(fn args, resolution ->
+        with :ok <- validate_first(args),
+             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, :forward, limit} <- Connection.limit(args, 100),
+             {:ok, page} <-
+               Projections.operator_relationship_details_page(session_context, args.id,
+                 limit: limit,
+                 after_cursor: Map.get(args, :after)
+               ) do
+          {:ok,
+           %{
+             edges: page.edges,
+             page_info: %{
+               has_next_page: page.has_next_page?,
+               has_previous_page: page.has_previous_page?,
+               start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+               end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+             }
+           }}
         else
           error -> Errors.to_absinthe(error)
         end
@@ -135,6 +152,40 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
 
+    connection field :operator_run_command_option_page,
+                 node_type: :operator_run_command_option_choice,
+                 paginate: :forward do
+      arg(:id, non_null(:id))
+      arg(:kind, non_null(:string))
+
+      resolve(fn args, resolution ->
+        with :ok <- validate_first(args),
+             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, :forward, limit} <- Connection.limit(args, 100),
+             {:ok, page} <-
+               Projections.operator_run_command_option_page(
+                 session_context,
+                 args.id,
+                 args.kind,
+                 limit: limit,
+                 after_cursor: Map.get(args, :after)
+               ) do
+          {:ok,
+           %{
+             edges: page.edges,
+             page_info: %{
+               has_next_page: page.has_next_page?,
+               has_previous_page: page.has_previous_page?,
+               start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
+               end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
+             }
+           }}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :operator_verification_outcome, non_null(:operator_verification_outcome) do
       arg(:id, non_null(:id))
 
@@ -148,6 +199,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
   end
+
+  defp validate_first(%{first: first}) when is_integer(first) and first < 0,
+    do: {:error, {:invalid_field, :first}}
+
+  defp validate_first(_args), do: :ok
 
   defp normalize_packet_readiness_input(input) do
     input

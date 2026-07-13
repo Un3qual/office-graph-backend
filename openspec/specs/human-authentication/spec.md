@@ -1,7 +1,7 @@
 # human-authentication Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authentication. Update Purpose after archive.
+Define supported human sign-in entry points and their mapping to durable identities.
 ## Requirements
 ### Requirement: Human Authentication Entry Points
 Office Graph SHALL define human authentication mechanics that resolve a login

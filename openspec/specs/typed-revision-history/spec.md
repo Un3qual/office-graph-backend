@@ -1,7 +1,7 @@
 # typed-revision-history Specification
 
 ## Purpose
-TBD - created by archiving change design-revision-audit-soft-delete. Update Purpose after archive.
+Define aggregate-aware typed revisions for reconstructable business history.
 ## Requirements
 ### Requirement: Aggregate-Aware Typed Revisions
 Office Graph SHALL preserve meaningful product state changes through typed,

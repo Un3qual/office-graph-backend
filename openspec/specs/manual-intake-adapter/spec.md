@@ -1,7 +1,7 @@
 # manual-intake-adapter Specification
 
 ## Purpose
-TBD - created by archiving change design-ingestion-and-integrations. Update Purpose after archive.
+Define manual signal intake through the same verified, idempotent integration boundary.
 ## Requirements
 ### Requirement: Manual Intake Adapter
 Office Graph SHALL use manual pasted intake as the first adapter for the

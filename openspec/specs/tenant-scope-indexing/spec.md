@@ -1,7 +1,7 @@
 # tenant-scope-indexing Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define explicit tenant and scope columns and indexes for scoped data access.
 ## Requirements
 ### Requirement: Explicit Tenant And Scope Columns
 Office Graph SHALL store tenant and work scope explicitly where authorization,

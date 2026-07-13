@@ -1,7 +1,7 @@
 # scope-move-operation-plan Specification
 
 ## Purpose
-TBD - created by archiving change design-scope-hierarchy-implementation. Update Purpose after archive.
+Define the governed command and migration plan for moving resources between scopes.
 ## Requirements
 ### Requirement: Governed Scope Move Command Planning
 Office Graph SHALL plan scope moves as governed domain commands, not as direct

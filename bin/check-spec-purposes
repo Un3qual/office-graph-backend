@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+cd "$repo_root"
+
+set -- $(find openspec/specs -type f -name spec.md -print | LC_ALL=C sort)
+
+awk '
+  function finish_file() {
+    if (file != "" && (!purpose_found || placeholder_found)) {
+      print file ": missing a concise capability purpose" > "/dev/stderr"
+      failed = 1
+    }
+  }
+
+  FNR == 1 {
+    finish_file()
+    file = FILENAME
+    in_purpose = 0
+    purpose_found = 0
+    placeholder_found = 0
+  }
+
+  /^## Purpose[[:space:]]*$/ {
+    in_purpose = 1
+    next
+  }
+
+  in_purpose && /^## / {
+    in_purpose = 0
+  }
+
+  in_purpose && /TBD - created by archiving change/ {
+    placeholder_found = 1
+  }
+
+  in_purpose && /[^[:space:]]/ {
+    purpose_found = 1
+  }
+
+  END {
+    finish_file()
+    exit failed
+  }
+' "$@"

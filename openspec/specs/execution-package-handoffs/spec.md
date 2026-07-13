@@ -1,7 +1,7 @@
 # execution-package-handoffs Specification
 
 ## Purpose
-TBD - created by archiving change design-work-packets-and-readiness. Update Purpose after archive.
+Define authority-preserving handoffs of execution packages and operation context between actors.
 ## Requirements
 ### Requirement: Handoffs Preserve Authority And Operation Context
 

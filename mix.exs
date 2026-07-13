@@ -35,6 +35,7 @@ defmodule OfficeGraph.MixProject do
       preferred_envs: [
         precommit: :test,
         verify: :test,
+        "architecture.check": :test,
         "architecture.conformance": :test,
         "dependency.audit": :test,
         "frontend.verify.precompiled": :test,
@@ -95,7 +96,7 @@ defmodule OfficeGraph.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "architecture.conformance": [
-        "test test/office_graph/architecture/ash_conformance_test.exs"
+        "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
       ],
       "dependency.audit": ["cmd mix hex.audit", "cmd --cd assets pnpm audit --prod"],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
@@ -121,30 +122,27 @@ defmodule OfficeGraph.MixProject do
       ],
       typecheck: ["dialyzer --quiet-with-result"],
       release: ["assets.deploy", "release"],
+      "architecture.check": [
+        "xref graph --format cycles --label compile-connected --fail-above 0"
+      ],
       "boundary.check": ["compile --force --warnings-as-errors"],
+      "production.build": ["cmd env MIX_ENV=prod mix compile --warnings-as-errors"],
       verify: [
+        "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         "format --check-formatted",
         "boundary.check",
+        "architecture.check",
         "static.analysis",
         "typecheck",
         "dependency.audit",
-        "frontend.verify.precompiled",
         "spec.verify",
+        "cmd ./bin/check-spec-purposes",
+        "frontend.verify.precompiled",
+        "production.build",
         "test"
       ],
-      precommit: [
-        "compile --warnings-as-errors",
-        "deps.unlock --unused",
-        "format --check-formatted",
-        "boundary.check",
-        "static.analysis",
-        "typecheck",
-        "dependency.audit",
-        "frontend.verify.precompiled",
-        "spec.verify",
-        "test"
-      ]
+      precommit: ["verify"]
     ]
   end
 

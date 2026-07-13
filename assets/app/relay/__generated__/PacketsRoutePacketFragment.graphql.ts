@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<e55c2840d3969ea36336118d902c2622>>
+ * @generated SignedSource<<49bdc3ec4d5f7fffaf03b39932f1bc43>>
  * @lightSyntaxTransform
  */
 
@@ -15,7 +15,7 @@ export type PacketsRoutePacketFragment$data = {
   readonly operationId: string | null | undefined;
   readonly state: string;
   readonly title: string;
-  readonly updatedAt: any;
+  readonly updatedAt: string;
   readonly " $fragmentType": "PacketsRoutePacketFragment";
 };
 export type PacketsRoutePacketFragment$key = {

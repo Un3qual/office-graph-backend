@@ -7,10 +7,7 @@ type AsyncBoundaryProps = {
   resetKey: string | number | null;
 };
 
-type ErrorBoundaryProps = Pick<
-  AsyncBoundaryProps,
-  "children" | "errorFallback" | "resetKey"
->;
+type ErrorBoundaryProps = Pick<AsyncBoundaryProps, "children" | "errorFallback" | "resetKey">;
 
 type ErrorBoundaryState = {
   hasError: boolean;
@@ -20,7 +17,7 @@ export function AsyncBoundary({
   children,
   errorFallback,
   loadingFallback,
-  resetKey
+  resetKey,
 }: AsyncBoundaryProps): ReactElement {
   return (
     <ErrorBoundary errorFallback={errorFallback} resetKey={resetKey}>

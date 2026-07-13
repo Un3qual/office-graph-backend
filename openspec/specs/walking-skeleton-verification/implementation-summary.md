@@ -59,10 +59,10 @@
 | Phoenix API baseline | `lib/office_graph_web`, `config/*.exs`, `mix.exs` | `mix compile --warnings-as-errors` |
 | Boundary context layout | `lib/office_graph/*.ex`, Boundary declarations | `mix boundary.check` |
 | Stable WorkGraph resources are Ash-backed, all table-backed resources have Ash owners, and planned MVP graph/software-proving/rich-text resources remain tracked separately from implemented tables | `OfficeGraph.*.Domain`, canonical Ash resource modules for all 40 migration-created tables, `openspec/specs/backend-model-ownership/model-inventory.md` | `mix architecture.conformance` |
-| WorkGraph Ash actions are authorization-aware | `OfficeGraph.Authorization.Checks.HasCapability`, WorkGraph resource policies | `test/office_graph/architecture/ash_conformance_test.exs` |
+| WorkGraph Ash actions are authorization-aware | `OfficeGraph.Authorization.Checks.HasCapability`, WorkGraph resource policies | `test/office_graph/architecture/ash_resource_conformance_test.exs`, `test/office_graph/architecture/ash_boundary_heuristics_test.exs` |
 | Graph identity plus typed resource creation is atomic | `OfficeGraph.WorkGraph` transaction boundary with Ash-backed graph identity, relationship, and typed resource creates | `test/office_graph/work_graph/persistence_test.exs` |
 | Stable product mutations route through Ash or approved exceptions | `OfficeGraph.WorkGraph` Ash create/update helpers, `architecture-exceptions.md` | `mix architecture.conformance` |
-| Direct Ecto paths are approved and documented | `openspec/specs/backend-model-ownership/architecture-exceptions.md` | `test/office_graph/architecture/ash_conformance_test.exs` |
+| Direct Ecto paths are approved and documented | `openspec/specs/backend-model-ownership/architecture-exceptions.md` | `test/office_graph/architecture/ash_api_ledger_conformance_test.exs` |
 | Architecture gate is part of backend verification | `mix.exs`, `bin/verify-backend` | `./bin/verify-backend` |
 | GraphQL and JSON use generated Ash resource reads with gated local bootstrap | `OfficeGraphWeb.GraphQL.*`, generated `/api/v1` routes, `OfficeGraph.ApiSupport.bootstrap_local_api_owner/0` | `test/office_graph_web/generated_api_read_test.exs` |
 | OpenSpec remains valid and mapped to evidence | `openspec/specs/backend-app-baseline/spec.md`, `openspec/specs/walking-skeleton-*/spec.md`, and active changes | `openspec validate --specs --strict`; `openspec validate --changes --strict` |

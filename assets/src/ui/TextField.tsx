@@ -2,7 +2,7 @@ import {
   Input,
   Label,
   TextField as AriaTextField,
-  type TextFieldProps
+  type TextFieldProps,
 } from "react-aria-components";
 
 type Props = Omit<TextFieldProps, "children"> & {

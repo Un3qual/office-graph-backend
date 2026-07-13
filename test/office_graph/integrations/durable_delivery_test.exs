@@ -28,7 +28,11 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
     assert replay.normalized_event.id == first.normalized_event.id
 
     assert [event] =
-             domain_events(bootstrap.organization.id, first.normalized_event.id)
+             domain_events(
+               bootstrap.organization.id,
+               first.normalized_event.id,
+               "manual_intake.accepted"
+             )
 
     assert event.event_key == "manual-intake:#{first.normalized_event.id}:accepted"
     assert event.event_kind == "manual_intake.accepted"
@@ -62,14 +66,21 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
     assert duplicate.duplicate? == true
 
     assert [event] =
-             domain_events(bootstrap.organization.id, first.normalized_event.id)
+             domain_events(
+               bootstrap.organization.id,
+               first.normalized_event.id,
+               "manual_intake.accepted"
+             )
 
     assert length(jobs_for_event(event.id)) == 1
   end
 
-  defp domain_events(organization_id, subject_id) do
+  defp domain_events(organization_id, subject_id, event_kind) do
     DomainEvent
-    |> Ash.Query.filter(organization_id == ^organization_id and subject_id == ^subject_id)
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and subject_id == ^subject_id and
+        event_kind == ^event_kind
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!()
   end

@@ -50,6 +50,11 @@ export type PacketWorkspaceVersion = {
   readonly insertedAt: string;
 };
 
+export type PacketWorkspaceVersionSummary = Pick<
+  PacketWorkspaceVersion,
+  "id" | "versionNumber" | "lifecycleState" | "title"
+>;
+
 export type PacketWorkspaceDetail = {
   readonly sourceWatermark: string;
   readonly ready: boolean;
@@ -64,6 +69,12 @@ export type PacketWorkspaceDetail = {
     readonly operationId: string | null | undefined;
   };
   readonly currentVersion: PacketWorkspaceVersion;
-  readonly versions: readonly PacketWorkspaceVersion[];
+  readonly versions: readonly PacketWorkspaceVersionSummary[];
+  readonly versionPageInfo: {
+    readonly hasNextPage: boolean;
+    readonly hasPreviousPage: boolean;
+    readonly startCursor: string | null | undefined;
+    readonly endCursor: string | null | undefined;
+  };
   readonly commandAffordances: readonly PacketCommandAffordance[];
 };

@@ -1,6 +1,6 @@
 import type { RequestParameters } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGraphQL, GraphQLResponseError } from "./fetchGraphQL";
+import { executeGraphQL, fetchGraphQL, GraphQLResponseError } from "./fetchGraphQL";
 
 describe("fetchGraphQL", () => {
   afterEach(() => {
@@ -11,16 +11,13 @@ describe("fetchGraphQL", () => {
   it("returns GraphQL data for successful responses", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        data: { ok: true }
-      })
+        data: { ok: true },
+      }),
     );
-    vi.stubGlobal(
-      "fetch",
-      fetchMock
-    );
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchGraphQL(request("HappyQuery"), { id: "ok" })).resolves.toEqual({
-      data: { ok: true }
+      data: { ok: true },
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/graphql",
@@ -29,16 +26,16 @@ describe("fetchGraphQL", () => {
         credentials: "same-origin",
         headers: {
           accept: "application/json",
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
-        signal: expect.any(AbortSignal)
-      })
+        signal: expect.any(AbortSignal),
+      }),
     );
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({
       query: "query HappyQuery { ok }",
-      variables: { id: "ok" }
+      variables: { id: "ok" },
     });
   });
 
@@ -47,11 +44,11 @@ describe("fetchGraphQL", () => {
     vi.stubGlobal("fetch", fetchMock);
     const missingText = {
       ...request("MissingText"),
-      text: null
+      text: null,
     };
 
     await expect(fetchGraphQL(missingText, {})).rejects.toThrow(
-      'Relay request "MissingText" is missing compiled GraphQL text.'
+      'Relay request "MissingText" is missing compiled GraphQL text.',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -62,13 +59,13 @@ describe("fetchGraphQL", () => {
       vi.fn().mockResolvedValue(
         new Response("<html>server error</html>", {
           status: 500,
-          headers: { "content-type": "text/html" }
-        })
-      )
+          headers: { "content-type": "text/html" },
+        }),
+      ),
     );
 
     await expect(fetchGraphQL(request("BrokenQuery"), {})).rejects.toThrow(
-      'GraphQL request "BrokenQuery" failed with status 500.'
+      'GraphQL request "BrokenQuery" failed with status 500.',
     );
   });
 
@@ -81,13 +78,13 @@ describe("fetchGraphQL", () => {
             errors: [
               {
                 message: "Validation failed",
-                extensions: { code: "source_graph_item_check_mismatch" }
-              }
-            ]
+                extensions: { code: "source_graph_item_check_mismatch" },
+              },
+            ],
           },
-          { status: 400 }
-        )
-      )
+          { status: 400 },
+        ),
+      ),
     );
 
     await expect(fetchGraphQL(request("ValidationQuery"), {})).rejects.toMatchObject({
@@ -98,10 +95,10 @@ describe("fetchGraphQL", () => {
         errors: [
           {
             message: "Validation failed",
-            extensions: { code: "source_graph_item_check_mismatch" }
-          }
-        ]
-      }
+            extensions: { code: "source_graph_item_check_mismatch" },
+          },
+        ],
+      },
     });
   });
 
@@ -111,9 +108,9 @@ describe("fetchGraphQL", () => {
       vi.fn().mockResolvedValue(
         Response.json({
           data: { operatorWorkflowItems: null },
-          errors: [{ message: "Operator workflow access is forbidden" }]
-        })
-      )
+          errors: [{ message: "Operator workflow access is forbidden" }],
+        }),
+      ),
     );
 
     try {
@@ -125,8 +122,8 @@ describe("fetchGraphQL", () => {
         message: "Operator workflow access is forbidden",
         source: {
           data: { operatorWorkflowItems: null },
-          errors: [{ message: "Operator workflow access is forbidden" }]
-        }
+          errors: [{ message: "Operator workflow access is forbidden" }],
+        },
       });
     }
   });
@@ -135,7 +132,7 @@ describe("fetchGraphQL", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 200 })));
 
     await expect(fetchGraphQL(request("EmptyQuery"), {})).rejects.toThrow(
-      'GraphQL request "EmptyQuery" returned an invalid JSON response.'
+      'GraphQL request "EmptyQuery" returned an invalid JSON response.',
     );
   });
 
@@ -143,7 +140,7 @@ describe("fetchGraphQL", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 200 })));
 
     await expect(fetchGraphQL(request("InvalidJsonQuery"), {})).rejects.toThrow(
-      'GraphQL request "InvalidJsonQuery" returned an invalid JSON response.'
+      'GraphQL request "InvalidJsonQuery" returned an invalid JSON response.',
     );
   });
 
@@ -151,7 +148,7 @@ describe("fetchGraphQL", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ok: true })));
 
     await expect(fetchGraphQL(request("ShapeQuery"), {})).rejects.toThrow(
-      'GraphQL request "ShapeQuery" returned an invalid JSON response.'
+      'GraphQL request "ShapeQuery" returned an invalid JSON response.',
     );
   });
 
@@ -171,7 +168,7 @@ describe("fetchGraphQL", () => {
     const result = fetchGraphQL(request("SlowQuery"), {});
     const outcome = result.then(
       () => "resolved",
-      (error: unknown) => (error instanceof DOMException ? error.name : String(error))
+      (error: unknown) => (error instanceof DOMException ? error.name : String(error)),
     );
 
     await vi.advanceTimersByTimeAsync(30_000);
@@ -180,9 +177,65 @@ describe("fetchGraphQL", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/graphql",
       expect.objectContaining({
-        signal: expect.any(AbortSignal)
-      })
+        signal: expect.any(AbortSignal),
+      }),
     );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("aborts the underlying request on subscription disposal and ignores a late payload", async () => {
+    let resolveRequest!: (response: Response) => void;
+    let observedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((resolve) => {
+        resolveRequest = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const observer = {
+      next: vi.fn(),
+      error: vi.fn(),
+      complete: vi.fn(),
+    };
+    const subscription = executeGraphQL(request("DisposedQuery"), {}).subscribe(observer);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    subscription.unsubscribe();
+
+    expect(observedSignal?.aborted).toBe(true);
+
+    resolveRequest(Response.json({ data: { late: true } }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observer.next).not.toHaveBeenCalled();
+    expect(observer.error).not.toHaveBeenCalled();
+    expect(observer.complete).not.toHaveBeenCalled();
+  });
+
+  it("clears the request timeout on disposal when fetch ignores abort", () => {
+    vi.useFakeTimers();
+    let observedSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_path: string, init?: RequestInit) => {
+        observedSignal = init?.signal ?? undefined;
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+
+    const subscription = executeGraphQL(request("IgnoredAbortQuery"), {}).subscribe({
+      next: vi.fn(),
+      error: vi.fn(),
+      complete: vi.fn(),
+    });
+
+    expect(vi.getTimerCount()).toBe(1);
+    subscription.unsubscribe();
+
+    expect(observedSignal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
 });
@@ -194,6 +247,6 @@ function request(name: string): RequestParameters {
     name,
     operationKind: "query",
     text: `query ${name} { ok }`,
-    metadata: {}
+    metadata: {},
   };
 }

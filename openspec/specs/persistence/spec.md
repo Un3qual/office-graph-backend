@@ -1,7 +1,7 @@
 # persistence Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define provider-neutral relational persistence as the base for shared domain concepts.
 ## Requirements
 ### Requirement: Provider-Neutral Relational Base Tables
 

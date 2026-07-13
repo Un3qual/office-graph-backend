@@ -1,7 +1,7 @@
 # agent-executions Specification
 
 ## Purpose
-TBD - created by archiving change design-runs-and-verification. Update Purpose after archive.
+Define child agent invocations, their authority inheritance, and their relationship to parent runtime work.
 ## Requirements
 ### Requirement: Agent Executions Are Child Runtime Invocations
 

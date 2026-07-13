@@ -1,7 +1,7 @@
 # policy-fact-versioning Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authorization-schema. Update Purpose after archive.
+Define versioned policy facts so authorization decisions can be reconstructed.
 ## Requirements
 ### Requirement: Policy Bundle Versions
 Office Graph SHALL store authorization policy rule sets as immutable bundle

@@ -1,7 +1,7 @@
 # integration-principal-operation-linkage Specification
 
 ## Purpose
-TBD - created by archiving change design-integration-source-principals. Update Purpose after archive.
+Link verified integration source principals to the operations they initiate.
 ## Requirements
 ### Requirement: Source Principal Operation Linkage
 Office Graph SHALL link source principal context to operation correlation for

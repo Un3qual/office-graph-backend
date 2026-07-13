@@ -1,21 +1,12 @@
 import { readInlineData, useLazyLoadQuery } from "react-relay";
 import type {
   PacketsRoutePacketFragment$data,
-  PacketsRoutePacketFragment$key
+  PacketsRoutePacketFragment$key,
 } from "../../relay/__generated__/PacketsRoutePacketFragment.graphql";
 import type { PacketsRouteQuery as PacketsRouteOperation } from "../../relay/__generated__/PacketsRouteQuery.graphql";
 import type { PacketsWorkspaceDetailQuery as PacketsWorkspaceDetailOperation } from "../../relay/__generated__/PacketsWorkspaceDetailQuery.graphql";
-import {
-  PacketsRoutePacketFragment,
-  PacketsRouteQuery,
-  PacketsWorkspaceDetailQuery
-} from "./data";
-import type {
-  PacketConnection,
-  PacketRow,
-  PacketsPage,
-  PacketWorkspaceDetail
-} from "./types";
+import { PacketsRoutePacketFragment, PacketsRouteQuery, PacketsWorkspaceDetailQuery } from "./data";
+import type { PacketConnection, PacketRow, PacketsPage, PacketWorkspaceDetail } from "./types";
 
 type PacketsWorkflowInput = {
   canPageBackward: boolean;
@@ -45,7 +36,7 @@ export function usePacketsWorkflow({
   onSelectPacket,
   page,
   fetchKey,
-  requestedSelection
+  requestedSelection,
 }: PacketsWorkflowInput) {
   const createdOperationId =
     requestedSelection?.kind === "operation_id" ? requestedSelection.value : null;
@@ -54,21 +45,20 @@ export function usePacketsWorkflow({
     {
       ...page,
       createdOperationId,
-      loadCreatedPacket: createdOperationId !== null
+      loadCreatedPacket: createdOperationId !== null,
     },
     {
       fetchKey,
-      fetchPolicy: "network-only"
-    }
+      fetchPolicy: "network-only",
+    },
   );
   const connection = packetConnectionFromRelay(data);
   const rows = mergeCreatedPacket(
     connection.rows,
-    packetRowsFromRelayConnection(data.createdPacket)[0] ?? null
+    packetRowsFromRelayConnection(data.createdPacket)[0] ?? null,
   );
   const selectedId = selectedPacketId(rows, requestedSelection);
-  const selectedPacket =
-    rows.find((packet) => packet.id === selectedId) ?? null;
+  const selectedPacket = rows.find((packet) => packet.id === selectedId) ?? null;
 
   return {
     canPageBackward,
@@ -87,45 +77,64 @@ export function usePacketsWorkflow({
     selectedPacket,
     selectCreatedPacket: (operationId: string) =>
       onSelectPacket({ kind: "operation_id", value: operationId }),
-    selectPacket: (relayId: string) =>
-      onSelectPacket({ kind: "relay_id", value: relayId })
+    selectPacket: (relayId: string) => onSelectPacket({ kind: "relay_id", value: relayId }),
   };
 }
 
-export function usePacketWorkspaceDetail(packetId: string, fetchKey?: number) {
+export function usePacketWorkspaceDetail(
+  packetId: string,
+  versionPage: PacketsPage,
+  fetchKey?: number,
+) {
   const data = useLazyLoadQuery<PacketsWorkspaceDetailOperation>(
     PacketsWorkspaceDetailQuery,
-    { id: packetId },
-    { fetchKey, fetchPolicy: "network-only" }
+    { id: packetId, versionFirst: versionPage.first, versionAfter: versionPage.after },
+    { fetchKey, fetchPolicy: "network-only" },
   );
 
-  return data.operatorPacketWorkspace as PacketWorkspaceDetail;
+  const workspace = data.operatorPacketWorkspace;
+  const versions = (workspace.versionHistory?.edges ?? []).flatMap((edge) =>
+    edge?.node ? [edge.node] : [],
+  );
+
+  const detail: PacketWorkspaceDetail = {
+    ...workspace,
+    versions,
+    versionPageInfo: workspace.versionHistory?.pageInfo ?? {
+      hasNextPage: false,
+      hasPreviousPage: false,
+      startCursor: null,
+      endCursor: null,
+    },
+  };
+
+  return detail;
 }
 
 export type PacketsWorkflowState = ReturnType<typeof usePacketsWorkflow>;
 
 export function packetConnectionFromRows<TPacket>(
   rows: TPacket[],
-  pageInfo: RelayPageInfo
+  pageInfo: RelayPageInfo,
 ): PacketConnection<TPacket> {
   const nextCursor = pageInfo.endCursor ?? null;
 
   return {
     hasNextPage: pageInfo.hasNextPage && nextCursor !== null,
     nextCursor,
-    rows
+    rows,
   };
 }
 
 export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operationId">>(
   rows: readonly TPacket[],
-  requestedSelection: PacketSelection | null
+  requestedSelection: PacketSelection | null,
 ) {
   const selectedPacket = requestedSelection
     ? rows.find((packet) =>
         requestedSelection.kind === "relay_id"
           ? packet.id === requestedSelection.value
-          : packet.operationId === requestedSelection.value
+          : packet.operationId === requestedSelection.value,
       )
     : null;
 
@@ -133,11 +142,11 @@ export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operati
     return selectedPacket.id;
   }
 
-  return requestedSelection?.kind === "operation_id" ? null : rows[0]?.id ?? null;
+  return requestedSelection?.kind === "operation_id" ? null : (rows[0]?.id ?? null);
 }
 
 function packetConnectionFromRelay(
-  data: PacketsRouteOperation["response"]
+  data: PacketsRouteOperation["response"],
 ): PacketConnection<PacketsRoutePacketFragment$data> {
   const connection = data.listWorkPackets;
 
@@ -145,10 +154,7 @@ function packetConnectionFromRelay(
     return packetConnectionFromRows([], { endCursor: null, hasNextPage: false });
   }
 
-  return packetConnectionFromRows(
-    packetRowsFromRelayConnection(connection),
-    connection.pageInfo
-  );
+  return packetConnectionFromRows(packetRowsFromRelayConnection(connection), connection.pageInfo);
 }
 
 type PacketRelayConnection = {
@@ -158,25 +164,20 @@ type PacketRelayConnection = {
 };
 
 function packetRowsFromRelayConnection(
-  connection: PacketRelayConnection | null | undefined
+  connection: PacketRelayConnection | null | undefined,
 ): PacketsRoutePacketFragment$data[] {
   return (connection?.edges ?? []).flatMap((edge) => {
     if (!edge?.node) {
       return [];
     }
 
-    return [
-      readInlineData(
-        PacketsRoutePacketFragment,
-        edge.node as PacketsRoutePacketFragment$key
-      )
-    ];
+    return [readInlineData<PacketsRoutePacketFragment$key>(PacketsRoutePacketFragment, edge.node)];
   });
 }
 
 function mergeCreatedPacket<TPacket extends Pick<PacketRow, "id">>(
   rows: readonly TPacket[],
-  createdPacket: TPacket | null
+  createdPacket: TPacket | null,
 ): TPacket[] {
   if (!createdPacket || rows.some((packet) => packet.id === createdPacket.id)) {
     return [...rows];

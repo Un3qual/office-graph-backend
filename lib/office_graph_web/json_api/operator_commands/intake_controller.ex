@@ -5,7 +5,8 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.IntakeController do
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraphWeb.JsonApi.Common.Errors
-  alias OfficeGraphWeb.JsonApi.OperatorCommands.{Input, Serializer}
+  alias OfficeGraphWeb.JsonApi.OperatorCommands.Serializer
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def submit_manual_intake(conn, params) do

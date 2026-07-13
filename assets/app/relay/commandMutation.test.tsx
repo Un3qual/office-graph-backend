@@ -7,16 +7,35 @@ describe("command mutation failure mapping", () => {
     const failure = graphQLError([
       error("A required field is missing.", "validation_failed", { field: "body" }),
       error("A field has an invalid value.", "validation_failed", {
-        field: "source_identity"
-      })
+        field: "source_identity",
+      }),
     ]);
 
     expect(mapCommandFailure(failure)).toEqual({
       status: "field-error",
       fields: [
         { field: "body", message: "A required field is missing." },
-        { field: "source_identity", message: "A field has an invalid value." }
-      ]
+        { field: "source_identity", message: "A field has an invalid value." },
+      ],
+    });
+  });
+
+  it("maps array-form validation fields without collapsing them into a generic error", () => {
+    const failure = graphQLError([
+      error("Validation failed.", "validation_failed", {
+        fields: [
+          { field: "source_graph_item_ids", message: "is invalid" },
+          { field: "verification_check_ids", message: "is invalid" },
+        ],
+      }),
+    ]);
+
+    expect(mapCommandFailure(failure)).toEqual({
+      status: "field-error",
+      fields: [
+        { field: "source_graph_item_ids", message: "is invalid" },
+        { field: "verification_check_ids", message: "is invalid" },
+      ],
     });
   });
 
@@ -29,26 +48,24 @@ describe("command mutation failure mapping", () => {
     "invalid_proposed_change_status",
     "invalid_proposed_change_set",
     "invalid_verification_check_status",
-    "packet_version_not_ready"
-  ])("maps %s as a conflict that requires an explicit retry", code => {
-    expect(
-      mapCommandFailure(graphQLError([error("Refresh before retrying.", code)]))
-    ).toEqual({
+    "packet_version_not_ready",
+    "evidence_candidate_already_accepted",
+    "verification_result_slot_conflict",
+  ])("maps %s as a conflict that requires an explicit retry", (code) => {
+    expect(mapCommandFailure(graphQLError([error("Refresh before retrying.", code)]))).toEqual({
       status: "conflict",
       code,
-      message: "Refresh before retrying."
+      message: "Refresh before retrying.",
     });
   });
 
   it("preserves safe forbidden copy without exposing transport details", () => {
     expect(
-      mapCommandFailure(
-        graphQLError([error("The action is not authorized.", "forbidden")])
-      )
+      mapCommandFailure(graphQLError([error("The action is not authorized.", "forbidden")])),
     ).toEqual({
       status: "error",
       code: "forbidden",
-      message: "The action is not authorized."
+      message: "The action is not authorized.",
     });
   });
 
@@ -56,7 +73,7 @@ describe("command mutation failure mapping", () => {
     expect(mapCommandFailure(new Error("internal socket details"))).toEqual({
       status: "error",
       code: "unknown",
-      message: "Unable to complete this action. Try again."
+      message: "Unable to complete this action. Try again.",
     });
   });
 });
@@ -70,6 +87,6 @@ function graphQLError(errors: ReturnType<typeof error>[]) {
     errors[0]?.message ?? "Request failed.",
     { errors },
     200,
-    "TestCommandMutation"
+    "TestCommandMutation",
   );
 }

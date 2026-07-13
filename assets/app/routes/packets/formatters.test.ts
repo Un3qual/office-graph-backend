@@ -8,8 +8,6 @@ describe("packet formatters", () => {
   });
 
   it("formats packet timestamps in UTC", () => {
-    expect(formatPacketUpdatedAt("2026-07-09T19:45:00Z")).toBe(
-      "Jul 9, 2026, 7:45 PM UTC"
-    );
+    expect(formatPacketUpdatedAt("2026-07-09T19:45:00Z")).toBe("Jul 9, 2026, 7:45 PM UTC");
   });
 });

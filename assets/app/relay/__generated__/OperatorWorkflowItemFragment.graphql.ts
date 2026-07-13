@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<16c371382f4dbfe9bab5244039e31ed2>>
+ * @generated SignedSource<<5b3290d85a3733edce88dd0be71886f6>>
  * @lightSyntaxTransform
  */
 
@@ -50,6 +50,11 @@ export type OperatorWorkflowItemFragment$data = {
   readonly id: string;
   readonly normalizedEventId: string;
   readonly operationWatermark: string | null | undefined;
+  readonly proposedActionPreviews: ReadonlyArray<{
+    readonly action: string;
+    readonly status: string;
+    readonly title: string;
+  }>;
   readonly proposedChangeStatus: {
     readonly applied: number;
     readonly pending: number;
@@ -57,6 +62,11 @@ export type OperatorWorkflowItemFragment$data = {
     readonly total: number;
   };
   readonly reasonCodes: ReadonlyArray<string>;
+  readonly relationshipSummary: {
+    readonly graphLinks: number;
+    readonly graphRelationships: number;
+    readonly hasMore: boolean;
+  };
   readonly revisionTrace: {
     readonly operationId: string | null | undefined;
     readonly resourceCount: number;
@@ -66,8 +76,10 @@ export type OperatorWorkflowItemFragment$data = {
     readonly outcome: string;
     readonly replayIdentity: string;
   };
+  readonly sourceSummary: string;
   readonly sourceWatermark: string | null | undefined;
   readonly status: string;
+  readonly title: string;
   readonly type: string;
   readonly typedId: {
     readonly id: string;
@@ -85,6 +97,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorWorkflowItemFragment"
 };
 
-(node as any).hash = "535c3e521437408be17d980e9a65e058";
+(node as any).hash = "ac544194f0bdbc71801a84fa439351d5";
 
 export default node;

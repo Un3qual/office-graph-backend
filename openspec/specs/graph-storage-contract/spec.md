@@ -1,7 +1,7 @@
 # graph-storage-contract Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define graph identity storage alongside typed domain resources and their consistency guarantees.
 ## Requirements
 ### Requirement: Graph Identity With Typed Resources
 Office Graph SHALL use shared graph identity for addressability while keeping

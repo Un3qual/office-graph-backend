@@ -35,6 +35,12 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert aliases[:"boundary.check"] == ["compile --force --warnings-as-errors"]
     assert "boundary.check" in aliases[:verify]
 
+    assert aliases[:"architecture.check"] == [
+             "xref graph --format cycles --label compile-connected --fail-above 0"
+           ]
+
+    assert "architecture.check" in aliases[:verify]
+
     assert aliases[:"dependency.audit"] == [
              "cmd mix hex.audit",
              "cmd --cd assets pnpm audit --prod"
@@ -52,10 +58,7 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert Enum.at(aliases[:"static.analysis"], 1) =~ "lib/office_graph/verification/*.ex"
     assert "test" in aliases[:verify]
     refute "architecture.conformance" in aliases[:verify]
-    assert "dependency.audit" in aliases[:precommit]
-    assert "spec.verify" in aliases[:precommit]
-    assert "test" in aliases[:precommit]
-    refute "architecture.conformance" in aliases[:precommit]
+    assert aliases[:precommit] == ["verify"]
   end
 
   test "public context modules declare boundary contracts" do
@@ -90,27 +93,5 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
     assert Code.ensure_loaded?(waiver)
     assert function_exported?(waiver, :execute, 5)
-  end
-
-  test "module graph has no compile-time dependency cycles" do
-    mix = System.find_executable("mix")
-
-    {cycles, exit_status} =
-      System.cmd(
-        mix,
-        [
-          "xref",
-          "graph",
-          "--format",
-          "cycles",
-          "--label",
-          "compile-connected",
-          "--fail-above",
-          "0"
-        ],
-        stderr_to_stdout: true
-      )
-
-    assert exit_status == 0, cycles
   end
 end

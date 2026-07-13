@@ -32,7 +32,7 @@ export function OperatorWorkspace({
   onPreviousPage,
   onSelectItem,
   onRefresh,
-  workflow
+  workflow,
 }: Props) {
   const canPageForward = workflow.inbox.hasMore && workflow.inbox.nextCursor !== null;
 
@@ -40,24 +40,34 @@ export function OperatorWorkspace({
     <OperatorLayout
       inbox={
         <InboxList
-            canPageBackward={canPageBackward}
-            canPageForward={canPageForward}
-            intake={workflow.canSubmitManualIntake ? (
-              <ManualIntakeForm
-                onAuthoritativeChange={onManualIntakeAuthoritativeChange}
-              />
-            ) : null}
-            onNextPage={() => {
-              if (workflow.inbox.nextCursor !== null) onNextPage(workflow.inbox.nextCursor);
-            }}
-            onPreviousPage={onPreviousPage}
-            onSelect={onSelectItem}
-            rows={workflow.rows}
-            selectedId={workflow.selectedId}
-            sourceWatermark={workflow.inbox.sourceWatermark}
-          />
+          canPageBackward={canPageBackward}
+          canPageForward={canPageForward}
+          intake={
+            workflow.canSubmitManualIntake ? (
+              <ManualIntakeForm onAuthoritativeChange={onManualIntakeAuthoritativeChange} />
+            ) : null
+          }
+          onNextPage={() => {
+            if (workflow.inbox.nextCursor !== null) onNextPage(workflow.inbox.nextCursor);
+          }}
+          onPreviousPage={onPreviousPage}
+          onSelect={onSelectItem}
+          rows={workflow.rows}
+          selectedId={workflow.selectedId}
+          sourceWatermark={workflow.inbox.sourceWatermark}
+        />
       }
-      detail={<><ItemSummary item={workflow.selectedItem} /><PacketCommandForm item={workflow.selectedItem} onRefresh={onRefresh} readiness={null} readinessInput={workflow.readinessInput} /></>}
+      detail={
+        <>
+          <ItemSummary fetchKey={fetchKey} item={workflow.selectedItem} />
+          <PacketCommandForm
+            item={workflow.selectedItem}
+            onRefresh={onRefresh}
+            readiness={null}
+            readinessInput={workflow.readinessInput}
+          />
+        </>
+      }
       inspector={
         <OperatorInspector
           fetchKey={fetchKey}
@@ -80,7 +90,7 @@ export function OperatorWorkspaceLoading() {
 export function OperatorWorkspaceError({
   canPageBackward,
   onRetry,
-  onPreviousPage
+  onPreviousPage,
 }: {
   canPageBackward: boolean;
   onRetry: () => void;

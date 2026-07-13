@@ -5,7 +5,7 @@ import { OperatorWorkflowRouteQuery } from "./data";
 import {
   OperatorWorkspace,
   OperatorWorkspaceError,
-  OperatorWorkspaceLoading
+  OperatorWorkspaceLoading,
 } from "./OperatorWorkspace";
 import type { OperatorInboxPage } from "./types";
 import { defaultOperatorInboxPage, useOperatorWorkflow } from "./workflow";
@@ -33,10 +33,10 @@ export default function OperatorRoute() {
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedRunId = searchParams.get("runId")?.trim() || null;
   const [fetchKey, setFetchKey] = useState(0);
-  const refresh = useCallback(() => startTransition(() => setFetchKey(key => key + 1)), []);
+  const refresh = useCallback(() => startTransition(() => setFetchKey((key) => key + 1)), []);
   const [navigation, setNavigation] = useState<InboxNavigation>({
     page: defaultOperatorInboxPage,
-    previousCursors: []
+    previousCursors: [],
   });
   const [requestedSelectedId, setRequestedSelectedId] = useState<string | null>(null);
 
@@ -54,7 +54,7 @@ export default function OperatorRoute() {
       leaveLinkedRun();
       setNavigation({
         page: defaultOperatorInboxPage,
-        previousCursors: []
+        previousCursors: [],
       });
     }
 
@@ -71,7 +71,7 @@ export default function OperatorRoute() {
     setNavigation(({ page, previousCursors }) => ({
       page: page.after === nextCursor ? page : { ...page, after: nextCursor },
       previousCursors:
-        page.after === nextCursor ? previousCursors : [...previousCursors, page.after]
+        page.after === nextCursor ? previousCursors : [...previousCursors, page.after],
     }));
   };
 
@@ -85,9 +85,9 @@ export default function OperatorRoute() {
       return {
         page: {
           ...page,
-          after: previousCursors[previousCursors.length - 1] ?? null
+          after: previousCursors[previousCursors.length - 1] ?? null,
         },
-        previousCursors: previousCursors.slice(0, -1)
+        previousCursors: previousCursors.slice(0, -1),
       };
     });
   };
@@ -128,13 +128,13 @@ function OperatorRouteContent({
   onPreviousPage,
   onSelectItem,
   onRefresh,
-  requestedSelectedId
+  requestedSelectedId,
 }: OperatorRouteContentProps) {
   const workflow = useOperatorWorkflow({
     fetchKey,
     inboxPage: navigation.page,
     requestedSelectedId,
-    selectionMode: linkedRunId ? "linked_run" : "inbox"
+    selectionMode: linkedRunId ? "linked_run" : "inbox",
   });
 
   return (

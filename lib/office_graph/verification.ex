@@ -21,6 +21,7 @@ defmodule OfficeGraph.Verification do
   alias OfficeGraph.Operations
   alias OfficeGraph.Repo
   alias OfficeGraph.Runs
+  alias OfficeGraph.Verification.ResultSlotPolicy
   alias OfficeGraph.Verification.Waiver
   alias OfficeGraph.WorkGraph
 
@@ -294,6 +295,7 @@ defmodule OfficeGraph.Verification do
 
     result = attrs[:result] || "passed"
     validate_evidence_result!(result)
+    preflight_result_slot!(work_run, candidate.verification_check_id)
     validate_work_run_acceptance_open!(work_run)
     validate_runless_result_allowed!(work_run, candidate, result)
     validate_passed_result_allowed!(result, candidate, work_run, observation)
@@ -554,6 +556,23 @@ defmodule OfficeGraph.Verification do
   defp work_run_verified?(work_run) do
     work_run.state == "verified" or work_run.aggregate_state == "verified" or
       work_run.verification_state == "verified"
+  end
+
+  defp preflight_result_slot!(nil, _verification_check_id), do: :ok
+
+  defp preflight_result_slot!(work_run, verification_check_id) do
+    existing_result =
+      VerificationResult
+      |> Ash.Query.filter(
+        work_run_id == ^work_run.id and verification_check_id == ^verification_check_id
+      )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+
+    case ResultSlotPolicy.preflight(existing_result, work_run.id, verification_check_id) do
+      :ok -> :ok
+      {:error, error} -> Repo.rollback(error)
+    end
   end
 
   defp prepare_runless_completion!(

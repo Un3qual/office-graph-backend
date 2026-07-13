@@ -1,7 +1,7 @@
 # readiness-evaluation Specification
 
 ## Purpose
-TBD - created by archiving change design-work-packets-and-readiness. Update Purpose after archive.
+Define explainable work-packet readiness states, blockers, and evaluation evidence.
 ## Requirements
 ### Requirement: Readiness Evaluation Is Explainable
 

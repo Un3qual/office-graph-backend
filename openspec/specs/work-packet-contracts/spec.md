@@ -1,7 +1,7 @@
 # work-packet-contracts Specification
 
 ## Purpose
-TBD - created by archiving change design-work-packets-and-readiness. Update Purpose after archive.
+Define versioned execution contracts that package objective, authority, context, and verification.
 ## Requirements
 ### Requirement: Work Packets Are Versioned Execution Contracts
 

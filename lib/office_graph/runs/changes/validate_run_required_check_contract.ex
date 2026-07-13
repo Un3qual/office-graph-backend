@@ -7,6 +7,7 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   alias OfficeGraph.WorkPackets.WorkPacketRequiredCheck
 
   require Ash.Query
+  require Logger
 
   @impl true
   def change(changeset, opts, context) do
@@ -15,9 +16,13 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   end
 
   @impl true
-  def batch_change(changesets, _opts, _context) do
+  def batch_change(changesets, opts, _context) do
     runs_by_id = read_runs(changesets)
-    packet_required_checks = read_packet_required_checks(changesets, runs_by_id)
+
+    packet_required_check_reader =
+      Keyword.get(opts, :packet_required_check_reader, &read_packet_required_checks/2)
+
+    packet_required_checks = packet_required_check_reader.(changesets, runs_by_id)
 
     Enum.map(
       changesets,
@@ -133,7 +138,8 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
   end
 
   defp fetch_run({:error, error}, _run_id, _organization_id, _workspace_id) do
-    {:error, :run_id, "run_id lookup failed: #{format_lookup_error(error)}"}
+    log_lookup_failure(:run_id, error)
+    {:error, :run_id, "run_id could not be validated"}
   end
 
   defp fetch_run({:ok, runs_by_id}, run_id, organization_id, workspace_id) do
@@ -168,8 +174,8 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
          _workspace_id,
          {:error, error}
        ) do
-    {:error, :verification_check_id,
-     "verification_check_id lookup failed: #{format_lookup_error(error)}"}
+    log_lookup_failure(:verification_check_id, error)
+    {:error, :verification_check_id, "verification_check_id could not be validated"}
   end
 
   defp validate_packet_required_check(
@@ -190,5 +196,9 @@ defmodule OfficeGraph.Runs.Changes.ValidateRunRequiredCheckContract do
     end
   end
 
-  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
+  defp log_lookup_failure(field, error) do
+    Logger.warning(fn ->
+      "run required-check reference lookup failed field=#{inspect(field)} error=#{inspect(error)}"
+    end)
+  end
 end

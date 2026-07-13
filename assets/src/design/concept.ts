@@ -11,25 +11,25 @@ export const conceptTokens = {
     amber: "#f59e0b",
     blue: "#2f8be6",
     green: "#19a340",
-    red: "#d92d20"
+    red: "#d92d20",
   },
   radius: {
     control: "6px",
-    panel: "6px"
+    panel: "6px",
   },
   typography: {
     family:
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     baseSize: "14px",
     smallSize: "12px",
-    headingWeight: 650
+    headingWeight: 650,
   },
   layout: {
     sidebarWidth: "72px",
     inboxWidth: "380px",
     inspectorWidth: "392px",
-    topbarHeight: "56px"
-  }
+    topbarHeight: "56px",
+  },
 } as const;
 
 export const conceptComponentInventory = [
@@ -43,5 +43,5 @@ export const conceptComponentInventory = [
   "readiness-panel",
   "run-state-panel",
   "verification-panel",
-  "activity-feed"
+  "activity-feed",
 ] as const;

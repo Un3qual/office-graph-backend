@@ -1,7 +1,7 @@
 # external-reference-model Specification
 
 ## Purpose
-TBD - created by archiving change design-persistence-model. Update Purpose after archive.
+Define stable typed references between Office Graph records and external provider records.
 ## Requirements
 ### Requirement: External Reference Identity
 Office Graph SHALL model external references as durable links between Office

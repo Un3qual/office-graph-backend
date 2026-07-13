@@ -1,7 +1,7 @@
 # identity-authorization-inventory Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authorization-schema. Update Purpose after archive.
+Define the relational identity and authorization resources required by the platform.
 ## Requirements
 ### Requirement: Identity Authorization Schema Inventory
 Office Graph SHALL maintain a concrete relational table-family inventory for

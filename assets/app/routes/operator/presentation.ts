@@ -17,7 +17,7 @@ export function listText(values: readonly string[]) {
 
 export function commandAffordanceListText(
   affordances: OperatorWorkflowItemFragment$data["commandAffordances"],
-  fallback: readonly string[]
+  fallback: readonly string[],
 ) {
   if (affordances.length === 0) {
     return listText(fallback);
@@ -27,7 +27,7 @@ export function commandAffordanceListText(
 }
 
 function commandAffordanceText(
-  affordance: OperatorWorkflowItemFragment$data["commandAffordances"][number]
+  affordance: OperatorWorkflowItemFragment$data["commandAffordances"][number],
 ) {
   const state = affordance.state.toLowerCase();
 
@@ -41,7 +41,7 @@ function commandAffordanceText(
       affordance.safeExplanation,
       affordance.blockerReasons.length > 0
         ? `Blockers ${listText(affordance.blockerReasons)}`
-        : null
+        : null,
     ]
       .filter(Boolean)
       .join(" - ");
@@ -67,15 +67,16 @@ function safeUnavailableCommandText(label: string, reasonCodes: readonly string[
 export function statusTone(status: string): BadgeTone {
   const words = new Set(status.split("_").filter(Boolean));
 
-  if (
-    (words.has("ready") && !words.has("not")) ||
-    words.has("verified") ||
-    words.has("passed")
-  ) {
+  if ((words.has("ready") && !words.has("not")) || words.has("verified") || words.has("passed")) {
     return "green";
   }
 
-  if (words.has("blocked") || words.has("failed") || words.has("missing") || status === "not_ready") {
+  if (
+    words.has("blocked") ||
+    words.has("failed") ||
+    words.has("missing") ||
+    status === "not_ready"
+  ) {
     return "red";
   }
 

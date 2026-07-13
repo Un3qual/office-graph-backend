@@ -1,7 +1,7 @@
 # change-proposal-shape Specification
 
 ## Purpose
-TBD - created by archiving change design-proposed-graph-changes. Update Purpose after archive.
+Define the typed envelope and lifecycle data carried by a change proposal.
 ## Requirements
 ### Requirement: Change Proposal Envelope
 Office Graph SHALL represent agent, generated UI, integration, and human graph

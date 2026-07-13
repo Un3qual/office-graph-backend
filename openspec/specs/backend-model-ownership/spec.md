@@ -161,6 +161,8 @@ domain internals.
 ### Requirement: Model Ownership Gate Covers API Exposure
 
 Office Graph SHALL include API exposure checks in model ownership verification.
+`openspec/specs/backend-model-ownership/api-migration-ledger.md` SHALL be the
+normative inventory of approved hand-written GraphQL and JSON surfaces.
 
 #### Scenario: Ash resource is API-exposed
 
@@ -169,3 +171,11 @@ Office Graph SHALL include API exposure checks in model ownership verification.
 - **THEN** verification MUST confirm the resource has one canonical owning
   domain, public/private action posture is intentional, and API exposure does
   not bypass the owning domain lifecycle contract
+
+#### Scenario: A hand-written API surface is declared
+
+- **WHEN** production transport code declares a manual GraphQL root field, JSON
+  route, or command serializer
+- **THEN** architecture verification MUST discover it structurally and require
+  an API migration ledger entry with owner, reason, replacement target,
+  safety/parity tests, and retirement condition

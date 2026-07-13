@@ -1,12 +1,7 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Button } from "../../../../src/ui/Button";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
-import {
-  commandAffordanceListText,
-  formatLabel,
-  listText,
-  statusTone
-} from "../presentation";
+import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
 import type { PacketReadinessInput } from "../types";
 import type { PacketReadinessState } from "../workflow";
 
@@ -21,11 +16,11 @@ export function ReadinessPanel({
   isValidating = false,
   onValidateReadiness,
   readiness,
-  readinessInput
+  readinessInput,
 }: Props) {
   const isDerived = isDerivedReadiness(readiness);
   const canShowValidation = Boolean(
-    isDerived && readinessInput && (onValidateReadiness || isValidating)
+    isDerived && readinessInput && (onValidateReadiness || isValidating),
   );
 
   return (
@@ -37,10 +32,7 @@ export function ReadinessPanel({
           <Badge tone={statusTone(readiness.status)}>{formatLabel(readiness.status)}</Badge>
           {canShowValidation ? (
             <div className="ui-panel-actions">
-              <Button
-                isDisabled={isValidating}
-                onPress={() => onValidateReadiness?.()}
-              >
+              <Button isDisabled={isValidating} onPress={() => onValidateReadiness?.()}>
                 {isValidating ? "Validating readiness" : "Validate readiness"}
               </Button>
             </div>
@@ -53,8 +45,8 @@ export function ReadinessPanel({
                 "Commands",
                 commandAffordanceListText(
                   readiness.commandAffordances,
-                  readiness.allowedNextActions
-                )
+                  readiness.allowedNextActions,
+                ),
               ],
               ["Blockers", listText(readiness.blockerReasons)],
               ["Objective", readinessInput?.objective || "None"],
@@ -65,8 +57,8 @@ export function ReadinessPanel({
               [
                 "Required checks",
                 readiness.requiredChecks.map((check) => formatLabel(check.state)).join(", ") ||
-                  "None"
-              ]
+                  "None",
+              ],
             ]}
           />
         </>
@@ -88,7 +80,7 @@ export function ReadinessPanelError({ onRetry }: { onRetry: () => void }) {
 }
 
 function isDerivedReadiness(
-  readiness: PacketReadinessState | null
+  readiness: PacketReadinessState | null,
 ): readiness is Extract<PacketReadinessState, { isDerived: true }> {
   return readiness !== null && "isDerived" in readiness && readiness.isDerived;
 }

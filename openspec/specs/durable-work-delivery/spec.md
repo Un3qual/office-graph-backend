@@ -1,7 +1,6 @@
 # durable-work-delivery Specification
 
 ## Purpose
-
 Define the canonical requirements for typed, transactional, Postgres-backed
 asynchronous work delivery, including retries, terminal failure handling,
 scoped operator visibility, and operational telemetry.

@@ -4,6 +4,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   use Ash.Resource.Change
 
   require Ash.Query
+  require Logger
 
   @impl true
   def change(changeset, opts, context) do
@@ -145,14 +146,16 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences do
   end
 
   defp add_lookup_error(changeset, field, error) do
+    Logger.warning(fn ->
+      "same-scope reference lookup failed field=#{inspect(field)} error=#{inspect(error)}"
+    end)
+
     Ash.Changeset.add_error(
       changeset,
       field: field,
-      message: "#{field} lookup failed: #{format_lookup_error(error)}"
+      message: "#{field} could not be validated"
     )
   end
-
-  defp format_lookup_error(%{__exception__: true} = error), do: Exception.message(error)
 
   defp validate_resource_identity(record, field, reference_opts, changeset) do
     expected_resource_type = Keyword.get(reference_opts, :resource_type)

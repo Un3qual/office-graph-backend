@@ -1,7 +1,7 @@
 # service-account-and-agent-credentials Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authentication. Update Purpose after archive.
+Define issuance, storage boundaries, rotation, and revocation for non-human credentials.
 ## Requirements
 ### Requirement: Non-Human Credential Mechanics
 Office Graph SHALL define issuance, verification, rotation, and revocation

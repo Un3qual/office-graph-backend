@@ -1,41 +1,37 @@
 import type { MutationParameters } from "relay-runtime";
 import type {
   OperatorAcceptEvidenceMutation as AcceptEvidenceMutation,
-  OperatorAcceptEvidenceMutation$variables as AcceptEvidenceVariables
+  OperatorAcceptEvidenceMutation$variables as AcceptEvidenceVariables,
 } from "../../relay/__generated__/OperatorAcceptEvidenceMutation.graphql";
 import type {
   OperatorApplyProposedChangesMutation as ApplyProposedChangesMutation,
-  OperatorApplyProposedChangesMutation$variables as ApplyProposedChangesVariables
+  OperatorApplyProposedChangesMutation$variables as ApplyProposedChangesVariables,
 } from "../../relay/__generated__/OperatorApplyProposedChangesMutation.graphql";
 import type {
   OperatorCreateEvidenceCandidateMutation as CreateEvidenceCandidateMutation,
-  OperatorCreateEvidenceCandidateMutation$variables as CreateEvidenceCandidateVariables
+  OperatorCreateEvidenceCandidateMutation$variables as CreateEvidenceCandidateVariables,
 } from "../../relay/__generated__/OperatorCreateEvidenceCandidateMutation.graphql";
 import type {
   OperatorCreateWorkPacketMutation as CreateWorkPacketMutation,
-  OperatorCreateWorkPacketMutation$variables as CreateWorkPacketVariables
+  OperatorCreateWorkPacketMutation$variables as CreateWorkPacketVariables,
 } from "../../relay/__generated__/OperatorCreateWorkPacketMutation.graphql";
 import type {
   OperatorRecordExecutionObservationMutation as RecordExecutionObservationMutation,
-  OperatorRecordExecutionObservationMutation$variables as RecordExecutionObservationVariables
+  OperatorRecordExecutionObservationMutation$variables as RecordExecutionObservationVariables,
 } from "../../relay/__generated__/OperatorRecordExecutionObservationMutation.graphql";
 import type {
-  OperatorStartWorkRunMutation as StartWorkRunMutation,
-  OperatorStartWorkRunMutation$variables as StartWorkRunVariables
-} from "../../relay/__generated__/OperatorStartWorkRunMutation.graphql";
-import type {
   OperatorSubmitManualIntakeMutation as SubmitManualIntakeMutation,
-  OperatorSubmitManualIntakeMutation$variables as SubmitManualIntakeVariables
+  OperatorSubmitManualIntakeMutation$variables as SubmitManualIntakeVariables,
 } from "../../relay/__generated__/OperatorSubmitManualIntakeMutation.graphql";
 import type {
   OperatorWaiveVerificationCheckMutation as WaiveVerificationCheckMutation,
-  OperatorWaiveVerificationCheckMutation$variables as WaiveVerificationCheckVariables
+  OperatorWaiveVerificationCheckMutation$variables as WaiveVerificationCheckVariables,
 } from "../../relay/__generated__/OperatorWaiveVerificationCheckMutation.graphql";
 import {
   commandMutationSuccess,
   useCommandMutation,
   type CommandMutationSuccess,
-  type CommandMutationConfig
+  type CommandMutationConfig,
 } from "../../relay/commandMutation";
 import {
   OperatorAcceptEvidenceMutation,
@@ -43,9 +39,8 @@ import {
   OperatorCreateEvidenceCandidateMutation,
   OperatorCreateWorkPacketMutation,
   OperatorRecordExecutionObservationMutation,
-  OperatorStartWorkRunMutation,
   OperatorSubmitManualIntakeMutation,
-  OperatorWaiveVerificationCheckMutation
+  OperatorWaiveVerificationCheckMutation,
 } from "./commands";
 
 type SubmitManualIntakeResult = {
@@ -61,11 +56,6 @@ type ApplyProposedChangesResult = Pick<
 type CreateWorkPacketResult = Pick<
   CreateWorkPacketMutation["response"]["createWorkPacket"],
   "packet" | "packetVersion"
->;
-
-type StartWorkRunResult = Pick<
-  StartWorkRunMutation["response"]["startWorkRun"],
-  "requiredChecks" | "run"
 >;
 
 type RecordExecutionObservationResult = Pick<
@@ -95,9 +85,9 @@ const submitManualIntakeConfig = {
     const payload = response.submitManualIntake;
     return commandMutationSuccess(payload, {
       normalizedEventId: payload.normalizedEventId,
-      proposedChangeIds: payload.proposedChangeIds
+      proposedChangeIds: payload.proposedChangeIds,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   SubmitManualIntakeMutation,
   SubmitManualIntakeVariables["input"],
@@ -113,9 +103,9 @@ const applyProposedChangesConfig = {
       signal: payload.signal,
       task: payload.task,
       reviewFinding: payload.reviewFinding,
-      verificationCheck: payload.verificationCheck
+      verificationCheck: payload.verificationCheck,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   ApplyProposedChangesMutation,
   ApplyProposedChangesVariables["input"],
@@ -129,29 +119,13 @@ const createWorkPacketConfig = {
     const payload = response.createWorkPacket;
     return commandMutationSuccess(payload, {
       packet: payload.packet,
-      packetVersion: payload.packetVersion
+      packetVersion: payload.packetVersion,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   CreateWorkPacketMutation,
   CreateWorkPacketVariables["input"],
   CreateWorkPacketResult
->;
-
-const startWorkRunConfig = {
-  mutation: OperatorStartWorkRunMutation,
-  toVariables: (input: StartWorkRunVariables["input"]) => ({ input }),
-  mapSuccess(response) {
-    const payload = response.startWorkRun;
-    return commandMutationSuccess(payload, {
-      requiredChecks: payload.requiredChecks,
-      run: payload.run
-    });
-  }
-} satisfies CommandMutationConfig<
-  StartWorkRunMutation,
-  StartWorkRunVariables["input"],
-  StartWorkRunResult
 >;
 
 const recordExecutionObservationConfig = {
@@ -161,9 +135,9 @@ const recordExecutionObservationConfig = {
     const payload = response.recordExecutionObservation;
     return commandMutationSuccess(payload, {
       observation: payload.observation,
-      run: payload.run
+      run: payload.run,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   RecordExecutionObservationMutation,
   RecordExecutionObservationVariables["input"],
@@ -176,9 +150,9 @@ const createEvidenceCandidateConfig = {
   mapSuccess(response) {
     const payload = response.createEvidenceCandidate;
     return commandMutationSuccess(payload, {
-      evidenceCandidate: payload.evidenceCandidate
+      evidenceCandidate: payload.evidenceCandidate,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   CreateEvidenceCandidateMutation,
   CreateEvidenceCandidateVariables["input"],
@@ -194,9 +168,9 @@ const acceptEvidenceConfig = {
       evidenceCandidate: payload.evidenceCandidate,
       evidenceItem: payload.evidenceItem,
       verificationResult: payload.verificationResult,
-      run: payload.run
+      run: payload.run,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   AcceptEvidenceMutation,
   AcceptEvidenceVariables["input"],
@@ -211,30 +185,24 @@ const waiveVerificationCheckConfig = {
     return commandMutationSuccess(payload, {
       verificationResult: payload.verificationResult,
       requiredCheck: payload.requiredCheck,
-      run: payload.run
+      run: payload.run,
     });
-  }
+  },
 } satisfies CommandMutationConfig<
   WaiveVerificationCheckMutation,
   WaiveVerificationCheckVariables["input"],
   WaiveVerificationCheckResult
 >;
 
-export function useOperatorCommand<
-  TMutation extends MutationParameters,
-  TInput,
-  TResult
->(
+export function useOperatorCommand<TMutation extends MutationParameters, TInput, TResult>(
   config: CommandMutationConfig<TMutation, TInput, TResult>,
-  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<TResult>) => void,
 ) {
   return useCommandMutation(config, onAuthoritativeChange);
 }
 
 export function useSubmitManualIntakeCommand(
-  onAuthoritativeChange?: (
-    success?: CommandMutationSuccess<SubmitManualIntakeResult>
-  ) => void
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<SubmitManualIntakeResult>) => void,
 ) {
   return useOperatorCommand<
     SubmitManualIntakeMutation,
@@ -257,14 +225,6 @@ export function useCreateWorkPacketCommand(onAuthoritativeChange?: () => void) {
     CreateWorkPacketVariables["input"],
     CreateWorkPacketResult
   >(createWorkPacketConfig, onAuthoritativeChange);
-}
-
-export function useStartWorkRunCommand(onAuthoritativeChange?: () => void) {
-  return useOperatorCommand<
-    StartWorkRunMutation,
-    StartWorkRunVariables["input"],
-    StartWorkRunResult
-  >(startWorkRunConfig, onAuthoritativeChange);
 }
 
 export function useRecordExecutionObservationCommand(onAuthoritativeChange?: () => void) {

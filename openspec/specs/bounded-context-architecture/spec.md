@@ -1,7 +1,7 @@
 # bounded-context-architecture Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Define the modular-monolith context structure that keeps domain ownership and dependencies explicit.
 ## Requirements
 ### Requirement: Modular Monolith Baseline
 The backend SHALL begin as one Phoenix API application organized as a modular

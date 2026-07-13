@@ -33,13 +33,9 @@ defmodule OfficeGraph.Repo.Migrations.BackfillDurableDeliveryOwnerCapability do
   end
 
   def down do
-    execute("""
-    DELETE FROM role_capabilities
-    USING capabilities
-    WHERE role_capabilities.capability_id = capabilities.id
-      AND capabilities.key = 'durable_delivery.read'
-    """)
-
-    execute("DELETE FROM capabilities WHERE key = 'durable_delivery.read'")
+    # The conflict-safe backfill cannot distinguish rows it inserted from
+    # capability or grant rows that predated (or followed) the migration.
+    # Preserve authorization data rather than destructively guessing ownership.
+    :ok
   end
 end

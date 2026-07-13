@@ -5,7 +5,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Intake do
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraphWeb.GraphQL.Common.Errors
-  alias OfficeGraphWeb.GraphQL.OperatorCommands.Input
+  alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
   def submit(%{input: input}, resolution) do

@@ -121,6 +121,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :evidence_link,
             :verification_complete,
             :work_packet_version_create,
+            :durable_delivery_read,
             :verification_waive
           ] do
         assert :ok =
@@ -145,6 +146,7 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :evidence_link,
             :verification_complete,
             :work_packet_version_create,
+            :durable_delivery_read,
             :verification_waive
           ] do
         assert {:error, :forbidden} =

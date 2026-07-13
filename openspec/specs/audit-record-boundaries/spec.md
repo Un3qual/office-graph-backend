@@ -1,7 +1,7 @@
 # audit-record-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change design-revision-audit-soft-delete. Update Purpose after archive.
+Define durable audit creation boundaries and the events that require immutable audit evidence.
 ## Requirements
 ### Requirement: Durable Audit Triggers
 Office Graph SHALL create durable audit records for policy-sensitive behavior

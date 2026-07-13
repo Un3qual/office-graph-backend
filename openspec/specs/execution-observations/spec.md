@@ -1,7 +1,7 @@
 # execution-observations Specification
 
 ## Purpose
-TBD - created by archiving change design-runs-and-verification. Update Purpose after archive.
+Define durable observations of externally owned execution without treating them as Office Graph runs.
 ## Requirements
 ### Requirement: Observations Record Externally Owned Execution Activity
 

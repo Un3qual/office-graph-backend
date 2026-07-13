@@ -18,7 +18,7 @@ describe("AsyncBoundary", () => {
         resetKey="initial"
       >
         <DeferredChild deferred={deferred}>Loaded content</DeferredChild>
-      </AsyncBoundary>
+      </AsyncBoundary>,
     );
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading content");
@@ -39,7 +39,7 @@ describe("AsyncBoundary", () => {
         resetKey="initial"
       >
         <ThrowingChild />
-      </AsyncBoundary>
+      </AsyncBoundary>,
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("Safe unavailable state");
@@ -55,7 +55,7 @@ describe("AsyncBoundary", () => {
         resetKey="packet:cursor_1"
       >
         <ThrowingChild />
-      </AsyncBoundary>
+      </AsyncBoundary>,
     );
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("AsyncBoundary", () => {
         resetKey="packet:cursor_2"
       >
         <p>Recovered content</p>
-      </AsyncBoundary>
+      </AsyncBoundary>,
     );
 
     expect(await screen.findByText("Recovered content")).toBeInTheDocument();
@@ -81,7 +81,7 @@ function ThrowingChild(): never {
 
 function DeferredChild({
   children,
-  deferred
+  deferred,
 }: {
   children: ReactNode;
   deferred: ReturnType<typeof deferredRender>;
@@ -106,6 +106,6 @@ function deferredRender() {
     resolve: () => {
       isResolved = true;
       resolvePromise();
-    }
+    },
   };
 }

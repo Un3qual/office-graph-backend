@@ -1,20 +1,21 @@
+import { useState } from "react";
+import { useLazyLoadQuery } from "react-relay";
 import { Badge } from "../../../../src/ui/Badge";
+import { Button } from "../../../../src/ui/Button";
 import { EmptyState } from "../../../../src/ui/EmptyState";
 import { PanelRows } from "../../../../src/ui/Panel";
 import { itemTitle } from "../derived";
-import {
-  commandAffordanceListText,
-  formatLabel,
-  listText,
-  statusTone
-} from "../presentation";
+import { commandAffordanceListText, formatLabel, listText, statusTone } from "../presentation";
 import type { OperatorWorkflowItem } from "../workflow";
+import { OperatorRelationshipDetailsQuery } from "../data";
+import type { OperatorRelationshipDetailsQuery as OperatorRelationshipDetailsOperation } from "../../../relay/__generated__/OperatorRelationshipDetailsQuery.graphql";
 
 type Props = {
+  fetchKey?: number;
   item: OperatorWorkflowItem | null;
 };
 
-export function ItemSummary({ item }: Props) {
+export function ItemSummary({ fetchKey, item }: Props) {
   return (
     <section aria-label="Item detail" className="detail-pane">
       <div className="detail-header">
@@ -46,7 +47,7 @@ export function ItemSummary({ item }: Props) {
             </div>
             <div>
               <dt>Source</dt>
-              <dd>{item.source.identity}</dd>
+              <dd>{item.sourceSummary}</dd>
             </div>
             <div>
               <dt>Replay</dt>
@@ -57,27 +58,104 @@ export function ItemSummary({ item }: Props) {
             rows={[
               [
                 "Commands",
-                commandAffordanceListText(item.commandAffordances, item.allowedNextActions)
+                commandAffordanceListText(item.commandAffordances, item.allowedNextActions),
               ],
               ["Blockers", listText(item.blockerReasons)],
               ["Suggestions", proposedChangeText(item)],
-              ["Graph links", item.graphLinks.map((link) => link.title).join(", ") || "None"],
-              ["Audit trace", traceText(item.auditTrace.operationId, item.auditTrace.resourceCount)],
+              ["Graph links", graphLinkSummary(item)],
+              [
+                "Audit trace",
+                traceText(item.auditTrace.operationId, item.auditTrace.resourceCount),
+              ],
               [
                 "Revision trace",
-                traceText(item.revisionTrace.operationId, item.revisionTrace.resourceCount)
-              ]
+                traceText(item.revisionTrace.operationId, item.revisionTrace.resourceCount),
+              ],
             ]}
           />
+          {item.relationshipSummary.hasMore ? (
+            <RelationshipOverflowDetails
+              fetchKey={fetchKey}
+              key={`${item.normalizedEventId}:${fetchKey ?? "initial"}`}
+              normalizedEventId={item.normalizedEventId}
+            />
+          ) : null}
         </>
       ) : null}
     </section>
   );
 }
 
-function proposedChangeText(item: OperatorWorkflowItem) {
-  const proposed = item.proposedChangeStatus;
+function RelationshipOverflowDetails({
+  fetchKey,
+  normalizedEventId,
+}: {
+  fetchKey?: number;
+  normalizedEventId: string;
+}) {
+  const [cursors, setCursors] = useState<Array<string | null>>([null]);
+  const after = cursors.at(-1) ?? null;
+  const data = useLazyLoadQuery<OperatorRelationshipDetailsOperation>(
+    OperatorRelationshipDetailsQuery,
+    { id: normalizedEventId, first: 5, after },
+    { fetchKey, fetchPolicy: "network-only" },
+  );
+  const connection = data.operatorRelationshipDetails;
 
+  return (
+    <section aria-label="Relationship detail">
+      <h3>Related graph detail</h3>
+      <ul>
+        {(connection?.edges ?? []).flatMap((edge) =>
+          edge?.node
+            ? [
+                <li key={`${edge.node.kind}:${edge.node.stableId}`}>
+                  {edge.node.title} · {formatLabel(edge.node.relationshipType)}
+                </li>,
+              ]
+            : [],
+        )}
+      </ul>
+      <div aria-label="Relationship pagination">
+        {connection?.pageInfo.hasPreviousPage ? (
+          <Button
+            onPress={() =>
+              setCursors((current) => (current.length > 1 ? current.slice(0, -1) : current))
+            }
+          >
+            Previous relationship page
+          </Button>
+        ) : null}
+        {connection?.pageInfo.hasNextPage ? (
+          <Button
+            onPress={() => {
+              const cursor = connection.pageInfo.endCursor;
+              if (cursor) setCursors((current) => [...current, cursor]);
+            }}
+          >
+            Next relationship page
+          </Button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function graphLinkSummary(item: OperatorWorkflowItem) {
+  const labels = item.graphLinks.map((link) => link.title).join(", ") || "None";
+  const summary = item.relationshipSummary;
+  const counts = `${summary.graphLinks} links, ${summary.graphRelationships} relationships`;
+  return summary.hasMore ? `${labels} (${counts}; more available)` : `${labels} (${counts})`;
+}
+
+function proposedChangeText(item: OperatorWorkflowItem) {
+  if (item.proposedActionPreviews.length > 0) {
+    return item.proposedActionPreviews
+      .map((preview) => `${formatLabel(preview.action)}: ${preview.title}`)
+      .join(", ");
+  }
+
+  const proposed = item.proposedChangeStatus;
   return `${proposed.pending} pending, ${proposed.applied} applied, ${proposed.rejected} rejected`;
 }
 

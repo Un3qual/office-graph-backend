@@ -1,7 +1,7 @@
 # entrypoint-boundary-contracts Specification
 
 ## Purpose
-TBD - created by archiving change design-code-organization-and-boundaries. Update Purpose after archive.
+Keep web, worker, integration, and agent entry points thin and routed through owning domains.
 ## Requirements
 ### Requirement: Thin Entrypoints
 Entrypoint modules SHALL stay thin by translating input, building operation

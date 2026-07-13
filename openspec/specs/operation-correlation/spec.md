@@ -1,7 +1,7 @@
 # operation-correlation Specification
 
 ## Purpose
-TBD - created by archiving change design-revision-audit-soft-delete. Update Purpose after archive.
+Define durable operation identifiers that correlate commands, events, revisions, and audit records.
 ## Requirements
 ### Requirement: Operation Correlation Record
 Office Graph SHALL represent each meaningful command or externally observed

@@ -1,7 +1,7 @@
 # change-proposal-authorization Specification
 
 ## Purpose
-TBD - created by archiving change design-proposed-graph-changes. Update Purpose after archive.
+Define authorization checks for creating, reviewing, approving, and applying change proposals.
 ## Requirements
 ### Requirement: Change Proposal Authorization
 Office Graph SHALL authorize proposing, approving, and applying change

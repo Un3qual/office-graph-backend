@@ -20,7 +20,7 @@ export function WorkspaceShell({
   eyebrow,
   headerActions,
   navigationLabel,
-  title
+  title,
 }: Props) {
   return (
     <div className="app-shell">

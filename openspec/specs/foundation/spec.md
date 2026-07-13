@@ -1,7 +1,7 @@
 # foundation Specification
 
 ## Purpose
-TBD - created by archiving change define-office-graph-foundation. Update Purpose after archive.
+Define Office Graph's company-wide, agent-governed work-graph product foundation.
 ## Requirements
 ### Requirement: Company-Wide Product Frame
 

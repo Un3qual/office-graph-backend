@@ -1,0 +1,87 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+cd "$repo_root"
+
+worktree_checksum=$(printf '%s' "$repo_root" | cksum | awk '{print $1}')
+worktree_suffix=$((worktree_checksum % 100000))
+
+COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-"office_graph_${worktree_suffix}"}
+MIX_TEST_PARTITION=${MIX_TEST_PARTITION:-"_w${worktree_suffix}"}
+skip_compose=${OFFICE_GRAPH_SKIP_COMPOSE:-0}
+requested_postgres_port=${OFFICE_GRAPH_POSTGRES_PORT:-}
+
+if [ "$skip_compose" = "1" ]; then
+  OFFICE_GRAPH_POSTGRES_PORT=${requested_postgres_port:-55432}
+  postgres_port_display=$OFFICE_GRAPH_POSTGRES_PORT
+elif [ -n "$requested_postgres_port" ] && [ "$requested_postgres_port" != "0" ]; then
+  OFFICE_GRAPH_POSTGRES_PORT=$requested_postgres_port
+  postgres_port_display=$OFFICE_GRAPH_POSTGRES_PORT
+else
+  OFFICE_GRAPH_POSTGRES_PORT=0
+  postgres_port_display=auto
+fi
+
+export COMPOSE_PROJECT_NAME MIX_TEST_PARTITION OFFICE_GRAPH_POSTGRES_PORT
+
+if [ "${1:-}" = "--print-environment" ]; then
+  printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
+  printf 'OFFICE_GRAPH_POSTGRES_PORT=%s\n' "$postgres_port_display"
+  printf 'MIX_TEST_PARTITION=%s\n' "$MIX_TEST_PARTITION"
+  exit 0
+fi
+
+if [ "$#" -ne 0 ]; then
+  echo "usage: ./bin/verify [--print-environment]" >&2
+  exit 64
+fi
+
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    echo "Docker Compose CLI not found. Enter the project Nix shell or set OFFICE_GRAPH_SKIP_COMPOSE=1 when Postgres is already running." >&2
+    exit 1
+  fi
+}
+
+if [ "$skip_compose" != "1" ]; then
+  compose up -d postgres
+
+  if [ "$postgres_port_display" = "auto" ]; then
+    OFFICE_GRAPH_POSTGRES_PORT=$(compose port postgres 5432 | awk -F: 'NF { print $NF; exit }')
+
+    case "$OFFICE_GRAPH_POSTGRES_PORT" in
+      ''|*[!0-9]*)
+        echo "Docker Compose did not report a valid allocated Postgres host port." >&2
+        compose port postgres 5432 >&2
+        exit 1
+        ;;
+    esac
+
+    export OFFICE_GRAPH_POSTGRES_PORT
+  fi
+
+  ready=0
+  for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if compose exec -T postgres pg_isready -U office_graph -d office_graph_dev >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 5
+  done
+
+  if [ "$ready" -ne 1 ]; then
+    echo "Postgres did not become ready for Compose project $COMPOSE_PROJECT_NAME on port $OFFICE_GRAPH_POSTGRES_PORT." >&2
+    compose ps postgres >&2
+    exit 1
+  fi
+fi
+
+mix local.hex --force --if-missing
+mix local.rebar --force --if-missing
+mix deps.get --check-locked
+mix verify

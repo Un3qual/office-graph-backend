@@ -26,14 +26,14 @@ export function VerificationPanel({ state, verification }: Props) {
                 "Verification decisions",
                 verification.verificationResults
                   .map((result) => verificationResultText(result))
-                  .join(", ") || "None"
+                  .join(", ") || "None",
               ],
               [
                 "Missing evidence",
                 verification.missingEvidence
                   .map((evidence) => `${evidence.verificationCheckId}: ${evidence.reason}`)
-                  .join(", ") || "None"
-              ]
+                  .join(", ") || "None",
+              ],
             ]}
           />
         </>
@@ -42,15 +42,13 @@ export function VerificationPanel({ state, verification }: Props) {
   );
 }
 
-function verificationResultText(
-  result: Verification["verificationResults"][number]
-) {
+function verificationResultText(result: Verification["verificationResults"][number]) {
   return [
     formatLabel(result.result),
     result.policyBasis ? formatLabel(result.policyBasis) : null,
     result.operationId ? `Operation ${result.operationId}` : null,
     result.actorPrincipalId ? `Actor ${result.actorPrincipalId}` : null,
-    result.targetGraphItemId ? `Target ${result.targetGraphItemId}` : null
+    result.targetGraphItemId ? `Target ${result.targetGraphItemId}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

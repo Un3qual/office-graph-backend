@@ -52,7 +52,7 @@ export const PacketsRoutePacketFragment = graphql`
 `;
 
 export const PacketsWorkspaceDetailQuery = graphql`
-  query PacketsWorkspaceDetailQuery($id: ID!) {
+  query PacketsWorkspaceDetailQuery($id: ID!, $versionFirst: Int!, $versionAfter: String) {
     operatorPacketWorkspace(id: $id) {
       sourceWatermark
       ready
@@ -81,20 +81,22 @@ export const PacketsWorkspaceDetailQuery = graphql`
         operationId
         insertedAt
       }
-      versions {
-        id
-        versionNumber
-        lifecycleState
-        title
-        objective
-        contextSummary
-        requirements
-        successCriteria
-        autonomyPosture
-        sourceGraphItemIds
-        verificationCheckIds
-        operationId
-        insertedAt
+      versionHistory(first: $versionFirst, after: $versionAfter) {
+        edges {
+          cursor
+          node {
+            id
+            versionNumber
+            lifecycleState
+            title
+          }
+        }
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
       }
       commandAffordances {
         identity

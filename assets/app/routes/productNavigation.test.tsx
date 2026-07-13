@@ -12,7 +12,7 @@ describe("product navigation configuration", () => {
       { label: "Packets", to: "/packets" },
       { label: "All Runs" },
       { label: "Entities" },
-      { label: "Reports" }
+      { label: "Reports" },
     ]);
   });
 
@@ -20,7 +20,7 @@ describe("product navigation configuration", () => {
     render(
       <MemoryRouter initialEntries={["/operator"]}>
         <OperatorLayout detail={<p>Detail</p>} inbox={<p>Inbox</p>} inspector={<p>Inspector</p>} />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     expectProductNavigation("Operator");
@@ -30,7 +30,7 @@ describe("product navigation configuration", () => {
     render(
       <MemoryRouter initialEntries={["/packets"]}>
         <PacketsLayout detail={<p>Detail</p>} list={<p>List</p>} />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     expectProductNavigation("Packets");
@@ -38,18 +38,9 @@ describe("product navigation configuration", () => {
 });
 
 function expectProductNavigation(activeLabel: "Operator" | "Packets") {
-  expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute(
-    "href",
-    "/operator"
-  );
-  expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute(
-    "href",
-    "/packets"
-  );
-  expect(screen.getByRole("link", { name: activeLabel })).toHaveAttribute(
-    "aria-current",
-    "page"
-  );
+  expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute("href", "/operator");
+  expect(screen.getByRole("link", { name: "Packets" })).toHaveAttribute("href", "/packets");
+  expect(screen.getByRole("link", { name: activeLabel })).toHaveAttribute("aria-current", "page");
 
   for (const label of ["All Runs", "Entities", "Reports"]) {
     expect(screen.getByRole("button", { name: label })).toBeDisabled();

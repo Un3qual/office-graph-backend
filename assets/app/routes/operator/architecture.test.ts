@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { analyzeTypeScript } from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
 const routeRoot = join(assetsRoot, "app/routes/operator");
@@ -9,40 +10,64 @@ describe("operator route architecture", () => {
   it("keeps operator workflow reads owned by the Relay route module", () => {
     const source = routeSource();
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
+    const routeFacts = analyzeTypeScript(source, "operator-route.tsx");
+    const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
 
     expect(existsSync(join(assetsRoot, "src/operator"))).toBe(false);
-    expect(source).not.toContain("@tanstack/react-query");
-    expect(source).not.toContain("operatorInbox");
-    expect(source).not.toContain("GraphQLFetcher");
-    expect(source).not.toContain("workflowMappers");
-    expect(source).toContain("OperatorWorkflowRouteQuery");
-    expect(source).toContain("OperatorPacketReadinessQuery");
-    expect(source).toContain("OperatorRunStateQuery");
-    expect(workflowSource).toContain("useLazyLoadQuery<OperatorWorkflowRouteOperation>");
-    expect(workflowSource).toContain("useLazyLoadQuery<OperatorPacketReadinessOperation>");
-    expect(workflowSource).toContain("useLazyLoadQuery<OperatorRunStateOperation>");
-    expect(source).not.toContain("fetchQuery");
-    expect(source).not.toContain("useRelayEnvironment");
-    expect(source).not.toContain("QueryState");
-    expect(source).not.toContain("idleQueryState");
-    expect(source).not.toContain("loadingQueryState");
-    expect(source).not.toContain("startLoading");
-    expect(source).not.toContain("successQueryState");
-    expect(source).not.toContain("errorQueryState");
-    expect(source).not.toContain("subscription.unsubscribe()");
-    expect(source).not.toContain("useEffect");
+    expect(routeFacts.moduleSpecifiers).not.toContain("@tanstack/react-query");
+    expect(routeFacts.moduleSpecifiers).not.toContain("<non-static dynamic import>");
+    expect(routeFacts.graphqlParseErrors).toEqual([]);
+    expect(routeFacts.graphqlFields).not.toContain("operatorInbox");
+    expect([...routeFacts.identifiers]).toEqual(
+      expect.not.arrayContaining([
+        "GraphQLFetcher",
+        "workflowMappers",
+        "fetchQuery",
+        "useRelayEnvironment",
+        "QueryState",
+        "idleQueryState",
+        "loadingQueryState",
+        "startLoading",
+        "successQueryState",
+        "errorQueryState",
+        "unsubscribe",
+        "useEffect",
+      ]),
+    );
+    expect([...routeFacts.graphqlOperations]).toEqual(
+      expect.arrayContaining([
+        "OperatorWorkflowRouteQuery",
+        "OperatorPacketReadinessQuery",
+        "OperatorRunStateQuery",
+      ]),
+    );
+    expect(workflowFacts.typedCalls.get("useLazyLoadQuery")).toEqual(
+      new Set([
+        "OperatorWorkflowRouteOperation",
+        "OperatorPacketReadinessOperation",
+        "OperatorRunStateOperation",
+      ]),
+    );
   });
 
   it("keeps generated Relay data types explicit at the route data boundary", () => {
     const typesSource = readFileSync(join(routeRoot, "types.ts"), "utf8");
     const workflowSource = readFileSync(join(routeRoot, "workflow.ts"), "utf8");
+    const typesFacts = analyzeTypeScript(typesSource, "types.ts");
+    const workflowFacts = analyzeTypeScript(workflowSource, "workflow.ts");
 
-    expect(typesSource).not.toContain("__generated__");
-    expect(typesSource).not.toContain("Fragment$data");
-    expect(typesSource).not.toContain('" $fragmentType"');
-    expect(workflowSource).toContain("OperatorWorkflowItemFragment$data");
-    expect(workflowSource).toContain("OperatorPacketReadinessFragment$data");
-    expect(workflowSource).toContain("OperatorRunStateFragment$data");
+    expect([...typesFacts.moduleSpecifiers].some((value) => value.includes("__generated__"))).toBe(
+      false,
+    );
+    expect(typesFacts.identifiers).not.toContain("Fragment$data");
+    expect(typesFacts.stringLiterals).not.toContain(" $fragmentType");
+    expect([...workflowFacts.identifiers]).toEqual(
+      expect.arrayContaining([
+        "OperatorWorkflowItemFragment$data",
+        "OperatorPacketReadinessFragment$data",
+        "OperatorRunStateFragment$data",
+      ]),
+    );
   });
 
   it("keeps command documents and lifecycle wrappers owned by the operator route", () => {
@@ -54,12 +79,33 @@ describe("operator route architecture", () => {
 
     const commandsSource = readFileSync(commandsPath, "utf8");
     const workflowSource = readFileSync(workflowPath, "utf8");
+    const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
+    const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
 
-    expect(commandsSource).toContain("OperatorSubmitManualIntakeMutation");
-    expect(commandsSource).toContain("OperatorWaiveVerificationCheckMutation");
-    expect(workflowSource).toContain("useCommandMutation");
-    expect(workflowSource).not.toContain("fetchGraphQL");
-    expect(workflowSource).not.toContain("/api/");
+    expect(commandsFacts.graphqlParseErrors).toEqual([]);
+    expect(commandsFacts.graphqlOperations).toContain("OperatorSubmitManualIntakeMutation");
+    expect(commandsFacts.graphqlOperations).toContain("OperatorWaiveVerificationCheckMutation");
+    expect(workflowFacts.identifiers).toContain("useCommandMutation");
+    expect(workflowFacts.identifiers).not.toContain("fetchGraphQL");
+    expect([...workflowFacts.stringLiterals].some((value) => value.startsWith("/api/"))).toBe(
+      false,
+    );
+  });
+
+  it("does not retain the unused operator-only run-start command path", () => {
+    const commandsSource = readFileSync(join(routeRoot, "commands.ts"), "utf8");
+    const workflowSource = readFileSync(join(routeRoot, "commandWorkflow.ts"), "utf8");
+    const commandsFacts = analyzeTypeScript(commandsSource, "commands.ts");
+    const workflowFacts = analyzeTypeScript(workflowSource, "commandWorkflow.ts");
+
+    expect(commandsFacts.graphqlParseErrors).toEqual([]);
+    expect(commandsFacts.graphqlOperations).not.toContain("OperatorStartWorkRunMutation");
+    expect(workflowFacts.identifiers).not.toContain("useStartWorkRunCommand");
+    expect(
+      existsSync(
+        join(assetsRoot, "app/relay/__generated__/OperatorStartWorkRunMutation.graphql.ts"),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -1,19 +1,24 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Panel, PanelRows } from "../../../../src/ui/Panel";
-import {
-  commandAffordanceListText,
-  formatLabel,
-  statusTone
-} from "../presentation";
+import { Button } from "../../../../src/ui/Button";
+import { commandAffordanceListText, formatLabel, statusTone } from "../presentation";
 import type { OperatorRunState } from "../workflow";
 
 type Props = {
   runId: string | null;
   runState: OperatorRunState | null;
   state: "empty" | "error" | "loaded" | "loading";
+  onNextActivityPage?: () => void;
+  onPreviousActivityPage?: () => void;
 };
 
-export function RunPanel({ runId, runState, state }: Props) {
+export function RunPanel({
+  onNextActivityPage,
+  onPreviousActivityPage,
+  runId,
+  runState,
+  state,
+}: Props) {
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
@@ -29,26 +34,27 @@ export function RunPanel({ runId, runState, state }: Props) {
               ["Objective", runState.packetVersion.objective ?? "None"],
               [
                 "Commands",
-                commandAffordanceListText(
-                  runState.commandAffordances,
-                  runState.allowedNextActions
-                )
+                commandAffordanceListText(runState.commandAffordances, runState.allowedNextActions),
               ],
               ["Execution", formatLabel(runState.run.executionState)],
               ["Verification", formatLabel(runState.run.verificationState)],
+              [
+                "Run activity",
+                `${runState.childSummary.requiredChecks} checks · ${runState.childSummary.observations} observations · ${runState.childSummary.evidenceCandidates} evidence suggestions${runState.childSummary.hasMore ? " · more available" : ""}`,
+              ],
               [
                 "Required checks",
                 runState.requiredChecks
                   .map(
                     (check) =>
-                      `${check.verificationCheckId ?? "unknown"}: ${formatLabel(check.state)}`
+                      `${check.verificationCheckId ?? "unknown"}: ${formatLabel(check.state)}`,
                   )
-                  .join(", ") || "None"
+                  .join(", ") || "None",
               ],
               [
                 "Suggested evidence",
                 runState.evidenceCandidates.map((candidate) => candidate.claim).join(", ") ||
-                  "None"
+                  "None",
               ],
               [
                 "Observations",
@@ -56,13 +62,32 @@ export function RunPanel({ runId, runState, state }: Props) {
                   .map(
                     (observation) =>
                       `${formatLabel(observation.normalizedStatus)} · ${formatLabel(
-                        observation.freshnessState
-                      )} · ${formatLabel(observation.trustBasis)} · ${observation.sourceIdentity}`
+                        observation.freshnessState,
+                      )} · ${formatLabel(observation.trustBasis)} · ${observation.sourceIdentity}`,
                   )
-                  .join(", ") || "None"
-              ]
+                  .join(", ") || "None",
+              ],
             ]}
           />
+          <ul aria-label="Run activity detail">
+            {(runState.activity?.edges ?? []).flatMap((edge) =>
+              edge?.node
+                ? [
+                    <li key={`${edge.node.kind}:${edge.node.stableId}`}>
+                      {edge.node.title} · {formatLabel(edge.node.status)}
+                    </li>,
+                  ]
+                : [],
+            )}
+          </ul>
+          <div aria-label="Run activity pagination">
+            {runState.activity?.pageInfo.hasPreviousPage && onPreviousActivityPage ? (
+              <Button onPress={onPreviousActivityPage}>Previous run activity page</Button>
+            ) : null}
+            {runState.activity?.pageInfo.hasNextPage && onNextActivityPage ? (
+              <Button onPress={onNextActivityPage}>Next run activity page</Button>
+            ) : null}
+          </div>
         </>
       ) : null}
     </Panel>

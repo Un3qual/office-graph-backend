@@ -1,7 +1,7 @@
 # work-packet-projections Specification
 
 ## Purpose
-TBD - created by archiving change design-work-packets-and-readiness. Update Purpose after archive.
+Define authorization-filtered work-packet projections for operators and executors.
 ## Requirements
 ### Requirement: Work Packet Projections Are Authorization Filtered
 

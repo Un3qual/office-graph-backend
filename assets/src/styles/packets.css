@@ -1,0 +1,290 @@
+.packet-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.packet-list-pane,
+.packet-detail-pane,
+.packet-detail-column {
+  min-width: 0;
+  background: var(--og-color-surface);
+}
+
+.packet-detail-column {
+  overflow: auto;
+}
+
+.packet-list-pane {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-right: 1px solid var(--og-color-border);
+}
+
+.packet-pane-header,
+.packet-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--og-color-border);
+  padding: 18px 20px;
+}
+
+.packet-pane-header > span {
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-list-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.packet-list {
+  display: grid;
+}
+
+.packet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--og-color-border);
+  background: var(--og-color-surface);
+  padding: 13px 16px;
+  color: var(--og-color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.packet-row[aria-current="true"] {
+  border-left: 3px solid var(--og-color-teal);
+  background: var(--og-color-surface-subtle);
+  padding-left: 13px;
+}
+
+.packet-row-title {
+  overflow: hidden;
+  font-weight: var(--og-typography-heading-weight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.packet-row-meta {
+  grid-column: 1 / -1;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-loading {
+  padding: 20px;
+  color: var(--og-color-text-muted);
+}
+
+.packet-pagination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--og-color-border);
+  padding: 12px 16px;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-page-loading {
+  position: absolute;
+  right: 16px;
+  bottom: 64px;
+  border: 1px solid var(--og-color-border);
+  border-radius: var(--og-radius-control);
+  background: var(--og-color-surface);
+  padding: 6px 9px;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-detail-pane {
+  overflow: visible;
+}
+
+.packet-detail-list {
+  display: grid;
+  margin: 0;
+  padding: 8px 20px 24px;
+}
+
+.packet-detail-list div {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.35fr) minmax(0, 1fr);
+  gap: 20px;
+  border-bottom: 1px solid var(--og-color-border);
+  padding: 13px 0;
+}
+
+.packet-detail-list dt {
+  color: var(--og-color-text-muted);
+}
+
+.packet-detail-list dd {
+  margin: 0;
+}
+
+.packet-compatibility-id {
+  overflow-wrap: anywhere;
+  color: var(--og-color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-command-card,
+.packet-contract-summary,
+.packet-version-history {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--og-color-border);
+  padding: 18px 20px;
+}
+
+.packet-command-card:first-child {
+  border-top: 0;
+  border-bottom: 1px solid var(--og-color-border);
+  background: var(--og-color-surface-subtle);
+}
+
+.packet-command-card header,
+.packet-command-card h2,
+.packet-command-card h3,
+.packet-contract-summary h3,
+.packet-version-history h3 {
+  margin: 0;
+}
+
+.packet-command-card form,
+.packet-command-card fieldset,
+.packet-contract-fields,
+.packet-version-workspace {
+  display: grid;
+  gap: 12px;
+}
+
+.packet-command-card fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.packet-contract-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.packet-contract-fields label,
+.packet-command-card form > fieldset > label {
+  display: grid;
+  gap: 5px;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-contract-fields input,
+.packet-contract-fields textarea,
+.packet-contract-fields select,
+.packet-command-card form > fieldset > label input,
+.packet-command-card form > fieldset > label textarea {
+  width: 100%;
+  border: 1px solid var(--og-color-border-strong);
+  border-radius: var(--og-radius-control);
+  background: var(--og-color-surface);
+  padding: 8px 10px;
+  color: var(--og-color-text);
+  font: inherit;
+}
+
+.packet-contract-fields textarea,
+.packet-command-card form > fieldset > label textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.packet-contract-detail-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.packet-contract-detail-list div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.3fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.packet-contract-detail-list dt {
+  color: var(--og-color-text-muted);
+}
+
+.packet-contract-detail-list dd {
+  margin: 0;
+}
+
+.packet-version-history ol,
+.packet-blocker-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.packet-version-history li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  border: 1px solid var(--og-color-border);
+  border-radius: var(--og-radius-control);
+  padding: 10px 12px;
+}
+
+.packet-version-history li[data-current="true"] {
+  border-color: var(--og-color-teal);
+  background: var(--og-color-surface-subtle);
+}
+
+.packet-command-success,
+.packet-run-result,
+.packet-detail-loading,
+.packet-detail-error {
+  margin: 0;
+  color: var(--og-color-text-muted);
+  font-size: var(--og-typography-small-size);
+}
+
+.packet-detail-loading,
+.packet-detail-error {
+  padding: 0 20px 18px;
+}
+
+.packet-run-result {
+  display: grid;
+  gap: 6px;
+  border-left: 3px solid var(--og-color-teal);
+  padding-left: 10px;
+}
+
+@media (max-width: 980px) {
+  .packet-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .packet-list-pane {
+    max-height: 60vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--og-color-border);
+  }
+
+  .packet-contract-fields {
+    grid-template-columns: 1fr;
+  }
+}

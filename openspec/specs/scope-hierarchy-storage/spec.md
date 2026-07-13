@@ -1,7 +1,7 @@
 # scope-hierarchy-storage Specification
 
 ## Purpose
-TBD - created by archiving change design-identity-and-authorization-schema. Update Purpose after archive.
+Define relational storage and invariants for organization, workspace, and work-container scopes.
 ## Requirements
 ### Requirement: Scope Hierarchy Storage
 Office Graph SHALL store authorization scope hierarchy with direct parentage

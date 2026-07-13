@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<306dc7059f302445f37c5d482a7eb119>>
+ * @generated SignedSource<<531272aeb1de0c68901cdecfc5ed8c8c>>
  * @lightSyntaxTransform
  */
 
@@ -10,6 +10,8 @@
 import { ConcreteRequest } from 'relay-runtime';
 export type PacketsWorkspaceDetailQuery$variables = {
   id: string;
+  versionAfter?: string | null | undefined;
+  versionFirst: number;
 };
 export type PacketsWorkspaceDetailQuery$data = {
   readonly operatorPacketWorkspace: {
@@ -44,7 +46,7 @@ export type PacketsWorkspaceDetailQuery$data = {
       readonly autonomyPosture: string;
       readonly contextSummary: string;
       readonly id: string;
-      readonly insertedAt: any;
+      readonly insertedAt: string;
       readonly lifecycleState: string;
       readonly objective: string;
       readonly operationId: string;
@@ -65,21 +67,23 @@ export type PacketsWorkspaceDetailQuery$data = {
     readonly ready: boolean;
     readonly sourceWatermark: string;
     readonly status: string;
-    readonly versions: ReadonlyArray<{
-      readonly autonomyPosture: string;
-      readonly contextSummary: string;
-      readonly id: string;
-      readonly insertedAt: any;
-      readonly lifecycleState: string;
-      readonly objective: string;
-      readonly operationId: string;
-      readonly requirements: string;
-      readonly sourceGraphItemIds: ReadonlyArray<string>;
-      readonly successCriteria: string | null | undefined;
-      readonly title: string;
-      readonly verificationCheckIds: ReadonlyArray<string>;
-      readonly versionNumber: number;
-    }>;
+    readonly versionHistory: {
+      readonly edges: ReadonlyArray<{
+        readonly cursor: string | null | undefined;
+        readonly node: {
+          readonly id: string;
+          readonly lifecycleState: string;
+          readonly title: string;
+          readonly versionNumber: number;
+        } | null | undefined;
+      } | null | undefined> | null | undefined;
+      readonly pageInfo: {
+        readonly endCursor: string | null | undefined;
+        readonly hasNextPage: boolean;
+        readonly hasPreviousPage: boolean;
+        readonly startCursor: string | null | undefined;
+      };
+    } | null | undefined;
   };
 };
 export type PacketsWorkspaceDetailQuery = {
@@ -88,124 +92,71 @@ export type PacketsWorkspaceDetailQuery = {
 };
 
 const node: ConcreteRequest = (function(){
-var v0 = [
-  {
-    "defaultValue": null,
-    "kind": "LocalArgument",
-    "name": "id"
-  }
-],
+var v0 = {
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "id"
+},
 v1 = {
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "versionAfter"
+},
+v2 = {
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "versionFirst"
+},
+v3 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "blockerReasons",
   "storageKey": null
 },
-v2 = {
+v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "id",
   "storageKey": null
 },
-v3 = {
+v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "title",
   "storageKey": null
 },
-v4 = {
+v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "state",
   "storageKey": null
 },
-v5 = {
+v7 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "operationId",
   "storageKey": null
 },
-v6 = [
-  (v2/*:: as any*/),
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "versionNumber",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "lifecycleState",
-    "storageKey": null
-  },
-  (v3/*:: as any*/),
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "objective",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "contextSummary",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "requirements",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "successCriteria",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "autonomyPosture",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "sourceGraphItemIds",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "verificationCheckIds",
-    "storageKey": null
-  },
-  (v5/*:: as any*/),
-  {
-    "alias": null,
-    "args": null,
-    "kind": "ScalarField",
-    "name": "insertedAt",
-    "storageKey": null
-  }
-],
-v7 = [
+v8 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "versionNumber",
+  "storageKey": null
+},
+v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "lifecycleState",
+  "storageKey": null
+},
+v10 = [
   {
     "alias": null,
     "args": null,
@@ -213,9 +164,9 @@ v7 = [
     "name": "type",
     "storageKey": null
   },
-  (v2/*:: as any*/)
+  (v4/*:: as any*/)
 ],
-v8 = [
+v11 = [
   {
     "alias": null,
     "args": [
@@ -251,7 +202,7 @@ v8 = [
         "name": "status",
         "storageKey": null
       },
-      (v1/*:: as any*/),
+      (v3/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -267,9 +218,9 @@ v8 = [
         "name": "packet",
         "plural": false,
         "selections": [
-          (v2/*:: as any*/),
-          (v3/*:: as any*/),
           (v4/*:: as any*/),
+          (v5/*:: as any*/),
+          (v6/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -277,7 +228,7 @@ v8 = [
             "name": "currentVersionId",
             "storageKey": null
           },
-          (v5/*:: as any*/)
+          (v7/*:: as any*/)
         ],
         "storageKey": null
       },
@@ -288,17 +239,163 @@ v8 = [
         "kind": "LinkedField",
         "name": "currentVersion",
         "plural": false,
-        "selections": (v6/*:: as any*/),
+        "selections": [
+          (v4/*:: as any*/),
+          (v8/*:: as any*/),
+          (v9/*:: as any*/),
+          (v5/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "objective",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "contextSummary",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "requirements",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "successCriteria",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "autonomyPosture",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "sourceGraphItemIds",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "verificationCheckIds",
+            "storageKey": null
+          },
+          (v7/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "insertedAt",
+            "storageKey": null
+          }
+        ],
         "storageKey": null
       },
       {
         "alias": null,
-        "args": null,
-        "concreteType": "OperatorPacketWorkspaceVersion",
+        "args": [
+          {
+            "kind": "Variable",
+            "name": "after",
+            "variableName": "versionAfter"
+          },
+          {
+            "kind": "Variable",
+            "name": "first",
+            "variableName": "versionFirst"
+          }
+        ],
+        "concreteType": "OperatorPacketWorkspaceVersionConnection",
         "kind": "LinkedField",
-        "name": "versions",
-        "plural": true,
-        "selections": (v6/*:: as any*/),
+        "name": "versionHistory",
+        "plural": false,
+        "selections": [
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorPacketWorkspaceVersionEdge",
+            "kind": "LinkedField",
+            "name": "edges",
+            "plural": true,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "cursor",
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "OperatorPacketWorkspaceVersion",
+                "kind": "LinkedField",
+                "name": "node",
+                "plural": false,
+                "selections": [
+                  (v4/*:: as any*/),
+                  (v8/*:: as any*/),
+                  (v9/*:: as any*/),
+                  (v5/*:: as any*/)
+                ],
+                "storageKey": null
+              }
+            ],
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "PageInfo",
+            "kind": "LinkedField",
+            "name": "pageInfo",
+            "plural": false,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "hasNextPage",
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "hasPreviousPage",
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "startCursor",
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "endCursor",
+                "storageKey": null
+              }
+            ],
+            "storageKey": null
+          }
+        ],
         "storageKey": null
       },
       {
@@ -316,7 +413,7 @@ v8 = [
             "name": "identity",
             "storageKey": null
           },
-          (v4/*:: as any*/),
+          (v6/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -324,7 +421,7 @@ v8 = [
             "name": "reasonCodes",
             "storageKey": null
           },
-          (v1/*:: as any*/),
+          (v3/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -378,7 +475,7 @@ v8 = [
             "kind": "LinkedField",
             "name": "targetIds",
             "plural": true,
-            "selections": (v7/*:: as any*/),
+            "selections": (v10/*:: as any*/),
             "storageKey": null
           },
           {
@@ -388,7 +485,7 @@ v8 = [
             "kind": "LinkedField",
             "name": "traceLinks",
             "plural": true,
-            "selections": (v7/*:: as any*/),
+            "selections": (v10/*:: as any*/),
             "storageKey": null
           },
           {
@@ -398,7 +495,7 @@ v8 = [
             "kind": "LinkedField",
             "name": "decisionLinks",
             "plural": true,
-            "selections": (v7/*:: as any*/),
+            "selections": (v10/*:: as any*/),
             "storageKey": null
           }
         ],
@@ -410,32 +507,40 @@ v8 = [
 ];
 return {
   "fragment": {
-    "argumentDefinitions": (v0/*:: as any*/),
+    "argumentDefinitions": [
+      (v0/*:: as any*/),
+      (v1/*:: as any*/),
+      (v2/*:: as any*/)
+    ],
     "kind": "Fragment",
     "metadata": null,
     "name": "PacketsWorkspaceDetailQuery",
-    "selections": (v8/*:: as any*/),
+    "selections": (v11/*:: as any*/),
     "type": "RootQueryType",
     "abstractKey": null
   },
   "kind": "Request",
   "operation": {
-    "argumentDefinitions": (v0/*:: as any*/),
+    "argumentDefinitions": [
+      (v0/*:: as any*/),
+      (v2/*:: as any*/),
+      (v1/*:: as any*/)
+    ],
     "kind": "Operation",
     "name": "PacketsWorkspaceDetailQuery",
-    "selections": (v8/*:: as any*/)
+    "selections": (v11/*:: as any*/)
   },
   "params": {
-    "cacheID": "ff9fbe7c77d1c71ddd8aa7ac2cc7494f",
+    "cacheID": "eb4bebfe30be21f8baffea39ab539baa",
     "id": null,
     "metadata": {},
     "name": "PacketsWorkspaceDetailQuery",
     "operationKind": "query",
-    "text": "query PacketsWorkspaceDetailQuery(\n  $id: ID!\n) {\n  operatorPacketWorkspace(id: $id) {\n    sourceWatermark\n    ready\n    status\n    blockerReasons\n    allowedNextActions\n    packet {\n      id\n      title\n      state\n      currentVersionId\n      operationId\n    }\n    currentVersion {\n      id\n      versionNumber\n      lifecycleState\n      title\n      objective\n      contextSummary\n      requirements\n      successCriteria\n      autonomyPosture\n      sourceGraphItemIds\n      verificationCheckIds\n      operationId\n      insertedAt\n    }\n    versions {\n      id\n      versionNumber\n      lifecycleState\n      title\n      objective\n      contextSummary\n      requirements\n      successCriteria\n      autonomyPosture\n      sourceGraphItemIds\n      verificationCheckIds\n      operationId\n      insertedAt\n    }\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n      traceLinks {\n        type\n        id\n      }\n      decisionLinks {\n        type\n        id\n      }\n    }\n  }\n}\n"
+    "text": "query PacketsWorkspaceDetailQuery(\n  $id: ID!\n  $versionFirst: Int!\n  $versionAfter: String\n) {\n  operatorPacketWorkspace(id: $id) {\n    sourceWatermark\n    ready\n    status\n    blockerReasons\n    allowedNextActions\n    packet {\n      id\n      title\n      state\n      currentVersionId\n      operationId\n    }\n    currentVersion {\n      id\n      versionNumber\n      lifecycleState\n      title\n      objective\n      contextSummary\n      requirements\n      successCriteria\n      autonomyPosture\n      sourceGraphItemIds\n      verificationCheckIds\n      operationId\n      insertedAt\n    }\n    versionHistory(first: $versionFirst, after: $versionAfter) {\n      edges {\n        cursor\n        node {\n          id\n          versionNumber\n          lifecycleState\n          title\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n      traceLinks {\n        type\n        id\n      }\n      decisionLinks {\n        type\n        id\n      }\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "24d4484dbd67fa4b72867d8d0468deb7";
+(node as any).hash = "aecfa391502023af6dc9edeafa31357d";
 
 export default node;
