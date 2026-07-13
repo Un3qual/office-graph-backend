@@ -33,6 +33,17 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   @default_operator_inbox_limit 50
   @max_operator_inbox_limit 100
   @relationship_summary_limit 20
+  @summary_max_length 120
+  @unsafe_summary_patterns [
+    ~r/\b(?:api[ _-]?key|secret|token|password|passwd|credential|private[ _-]?key|authorization|cookie|session)[a-z0-9_-]*\s*[:=]\s*\S+/iu,
+    ~r/\b(?:api[ _-]?key|secret|token|password|passwd|credential|private[ _-]?key)\s+(?:is|was)\s+\S+/iu,
+    ~r/\b(?:bearer|basic)\s+\S+/iu,
+    ~r/-----BEGIN [^-]+ PRIVATE KEY-----/iu,
+    ~r/https?:\/\/\S+/iu,
+    ~r/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/iu,
+    ~r/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu,
+    ~r/\b[a-z0-9_+\/=\-]{32,}\b/iu
+  ]
 
   def manual_intake_affordance(session_context) do
     affordance =
@@ -513,7 +524,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
         applied_projection.audit_trace
       )
 
-    title = proposed_change_title(event.id)
+    title = proposed_change_title(proposed_changes)
     graph_relationships = applied_projection.graph_relationships
 
     %{
@@ -522,8 +533,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       normalized_event_id: event.id,
       duplicate_of_id: event.duplicate_of_id,
       title: title,
-      source_summary: source_summary(event.id, proposed_changes),
-      proposed_action_previews: proposed_action_previews(event.id, proposed_changes),
+      source_summary: source_summary(title, proposed_changes),
+      proposed_action_previews: proposed_action_previews(title, proposed_changes),
       status: status,
       reason_codes: reason_codes,
       source: %{
@@ -551,7 +562,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
-  defp proposed_change_title(event_id), do: "Manual intake proposal #{event_id}"
+  defp proposed_change_title(proposed_changes) do
+    Enum.find_value(proposed_changes, fn proposed_change ->
+      safe_payload_summary(proposed_change.payload)
+    end) || "Manual intake proposal"
+  end
 
   defp read_relationship_counts_by_event_id(_session_context, []), do: {:ok, %{}}
 
@@ -574,20 +589,53 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     end
   end
 
-  defp source_summary(event_id, proposed_changes) do
+  defp source_summary(title, proposed_changes) do
     count = length(proposed_changes)
 
-    "#{count} proposed #{if(count == 1, do: "change", else: "changes")} · ref #{event_id}"
+    "#{title} · #{count} proposed #{if(count == 1, do: "change", else: "changes")}"
   end
 
-  defp proposed_action_previews(event_id, proposed_changes) do
+  defp proposed_action_previews(title, proposed_changes) do
     Enum.map(proposed_changes, fn proposed_change ->
       %{
         action: proposed_change.change_type,
-        title: "#{proposed_action_label(proposed_change.change_type)} · ref #{event_id}",
+        title: "#{proposed_action_label(proposed_change.change_type)}: #{title}",
         status: proposed_change.status
       }
     end)
+  end
+
+  defp safe_payload_summary(payload) when is_map(payload) do
+    title = Map.get(payload, "title") || Map.get(payload, :title)
+    body = Map.get(payload, "body") || Map.get(payload, :body)
+
+    [title | summary_segments(body)]
+    |> Enum.find_value(&safe_summary_candidate/1)
+  end
+
+  defp safe_payload_summary(_payload), do: nil
+
+  defp summary_segments(body) when is_binary(body) do
+    String.split(body, ~r/[.!?\n]+/u, trim: true)
+  end
+
+  defp summary_segments(_body), do: []
+
+  defp safe_summary_candidate(candidate) when is_binary(candidate) do
+    candidate = candidate |> String.replace(~r/\s+/u, " ") |> String.trim()
+
+    if safe_summary_candidate?(candidate) do
+      String.slice(candidate, 0, @summary_max_length)
+    end
+  end
+
+  defp safe_summary_candidate(_candidate), do: nil
+
+  defp safe_summary_candidate?(candidate) do
+    candidate != "" and
+      String.length(candidate) <= @summary_max_length and
+      String.match?(candidate, ~r/^[\p{L}\p{N}\s.,:;!?'"()&+\/-]+$/u) and
+      not Enum.any?(@unsafe_summary_patterns, &Regex.match?(&1, candidate))
   end
 
   defp proposed_action_label("create_signal"), do: "Proposed signal"

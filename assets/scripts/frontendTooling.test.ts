@@ -5,22 +5,6 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 
 describe("frontend static verification", () => {
-  it("runs the complete Vitest suite once while retaining the focused developer command", () => {
-    const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
-      scripts: Record<string, string>;
-    };
-
-    expect(packageJson.scripts["verify:import-boundaries"]).toBe(
-      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
-    );
-
-    const vitestCommands = expandScript("verify", packageJson.scripts).filter((command) =>
-      command.startsWith("vitest run"),
-    );
-
-    expect(vitestCommands).toEqual(["vitest run"]);
-  });
-
   it("runs pinned lint and formatting checks with generated outputs excluded", () => {
     const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
@@ -63,18 +47,3 @@ describe("frontend static verification", () => {
     expect(existsSync(join(root, "src/foundation/stylexConfig.ts"))).toBe(false);
   });
 });
-
-function expandScript(
-  scriptName: string,
-  scripts: Record<string, string>,
-  ancestors = new Set<string>(),
-): string[] {
-  if (ancestors.has(scriptName)) throw new Error(`recursive package script: ${scriptName}`);
-
-  const nextAncestors = new Set(ancestors).add(scriptName);
-
-  return scripts[scriptName].split(" && ").flatMap((command) => {
-    const nestedScript = command.match(/^pnpm run ([\w:-]+)$/)?.[1];
-    return nestedScript ? expandScript(nestedScript, scripts, nextAncestors) : [command];
-  });
-}

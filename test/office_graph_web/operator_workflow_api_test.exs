@@ -373,24 +373,41 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         body: "PRIVATE_ARCHIVE=must-not-leak. Review delayed payroll import."
       )
 
+    {:ok, sensitive_only} =
+      submit_manual_intake(bootstrap.session, "safe-summary-sensitive-only",
+        source_identity: "manual:sensitive-only",
+        body: "API_TOKEN=opaque-value-must-not-leak"
+      )
+
     page = graphql(conn, @relay_inbox_query, %{first: 10}, "operatorWorkflowItems")
     rows = Enum.map(page["edges"], & &1["node"])
 
     first_row = Enum.find(rows, &(&1["normalizedEventId"] == first.normalized_event.id))
     second_row = Enum.find(rows, &(&1["normalizedEventId"] == second.normalized_event.id))
 
-    assert first_row["title"] == "Manual intake proposal #{first.normalized_event.id}"
-    assert second_row["title"] == "Manual intake proposal #{second.normalized_event.id}"
+    sensitive_only_row =
+      Enum.find(rows, &(&1["normalizedEventId"] == sensitive_only.normalized_event.id))
 
-    assert first_row["sourceSummary"] != second_row["sourceSummary"]
-    assert first_row["proposedActionPreviews"] != second_row["proposedActionPreviews"]
+    assert first_row["title"] == "Investigate failed invoice export"
+    assert second_row["title"] == "Review delayed payroll import"
+
+    assert first_row["sourceSummary"] ==
+             "Investigate failed invoice export · 4 proposed changes"
+
+    assert second_row["sourceSummary"] ==
+             "Review delayed payroll import · 4 proposed changes"
+
+    assert sensitive_only_row["title"] == "Manual intake proposal"
+
+    assert sensitive_only_row["sourceSummary"] ==
+             "Manual intake proposal · 4 proposed changes"
 
     assert Enum.all?(first_row["proposedActionPreviews"], fn preview ->
-             preview["title"] =~ first.normalized_event.id
+             preview["title"] =~ "Investigate failed invoice export"
            end)
 
     assert Enum.all?(second_row["proposedActionPreviews"], fn preview ->
-             preview["title"] =~ second.normalized_event.id
+             preview["title"] =~ "Review delayed payroll import"
            end)
 
     assert Enum.map(first_row["proposedActionPreviews"], & &1["action"]) == [
@@ -409,10 +426,13 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     refute encoded =~ "PRIVATE_ARCHIVE"
     refute encoded =~ "SECRET_SOURCE"
     refute encoded =~ "PRIVATE_SOURCE"
-    refute encoded =~ "Investigate failed invoice export"
-    refute encoded =~ "Review delayed payroll import"
+    refute encoded =~ "opaque-value-must-not-leak"
     refute encoded =~ first.raw_archive.id
     refute encoded =~ second.raw_archive.id
+    refute encoded =~ sensitive_only.raw_archive.id
+    refute encoded =~ first.normalized_event.id
+    refute encoded =~ second.normalized_event.id
+    refute encoded =~ sensitive_only.normalized_event.id
   end
 
   test "GraphQL operator workflow Relay cursors remain stable when new intake arrives between pages",
