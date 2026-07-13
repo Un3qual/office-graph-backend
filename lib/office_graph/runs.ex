@@ -781,22 +781,7 @@ defmodule OfficeGraph.Runs do
 
   defp reload_run(_session_context, _run), do: {:error, :missing_work_run}
 
-  defp read_run_required_checks(%Run{} = run) do
-    RunRequiredCheck
-    |> Ash.Query.filter(
-      run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
-    |> Ash.read(authorize?: false)
-  end
-
-  defp read_run_required_checks(run_id) do
-    RunRequiredCheck
-    |> Ash.Query.filter(run_id == ^run_id)
-    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
-    |> Ash.read(authorize?: false)
-  end
+  defp read_run_required_checks(run, limit \\ nil)
 
   defp read_run_required_checks(%Run{} = run, limit) do
     RunRequiredCheck
@@ -805,69 +790,42 @@ defmodule OfficeGraph.Runs do
         workspace_id == ^run.workspace_id
     )
     |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
-    |> Ash.Query.limit(limit)
+    |> read_run_children(limit)
+  end
+
+  defp read_run_required_checks(run_id, nil) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
 
-  defp read_observations(%Run{} = run) do
-    ExecutionObservation
+  defp read_observations(run, limit \\ nil),
+    do: read_work_run_children(ExecutionObservation, run, limit)
+
+  defp read_evidence_items(run, limit \\ nil),
+    do: read_work_run_children(EvidenceItem, run, limit)
+
+  defp read_verification_results(run, limit \\ nil),
+    do: read_work_run_children(VerificationResult, run, limit)
+
+  defp read_work_run_children(resource, %Run{} = run, limit) do
+    resource
     |> Ash.Query.filter(
       work_run_id == ^run.id and organization_id == ^run.organization_id and
         workspace_id == ^run.workspace_id
     )
-    |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read(authorize?: false)
+    |> Ash.Query.sort(run_child_sort(limit))
+    |> read_run_children(limit)
   end
 
-  defp read_observations(%Run{} = run, limit) do
-    ExecutionObservation
-    |> Ash.Query.filter(
-      work_run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
-    |> Ash.Query.limit(limit)
-    |> Ash.read(authorize?: false)
-  end
+  defp run_child_sort(nil), do: [inserted_at: :asc]
+  defp run_child_sort(_limit), do: [inserted_at: :asc, id: :asc]
 
-  defp read_evidence_items(%Run{} = run) do
-    EvidenceItem
-    |> Ash.Query.filter(
-      work_run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read(authorize?: false)
-  end
+  defp read_run_children(query, nil), do: Ash.read(query, authorize?: false)
 
-  defp read_evidence_items(%Run{} = run, limit) do
-    EvidenceItem
-    |> Ash.Query.filter(
-      work_run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
-    |> Ash.Query.limit(limit)
-    |> Ash.read(authorize?: false)
-  end
-
-  defp read_verification_results(%Run{} = run) do
-    VerificationResult
-    |> Ash.Query.filter(
-      work_run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read(authorize?: false)
-  end
-
-  defp read_verification_results(%Run{} = run, limit) do
-    VerificationResult
-    |> Ash.Query.filter(
-      work_run_id == ^run.id and organization_id == ^run.organization_id and
-        workspace_id == ^run.workspace_id
-    )
-    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+  defp read_run_children(query, limit) do
+    query
     |> Ash.Query.limit(limit)
     |> Ash.read(authorize?: false)
   end
