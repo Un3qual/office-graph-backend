@@ -4,6 +4,8 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
   alias OfficeGraph.{Foundation, Integrations, Operations, Repo}
   alias OfficeGraph.DurableDelivery.DomainEvent
 
+  require Ash.Query
+
   test "first acceptance creates one durable event and command replay creates none" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -25,7 +27,13 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
     assert {:ok, replay} = Integrations.submit_manual_intake(bootstrap.session, operation, attrs)
     assert replay.normalized_event.id == first.normalized_event.id
 
-    assert [event] = domain_events()
+    assert [event] =
+             domain_events(
+               bootstrap.organization.id,
+               first.normalized_event.id,
+               "manual_intake.accepted"
+             )
+
     assert event.event_key == "manual-intake:#{first.normalized_event.id}:accepted"
     assert event.event_kind == "manual_intake.accepted"
     assert event.subject_kind == "normalized_intake_event"
@@ -56,12 +64,23 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
 
     assert first.duplicate? == false
     assert duplicate.duplicate? == true
-    assert length(domain_events()) == 1
-    assert Repo.aggregate(Oban.Job, :count) == 1
+
+    assert [event] =
+             domain_events(
+               bootstrap.organization.id,
+               first.normalized_event.id,
+               "manual_intake.accepted"
+             )
+
+    assert length(jobs_for_event(event.id)) == 1
   end
 
-  defp domain_events do
+  defp domain_events(organization_id, subject_id, event_kind) do
     DomainEvent
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and subject_id == ^subject_id and
+        event_kind == ^event_kind
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!()
   end
