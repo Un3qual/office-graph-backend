@@ -379,6 +379,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         body: "AWS access key AKIAIOSFODNN7EXAMPLE"
       )
 
+    shared_inserted_at = first.normalized_event.inserted_at
+    force_intake_inserted_at!(second.normalized_event.id, shared_inserted_at)
+
     page = graphql(conn, @relay_inbox_query, %{first: 10}, "operatorWorkflowItems")
     rows = Enum.map(page["edges"], & &1["node"])
 
@@ -388,14 +391,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     sensitive_only_row =
       Enum.find(rows, &(&1["normalizedEventId"] == sensitive_only.normalized_event.id))
 
-    first_title =
-      "Manual intake received #{DateTime.to_iso8601(first.normalized_event.inserted_at)}"
-
-    second_title =
-      "Manual intake received #{DateTime.to_iso8601(second.normalized_event.inserted_at)}"
+    first_title = intake_title(first.normalized_event.id, shared_inserted_at)
+    second_title = intake_title(second.normalized_event.id, shared_inserted_at)
 
     sensitive_only_title =
-      "Manual intake received #{DateTime.to_iso8601(sensitive_only.normalized_event.inserted_at)}"
+      intake_title(
+        sensitive_only.normalized_event.id,
+        sensitive_only.normalized_event.inserted_at
+      )
 
     assert first_row["title"] == first_title
     assert second_row["title"] == second_title
@@ -1551,6 +1554,10 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     key
     |> Atom.to_string()
     |> Phoenix.Naming.camelize(:lower)
+  end
+
+  defp intake_title(id, inserted_at) do
+    "Manual intake received #{DateTime.to_iso8601(inserted_at)} · ref #{String.slice(id, -8, 8)}"
   end
 
   defp submit_manual_intake(session, key, opts \\ []) do

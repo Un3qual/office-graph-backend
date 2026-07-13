@@ -551,8 +551,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
-  defp proposed_change_title(%{inserted_at: %DateTime{} = inserted_at}) do
-    "Manual intake received #{DateTime.to_iso8601(inserted_at)}"
+  defp proposed_change_title(%{id: id, inserted_at: %DateTime{} = inserted_at})
+       when is_binary(id) do
+    "Manual intake received #{DateTime.to_iso8601(inserted_at)} · ref #{String.slice(id, -8, 8)}"
   end
 
   defp proposed_change_title(_event), do: "Manual intake"
