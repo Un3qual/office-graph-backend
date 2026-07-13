@@ -4,6 +4,8 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
   alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
   alias OfficeGraph.DurableDelivery.{DispatchEventWorker, DomainEvent}
 
+  @delivery_timeout 500
+
   defmodule RejectingBroadcaster do
     def broadcast(invalidation) do
       {:ok, event} = Ash.get(DomainEvent, invalidation.event_id)
@@ -50,7 +52,7 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
     [job] = jobs_for_event(event.id)
     assert :ok = DispatchEventWorker.perform(job)
 
-    assert_receive {:projection_invalidated, invalidation}
+    assert_receive {:projection_invalidated, invalidation}, @delivery_timeout
     assert invalidation.event_id == event.id
     assert invalidation.subject_id == subject_id
 
@@ -157,7 +159,7 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
     [job] = jobs_for_event(event.id)
     assert :ok = DispatchEventWorker.perform(job)
-    assert_receive {:projection_invalidated, %{event_id: event_id}}, 500
+    assert_receive {:projection_invalidated, %{event_id: event_id}}, @delivery_timeout
     assert event_id == event.id
   end
 
@@ -251,6 +253,42 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
     assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
              Ash.get(DomainEvent, event.id)
+  end
+
+  test "the dispatch worker retains terminalization when metadata staging fails on the exhausted attempt" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:terminal-staging-retry",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    [job] = jobs_for_event(event.id)
+
+    Repo.query!("""
+    ALTER TABLE oban_jobs
+    ADD CONSTRAINT test_terminal_staging_retry
+    CHECK (NOT (meta ? 'terminal_failure_code'))
+    """)
+
+    unavailable_job = %{
+      job
+      | attempt: job.max_attempts,
+        args: Map.put(job.args, "workspace_id", Ecto.UUID.generate())
+    }
+
+    assert {:snooze, 5} = DispatchEventWorker.perform(unavailable_job)
+
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+
+    assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
+             Ash.get(DomainEvent, event.id)
+
+    Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT test_terminal_staging_retry")
   end
 
   test "the dispatch worker persists terminal state before cancelling" do
