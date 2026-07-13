@@ -256,13 +256,21 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   defp validation_fields(%{fields: fields}), do: validation_field_list(fields)
 
-  defp validation_fields([]), do: []
-
-  defp validation_fields([error | errors]) do
-    validation_fields(error) ++ validation_fields(errors)
+  defp validation_fields(errors) when is_list(errors) do
+    errors
+    |> validation_fields_list([])
+    |> Enum.reverse()
   end
 
   defp validation_fields(_malformed), do: []
+
+  defp validation_fields_list([], fields), do: fields
+
+  defp validation_fields_list([error | errors], fields) do
+    validation_fields_list(errors, Enum.reverse(validation_fields(error), fields))
+  end
+
+  defp validation_fields_list(_malformed_tail, fields), do: fields
 
   defp validation_field(field) do
     %{field: sanitize_field(field), message: "is invalid"}
