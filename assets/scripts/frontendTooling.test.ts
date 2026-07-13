@@ -5,14 +5,10 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 
 describe("frontend static verification", () => {
-  it("runs the complete Vitest suite once while retaining the focused developer command", () => {
+  it("reaches the complete Vitest suite exactly once from the canonical command", () => {
     const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
     };
-
-    expect(packageJson.scripts["verify:import-boundaries"]).toBe(
-      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
-    );
 
     const vitestCommands = expandScript("verify", packageJson.scripts).filter((command) =>
       command.startsWith("vitest run"),
