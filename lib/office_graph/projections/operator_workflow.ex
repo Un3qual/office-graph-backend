@@ -616,7 +616,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp safe_payload_summary(_payload), do: nil
 
   defp summary_segments(body) when is_binary(body) do
-    String.split(body, ~r/[.!?\n]+/u, trim: true)
+    body
+    |> String.split(~r/(?:[.!?]\s+|\n+)/u, trim: true)
+    |> Enum.map(&String.replace(&1, ~r/[.!?]+$/u, ""))
   end
 
   defp summary_segments(_body), do: []
@@ -633,7 +635,6 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   defp safe_summary_candidate?(candidate) do
     candidate != "" and
-      String.length(candidate) <= @summary_max_length and
       String.match?(candidate, ~r/^[\p{L}\p{N}\s.,:;!?'"()&+\/-]+$/u) and
       not Enum.any?(@unsafe_summary_patterns, &Regex.match?(&1, candidate))
   end
