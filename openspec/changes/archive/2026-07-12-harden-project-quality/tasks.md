@@ -49,5 +49,5 @@
 
 - [x] 8.1 Replace all canonical generated purpose placeholders and mark the discovery-era project plan historical with current-source pointers.
 - [x] 8.2 Run focused red/green evidence for every behavior fix, then the canonical gate twice with varied seeds and confirm a clean worktree.
-- [ ] 8.3 Independently review the complete stacked diff, resolve every material finding, validate the OpenSpec change strictly, and archive it.
-- [ ] 8.4 Commit and push the semantic branch, open a non-draft PR targeting the latest open PR branch, and record deferred structural gaps in the PR body.
+- [x] 8.3 Independently review the complete stacked diff, resolve every material finding, validate the OpenSpec change strictly, and archive it.
+- [x] 8.4 Commit and push the semantic branch, open a non-draft PR targeting the latest open PR branch, and record deferred structural gaps in the PR body.
