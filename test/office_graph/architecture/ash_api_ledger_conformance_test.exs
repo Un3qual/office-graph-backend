@@ -36,6 +36,23 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            """
   end
 
+  test "manual GraphQL discovery includes nested connection fields" do
+    surface_ids =
+      :query
+      |> graphql_root_surfaces_in_file(
+        "lib/office_graph_web/graphql/operator_workflow/queries.ex"
+      )
+      |> MapSet.new(& &1.id)
+
+    for field <- [
+          :operator_workflow_items,
+          :operator_relationship_details,
+          :operator_run_command_option_page
+        ] do
+      assert "graphql.query.#{field}" in surface_ids
+    end
+  end
+
   test "manual API migration ledger entries still point to current surfaces" do
     current_surface_ids =
       manual_api_surfaces()

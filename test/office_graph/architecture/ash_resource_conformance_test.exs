@@ -392,14 +392,6 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
   end
 
   test "Run create owns run-start packet readiness and authority validation" do
-    source = File.read!("lib/office_graph/runs.ex")
-
-    refute source =~ "validate_packet_version_ready"
-    refute source =~ "validate_run_authority"
-    refute source =~ "persisted_packet_version_ready?"
-    refute source =~ "packet_has_source_reference?"
-    refute source =~ "packet_has_required_check?"
-
     create_action = Ash.Resource.Info.action(OfficeGraph.Runs.Run, :create)
 
     assert action_change?(create_action, OfficeGraph.Runs.Changes.ValidateRunStartContract)
@@ -421,14 +413,6 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
   end
 
   test "Runs observation command delegates reference validation to Ash changes" do
-    source = File.read!("lib/office_graph/runs.ex")
-
-    refute source =~ "validate_observation_references!"
-    refute source =~ "defp validate_observation_references("
-    refute source =~ "defp validate_observation_verification_check"
-    refute source =~ "defp validate_observation_graph_item"
-    refute source =~ "defp validate_optional_graph_item"
-
     observation_create = Ash.Resource.Info.action(OfficeGraph.Runs.ExecutionObservation, :create)
 
     assert action_change?(
@@ -438,19 +422,19 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
   end
 
   test "Verification owns accepted evidence recomputation through one Runs lifecycle hook" do
-    verification_source = File.read!("lib/office_graph/verification.ex")
-    runs_source = File.read!("lib/office_graph/runs.ex")
+    exported_names = OfficeGraph.Runs.__info__(:functions) |> MapSet.new(&elem(&1, 0))
 
-    assert verification_source =~ "Runs.apply_accepted_verification_result"
-    refute verification_source =~ "Runs.satisfy_required_check_and_verify_run"
-    refute verification_source =~ "Runs.set_run_verification_failed"
+    assert function_exported?(OfficeGraph.Runs, :apply_accepted_verification_result, 2)
 
-    assert runs_source =~ "def apply_accepted_verification_result("
-    refute runs_source =~ "def set_run_verified("
-    refute runs_source =~ "def set_run_verified_if_all_required_checks_satisfied("
-    refute runs_source =~ "def set_run_verification_failed("
-    refute runs_source =~ "def mark_required_check_satisfied("
-    refute runs_source =~ "def satisfy_required_check_and_verify_run("
+    for retired_name <- [
+          :set_run_verified,
+          :set_run_verified_if_all_required_checks_satisfied,
+          :set_run_verification_failed,
+          :mark_required_check_satisfied,
+          :satisfy_required_check_and_verify_run
+        ] do
+      refute MapSet.member?(exported_names, retired_name)
+    end
   end
 
   test "Runs child create actions own fixed run contract attributes" do

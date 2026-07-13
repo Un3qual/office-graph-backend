@@ -1,6 +1,21 @@
 defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
   use OfficeGraph.TestSupport.AshConformanceSupport
 
+  @support_modules [
+    "test/support/office_graph/ash_authorization_support.ex",
+    "test/support/office_graph/ash_conformance_support.ex",
+    "test/support/office_graph/concurrency_support.ex",
+    "test/support/office_graph/operator_projection_support.ex",
+    "test/support/office_graph/work_packet_command_loop_support.ex"
+  ]
+
+  test "shared support macros do not inject helper implementations" do
+    for path <- @support_modules do
+      assert definitions_inside_using_macro(path) == [],
+             "#{path} must compile helpers once and import them instead of injecting definitions"
+    end
+  end
+
   test "WorkGraph public boundary delegates to focused command and query modules" do
     for module <- @expected_work_graph_internal_modules do
       assert Code.ensure_loaded?(module), "#{inspect(module)} must exist"
@@ -51,6 +66,21 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
     refute source =~ "fetch_unconverted_reference"
     refute source =~ "Repo.get"
     refute source =~ "@unconverted_reference_schemas"
+  end
+
+  @tag :source_boundary_heuristic
+  test "verification calls only the supported Runs recomputation boundary" do
+    runs_calls =
+      remote_function_calls_in_file("lib/office_graph/verification.ex", :Runs)
+
+    assert {:apply_accepted_verification_result, 2} in runs_calls
+
+    for retired_name <- [
+          :satisfy_required_check_and_verify_run,
+          :set_run_verification_failed
+        ] do
+      refute Enum.any?(runs_calls, &(elem(&1, 0) == retired_name))
+    end
   end
 
   test "verification completion centralizes parent-before-child lock acquisition" do
