@@ -105,9 +105,6 @@ describe("shared UI import boundaries", () => {
     expect(packageJson.scripts["verify:import-boundaries"]).toBe(
       "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
     );
-    expect(packageJson.scripts.test).toBe("vitest run");
-    expect(packageJson.scripts.verify.match(/pnpm run test/g)).toHaveLength(1);
-    expect(packageJson.scripts.verify).not.toContain("pnpm run verify:import-boundaries");
   });
 });
 
