@@ -78,7 +78,7 @@ describe("shared UI primitives", () => {
   });
 
   it("keeps product navigation available in compact layouts", () => {
-    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const styles = readFileSync(join(process.cwd(), "src/styles/shared.css"), "utf8");
     const compactBreakpoint = styles.indexOf("@media (max-width: 980px)");
 
     expect(compactBreakpoint).toBeGreaterThan(-1);
@@ -91,7 +91,7 @@ describe("shared UI primitives", () => {
   });
 
   it("does not retain pre-primitive style aliases", () => {
-    const styles = readFileSync(join(process.cwd(), "src/styles/global.css"), "utf8");
+    const styles = readFileSync(join(process.cwd(), "src/styles/shared.css"), "utf8");
 
     for (const alias of [
       "brand-mark",
