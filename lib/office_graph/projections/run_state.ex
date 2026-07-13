@@ -63,10 +63,7 @@ defmodule OfficeGraph.Projections.RunState do
 
     with true <- kind in ["observation", "evidence_candidate", "evidence_acceptance", "waiver"],
          {:ok, run_id} <- normalize_run_id(run_id),
-         :ok <-
-           Authorization.authorize_projection(session_context, :skeleton_read,
-             organization_id: session_context.organization_id
-           ),
+         {:ok, _run} <- Runs.get_projection_run(session_context, run_id),
          {:ok, after_key} <- decode_command_option_cursor(after_cursor),
          {:ok, %{rows: rows}} <-
            Repo.query(

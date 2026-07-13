@@ -1,5 +1,5 @@
 defmodule OfficeGraph.BoundaryLayoutTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @public_contexts [
     OfficeGraph.Foundation,

@@ -977,6 +977,61 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert state["commandOptions"]["waiver"] == []
   end
 
+  test "run command option pages return not found for missing runs", %{conn: conn} do
+    run_id = Ecto.UUID.generate()
+
+    response =
+      conn
+      |> post(~p"/graphql", %{
+        query: """
+        query MissingRunOptions($id: ID!) {
+          operatorRunCommandOptionPage(id: $id, kind: "observation", first: 20) {
+            edges { node { key } }
+          }
+        }
+        """,
+        variables: %{id: run_id}
+      })
+      |> json_response(200)
+
+    assert [%{"extensions" => %{"code" => "not_found", "id" => ^run_id}}] =
+             response["errors"]
+
+    assert response["data"] in [nil, %{"operatorRunCommandOptionPage" => nil}]
+  end
+
+  test "run command option pages reject runs from another workspace", %{conn: conn} do
+    suffix = System.unique_integer([:positive])
+
+    {:ok, foreign_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Foreign Option Workspace #{suffix}",
+        workspace_slug: "foreign-option-workspace-#{suffix}",
+        initiative_name: "Foreign Option Initiative #{suffix}",
+        initiative_slug: "foreign-option-initiative-#{suffix}"
+      )
+
+    {:ok, verification_check} = create_required_verification_check(foreign_scope.session)
+    {:ok, run_result} = create_ready_run(foreign_scope.session, verification_check)
+
+    response =
+      conn
+      |> post(~p"/graphql", %{
+        query: """
+        query ForeignRunOptions($id: ID!) {
+          operatorRunCommandOptionPage(id: $id, kind: "observation", first: 20) {
+            edges { node { key } }
+          }
+        }
+        """,
+        variables: %{id: run_result.run.id}
+      })
+      |> json_response(200)
+
+    assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
+    assert response["data"] in [nil, %{"operatorRunCommandOptionPage" => nil}]
+  end
+
   @tag timeout: 120_000
   test "eligible command choices after the compact twenty-item summary remain reachable", %{
     conn: conn

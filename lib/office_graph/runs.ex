@@ -216,11 +216,7 @@ defmodule OfficeGraph.Runs do
 
   def get_projection_summary(session_context, run_id, limit)
       when is_integer(limit) and limit > 0 do
-    with :ok <-
-           Authorization.authorize(session_context, :skeleton_read,
-             organization_id: session_context.organization_id
-           ),
-         {:ok, run} <- fetch_scoped(Run, session_context, run_id),
+    with {:ok, run} <- get_projection_run(session_context, run_id),
          {:ok, packet} <- fetch_scoped(WorkPacket, session_context, run.work_packet_id),
          {:ok, packet_version} <-
            fetch_scoped(WorkPacketVersion, session_context, run.work_packet_version_id),
@@ -244,12 +240,18 @@ defmodule OfficeGraph.Runs do
     end
   end
 
-  def get_verification_outcome_summary(session_context, run_id) do
+  def get_projection_run(session_context, run_id) do
     with :ok <-
            Authorization.authorize(session_context, :skeleton_read,
              organization_id: session_context.organization_id
            ),
-         {:ok, run} <- fetch_scoped(Run, session_context, run_id),
+         {:ok, run} <- fetch_scoped(Run, session_context, run_id) do
+      {:ok, run}
+    end
+  end
+
+  def get_verification_outcome_summary(session_context, run_id) do
+    with {:ok, run} <- get_projection_run(session_context, run_id),
          {:ok, required_checks} <- read_run_required_checks(run),
          {:ok, verification_results} <- read_verification_results(run),
          {:ok, child_counts} <- projection_child_counts(run) do
