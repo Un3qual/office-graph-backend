@@ -39,11 +39,11 @@
 
 ## 7. Maintainability Refactoring
 
-- [ ] 7.1 Move the durable-delivery test worker into test support and split the multiple top-level proposed-change modules into cohesive files.
+- [x] 7.1 Move the durable-delivery test worker into test support and split the multiple top-level proposed-change modules into cohesive files.
 - [x] 7.2 Extract explicit run lifecycle reduction and evidence result-slot policy seams without fragmenting their transactions.
-- [ ] 7.3 Split the largest backend test modules around behavior domains and shared support while preserving assertions.
-- [ ] 7.4 Split the operator/packet route tests and global styles around route ownership and shared fixtures/tokens.
-- [ ] 7.5 Replace high-risk source-string architecture assertions with behavioral, introspection, or TypeScript AST checks where executable contracts exist.
+- [x] 7.3 Split the largest backend test modules around behavior domains and shared support while preserving assertions.
+- [x] 7.4 Split the operator/packet route tests and global styles around route ownership and shared fixtures/tokens.
+- [x] 7.5 Replace high-risk source-string architecture assertions with behavioral, introspection, or TypeScript AST checks where executable contracts exist.
 
 ## 8. Documentation And Completion
 

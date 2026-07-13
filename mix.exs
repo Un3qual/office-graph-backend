@@ -92,7 +92,7 @@ defmodule OfficeGraph.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "architecture.conformance": [
-        "test test/office_graph/architecture/ash_conformance_test.exs"
+        "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
       ],
       "assets.setup": ["cmd --cd assets pnpm install --frozen-lockfile"],
       "assets.build": [
