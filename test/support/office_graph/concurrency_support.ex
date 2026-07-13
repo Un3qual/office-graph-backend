@@ -19,6 +19,40 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkPackets
 
+  @test_trigger_specs %{
+    proposed_change_failure:
+      {:before_insert, "office_graph_test_proposed_change_failure", "proposed_graph_changes"},
+    proposed_change_insert_barrier:
+      {:before_insert, "office_graph_test_proposed_change_race_barrier", "proposed_graph_changes"},
+    raw_archive_body_wait:
+      {:before_insert, "office_graph_test_raw_archive_body_wait", "raw_archives"},
+    work_packet_insert_barrier:
+      {:before_insert, "office_graph_test_work_packet_insert_barrier", "work_packets"},
+    work_run_insert_barrier:
+      {:before_insert, "office_graph_test_work_run_insert_barrier", "runs"},
+    evidence_candidate_insert_barrier:
+      {:before_insert, "office_graph_test_evidence_candidate_insert_barrier",
+       "evidence_candidates"},
+    evidence_item_insert_barrier:
+      {:before_insert, "office_graph_test_evidence_item_insert_barrier", "evidence_items"},
+    evidence_item_operation_insert_barrier:
+      {:before_insert, "office_graph_test_evidence_item_operation_insert_barrier",
+       "evidence_items"},
+    run_required_check_update_barrier:
+      {:after_update, "office_graph_test_run_required_check_update_barrier",
+       "run_required_checks"},
+    execution_observation_insert_barrier:
+      {:before_insert, "office_graph_test_execution_observation_insert_barrier",
+       "execution_observations"},
+    verification_result_insert_barrier:
+      {:before_insert, "office_graph_test_verification_result_insert_barrier",
+       "verification_results"},
+    identity_insert_barrier:
+      {:before_insert, "office_graph_test_identity_race_barrier", "principals"},
+    authorization_insert_barrier:
+      {:before_insert, "office_graph_test_authorization_race_barrier", "roles"}
+  }
+
   defmacro __using__(_opts) do
     quote do
       use ExUnit.Case, async: false
@@ -364,9 +398,8 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
 
   def capture_submit(session_context, operation, attrs) do
     Integrations.submit_manual_intake(session_context, operation, attrs)
-  rescue
-    error -> {:error, error}
   catch
+    :error, error -> {:error, error}
     :exit, reason -> {:error, reason}
   end
 
@@ -374,25 +407,22 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     ProposedChanges.create_for_manual_intake(session_context, operation, normalized_event, %{
       body: body
     })
-  rescue
-    error -> {:error, error}
   catch
+    :error, error -> {:error, error}
     :exit, reason -> {:error, reason}
   end
 
   def capture_ensure_local_scope(attrs) do
     Tenancy.ensure_local_scope(attrs)
-  rescue
-    error -> {:error, error}
   catch
+    :error, error -> {:error, error}
     :exit, reason -> {:error, reason}
   end
 
   def capture_bootstrap_local_owner(attrs) do
     Foundation.bootstrap_local_owner(attrs)
-  rescue
-    error -> {:error, error}
   catch
+    :error, error -> {:error, error}
     :exit, reason -> {:error, reason}
   end
 
@@ -789,8 +819,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_proposed_change_failure_trigger!(body) do
-    %{rows: [[quoted_body]]} = Repo.query!("SELECT quote_literal($1)", [body])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_failure ON proposed_graph_changes"
     )
@@ -810,12 +838,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_proposed_change_failure
-    BEFORE INSERT ON proposed_graph_changes
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_proposed_change_failure(#{quoted_body})
-    """)
+    create_test_trigger!(:proposed_change_failure, [body])
   end
 
   def drop_proposed_change_failure_trigger! do
@@ -827,8 +850,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_proposed_change_insert_barrier!(normalized_event_id) do
-    %{rows: [[quoted_id]]} = Repo.query!("SELECT quote_literal($1)", [normalized_event_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_race_barrier ON proposed_graph_changes"
     )
@@ -867,12 +888,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_proposed_change_race_barrier
-    BEFORE INSERT ON proposed_graph_changes
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_proposed_change_race_barrier(#{quoted_id})
-    """)
+    create_test_trigger!(:proposed_change_insert_barrier, [normalized_event_id])
   end
 
   def drop_proposed_change_insert_barrier! do
@@ -884,8 +900,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_raw_archive_body_wait!(body, lock_key) do
-    %{rows: [[quoted_body]]} = Repo.query!("SELECT quote_literal($1)", [body])
-
     Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_raw_archive_body_wait ON raw_archives")
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
@@ -904,12 +918,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_raw_archive_body_wait
-    BEFORE INSERT ON raw_archives
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_raw_archive_body_wait(#{quoted_body}, '#{lock_key}')
-    """)
+    create_test_trigger!(:raw_archive_body_wait, [body, lock_key])
   end
 
   def wait_for_blocked_raw_archive!(lock_key, attempts \\ 200)
@@ -952,8 +961,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_work_packet_insert_barrier!(operation_id) do
-    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_work_packet_insert_barrier ON work_packets"
     )
@@ -992,12 +999,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_work_packet_insert_barrier
-    BEFORE INSERT ON work_packets
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_work_packet_insert_barrier(#{quoted_operation_id})
-    """)
+    create_test_trigger!(:work_packet_insert_barrier, [operation_id])
   end
 
   def drop_work_packet_insert_barrier! do
@@ -1009,8 +1011,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_work_run_insert_barrier!(operation_id) do
-    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
-
     Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_work_run_insert_barrier ON runs")
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_run_insert_barrier()")
 
@@ -1046,12 +1046,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_work_run_insert_barrier
-    BEFORE INSERT ON runs
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_work_run_insert_barrier(#{quoted_operation_id})
-    """)
+    create_test_trigger!(:work_run_insert_barrier, [operation_id])
   end
 
   def drop_work_run_insert_barrier! do
@@ -1060,8 +1055,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_evidence_candidate_insert_barrier!(operation_id) do
-    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_evidence_candidate_insert_barrier ON evidence_candidates"
     )
@@ -1100,12 +1093,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_evidence_candidate_insert_barrier
-    BEFORE INSERT ON evidence_candidates
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_evidence_candidate_insert_barrier(#{quoted_operation_id})
-    """)
+    create_test_trigger!(:evidence_candidate_insert_barrier, [operation_id])
   end
 
   def drop_evidence_candidate_insert_barrier! do
@@ -1117,8 +1105,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_evidence_item_insert_barrier!(candidate_id) do
-    %{rows: [[quoted_candidate_id]]} = Repo.query!("SELECT quote_literal($1)", [candidate_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_insert_barrier ON evidence_items"
     )
@@ -1157,12 +1143,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_evidence_item_insert_barrier
-    BEFORE INSERT ON evidence_items
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_evidence_item_insert_barrier(#{quoted_candidate_id})
-    """)
+    create_test_trigger!(:evidence_item_insert_barrier, [candidate_id])
   end
 
   def drop_evidence_item_insert_barrier! do
@@ -1174,8 +1155,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_evidence_item_operation_insert_barrier!(operation_id) do
-    %{rows: [[quoted_operation_id]]} = Repo.query!("SELECT quote_literal($1)", [operation_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_evidence_item_operation_insert_barrier ON evidence_items"
     )
@@ -1216,12 +1195,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_evidence_item_operation_insert_barrier
-    BEFORE INSERT ON evidence_items
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_evidence_item_operation_insert_barrier(#{quoted_operation_id})
-    """)
+    create_test_trigger!(:evidence_item_operation_insert_barrier, [operation_id])
   end
 
   def drop_evidence_item_operation_insert_barrier! do
@@ -1235,8 +1209,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_run_required_check_update_barrier!(run_id) do
-    %{rows: [[quoted_run_id]]} = Repo.query!("SELECT quote_literal($1)", [run_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_run_required_check_update_barrier ON run_required_checks"
     )
@@ -1277,12 +1249,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_run_required_check_update_barrier
-    AFTER UPDATE ON run_required_checks
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_run_required_check_update_barrier(#{quoted_run_id})
-    """)
+    create_test_trigger!(:run_required_check_update_barrier, [run_id])
   end
 
   def drop_run_required_check_update_barrier! do
@@ -1294,9 +1261,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_execution_observation_insert_barrier!(idempotency_key) do
-    %{rows: [[quoted_idempotency_key]]} =
-      Repo.query!("SELECT quote_literal($1)", [idempotency_key])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_execution_observation_insert_barrier ON execution_observations"
     )
@@ -1337,12 +1301,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_execution_observation_insert_barrier
-    BEFORE INSERT ON execution_observations
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_execution_observation_insert_barrier(#{quoted_idempotency_key})
-    """)
+    create_test_trigger!(:execution_observation_insert_barrier, [idempotency_key])
   end
 
   def drop_execution_observation_insert_barrier! do
@@ -1356,9 +1315,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_verification_result_insert_barrier!(verification_check_id) do
-    %{rows: [[quoted_check_id]]} =
-      Repo.query!("SELECT quote_literal($1)", [verification_check_id])
-
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_verification_result_insert_barrier ON verification_results"
     )
@@ -1398,12 +1354,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_verification_result_insert_barrier
-    BEFORE INSERT ON verification_results
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_verification_result_insert_barrier(#{quoted_check_id})
-    """)
+    create_test_trigger!(:verification_result_insert_barrier, [verification_check_id])
   end
 
   def drop_verification_result_insert_barrier! do
@@ -1521,11 +1472,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def install_owner_bootstrap_insert_barriers!(owner_email, organization_slug) do
-    %{rows: [[quoted_owner_email]]} = Repo.query!("SELECT quote_literal($1)", [owner_email])
-
-    %{rows: [[quoted_organization_slug]]} =
-      Repo.query!("SELECT quote_literal($1)", [organization_slug])
-
     drop_owner_bootstrap_insert_barriers!()
 
     Repo.query!("""
@@ -1560,12 +1506,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_identity_race_barrier
-    BEFORE INSERT ON principals
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_identity_race_barrier(#{quoted_owner_email})
-    """)
+    create_test_trigger!(:identity_insert_barrier, [owner_email])
 
     Repo.query!("""
     CREATE FUNCTION office_graph_test_authorization_race_barrier()
@@ -1604,12 +1545,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     $$ LANGUAGE plpgsql
     """)
 
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_authorization_race_barrier
-    BEFORE INSERT ON roles
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_authorization_race_barrier(#{quoted_organization_slug})
-    """)
+    create_test_trigger!(:authorization_insert_barrier, [organization_slug])
   end
 
   def drop_owner_bootstrap_insert_barriers! do
@@ -2232,4 +2168,44 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
 
   def db_uuid(<<_::128>> = uuid), do: uuid
   def db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
+
+  defp create_test_trigger!(spec_name, arguments) do
+    {event, trigger_name, table_name} = Map.fetch!(@test_trigger_specs, spec_name)
+
+    sql =
+      [
+        "CREATE TRIGGER ",
+        quote_sql_identifier!(trigger_name),
+        "\n",
+        trigger_event_sql(event),
+        " ON ",
+        quote_sql_identifier!(table_name),
+        "\nFOR EACH ROW\nEXECUTE FUNCTION ",
+        quote_sql_identifier!(trigger_name),
+        "(",
+        arguments |> Enum.map(&quote_trigger_argument!/1) |> Enum.intersperse(", "),
+        ")"
+      ]
+      |> IO.iodata_to_binary()
+
+    Repo.query!(sql)
+  end
+
+  defp quote_sql_identifier!(identifier) do
+    if Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, identifier) do
+      ~s("#{identifier}")
+    else
+      raise ArgumentError, "unsafe internal test SQL identifier"
+    end
+  end
+
+  defp quote_trigger_argument!(value) do
+    case Repo.query!("SELECT quote_literal($1::text)", [to_string(value)]) do
+      %{rows: [[quoted]]} when is_binary(quoted) -> quoted
+      _result -> raise ArgumentError, "trigger arguments must be non-null scalar values"
+    end
+  end
+
+  defp trigger_event_sql(:before_insert), do: "BEFORE INSERT"
+  defp trigger_event_sql(:after_update), do: "AFTER UPDATE"
 end

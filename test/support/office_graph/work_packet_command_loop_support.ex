@@ -234,12 +234,12 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
              body: "Launch check body."
            }) do
       {:ok,
-       %{
-         signal: signal,
-         task: task,
-         review_finding: review_finding,
-         verification_check: verification_check
-       }}
+       OfficeGraph.TestSupport.VerificationGraph.build(
+         signal,
+         task,
+         review_finding,
+         verification_check
+       )}
     end
   end
 

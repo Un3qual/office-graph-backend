@@ -581,8 +581,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def expected_domains do
     @expected_resources
-    |> Map.values()
-    |> Enum.map(fn {domain, _resource} -> domain end)
+    |> Enum.map(fn {_table, {domain, _resource}} -> domain end)
     |> MapSet.new()
   end
 
@@ -781,10 +780,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def safe_info(fun) do
     {:ok, fun.()}
-  rescue
-    exception ->
-      {:error, Exception.message(exception)}
   catch
+    :error, exception when is_exception(exception) ->
+      {:error, Exception.message(exception)}
+
     kind, reason ->
       {:error, "#{kind}: #{inspect(reason)}"}
   end
@@ -1256,7 +1255,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
                 {child, using_definitions}
             end)
 
-          {node, Enum.reverse(using_definitions) ++ definitions}
+          {node, Enum.reverse(using_definitions, definitions)}
 
         node, definitions ->
           {node, definitions}
@@ -1411,7 +1410,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
           }
         end)
 
-      {current_function, line_operations ++ operations}
+      {current_function, Enum.reverse(line_operations, operations)}
     end)
     |> elem(1)
     |> Enum.reverse()

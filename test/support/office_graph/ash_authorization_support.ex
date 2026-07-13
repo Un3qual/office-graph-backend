@@ -245,12 +245,12 @@ defmodule OfficeGraph.TestSupport.AshAuthorizationSupport do
     review_finding = create_review_finding!(bootstrap, task)
     verification_check = create_verification_check!(bootstrap, review_finding)
 
-    %{
-      signal: signal,
-      task: task,
-      review_finding: review_finding,
-      verification_check: verification_check
-    }
+    OfficeGraph.TestSupport.VerificationGraph.build(
+      signal,
+      task,
+      review_finding,
+      verification_check
+    )
   end
 
   def complete_verification!(bootstrap) do
