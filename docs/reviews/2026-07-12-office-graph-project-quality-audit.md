@@ -244,6 +244,53 @@ name substrings after Task 7.5 was marked complete.
 **Disposition:** replace them with AST or runtime introspection where possible;
 move irreducible source heuristics into the explicitly named heuristic module.
 
+### REVIEW-006 — P2: Proposed-change previews remained unsafe or indistinguishable
+
+The first preview remediation used UUID-only labels, and a follow-up attempted
+to expose payload text through a secret-pattern denylist. The former was not
+reviewable; the latter could not prove arbitrary intake text safe. Timestamp
+alone also collided for concurrent intake.
+
+**Disposition:** keep preview fields payload-free and derive them only from the
+server receipt time, a short stable event discriminator, typed action names,
+and proposal status. The regression forces equal timestamps and includes an AWS
+access-key-shaped payload to prove both uniqueness and non-disclosure.
+
+### REVIEW-007 — P2: Wrapped Ash validation errors lost their field list
+
+The shared classifier extracted fields from a bare `Ash.Changeset`, while real
+command failures commonly arrive in `Ash.Error.Invalid` wrappers. Accessible
+field feedback could therefore collapse to a generic message.
+
+**Disposition:** recursively extract allowlisted field identities from wrapped
+Ash errors and changesets while emitting only fixed public messages and empty
+metadata; cover nested multi-field failures through both adapters.
+
+### REVIEW-008 — P2: Verification isolation broke direct development and repeated Vitest
+
+Changing Compose's default PostgreSQL port to `0` isolated verification but
+broke the documented direct `docker compose up` development workflow, which
+still expects `55432`. The frontend composite also ran its architecture tests
+once directly and again through the unfiltered suite.
+
+**Disposition:** preserve `55432` for direct Compose use, have `bin/verify`
+explicitly request an allocated port, and recursively prove the canonical
+frontend script reaches one unfiltered Vitest invocation while keeping the
+focused architecture command developer-only.
+
+### REVIEW-009 — P2: Supplemental Relay reads and AST gates failed open
+
+Overflow command choices and relationship details did not share the route's
+authoritative refresh identity, leaving cached options and later-page cursors
+stale after commands. The replacement TypeScript architecture helper also
+needed fail-closed dynamic-import handling, canonical import aliases, and
+parsed GraphQL facts rather than searchable template text.
+
+**Disposition:** thread the refresh key through both reads, remount overflow
+pagination on refresh, remove the last dead form helper, and enforce executable
+route architecture from parsed TypeScript/GraphQL facts with adversarial
+fixtures for comments, aliases, and computed imports.
+
 ## Structural Follow-Ups Requiring Separate OpenSpec Changes
 
 These are confirmed mismatches, not dismissed findings. They are not partially implemented in this remediation because each changes durable data contracts and compatibility behavior.
