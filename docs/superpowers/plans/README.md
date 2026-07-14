@@ -6,6 +6,9 @@ Completed plans live in `archive/`. Do not execute archived plans as current wor
 
 Current status:
 
-- Active: none.
+- Active, dependency order:
+  1. `2026-07-13-typed-graph-relationships.md`
+  2. `2026-07-13-github-review-integration.md`
+  3. `2026-07-13-internal-agent-runtime.md`
 - OpenSpec is the project workflow source of truth for new changes.
 - Completed OpenSpec changes are under `openspec/changes/archive/`.

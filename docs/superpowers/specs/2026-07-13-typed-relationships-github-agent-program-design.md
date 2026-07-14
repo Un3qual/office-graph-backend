@@ -110,9 +110,13 @@ forbidden cycle.
 Because Office Graph is unreleased, migrate to the canonical vocabulary instead
 of retaining aliases:
 
-- `has_review_finding` becomes `review_finding_for`, reversing endpoints where
-  needed to match the canonical direction.
+- `produced_task` becomes `generated_from`, reversing signal-to-task endpoints.
+- `has_review_finding` becomes `review_finding_for`, reversing task-to-finding
+  endpoints.
 - `requires_verification` becomes `requires_check`.
+- `has_evidence` becomes `evidenced_by`.
+- `references_artifact` becomes `generated_from` for evidence-to-artifact
+  provenance.
 - Unknown persisted relationship values fail the migration with a bounded
   diagnostic instead of silently becoming generic types.
 
