@@ -31,6 +31,6 @@
 
 ## 7. Verification And Archive
 
-- [ ] 7.1 Run focused migration, operation, durable delivery, adapter, webhook, reconciliation, outbound, health, authorization, concurrency, API, and architecture tests.
-- [ ] 7.2 Run strict OpenSpec validation, deterministic provider contract tests, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
-- [ ] 7.3 Synchronize delta specs, archive `add-github-review-integration`, and publish the generic system-operation contract for the agent stack.
+- [x] 7.1 Run focused migration, operation, durable delivery, adapter, webhook, reconciliation, outbound, health, authorization, concurrency, API, and architecture tests.
+- [x] 7.2 Run strict OpenSpec validation, deterministic provider contract tests, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
+- [x] 7.3 Synchronize delta specs, archive `add-github-review-integration`, and publish the generic system-operation contract for the agent stack.
