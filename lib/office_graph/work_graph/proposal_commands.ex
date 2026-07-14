@@ -5,6 +5,8 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
   alias OfficeGraph.WorkGraph.CommandSupport, as: Support
 
   alias OfficeGraph.WorkGraph.{
+    RelationshipCommands,
+    RelationshipRequest,
     ReviewFinding,
     Signal,
     Task,
@@ -98,7 +100,7 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
         source_signal_graph_item_id = Support.persisted_graph_item_id!(Signal, signal.id)
 
         relationship =
-          Support.create_relationship!(
+          create_relationship!(
             session_context,
             operation,
             graph_item_id,
@@ -196,7 +198,7 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
           end
 
         relationship =
-          Support.create_relationship!(
+          create_relationship!(
             session_context,
             operation,
             source_item_id,
@@ -225,5 +227,25 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
     Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
       organization_id: session_context.organization_id
     )
+  end
+
+  defp create_relationship!(
+         session_context,
+         operation,
+         source_item_id,
+         target_item_id,
+         definition_key
+       ) do
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: definition_key,
+        source_item_id: source_item_id,
+        target_item_id: target_item_id,
+        workspace_id: session_context.workspace_id
+      })
+
+    session_context
+    |> RelationshipCommands.create(operation, request)
+    |> Support.unwrap_ash()
   end
 end

@@ -207,13 +207,13 @@ defmodule OfficeGraph.WorkGraph.AshVerificationAuthorizationTest do
     assert relationship_exists?(
              completed.verification_check.graph_item_id,
              completed.evidence_item.graph_item_id,
-             "has_evidence"
+             "evidenced_by"
            )
 
     assert relationship_exists?(
              completed.evidence_item.graph_item_id,
              completed.artifact.graph_item_id,
-             "references_artifact"
+             "generated_from"
            )
   end
 

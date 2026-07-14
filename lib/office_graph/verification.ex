@@ -32,7 +32,6 @@ defmodule OfficeGraph.Verification do
     EvidenceCandidate,
     EvidenceItem,
     GraphItem,
-    GraphRelationship,
     ReviewFinding,
     VerificationCheck,
     VerificationResult
@@ -808,27 +807,15 @@ defmodule OfficeGraph.Verification do
          target_item_id,
          definition_key
        ) do
-    definition =
-      case WorkGraph.fetch_relationship_definition(definition_key) do
-        {:ok, definition} -> definition
-        {:error, error} -> Repo.rollback(error)
-      end
-
-    Repo.ash_create!(
-      GraphRelationship,
-      %{
-        id: Ecto.UUID.generate(),
-        definition_id: definition.id,
-        organization_id: session_context.organization_id,
-        workspace_id: session_context.workspace_id,
-        source_item_id: source_item_id,
-        target_item_id: target_item_id,
-        lifecycle: "active",
-        asserting_principal_id: session_context.principal_id,
-        operation_id: operation.id,
-        valid_from: DateTime.utc_now()
-      }
-    )
+    case WorkGraph.create_relationship(session_context, operation, %{
+           definition_key: definition_key,
+           source_item_id: source_item_id,
+           target_item_id: target_item_id,
+           workspace_id: session_context.workspace_id
+         }) do
+      {:ok, relationship} -> relationship
+      {:error, error} -> Repo.rollback(error)
+    end
   end
 
   defp unwrap_notification_result({record, _notifications}), do: record

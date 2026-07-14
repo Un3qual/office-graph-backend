@@ -21,6 +21,12 @@ defmodule OfficeGraph.Operations do
     execution_observation_record: "execution_observation.record",
     evidence_candidate_create: "evidence_candidate.create",
     evidence_accept: "evidence.accept",
+    graph_relationship_create: "graph_relationship.create",
+    graph_relationship_supersede: "graph_relationship.supersede",
+    graph_relationship_archive: "graph_relationship.archive",
+    graph_relationship_restore: "graph_relationship.restore",
+    graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    integration_reconcile: "integration.reconcile",
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"
   }

@@ -119,6 +119,26 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       change OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints
     end
+
+    update :mark_superseded do
+      public? false
+      accept [:operation_id, :asserting_principal_id, :valid_until]
+      change set_attribute(:lifecycle, "superseded")
+    end
+
+    update :archive do
+      public? false
+      accept [:operation_id, :asserting_principal_id, :valid_until]
+      change set_attribute(:lifecycle, "archived")
+    end
+
+    update :restore do
+      public? false
+      accept [:operation_id, :asserting_principal_id, :valid_from]
+      change set_attribute(:lifecycle, "active")
+      change set_attribute(:valid_until, nil)
+      change set_attribute(:tombstone_id, nil)
+    end
   end
 
   identities do

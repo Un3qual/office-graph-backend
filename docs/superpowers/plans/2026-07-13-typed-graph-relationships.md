@@ -251,7 +251,7 @@ git commit -m "feat: migrate graph edges to typed definitions"
 - `RelationshipRequest.new/1` requires `definition_key`, `source_item_id`, `target_item_id`; accepts `workspace_id`, `valid_from`, `run_id`, and `integration_event_id`.
 - Produces human lifecycle action keys `graph_relationship.create`, `graph_relationship.supersede`, `graph_relationship.archive`, `graph_relationship.restore`, and `graph_relationship.cross_workspace`; proposal/evidence operations remain valid only for the canonical relationships they own.
 
-- [ ] **Step 1: Write behavior and replay tests**
+- [x] **Step 1: Write behavior and replay tests**
 
 ```elixir
 test "create validates endpoints and replays one active edge", context do
@@ -281,13 +281,13 @@ test "an edge never reveals an unauthorized endpoint", context do
 end
 ```
 
-- [ ] **Step 2: Run focused command tests and observe missing command modules**
+- [x] **Step 2: Run focused command tests and observe missing command modules**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_commands_test.exs`
 
 Expected: FAIL because the named commands and request type do not exist.
 
-- [ ] **Step 3: Implement one transaction boundary for lifecycle commands**
+- [x] **Step 3: Implement one transaction boundary for lifecycle commands**
 
 ```elixir
 def create(session, operation, %RelationshipRequest{} = request) do
@@ -357,7 +357,7 @@ of inserting evidence edges directly. Every branch still calls Authorization
 for the actor, governing scope, definition posture, and cross-workspace
 capability after this action allowlist passes.
 
-- [ ] **Step 4: Add the concurrent cycle test before the cycle guard**
+- [x] **Step 4: Add the concurrent cycle test before the cycle guard**
 
 ```elixir
 test "concurrent depends_on writes cannot commit a cycle", context do
@@ -378,7 +378,7 @@ test "concurrent depends_on writes cannot commit a cycle", context do
 end
 ```
 
-- [ ] **Step 5: Implement definition-scoped serialization and bounded traversal**
+- [x] **Step 5: Implement definition-scoped serialization and bounded traversal**
 
 Acquire a PostgreSQL transaction advisory lock derived from organization and definition IDs before recursive traversal. Traverse only active edges for the definition, stop at the source, and cap visited rows using an explicit `@max_cycle_nodes` value; return `{:relationship_cycle_check_limit, definition.key}` when the cap is exceeded.
 
@@ -400,7 +400,7 @@ end
 def lock_and_validate!(%{cycle_policy: "allow"}, _organization_id, _request), do: :ok
 ```
 
-- [ ] **Step 6: Run command, proposal, and concurrency tests**
+- [x] **Step 6: Run command, proposal, and concurrency tests**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_commands_test.exs test/office_graph/work_graph/relationship_cycle_concurrency_test.exs test/office_graph/proposed_changes/proposed_changes_test.exs`
 

@@ -1,0 +1,386 @@
+defmodule OfficeGraph.WorkGraph.RelationshipCommands do
+  @moduledoc false
+
+  alias OfficeGraph.{Authorization, Operations, Repo}
+  alias OfficeGraph.WorkGraph.CommandSupport, as: Support
+
+  alias OfficeGraph.WorkGraph.{
+    GraphItem,
+    GraphRelationship,
+    RelationshipCyclePolicy,
+    RelationshipDefinitions,
+    RelationshipOperationPolicy,
+    RelationshipRequest
+  }
+
+  require Ash.Query
+
+  def create(session_context, operation, %RelationshipRequest{} = request) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- RelationshipRequest.validate(request),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- authorize(session_context, operation, definition, endpoints, :create) do
+      Support.transaction(fn ->
+        RelationshipCyclePolicy.lock_and_validate!(
+          definition,
+          session_context.organization_id,
+          request
+        )
+
+        relationship =
+          persist_active_relationship!(
+            session_context,
+            operation,
+            definition,
+            request,
+            nil
+          )
+
+        Support.trace!(
+          operation,
+          "graph_relationship.create",
+          "graph_relationship",
+          relationship.id
+        )
+
+        relationship
+      end)
+    end
+  end
+
+  def create(session_context, operation, request) when is_map(request) or is_list(request) do
+    with {:ok, request} <- RelationshipRequest.new(request) do
+      create(session_context, operation, request)
+    end
+  end
+
+  def create(_session_context, _operation, _request) do
+    {:error, {:invalid_relationship_request, :request}}
+  end
+
+  def supersede(
+        session_context,
+        operation,
+        %GraphRelationship{} = relationship,
+        %RelationshipRequest{} = request
+      ) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- RelationshipRequest.validate(request),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :supersede),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- authorize(session_context, operation, definition, endpoints, :supersede),
+         :ok <- validate_relationship_scope(session_context, relationship) do
+      Support.transaction(fn ->
+        locked = lock_relationship!(relationship.id)
+
+        case locked.lifecycle do
+          "active" ->
+            now = DateTime.utc_now()
+
+            superseded =
+              locked
+              |> Support.ash_update_internal(:mark_superseded, %{
+                operation_id: operation.id,
+                asserting_principal_id: session_context.principal_id,
+                valid_until: now
+              })
+              |> Support.unwrap_ash()
+
+            RelationshipCyclePolicy.lock_and_validate!(
+              definition,
+              session_context.organization_id,
+              request
+            )
+
+            replacement =
+              persist_active_relationship!(
+                session_context,
+                operation,
+                definition,
+                request,
+                superseded.id
+              )
+
+            Support.trace!(
+              operation,
+              "graph_relationship.supersede",
+              "graph_relationship",
+              superseded.id
+            )
+
+            Support.trace!(
+              operation,
+              "graph_relationship.create",
+              "graph_relationship",
+              replacement.id
+            )
+
+            replacement
+
+          "superseded" ->
+            replay_supersede!(locked.id, operation.id)
+
+          lifecycle ->
+            Repo.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
+        end
+      end)
+    end
+  end
+
+  def supersede(_session_context, _operation, _relationship, _request) do
+    {:error, {:invalid_relationship_request, :request}}
+  end
+
+  def archive(session_context, operation, %GraphRelationship{} = relationship, attrs) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_id(relationship.definition_id),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :archive),
+         {:ok, endpoints} <- endpoints_for_relationship(session_context, relationship),
+         :ok <- authorize(session_context, operation, definition, endpoints, :archive),
+         :ok <- validate_relationship_scope(session_context, relationship) do
+      valid_until = Map.get(Map.new(attrs || %{}), :valid_until, DateTime.utc_now())
+
+      Support.transaction(fn ->
+        locked = lock_relationship!(relationship.id)
+
+        case locked.lifecycle do
+          "active" ->
+            archived =
+              locked
+              |> Support.ash_update_internal(:archive, %{
+                operation_id: operation.id,
+                asserting_principal_id: session_context.principal_id,
+                valid_until: valid_until
+              })
+              |> Support.unwrap_ash()
+
+            Support.trace!(
+              operation,
+              "graph_relationship.archive",
+              "graph_relationship",
+              archived.id
+            )
+
+            archived
+
+          "archived" ->
+            locked
+
+          lifecycle ->
+            Repo.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
+        end
+      end)
+    end
+  end
+
+  def archive(_session_context, _operation, _relationship, _attrs),
+    do: {:error, :forbidden}
+
+  def restore(session_context, operation, %GraphRelationship{} = relationship, attrs) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_id(relationship.definition_id),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :restore),
+         request = relationship_request(relationship, attrs),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- authorize(session_context, operation, definition, endpoints, :restore),
+         :ok <- validate_relationship_scope(session_context, relationship) do
+      Support.transaction(fn ->
+        locked = lock_relationship!(relationship.id)
+
+        case locked.lifecycle do
+          "archived" ->
+            RelationshipCyclePolicy.lock_and_validate!(
+              definition,
+              session_context.organization_id,
+              request
+            )
+
+            restored =
+              locked
+              |> Support.ash_update_internal(:restore, %{
+                operation_id: operation.id,
+                asserting_principal_id: session_context.principal_id,
+                valid_from: request.valid_from || DateTime.utc_now()
+              })
+              |> Support.unwrap_ash()
+
+            Support.trace!(
+              operation,
+              "graph_relationship.restore",
+              "graph_relationship",
+              restored.id
+            )
+
+            restored
+
+          "active" ->
+            locked
+
+          _lifecycle ->
+            Repo.rollback({:relationship_restore_ineligible, locked.id})
+        end
+      end)
+    end
+  end
+
+  def restore(_session_context, _operation, _relationship, _attrs),
+    do: {:error, :forbidden}
+
+  defp validate_endpoints(session_context, definition, request) do
+    with {:ok, source} <- Support.ash_get(GraphItem, request.source_item_id),
+         {:ok, target} <- Support.ash_get(GraphItem, request.target_item_id),
+         :ok <- validate_endpoint_scope(session_context, request, source, target),
+         true <- compatible_endpoints?(definition, source, target) do
+      {:ok, %{source: source, target: target}}
+    else
+      false ->
+        {:error, {:invalid_relationship_endpoints, definition.key}}
+
+      {:error, {:not_found, GraphItem, _id}} ->
+        {:error, {:invalid_relationship_endpoints, definition.key}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp endpoints_for_relationship(session_context, relationship) do
+    with {:ok, source} <- Support.ash_get(GraphItem, relationship.source_item_id),
+         {:ok, target} <- Support.ash_get(GraphItem, relationship.target_item_id),
+         :ok <-
+           validate_endpoint_scope(
+             session_context,
+             relationship_request(relationship, %{}),
+             source,
+             target
+           ) do
+      {:ok, %{source: source, target: target}}
+    end
+  end
+
+  defp validate_endpoint_scope(session_context, request, source, target) do
+    governing_workspace_id = request.workspace_id || session_context.workspace_id
+
+    cond do
+      source.organization_id != session_context.organization_id -> {:error, :forbidden}
+      target.organization_id != session_context.organization_id -> {:error, :forbidden}
+      governing_workspace_id != session_context.workspace_id -> {:error, :forbidden}
+      true -> :ok
+    end
+  end
+
+  defp compatible_endpoints?(definition, source, target) do
+    Enum.any?(definition.endpoint_rules, fn rule ->
+      rule.source_kind == source.resource_type and rule.target_kind == target.resource_type
+    end)
+  end
+
+  defp authorize(session_context, operation, definition, endpoints, action) do
+    authorization_action = RelationshipOperationPolicy.authorization_action(operation, action)
+
+    with :ok <-
+           Authorization.authorize_operation(
+             session_context,
+             operation,
+             authorization_action,
+             organization_id: session_context.organization_id
+           ) do
+      authorize_cross_workspace(session_context, operation, definition, endpoints)
+    end
+  end
+
+  defp authorize_cross_workspace(session_context, operation, _definition, endpoints) do
+    if endpoints.source.workspace_id == endpoints.target.workspace_id do
+      :ok
+    else
+      Authorization.authorize_operation(
+        session_context,
+        operation,
+        :graph_relationship_cross_workspace,
+        organization_id: session_context.organization_id
+      )
+    end
+  end
+
+  defp persist_active_relationship!(
+         session_context,
+         operation,
+         definition,
+         request,
+         supersedes_relationship_id
+       ) do
+    GraphRelationship
+    |> Support.ash_create_internal(
+      %{
+        id: Ecto.UUID.generate(),
+        definition_id: definition.id,
+        organization_id: session_context.organization_id,
+        workspace_id: request.workspace_id || session_context.workspace_id,
+        source_item_id: request.source_item_id,
+        target_item_id: request.target_item_id,
+        lifecycle: "active",
+        asserting_principal_id: session_context.principal_id,
+        operation_id: operation.id,
+        valid_from: request.valid_from || DateTime.utc_now(),
+        run_id: request.run_id,
+        integration_event_id: request.integration_event_id,
+        supersedes_relationship_id: supersedes_relationship_id
+      },
+      upsert?: true,
+      upsert_identity: :active_definition_edge,
+      upsert_fields: []
+    )
+    |> Support.unwrap_ash()
+  end
+
+  defp lock_relationship!(id) do
+    GraphRelationship
+    |> Support.ash_get_for_update(id)
+    |> Support.unwrap_ash()
+  end
+
+  defp replay_supersede!(superseded_relationship_id, operation_id) do
+    GraphRelationship
+    |> Ash.Query.filter(
+      supersedes_relationship_id == ^superseded_relationship_id and
+        operation_id == ^operation_id and lifecycle == "active"
+    )
+    |> Support.ash_read_one_internal()
+    |> case do
+      {:ok, nil} ->
+        Repo.rollback({:relationship_supersede_replay_missing, superseded_relationship_id})
+
+      {:ok, replacement} ->
+        replacement
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp validate_relationship_scope(session_context, relationship) do
+    if relationship.organization_id == session_context.organization_id and
+         relationship.workspace_id == session_context.workspace_id do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp relationship_request(relationship, attrs) do
+    attrs = Map.new(attrs || %{})
+
+    %RelationshipRequest{
+      definition_key: Map.get(attrs, :definition_key, "stored_definition"),
+      source_item_id: relationship.source_item_id,
+      target_item_id: relationship.target_item_id,
+      workspace_id: relationship.workspace_id,
+      valid_from: Map.get(attrs, :valid_from),
+      run_id: relationship.run_id,
+      integration_event_id: relationship.integration_event_id
+    }
+  end
+end

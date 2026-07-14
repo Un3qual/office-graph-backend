@@ -276,9 +276,11 @@ defmodule OfficeGraph.TestSupport.AshAuthorizationSupport do
     |> Ash.Query.filter(
       source_item_id: expected_source_id,
       target_item_id: expected_target_id,
-      relationship_type: expected_type
+      lifecycle: "active"
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.Query.load(:definition)
+    |> Ash.read!(authorize?: false)
+    |> Enum.any?(&(&1.definition.key == expected_type))
   end
 
   def bulk_signal_input(bootstrap, signal_id, graph_item_id, title) do

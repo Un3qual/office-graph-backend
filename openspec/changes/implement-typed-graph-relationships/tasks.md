@@ -11,9 +11,9 @@
 
 ## 3. WorkGraph Relationship Commands
 
-- [ ] 3.1 Add failing command tests for create, supersede, archive, restore, replay, endpoint compatibility, cross-workspace authorization, and adapter/agent direct-write rejection.
-- [ ] 3.2 Implement focused WorkGraph relationship command modules and route proposal application plus verification evidence linking through canonical definitions.
-- [ ] 3.3 Add failing concurrency tests and implement organization/definition-scoped serialization plus bounded forbidden-cycle traversal.
+- [x] 3.1 Add failing command tests for create, supersede, archive, restore, replay, endpoint compatibility, cross-workspace authorization, and adapter/agent direct-write rejection.
+- [x] 3.2 Implement focused WorkGraph relationship command modules and route proposal application plus verification evidence linking through canonical definitions.
+- [x] 3.3 Add failing concurrency tests and implement organization/definition-scoped serialization plus bounded forbidden-cycle traversal.
 
 ## 4. Reads, APIs, And Projections
 

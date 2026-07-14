@@ -23,7 +23,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints do
     with {:ok, by_id} <- fetch_graph_items([source_id, target_id]),
          {:ok, source} <- fetch_endpoint(by_id, source_id),
          {:ok, target} <- fetch_endpoint(by_id, target_id),
-         true <- same_scope?(source, target) do
+         true <- same_organization?(source, target) do
       changeset
     else
       {:error, :missing_endpoint} ->
@@ -58,20 +58,18 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints do
     end
   end
 
-  defp same_scope?(source, target) do
-    source.organization_id == target.organization_id and
-      source.workspace_id == target.workspace_id
-  end
+  defp same_organization?(source, target),
+    do: source.organization_id == target.organization_id
 
   defp add_endpoint_error(changeset) do
     changeset
     |> Ash.Changeset.add_error(
       field: :source_item_id,
-      message: "relationship endpoints must exist in the same scope"
+      message: "relationship endpoints must exist in the same organization"
     )
     |> Ash.Changeset.add_error(
       field: :target_item_id,
-      message: "relationship endpoints must exist in the same scope"
+      message: "relationship endpoints must exist in the same organization"
     )
   end
 end

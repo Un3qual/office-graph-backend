@@ -8,6 +8,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
   alias OfficeGraph.WorkGraph.{
     Artifact,
     EvidenceItem,
+    RelationshipCommands,
+    RelationshipRequest,
     ReviewFinding,
     Task,
     VerificationCheck,
@@ -103,7 +105,7 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
           |> Support.unwrap_ash()
 
         check_evidence_relationship =
-          Support.create_relationship!(
+          create_relationship!(
             session_context,
             operation,
             verification_check.graph_item_id,
@@ -112,7 +114,7 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
           )
 
         evidence_artifact_relationship =
-          Support.create_relationship!(
+          create_relationship!(
             session_context,
             operation,
             evidence_graph_item_id,
@@ -385,5 +387,25 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
       finding.task_id == task_id and finding.id != completed_review_finding_id and
         finding.lifecycle_state != "verified_complete"
     end)
+  end
+
+  defp create_relationship!(
+         session_context,
+         operation,
+         source_item_id,
+         target_item_id,
+         definition_key
+       ) do
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: definition_key,
+        source_item_id: source_item_id,
+        target_item_id: target_item_id,
+        workspace_id: session_context.workspace_id
+      })
+
+    session_context
+    |> RelationshipCommands.create(operation, request)
+    |> Support.unwrap_ash()
   end
 end
