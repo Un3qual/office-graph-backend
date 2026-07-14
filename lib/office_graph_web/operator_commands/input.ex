@@ -14,6 +14,22 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       app_private_key_reference: :string,
       permissions: :github_permissions
     ],
+    reply_to_github_review: [
+      idempotency_key: :string,
+      installation_id: :uuid,
+      review_comment_id: :uuid,
+      body: :raw_string,
+      expected_provider_version: :string
+    ],
+    update_github_check: [
+      idempotency_key: :string,
+      installation_id: :uuid,
+      check_run_id: :uuid,
+      status: :string,
+      conclusion: :string,
+      details_url: :string,
+      expected_provider_version: :string
+    ],
     submit_manual_intake: [
       idempotency_key: :string,
       source_identity: :string,

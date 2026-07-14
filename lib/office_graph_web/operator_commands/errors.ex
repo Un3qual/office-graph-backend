@@ -64,6 +64,12 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
     result(:authorization, "forbidden", "The action is not authorized.")
   end
 
+  def classify({:authorization, _safe_code}), do: classify(:forbidden)
+
+  def classify({:stale_version, :provider_version}) do
+    result(:conflict, "stale_provider_version", "The provider object version is stale.")
+  end
+
   def classify(%Ash.Error.Forbidden{}), do: classify(:forbidden)
 
   def classify({:missing_proposed_change, id}) do

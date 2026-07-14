@@ -50,6 +50,13 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
       validate one_of(:status, ~w(active rotating revoked expired))
       public? false
     end
+
+    update :set_status do
+      accept [:status, :rotated_at, :expires_at]
+      validate one_of(:status, ~w(active rotating revoked expired))
+      require_atomic? false
+      public? false
+    end
   end
 
   identities do

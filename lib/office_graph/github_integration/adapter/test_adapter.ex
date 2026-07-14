@@ -22,10 +22,33 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.TestAdapter do
   end
 
   @impl true
-  def reply_to_review(_request, _credential), do: {:error, :unsupported_fixture}
+  def reply_to_review(%{target_node_id: node_id}, _credential) do
+    fetch_outbound("review_reply", node_id)
+  end
 
   @impl true
-  def update_check(_request, _credential), do: {:error, :unsupported_fixture}
+  def update_check(%{target_node_id: node_id}, _credential) do
+    fetch_outbound("check_update", node_id)
+  end
+
+  def calls(kind, node_id) do
+    ensure_table!()
+
+    case :ets.lookup(@table, {:calls, kind, node_id}) do
+      [{{:calls, ^kind, ^node_id}, count}] -> count
+      [] -> 0
+    end
+  end
+
+  defp fetch_outbound(kind, node_id) do
+    ensure_table!()
+    :ets.update_counter(@table, {:calls, kind, node_id}, {2, 1}, {{:calls, kind, node_id}, 0})
+
+    case :ets.lookup(@table, {kind, node_id}) do
+      [{{^kind, ^node_id}, response}] -> response
+      [] -> {:error, :fixture_not_found}
+    end
+  end
 
   defp ensure_table! do
     case :ets.whereis(@table) do

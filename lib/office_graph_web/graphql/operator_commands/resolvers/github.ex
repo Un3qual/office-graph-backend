@@ -44,4 +44,45 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.GitHub do
       error -> Errors.to_absinthe(error)
     end
   end
+
+  def reply_to_review(%{input: input}, resolution) do
+    execute_outbound(
+      input,
+      resolution,
+      :reply_to_github_review,
+      :github_review_reply,
+      "reply_to_github_review",
+      &GitHubIntegration.reply_to_review/3
+    )
+  end
+
+  def update_check(%{input: input}, resolution) do
+    execute_outbound(
+      input,
+      resolution,
+      :update_github_check,
+      :github_check_update,
+      "update_github_check",
+      &GitHubIntegration.update_check/3
+    )
+  end
+
+  defp execute_outbound(input, resolution, input_kind, operation_kind, command, callback) do
+    with {:ok, parsed} <- Input.parse(input_kind, input),
+         {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+         {idempotency_key, attrs} <- Map.pop!(parsed, :idempotency_key),
+         {:ok, operation} <-
+           Operations.start_command(session_context, operation_kind, idempotency_key, attrs),
+         {:ok, action} <- callback.(session_context, operation, attrs) do
+      {:ok,
+       %{
+         command: command,
+         operation_id: operation.id,
+         affected_ids: [%{type: "github_outbound_action", id: action.id}],
+         action: action
+       }}
+    else
+      error -> Errors.to_absinthe(error)
+    end
+  end
 end

@@ -54,6 +54,63 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.GitHubController do
     end
   end
 
+  def reply_to_review(conn, params) do
+    execute_outbound(
+      conn,
+      params,
+      :reply_to_github_review,
+      :github_review_reply,
+      "reply_to_github_review",
+      &GitHubIntegration.reply_to_review/3
+    )
+  end
+
+  def update_check(conn, params) do
+    execute_outbound(
+      conn,
+      params,
+      :update_github_check,
+      :github_check_update,
+      "update_github_check",
+      &GitHubIntegration.update_check/3
+    )
+  end
+
+  defp execute_outbound(conn, params, input_kind, operation_kind, command, callback) do
+    with {:ok, parsed} <- Input.parse(input_kind, params),
+         {:ok, session_context} <- request_session(conn),
+         {idempotency_key, attrs} <- Map.pop!(parsed, :idempotency_key),
+         {:ok, operation} <-
+           Operations.start_command(session_context, operation_kind, idempotency_key, attrs),
+         {:ok, action} <- callback.(session_context, operation, attrs) do
+      Serializer.render(
+        conn,
+        command,
+        operation.id,
+        [%{type: "github_outbound_action", id: action.id}],
+        %{action: safe_action(action)}
+      )
+    else
+      error -> Errors.render(conn, error, command: command)
+    end
+  end
+
+  defp safe_action(action) do
+    Map.take(action, [
+      :id,
+      :installation_id,
+      :action_kind,
+      :target_type,
+      :target_id,
+      :expected_provider_version,
+      :state,
+      :provider_response_id,
+      :provider_response_version,
+      :failure_class,
+      :failure_code
+    ])
+  end
+
   defp request_session(conn) do
     conn
     |> Ash.PlugHelpers.get_actor()

@@ -6,12 +6,14 @@ defmodule OfficeGraph.GitHubIntegration do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.Audit,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
       OfficeGraph.Repo,
+      OfficeGraph.Revisions,
       OfficeGraph.SoftwareProving,
       OfficeGraph.WorkGraph
     ],
@@ -24,6 +26,8 @@ defmodule OfficeGraph.GitHubIntegration do
   alias OfficeGraph.GitHubIntegration.{
     Installation,
     InstallationCredential,
+    Health,
+    OutboundCommands,
     PermissionEntry,
     PermissionSnapshot,
     Reconciler,
@@ -40,6 +44,15 @@ defmodule OfficeGraph.GitHubIntegration do
 
   def reconcile(operation, %ReconciliationRequest{} = request),
     do: Reconciler.reconcile(operation, request)
+
+  def reply_to_review(session_context, operation, attrs),
+    do: OutboundCommands.reply_to_review(session_context, operation, attrs)
+
+  def update_check(session_context, operation, attrs),
+    do: OutboundCommands.update_check(session_context, operation, attrs)
+
+  def integration_health(session_context, installation_id, opts \\ []),
+    do: Health.read(session_context, installation_id, opts)
 
   def bind_installation(session_context, attrs) when is_map(attrs) do
     with {:ok, idempotency_key} <- required_string(attrs, :idempotency_key),

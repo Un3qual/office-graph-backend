@@ -91,6 +91,8 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.InstallationCredential},
     "github_sync_outcomes" =>
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.SyncOutcome},
+    "github_outbound_actions" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.OutboundAction},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
     "relationship_definitions" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},
@@ -279,6 +281,9 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_installation_purpose: [:installation_id, :purpose]
     },
     OfficeGraph.GitHubIntegration.SyncOutcome => %{
+      unique_operation: [:operation_id]
+    },
+    OfficeGraph.GitHubIntegration.OutboundAction => %{
       unique_operation: [:operation_id]
     },
     OfficeGraph.DurableDelivery.DomainEvent => %{event_key: [:event_key]},

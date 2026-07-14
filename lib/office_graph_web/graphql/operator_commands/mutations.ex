@@ -15,6 +15,16 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
       resolve(&GitHub.bind_installation/2)
     end
 
+    field :reply_to_github_review, non_null(:github_outbound_action_payload) do
+      arg(:input, non_null(:reply_to_github_review_input))
+      resolve(&GitHub.reply_to_review/2)
+    end
+
+    field :update_github_check, non_null(:github_outbound_action_payload) do
+      arg(:input, non_null(:update_github_check_input))
+      resolve(&GitHub.update_check/2)
+    end
+
     field :submit_manual_intake, non_null(:submit_manual_intake_payload) do
       arg(:input, non_null(:submit_manual_intake_input))
       resolve(&Intake.submit/2)

@@ -68,6 +68,13 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       require_atomic? false
       public? false
     end
+
+    update :set_lifecycle do
+      accept [:lifecycle_state]
+      validate one_of(:lifecycle_state, ~w(active suspended revoked))
+      require_atomic? false
+      public? false
+    end
   end
 
   identities do
@@ -121,5 +128,6 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
     has_many :permission_snapshots, OfficeGraph.GitHubIntegration.PermissionSnapshot
     has_many :credential_bindings, OfficeGraph.GitHubIntegration.InstallationCredential
     has_many :sync_outcomes, OfficeGraph.GitHubIntegration.SyncOutcome
+    has_many :outbound_actions, OfficeGraph.GitHubIntegration.OutboundAction
   end
 end

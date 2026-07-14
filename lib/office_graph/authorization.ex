@@ -37,6 +37,8 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
     github_installation_bind: "github.installation.bind",
+    github_review_reply: "github.review.reply",
+    github_check_update: "github.check.update",
     verification_waive: "verification.waive"
   }
 

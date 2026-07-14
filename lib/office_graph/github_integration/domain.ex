@@ -9,5 +9,6 @@ defmodule OfficeGraph.GitHubIntegration.Domain do
     resource OfficeGraph.GitHubIntegration.PermissionEntry
     resource OfficeGraph.GitHubIntegration.InstallationCredential
     resource OfficeGraph.GitHubIntegration.SyncOutcome
+    resource OfficeGraph.GitHubIntegration.OutboundAction
   end
 end

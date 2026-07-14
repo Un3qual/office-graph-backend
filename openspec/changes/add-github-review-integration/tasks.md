@@ -25,9 +25,9 @@
 
 ## 6. Outbound Actions And Health
 
-- [ ] 6.1 Add failing tests for authorized/idempotent review replies and status/check updates, unsupported repository writes, permission/credential failures, retry/terminal classification, and provider response provenance.
-- [ ] 6.2 Implement narrow outbound commands/workers and keep GitHub clients unreachable from resolvers, agents, and unrelated domains.
-- [ ] 6.3 Add failing health/query-count tests, then implement bounded installation, sync, retry, credential, and terminal-state GraphQL/JSON projections.
+- [x] 6.1 Add failing tests for authorized/idempotent review replies and status/check updates, unsupported repository writes, permission/credential failures, retry/terminal classification, and provider response provenance.
+- [x] 6.2 Implement narrow outbound commands/workers and keep GitHub clients unreachable from resolvers, agents, and unrelated domains.
+- [x] 6.3 Add failing health/query-count tests, then implement bounded installation, sync, retry, credential, and terminal-state GraphQL/JSON projections.
 
 ## 7. Verification And Archive
 

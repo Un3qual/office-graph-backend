@@ -494,6 +494,38 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
   end
 
+  object :github_integration_permission_health do
+    field :name, non_null(:string)
+    field :access_level, non_null(:string)
+  end
+
+  object :github_integration_credential_health do
+    field :purpose, non_null(:string)
+    field :status, :string
+  end
+
+  object :github_integration_failure_health do
+    field :kind, non_null(:string)
+    field :class, non_null(:string)
+    field :code, non_null(:string)
+    field :occurred_at, non_null(:datetime)
+  end
+
+  object :github_integration_health do
+    field :installation_id, non_null(:id)
+    field :lifecycle, non_null(:string)
+    field :account_login, non_null(:string)
+    field :permission_posture, non_null(:string)
+    field :permissions, non_null(list_of(non_null(:github_integration_permission_health)))
+    field :credential_posture, non_null(:string)
+    field :credentials, non_null(list_of(non_null(:github_integration_credential_health)))
+    field :last_success_at, :datetime
+    field :retryable_count, non_null(:integer)
+    field :terminal_count, non_null(:integer)
+    field :remediation_code, :string
+    field :recent_failures, non_null(list_of(non_null(:github_integration_failure_health)))
+  end
+
   input_object :operator_packet_readiness_input do
     field :title, :string
     field :objective, :string
