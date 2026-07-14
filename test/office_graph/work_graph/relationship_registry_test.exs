@@ -1,6 +1,7 @@
 defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
   use OfficeGraph.DataCase, async: true
 
+  alias OfficeGraph.{Repo, WorkGraph.RelationshipDefinition}
   alias OfficeGraph.WorkGraph.RelationshipDefinitions
 
   @canonical_keys ~w(
@@ -49,5 +50,46 @@ defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
   test "unknown keys fail with a stable error" do
     assert {:error, {:unknown_relationship_definition, "invented"}} =
              RelationshipDefinitions.fetch_by_key("invented")
+  end
+
+  test "registry policy domains are enforced by Ash and PostgreSQL" do
+    provenance = Ash.Resource.Info.attribute(RelationshipDefinition, :provenance_policy)
+    authorization = Ash.Resource.Info.attribute(RelationshipDefinition, :authorization_policy)
+
+    assert {:ok, "operation_required"} =
+             Ash.Type.apply_constraints(
+               :string,
+               "operation_required",
+               provenance.constraints
+             )
+
+    assert {:error, _error} =
+             Ash.Type.apply_constraints(:string, "invented", provenance.constraints)
+
+    assert {:ok, "authorize_scope_and_endpoints"} =
+             Ash.Type.apply_constraints(
+               :string,
+               "authorize_scope_and_endpoints",
+               authorization.constraints
+             )
+
+    assert {:error, _error} =
+             Ash.Type.apply_constraints(:string, "invented", authorization.constraints)
+
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT conname
+      FROM pg_constraint
+      WHERE conname IN (
+        'relationship_definitions_provenance_policy_valid',
+        'relationship_definitions_authorization_policy_valid'
+      )
+      ORDER BY conname
+      """)
+
+    assert List.flatten(rows) == [
+             "relationship_definitions_authorization_policy_valid",
+             "relationship_definitions_provenance_policy_valid"
+           ]
   end
 end

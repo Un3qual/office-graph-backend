@@ -51,6 +51,20 @@ defmodule OfficeGraphWeb.RelationshipJsonTest do
            }
   end
 
+  test "rejects relationship limits outside the shared page-size contract", %{conn: conn} do
+    context = seed_cross_workspace_relationship!()
+
+    response =
+      conn
+      |> Ash.PlugHelpers.set_actor(context.visible_scope.session)
+      |> get(
+        "/api/v1/graph-items/#{context.visible_item.id}/relationships",
+        limit: "101"
+      )
+
+    assert response.status == 422
+  end
+
   defp seed_cross_workspace_relationship! do
     suffix = System.unique_integer([:positive])
 
@@ -93,7 +107,6 @@ defmodule OfficeGraphWeb.RelationshipJsonTest do
           workspace_id: visible_scope.workspace.id,
           source_item_id: visible_item.id,
           target_item_id: hidden_item.id,
-          lifecycle: "active",
           asserting_principal_id: visible_scope.principal.id,
           operation_id: operation.id,
           valid_from: DateTime.utc_now()

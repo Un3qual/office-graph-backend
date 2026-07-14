@@ -2,14 +2,20 @@ defmodule OfficeGraph.WorkGraph.Queries do
   @moduledoc false
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, Signal, VerificationCheck}
+
+  alias OfficeGraph.WorkGraph.{
+    GraphItem,
+    GraphRelationship,
+    RelationshipView,
+    Signal,
+    VerificationCheck
+  }
 
   require Ash.Query
 
   def graphql_node_type(%Signal{}), do: :signal
 
-  def graphql_node_type(%{definition_key: _key, source: _source, target: _target}),
-    do: :graph_relationship_view
+  def graphql_node_type(%RelationshipView{}), do: :graph_relationship_view
 
   def graphql_node_type(_value), do: nil
 
@@ -81,7 +87,8 @@ defmodule OfficeGraph.WorkGraph.Queries do
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, %GraphItem{} = item} -> {:ok, item}
-      _result -> {:error, :forbidden}
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -142,12 +149,12 @@ defmodule OfficeGraph.WorkGraph.Queries do
     |> Ash.read(authorize?: false)
     |> case do
       {:ok, items} -> {:ok, Map.new(items, &{&1.id, &1})}
-      {:error, _error} -> {:error, :forbidden}
+      {:error, error} -> {:error, error}
     end
   end
 
   defp relationship_view(relationship, endpoints) do
-    %{
+    %RelationshipView{
       id: relationship.id,
       definition_key: relationship.definition.key,
       family: relationship.definition.family,
@@ -231,8 +238,8 @@ defmodule OfficeGraph.WorkGraph.Queries do
   defp normalize_lifecycle(_lifecycle),
     do: {:error, {:invalid_relationship_option, :lifecycle}}
 
-  defp normalize_limit(limit) when is_integer(limit),
-    do: {:ok, limit |> max(1) |> min(100)}
+  defp normalize_limit(limit) when is_integer(limit) and limit in 1..100,
+    do: {:ok, limit}
 
   defp normalize_limit(_limit),
     do: {:error, {:invalid_relationship_option, :limit}}

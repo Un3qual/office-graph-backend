@@ -18,8 +18,17 @@ defmodule OfficeGraph.WorkGraph.RelationshipDefinition do
     attribute :direction, :string, allow_nil?: false, public?: true
     attribute :meaning, :string, allow_nil?: false, public?: true
     attribute :lifecycle, :string, allow_nil?: false, public?: true
-    attribute :provenance_policy, :string, allow_nil?: false, public?: true
-    attribute :authorization_policy, :string, allow_nil?: false, public?: true
+
+    attribute :provenance_policy, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [match: ~r/\Aoperation_required\z/]
+
+    attribute :authorization_policy, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [match: ~r/\Aauthorize_scope_and_endpoints\z/]
+
     attribute :cycle_policy, :string, allow_nil?: false, public?: true
     attribute :specialization_posture, :string, allow_nil?: false, public?: true
 

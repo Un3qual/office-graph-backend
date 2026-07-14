@@ -544,7 +544,6 @@ defmodule OfficeGraph.WorkGraph.AshScopeAuthorizationTest do
                  workspace_id: actor_scope.workspace.id,
                  source_item_id: source.id,
                  target_item_id: target.id,
-                 lifecycle: "active",
                  asserting_principal_id: actor_scope.principal.id,
                  operation_id: operation.id,
                  valid_from: DateTime.utc_now()

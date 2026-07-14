@@ -3,8 +3,10 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
 
   alias OfficeGraph.{Foundation, Operations, Repo}
 
-  @migration_version 20_260_713_101_000
-  @migration_module OfficeGraph.Repo.Migrations.TypeGraphRelationships
+  @typed_migration_version 20_260_713_101_000
+  @typed_migration_module OfficeGraph.Repo.Migrations.TypeGraphRelationships
+  @constraint_migration_version 20_260_713_103_000
+  @constraint_migration_module OfficeGraph.Repo.Migrations.HardenRelationshipPolicyConstraints
 
   test "all legacy edge values become canonical typed edges and roll back losslessly" do
     run_migration!(:down)
@@ -51,6 +53,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
     end
 
     refute column_exists?("graph_relationships", "relationship_type")
+    assert constraint_exists?("graph_relationships_lifecycle_window_valid")
 
     run_migration!(:down)
 
@@ -89,20 +92,47 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
     assert legacy_relationship!(relationship_id) == {source_id, target_id, "unknown_edge"}
   end
 
-  defp run_migration!(direction) do
-    path =
-      Application.app_dir(
-        :office_graph,
-        "priv/repo/migrations/20260713101000_type_graph_relationships.exs"
-      )
+  defp run_migration!(:down) do
+    run_migration!(
+      @constraint_migration_version,
+      @constraint_migration_module,
+      "20260713103000_harden_relationship_policy_constraints.exs",
+      :down
+    )
 
+    run_migration!(
+      @typed_migration_version,
+      @typed_migration_module,
+      "20260713101000_type_graph_relationships.exs",
+      :down
+    )
+  end
+
+  defp run_migration!(:up) do
+    run_migration!(
+      @typed_migration_version,
+      @typed_migration_module,
+      "20260713101000_type_graph_relationships.exs",
+      :up
+    )
+
+    run_migration!(
+      @constraint_migration_version,
+      @constraint_migration_module,
+      "20260713103000_harden_relationship_policy_constraints.exs",
+      :up
+    )
+  end
+
+  defp run_migration!(version, module, filename, direction) do
+    path = Application.app_dir(:office_graph, "priv/repo/migrations/#{filename}")
     Code.require_file(path)
 
     Ecto.Migration.Runner.run(
       Repo,
       Repo.config(),
-      @migration_version,
-      @migration_module,
+      version,
+      module,
       :forward,
       direction,
       direction,
@@ -329,6 +359,22 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
         )
         """,
         [table, column]
+      )
+
+    exists?
+  end
+
+  defp constraint_exists?(constraint) do
+    %{rows: [[exists?]]} =
+      Repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = $1
+        )
+        """,
+        [constraint]
       )
 
     exists?

@@ -72,6 +72,25 @@ defmodule OfficeGraphWeb.RelationshipGraphqlTest do
            }
   end
 
+  test "rejects relationship limits outside the shared page-size contract", %{conn: conn} do
+    context = seed_cross_workspace_relationship!()
+
+    response =
+      conn
+      |> Ash.PlugHelpers.set_actor(context.visible_scope.session)
+      |> post(~p"/graphql", %{
+        query: relationship_query(),
+        variables: %{
+          "itemId" => context.visible_item.id,
+          "limit" => 101
+        }
+      })
+      |> json_response(200)
+
+    refute response["errors"] in [nil, []]
+    assert response["data"]["graphRelationships"] == nil
+  end
+
   defp relationship_query do
     """
     query RelationshipGraph(
@@ -162,7 +181,6 @@ defmodule OfficeGraphWeb.RelationshipGraphqlTest do
           workspace_id: visible_scope.workspace.id,
           source_item_id: visible_item.id,
           target_item_id: hidden_item.id,
-          lifecycle: "active",
           asserting_principal_id: visible_scope.principal.id,
           operation_id: operation.id,
           valid_from: DateTime.utc_now()

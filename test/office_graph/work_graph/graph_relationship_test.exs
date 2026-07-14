@@ -29,6 +29,22 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     create = Ash.Resource.Info.action(GraphRelationship, :create)
     refute :relationship_type in create.accept
     refute :metadata in create.accept
+    refute :lifecycle in create.accept
+    refute :valid_until in create.accept
+
+    for action_name <- [:mark_superseded, :archive] do
+      action = Ash.Resource.Info.action(GraphRelationship, action_name)
+      refute :valid_until in action.accept
+    end
+
+    lifecycle = Ash.Resource.Info.attribute(GraphRelationship, :lifecycle)
+
+    for value <- ["active", "superseded", "archived", "tombstoned"] do
+      assert {:ok, ^value} = Ash.Type.apply_constraints(:string, value, lifecycle.constraints)
+    end
+
+    assert {:error, _error} =
+             Ash.Type.apply_constraints(:string, "invented", lifecycle.constraints)
 
     assert [:organization_id, :definition_id, :source_item_id, :target_item_id] ==
              Ash.Resource.Info.identity(GraphRelationship, :active_definition_edge).keys

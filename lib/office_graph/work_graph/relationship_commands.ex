@@ -89,21 +89,30 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
           |> validate_endpoints(definition, request)
           |> unwrap_or_rollback!()
 
+        existing_endpoints =
+          session_context
+          |> endpoints_for_relationship(locked)
+          |> unwrap_or_rollback!()
+
         validate_provenance_scope(session_context, request) |> rollback_on_error!()
 
-        authorize(session_context, operation, definition, endpoints, :supersede)
+        authorize(
+          session_context,
+          operation,
+          definition,
+          endpoints,
+          :supersede,
+          [existing_endpoints]
+        )
         |> rollback_on_error!()
 
         case locked.lifecycle do
           "active" ->
-            now = DateTime.utc_now()
-
             superseded =
               locked
               |> Support.ash_update_internal(:mark_superseded, %{
                 operation_id: operation.id,
-                asserting_principal_id: session_context.principal_id,
-                valid_until: now
+                asserting_principal_id: session_context.principal_id
               })
               |> Support.unwrap_ash()
 
@@ -152,10 +161,8 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
     {:error, {:invalid_relationship_request, :request}}
   end
 
-  def archive(session_context, operation, %GraphRelationship{} = relationship, attrs) do
+  def archive(session_context, operation, %GraphRelationship{} = relationship, _attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation) do
-      valid_until = Map.get(Map.new(attrs || %{}), :valid_until, DateTime.utc_now())
-
       Support.transaction(fn ->
         locked = lock_relationship!(relationship.id)
         validate_relationship_scope(session_context, locked) |> rollback_on_error!()
@@ -182,8 +189,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
               locked
               |> Support.ash_update_internal(:archive, %{
                 operation_id: operation.id,
-                asserting_principal_id: session_context.principal_id,
-                valid_until: valid_until
+                asserting_principal_id: session_context.principal_id
               })
               |> Support.unwrap_ash()
 
@@ -332,7 +338,14 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
     end)
   end
 
-  defp authorize(session_context, operation, definition, endpoints, action) do
+  defp authorize(
+         session_context,
+         operation,
+         definition,
+         endpoints,
+         action,
+         additional_endpoint_sets \\ []
+       ) do
     authorization_action = RelationshipOperationPolicy.authorization_action(operation, action)
 
     with :ok <-
@@ -342,13 +355,20 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
              authorization_action,
              organization_id: session_context.organization_id
            ) do
-      authorize_cross_workspace(session_context, operation, definition, endpoints)
+      authorize_cross_workspace(
+        session_context,
+        operation,
+        definition,
+        [endpoints | additional_endpoint_sets]
+      )
     end
   end
 
-  defp authorize_cross_workspace(session_context, operation, _definition, endpoints) do
-    if endpoints.source.workspace_id == session_context.workspace_id and
-         endpoints.target.workspace_id == session_context.workspace_id do
+  defp authorize_cross_workspace(session_context, operation, _definition, endpoint_sets) do
+    if Enum.all?(endpoint_sets, fn endpoints ->
+         endpoints.source.workspace_id == session_context.workspace_id and
+           endpoints.target.workspace_id == session_context.workspace_id
+       end) do
       :ok
     else
       Authorization.authorize_operation(
@@ -367,26 +387,34 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
          request,
          supersedes_relationship_id
        ) do
-    GraphRelationship
-    |> Support.ash_create_internal(
-      %{
-        id: Ecto.UUID.generate(),
-        definition_id: definition.id,
-        organization_id: session_context.organization_id,
-        workspace_id: request.workspace_id || session_context.workspace_id,
-        source_item_id: request.source_item_id,
-        target_item_id: request.target_item_id,
-        lifecycle: "active",
-        asserting_principal_id: session_context.principal_id,
-        operation_id: operation.id,
-        valid_from: request.valid_from || DateTime.utc_now(),
-        run_id: request.run_id,
-        integration_event_id: request.integration_event_id,
-        supersedes_relationship_id: supersedes_relationship_id
-      },
-      persistence_options(supersedes_relationship_id)
-    )
-    |> Support.unwrap_ash()
+    governing_workspace_id = request.workspace_id || session_context.workspace_id
+
+    relationship =
+      GraphRelationship
+      |> Support.ash_create_internal(
+        %{
+          id: Ecto.UUID.generate(),
+          definition_id: definition.id,
+          organization_id: session_context.organization_id,
+          workspace_id: governing_workspace_id,
+          source_item_id: request.source_item_id,
+          target_item_id: request.target_item_id,
+          asserting_principal_id: session_context.principal_id,
+          operation_id: operation.id,
+          valid_from: request.valid_from || DateTime.utc_now(),
+          run_id: request.run_id,
+          integration_event_id: request.integration_event_id,
+          supersedes_relationship_id: supersedes_relationship_id
+        },
+        persistence_options(supersedes_relationship_id)
+      )
+      |> Support.unwrap_ash()
+
+    if relationship.workspace_id == governing_workspace_id do
+      relationship
+    else
+      Repo.rollback({:relationship_governing_scope_conflict, :workspace_id})
+    end
   end
 
   defp persistence_options(nil) do

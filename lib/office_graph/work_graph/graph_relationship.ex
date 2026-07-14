@@ -23,7 +23,12 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     attribute :workspace_id, :uuid, public?: true
     attribute :source_item_id, :uuid, allow_nil?: false, public?: true
     attribute :target_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :lifecycle, :string, allow_nil?: false, public?: true
+
+    attribute :lifecycle, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [match: ~r/\A(active|superseded|archived|tombstoned)\z/]
+
     attribute :asserting_principal_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :valid_from, :utc_datetime_usec, allow_nil?: false, public?: true
@@ -106,11 +111,9 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
         :workspace_id,
         :source_item_id,
         :target_item_id,
-        :lifecycle,
         :asserting_principal_id,
         :operation_id,
         :valid_from,
-        :valid_until,
         :run_id,
         :integration_event_id,
         :supersedes_relationship_id,
@@ -118,18 +121,22 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       ]
 
       change OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints
+      change set_attribute(:lifecycle, "active")
+      change set_attribute(:valid_until, nil)
     end
 
     update :mark_superseded do
       public? false
-      accept [:operation_id, :asserting_principal_id, :valid_until]
+      accept [:operation_id, :asserting_principal_id]
       change set_attribute(:lifecycle, "superseded")
+      change set_attribute(:valid_until, &DateTime.utc_now/0)
     end
 
     update :archive do
       public? false
-      accept [:operation_id, :asserting_principal_id, :valid_until]
+      accept [:operation_id, :asserting_principal_id]
       change set_attribute(:lifecycle, "archived")
+      change set_attribute(:valid_until, &DateTime.utc_now/0)
     end
 
     update :restore do

@@ -88,6 +88,17 @@ defmodule OfficeGraph.WorkGraph.RelationshipQueriesTest do
            }
 
     assert view.target == %{visibility: :redacted}
+    assert Map.get(view, :__struct__) == OfficeGraph.WorkGraph.RelationshipView
+  end
+
+  test "relationship node dispatch requires the canonical view type" do
+    assert is_nil(
+             Queries.graphql_node_type(%{
+               definition_key: "depends_on",
+               source: %{},
+               target: %{}
+             })
+           )
   end
 
   test "direction, definition, lifecycle, and limit filters are applied before projection",
@@ -161,6 +172,27 @@ defmodule OfficeGraph.WorkGraph.RelationshipQueriesTest do
              )
   end
 
+  test "invalid relationship limits are rejected instead of silently clamped", context do
+    for limit <- [0, -1, 101] do
+      assert {:error, {:invalid_relationship_option, :limit}} =
+               WorkGraph.list_relationships(
+                 context.visible_scope.session,
+                 context.visible_item.id,
+                 limit: limit
+               )
+    end
+  end
+
+  test "item lookup failures are not reported as authorization denials", context do
+    assert {:error, error} =
+             WorkGraph.list_relationships(
+               context.visible_scope.session,
+               "not-a-uuid"
+             )
+
+    refute error == :forbidden
+  end
+
   test "lookup by relationship id hides metadata when neither endpoint is visible", context do
     second_hidden_item =
       insert_graph_item!(context.hidden_scope, "task", "Second hidden relationship item")
@@ -209,7 +241,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipQueriesTest do
         workspace_id: bootstrap.workspace.id,
         source_item_id: source.id,
         target_item_id: target.id,
-        lifecycle: "active",
         asserting_principal_id: bootstrap.principal.id,
         operation_id: operation.id,
         valid_from: DateTime.utc_now()
