@@ -26,6 +26,7 @@ defmodule OfficeGraph.Operations do
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    github_installation_bind: "github.installation.bind",
     integration_reconcile: "integration.reconcile",
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"

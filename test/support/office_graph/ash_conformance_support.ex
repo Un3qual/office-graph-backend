@@ -52,6 +52,8 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "raw_archives" => {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.RawArchive},
     "normalized_intake_events" =>
       {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.NormalizedIntakeEvent},
+    "integration_credentials" =>
+      {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.IntegrationCredential},
     "external_references" =>
       {OfficeGraph.ExternalRefs.Domain, OfficeGraph.ExternalRefs.ExternalReference},
     "repositories" =>
@@ -79,6 +81,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
        OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension},
     "github_check_runs" =>
       {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.GitHub.CheckRunExtension},
+    "github_installations" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.Installation},
+    "github_permission_snapshots" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.PermissionSnapshot},
+    "github_permission_entries" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.PermissionEntry},
+    "github_installation_credentials" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.InstallationCredential},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
     "relationship_definitions" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},
@@ -244,6 +254,22 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{unique_node_id: [:node_id]},
     OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{unique_node_id: [:node_id]},
     OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{unique_node_id: [:node_id]},
+    OfficeGraph.Integrations.IntegrationCredential => %{
+      unique_scope_reference: [:organization_id, :kind, :secret_reference]
+    },
+    OfficeGraph.GitHubIntegration.Installation => %{
+      unique_external_installation: [:external_installation_id],
+      unique_operation: [:operation_id]
+    },
+    OfficeGraph.GitHubIntegration.PermissionSnapshot => %{
+      unique_installation_version: [:installation_id, :version]
+    },
+    OfficeGraph.GitHubIntegration.PermissionEntry => %{
+      unique_snapshot_name: [:permission_snapshot_id, :name]
+    },
+    OfficeGraph.GitHubIntegration.InstallationCredential => %{
+      unique_installation_purpose: [:installation_id, :purpose]
+    },
     OfficeGraph.DurableDelivery.DomainEvent => %{event_key: [:event_key]},
     OfficeGraph.Content.DocumentBlock => %{
       unique_document_position: [:document_id, :position]

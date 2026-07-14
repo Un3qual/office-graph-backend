@@ -10,8 +10,8 @@
 
 ## 3. Installation, Principals, And Secrets
 
-- [ ] 3.1 Add failing tests for authorized installation binding, backend service/webhook principals, permission snapshots, credential metadata, cross-tenant rejection, and secret non-disclosure.
-- [ ] 3.2 Implement installation binding GraphQL/JSON commands, credential references, `SecretStore` behavior, deterministic test adapter, and environment-backed development adapter.
+- [x] 3.1 Add failing tests for authorized installation binding, backend service/webhook principals, permission snapshots, credential metadata, cross-tenant rejection, and secret non-disclosure.
+- [x] 3.2 Implement installation binding GraphQL/JSON commands, credential references, `SecretStore` behavior, deterministic test adapter, and environment-backed development adapter.
 
 ## 4. Verified Webhook Receipt
 

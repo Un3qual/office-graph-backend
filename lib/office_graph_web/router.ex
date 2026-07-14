@@ -31,6 +31,10 @@ defmodule OfficeGraphWeb.Router do
          JsonApi.OperatorCommands.IntakeController,
          :submit_manual_intake
 
+    post "/v1/commands/bind-github-installation",
+         JsonApi.OperatorCommands.GitHubController,
+         :bind_installation
+
     post "/v1/commands/apply-proposed-changes",
          JsonApi.OperatorCommands.IntakeController,
          :apply_proposed_changes

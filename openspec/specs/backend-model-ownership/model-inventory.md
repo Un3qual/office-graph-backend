@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 61 tables.
+Derived from committed migrations; expected count: 66 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -33,6 +33,7 @@ Derived from committed migrations; expected count: 61 tables.
 | `external_sources` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.ExternalSource` |
 | `raw_archives` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.RawArchive` |
 | `normalized_intake_events` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.NormalizedIntakeEvent` |
+| `integration_credentials` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.IntegrationCredential` |
 | `external_references` | `OfficeGraph.ExternalRefs.Domain` | `OfficeGraph.ExternalRefs.ExternalReference` |
 | `repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Repository` |
 | `repository_refs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.RepositoryRef` |
@@ -46,6 +47,10 @@ Derived from committed migrations; expected count: 61 tables.
 | `github_review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension` |
 | `github_review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension` |
 | `github_check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.CheckRunExtension` |
+| `github_installations` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.Installation` |
+| `github_permission_snapshots` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.PermissionSnapshot` |
+| `github_permission_entries` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.PermissionEntry` |
+| `github_installation_credentials` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.InstallationCredential` |
 | `graph_items` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.GraphItem` |
 | `relationship_definitions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipDefinition` |
 | `relationship_endpoint_rules` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipEndpointRule` |
@@ -72,7 +77,7 @@ Derived from committed migrations; expected count: 61 tables.
 
 These resources are accepted or active design commitments that are not yet
 implemented in committed migrations. They remain separate from the implemented
-47-table inventory so the architecture gate does not treat the walking skeleton
+66-table inventory so the architecture gate does not treat the walking skeleton
 as the complete MVP persistence model.
 
 | Table | Owning domain | Canonical Ash resource | Source | Implementation status |

@@ -2,6 +2,18 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
   @moduledoc false
 
   @fields %{
+    bind_github_installation: [
+      idempotency_key: :string,
+      external_installation_id: :string,
+      app_slug: :string,
+      account_login: :string,
+      account_type: :string,
+      service_principal_email: :string,
+      webhook_principal_email: :string,
+      webhook_secret_reference: :string,
+      app_private_key_reference: :string,
+      permissions: :github_permissions
+    ],
     submit_manual_intake: [
       idempotency_key: :string,
       source_identity: :string,
@@ -122,6 +134,32 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
     else
       :error -> {:error, {:invalid_field, key}}
       error -> error
+    end
+  end
+
+  defp required(params, key, :github_permissions) do
+    case fetch(params, key) do
+      permissions when is_list(permissions) and permissions != [] ->
+        permissions
+        |> Enum.reduce_while({:ok, []}, fn permission, {:ok, parsed} ->
+          with true <- is_map(permission),
+               {:ok, name} <- required(permission, :name, :string),
+               {:ok, access_level} <- required(permission, :access_level, :string) do
+            {:cont, {:ok, [%{name: name, access_level: access_level} | parsed]}}
+          else
+            _error -> {:halt, {:error, {:invalid_field, key}}}
+          end
+        end)
+        |> case do
+          {:ok, parsed} -> {:ok, parsed |> Enum.reverse() |> Enum.sort_by(& &1.name)}
+          error -> error
+        end
+
+      nil ->
+        {:error, {:missing_field, key}}
+
+      _other ->
+        {:error, {:invalid_field, key}}
     end
   end
 

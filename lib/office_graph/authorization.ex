@@ -36,6 +36,7 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_supersede: "graph_relationship.supersede",
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
+    github_installation_bind: "github.installation.bind",
     verification_waive: "verification.waive"
   }
 

@@ -7,5 +7,6 @@ defmodule OfficeGraph.Integrations.Domain do
     resource OfficeGraph.Integrations.ExternalSource
     resource OfficeGraph.Integrations.RawArchive
     resource OfficeGraph.Integrations.NormalizedIntakeEvent
+    resource OfficeGraph.Integrations.IntegrationCredential
   end
 end

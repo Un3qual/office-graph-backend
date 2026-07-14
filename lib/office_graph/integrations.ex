@@ -11,7 +11,7 @@ defmodule OfficeGraph.Integrations do
       OfficeGraph.ProposedChanges,
       OfficeGraph.Repo
     ],
-    exports: []
+    exports: [IntegrationCredential]
 
   require Ash.Query
 

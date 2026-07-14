@@ -111,6 +111,24 @@ defmodule OfficeGraph.Identity do
 
   def active_system_principal?(_principal_id), do: false
 
+  def ensure_system_principal(email, kind)
+      when is_binary(email) and kind in ["service", "webhook"] do
+    principal =
+      get_or_create!(
+        Principal,
+        [email: email],
+        %{email: email, kind: kind, status: "active"}
+      )
+
+    if principal.kind == kind and principal.status == "active" do
+      {:ok, principal}
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def ensure_system_principal(_email, _kind), do: {:error, :forbidden}
+
   defp active_principal?(principal_id) do
     match?(
       {:ok, %Principal{status: "active"}},
