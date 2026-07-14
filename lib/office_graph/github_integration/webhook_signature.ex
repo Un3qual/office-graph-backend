@@ -7,7 +7,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookSignature do
 
     with {:ok, supplied} <- Base.decode16(supplied_hex, case: :mixed),
          true <- byte_size(supplied) == byte_size(expected),
-         true <- Plug.Crypto.secure_compare(supplied, expected) do
+         true <- :crypto.hash_equals(supplied, expected) do
       :ok
     else
       _reason -> {:error, :invalid_signature}

@@ -159,56 +159,60 @@ defmodule OfficeGraph.Authorization do
       when is_binary(principal_id) and is_binary(organization_id) and is_list(actions) do
     with true <- Identity.active_system_principal?(principal_id),
          {:ok, capability_keys} <- system_capability_keys(actions) do
-      Repo.transaction(fn ->
-        role =
-          get_or_create!(
-            Role,
-            [organization_id: organization_id, key: "system:#{principal_id}"],
-            %{
-              organization_id: organization_id,
-              key: "system:#{principal_id}",
-              name: "System principal #{principal_id}"
-            }
-          )
-
-        Enum.each(capability_keys, fn capability_key ->
-          capability = ensure_capability!(capability_key)
-
-          get_or_create!(
-            RoleCapability,
-            [role_id: role.id, capability_id: capability.id],
-            %{role_id: role.id, capability_id: capability.id}
-          )
-        end)
-
-        get_or_create!(
-          RoleAssignment,
-          [
-            principal_id: principal_id,
-            role_id: role.id,
-            organization_id: organization_id,
-            workspace_id: workspace_id
-          ],
-          %{
-            principal_id: principal_id,
-            role_id: role.id,
-            organization_id: organization_id,
-            workspace_id: workspace_id
-          }
-        )
-
-        :ok
-      end)
-      |> case do
-        {:ok, :ok} -> :ok
-        {:error, _reason} -> {:error, :forbidden}
-      end
+      persist_system_role(principal_id, organization_id, workspace_id, capability_keys)
     else
       _error -> {:error, :forbidden}
     end
   end
 
   def ensure_system_role(_principal, _scope, _actions), do: {:error, :forbidden}
+
+  defp persist_system_role(principal_id, organization_id, workspace_id, capability_keys) do
+    Repo.transaction(fn ->
+      role =
+        get_or_create!(
+          Role,
+          [organization_id: organization_id, key: "system:#{principal_id}"],
+          %{
+            organization_id: organization_id,
+            key: "system:#{principal_id}",
+            name: "System principal #{principal_id}"
+          }
+        )
+
+      Enum.each(capability_keys, fn capability_key ->
+        capability = ensure_capability!(capability_key)
+
+        get_or_create!(
+          RoleCapability,
+          [role_id: role.id, capability_id: capability.id],
+          %{role_id: role.id, capability_id: capability.id}
+        )
+      end)
+
+      get_or_create!(
+        RoleAssignment,
+        [
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        ],
+        %{
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        }
+      )
+
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _reason} -> {:error, :forbidden}
+    end
+  end
 
   def authorize_projection(session_context, action, opts \\ [])
 
