@@ -59,7 +59,11 @@ defmodule OfficeGraph.WorkGraph.Queries do
 
         {:ok, relationship} ->
           with {:ok, endpoints} <- batch_authorized_endpoints(session_context, [relationship]) do
-            {:ok, relationship_view(relationship, endpoints)}
+            if visible_endpoint?(relationship, endpoints) do
+              {:ok, relationship_view(relationship, endpoints)}
+            else
+              {:ok, nil}
+            end
           end
 
         {:error, error} ->
@@ -160,6 +164,11 @@ defmodule OfficeGraph.WorkGraph.Queries do
       source: endpoint_view(relationship.source_item_id, endpoints),
       target: endpoint_view(relationship.target_item_id, endpoints)
     }
+  end
+
+  defp visible_endpoint?(relationship, endpoints) do
+    Map.has_key?(endpoints, relationship.source_item_id) or
+      Map.has_key?(endpoints, relationship.target_item_id)
   end
 
   defp endpoint_view(id, endpoints) do

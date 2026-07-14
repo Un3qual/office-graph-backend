@@ -1,9 +1,12 @@
 defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, Operations, WorkGraph}
+  alias OfficeGraph.{Foundation, Integrations, Operations, WorkGraph}
   alias OfficeGraph.Authorization.Capability
   alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest}
+
+  import OfficeGraph.TestSupport.WorkPacketCommandLoopSupport,
+    only: [create_ready_run: 2, create_required_verification_check: 1]
 
   setup do
     suffix = System.unique_integer([:positive])
@@ -106,6 +109,22 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
                context.session,
                context.operation,
                cross_workspace_request
+             )
+
+    second_other_workspace_item =
+      insert_graph_item!(other_scope, "task", "Second cross-workspace command task")
+
+    remote_only_request = %{
+      request
+      | source_item_id: other_workspace_item.id,
+        target_item_id: second_other_workspace_item.id
+    }
+
+    assert {:error, :forbidden} =
+             WorkGraph.create_relationship(
+               context.session,
+               context.operation,
+               remote_only_request
              )
   end
 
@@ -301,6 +320,213 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
     assert %DateTime{} = persisted_original.valid_until
   end
 
+  test "supersede rejects an already-active replacement without changing either edge", context do
+    third_task_item = insert_graph_item!(context.bootstrap, "task", "Existing replacement task")
+
+    original_request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    replacement_request = %{
+      original_request
+      | target_item_id: third_task_item.id
+    }
+
+    assert {:ok, original} =
+             WorkGraph.create_relationship(
+               context.session,
+               context.operation,
+               original_request
+             )
+
+    assert {:ok, existing_replacement} =
+             WorkGraph.create_relationship(
+               context.session,
+               context.operation,
+               replacement_request
+             )
+
+    {:ok, supersede_operation} =
+      Operations.start_operation(context.session, :graph_relationship_supersede)
+
+    assert {:error, _error} =
+             WorkGraph.supersede_relationship(
+               context.session,
+               supersede_operation,
+               original,
+               replacement_request
+             )
+
+    assert Ash.get!(GraphRelationship, original.id, authorize?: false).lifecycle == "active"
+
+    persisted_replacement =
+      Ash.get!(GraphRelationship, existing_replacement.id, authorize?: false)
+
+    assert persisted_replacement.lifecycle == "active"
+    assert is_nil(persisted_replacement.supersedes_relationship_id)
+    assert persisted_replacement.operation_id == context.operation.id
+  end
+
+  test "relationship provenance must exist in the governing relationship scope", context do
+    other_scope = bootstrap_other_workspace!(context, "Provenance")
+
+    {:ok, intake_operation} =
+      Operations.start_operation(other_scope.session, :manual_intake_submit)
+
+    assert {:ok, intake} =
+             Integrations.submit_manual_intake(other_scope.session, intake_operation, %{
+               source_identity: "manual:relationship-provenance",
+               replay_identity: "paste:#{System.unique_integer([:positive])}",
+               body: "Remote relationship provenance input."
+             })
+
+    {:ok, verification_check} = create_required_verification_check(other_scope.session)
+    {:ok, run_result} = create_ready_run(other_scope.session, verification_check)
+
+    base_request = %{
+      definition_key: "depends_on",
+      source_item_id: context.task_item.id,
+      target_item_id: context.other_task_item.id,
+      workspace_id: context.session.workspace_id
+    }
+
+    for {field, id} <- [
+          run_id: run_result.run.id,
+          integration_event_id: intake.normalized_event.id
+        ] do
+      request = base_request |> Map.put(field, id) |> RelationshipRequest.new!()
+
+      assert {:error, :forbidden} =
+               WorkGraph.create_relationship(context.session, context.operation, request)
+    end
+
+    remote_source = insert_graph_item!(other_scope, "task", "Scoped provenance source")
+    remote_target = insert_graph_item!(other_scope, "task", "Scoped provenance target")
+
+    {:ok, remote_operation} =
+      Operations.start_operation(other_scope.session, :graph_relationship_create)
+
+    scoped_request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: remote_source.id,
+        target_item_id: remote_target.id,
+        workspace_id: other_scope.session.workspace_id,
+        run_id: run_result.run.id,
+        integration_event_id: intake.normalized_event.id
+      })
+
+    assert {:ok, scoped_relationship} =
+             WorkGraph.create_relationship(
+               other_scope.session,
+               remote_operation,
+               scoped_request
+             )
+
+    assert scoped_relationship.run_id == run_result.run.id
+    assert scoped_relationship.integration_event_id == intake.normalized_event.id
+  end
+
+  test "lifecycle commands authorize the locked relationship instead of caller fields", context do
+    other_scope = bootstrap_other_workspace!(context, "Lifecycle")
+    source = insert_graph_item!(other_scope, "task", "Remote lifecycle source")
+    target = insert_graph_item!(other_scope, "task", "Remote lifecycle target")
+
+    {:ok, remote_create_operation} =
+      Operations.start_operation(other_scope.session, :graph_relationship_create)
+
+    remote_request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: source.id,
+        target_item_id: target.id,
+        workspace_id: other_scope.session.workspace_id
+      })
+
+    assert {:ok, remote_relationship} =
+             WorkGraph.create_relationship(
+               other_scope.session,
+               remote_create_operation,
+               remote_request
+             )
+
+    forged = forge_local_relationship(remote_relationship, context)
+
+    {:ok, local_archive_operation} =
+      Operations.start_operation(context.session, :graph_relationship_archive)
+
+    assert {:error, :forbidden} =
+             WorkGraph.archive_relationship(
+               context.session,
+               local_archive_operation,
+               forged,
+               %{}
+             )
+
+    assert Ash.get!(GraphRelationship, remote_relationship.id, authorize?: false).lifecycle ==
+             "active"
+
+    {:ok, remote_archive_operation} =
+      Operations.start_operation(other_scope.session, :graph_relationship_archive)
+
+    assert {:ok, archived} =
+             WorkGraph.archive_relationship(
+               other_scope.session,
+               remote_archive_operation,
+               remote_relationship,
+               %{}
+             )
+
+    {:ok, local_restore_operation} =
+      Operations.start_operation(context.session, :graph_relationship_restore)
+
+    assert {:error, :forbidden} =
+             WorkGraph.restore_relationship(
+               context.session,
+               local_restore_operation,
+               forge_local_relationship(archived, context),
+               %{}
+             )
+
+    assert Ash.get!(GraphRelationship, archived.id, authorize?: false).lifecycle == "archived"
+
+    {:ok, remote_restore_operation} =
+      Operations.start_operation(other_scope.session, :graph_relationship_restore)
+
+    assert {:ok, restored} =
+             WorkGraph.restore_relationship(
+               other_scope.session,
+               remote_restore_operation,
+               archived,
+               %{}
+             )
+
+    {:ok, local_supersede_operation} =
+      Operations.start_operation(context.session, :graph_relationship_supersede)
+
+    local_replacement =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    assert {:error, :forbidden} =
+             WorkGraph.supersede_relationship(
+               context.session,
+               local_supersede_operation,
+               forge_local_relationship(restored, context),
+               local_replacement
+             )
+
+    assert Ash.get!(GraphRelationship, restored.id, authorize?: false).lifecycle == "active"
+  end
+
   test "relationship resource exposes no direct public mutations" do
     public_mutations =
       GraphRelationship
@@ -324,5 +550,32 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
       action: :create,
       authorize?: false
     )
+  end
+
+  defp bootstrap_other_workspace!(context, label) do
+    suffix = System.unique_integer([:positive])
+
+    {:ok, scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: context.bootstrap.organization.name,
+        organization_slug: context.bootstrap.organization.slug,
+        workspace_name: "Relationship Commands #{label} Workspace #{suffix}",
+        workspace_slug: "relationship-commands-#{String.downcase(label)}-#{suffix}",
+        initiative_name: "Relationship Commands #{label} Initiative #{suffix}",
+        initiative_slug: "relationship-commands-#{String.downcase(label)}-#{suffix}",
+        owner_email: context.bootstrap.principal.email
+      )
+
+    scope
+  end
+
+  defp forge_local_relationship(relationship, context) do
+    %{
+      relationship
+      | organization_id: context.session.organization_id,
+        workspace_id: context.session.workspace_id,
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id
+    }
   end
 end

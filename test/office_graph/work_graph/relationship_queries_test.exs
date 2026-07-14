@@ -6,6 +6,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipQueriesTest do
   alias OfficeGraph.WorkGraph.{
     GraphItem,
     GraphRelationship,
+    Queries,
     RelationshipDefinitions
   }
 
@@ -157,6 +158,26 @@ defmodule OfficeGraph.WorkGraph.RelationshipQueriesTest do
                context.hidden_scope.session,
                context.visible_item.id,
                direction: :both
+             )
+  end
+
+  test "lookup by relationship id hides metadata when neither endpoint is visible", context do
+    second_hidden_item =
+      insert_graph_item!(context.hidden_scope, "task", "Second hidden relationship item")
+
+    hidden_relationship =
+      insert_relationship!(
+        context.visible_scope,
+        context.operation,
+        "depends_on",
+        insert_graph_item!(context.hidden_scope, "task", "Hidden relationship source"),
+        second_hidden_item
+      )
+
+    assert {:ok, nil} =
+             Queries.get_relationship(
+               context.visible_scope.session,
+               hidden_relationship.id
              )
   end
 

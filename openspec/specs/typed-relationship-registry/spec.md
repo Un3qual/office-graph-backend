@@ -1,7 +1,9 @@
 # typed-relationship-registry Specification
 
 ## Purpose
-TBD - created by archiving change implement-typed-graph-relationships. Update Purpose after archive.
+Define the canonical registry, endpoint compatibility rules, and administration
+boundary for typed graph relationships.
+
 ## Requirements
 ### Requirement: Relationship Definitions Are Relational And Canonical
 Office Graph SHALL store each accepted relationship definition as a typed,
