@@ -1,0 +1,32 @@
+defmodule OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension do
+  @moduledoc false
+
+  use OfficeGraph.SoftwareProving.ProviderExtension,
+    table: "github_review_threads",
+    accept: [:review_thread_id, :node_id]
+
+  attributes do
+    attribute :review_thread_id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      writable?: true,
+      public?: true
+
+    attribute :node_id, :string, allow_nil?: false, public?: true
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :review_thread, OfficeGraph.SoftwareProving.ReviewThread do
+      source_attribute :review_thread_id
+      destination_attribute :id
+      define_attribute? false
+      public? true
+    end
+  end
+
+  identities do
+    identity :unique_node_id, [:node_id]
+  end
+end

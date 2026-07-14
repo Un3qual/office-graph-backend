@@ -19,8 +19,19 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
 
   attributes do
     uuid_primary_key :id, writable?: true
+    attribute :organization_id, :uuid, public?: true
     attribute :source_id, :uuid, allow_nil?: false, public?: true
+    attribute :provider, :string, public?: true
+    attribute :object_type, :string, public?: true
     attribute :external_id, :string, allow_nil?: false, public?: true
+    attribute :url, :string, public?: true
+
+    attribute :sync_state, :string,
+      allow_nil?: false,
+      default: "synced",
+      public?: true
+
+    attribute :operation_id, :uuid, public?: true
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
 
@@ -35,7 +46,21 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
     end
 
     create :create do
-      accept [:id, :source_id, :external_id, :resource_type, :resource_id]
+      accept [
+        :id,
+        :organization_id,
+        :source_id,
+        :provider,
+        :object_type,
+        :external_id,
+        :url,
+        :sync_state,
+        :operation_id,
+        :resource_type,
+        :resource_id
+      ]
+
+      validate one_of(:sync_state, ~w(pending synced stale failed))
     end
   end
 

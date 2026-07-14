@@ -5,8 +5,8 @@
 
 ## 2. Provider-Neutral Software Resources
 
-- [ ] 2.1 Add failing resource/migration tests for repositories, refs, commits, pull requests, review threads/comments, check runs, provider versions, scope, lifecycle, and extension separation.
-- [ ] 2.2 Add provider-neutral SoftwareProving resources/domain/migrations, GitHub extension resources, external references, indexes, and backend/API ownership ledger entries.
+- [x] 2.1 Add failing resource/migration tests for repositories, refs, commits, pull requests, review threads/comments, check runs, provider versions, scope, lifecycle, and extension separation.
+- [x] 2.2 Add provider-neutral SoftwareProving resources/domain/migrations, GitHub extension resources, external references, indexes, and backend/API ownership ledger entries.
 
 ## 3. Installation, Principals, And Secrets
 

@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 47 tables.
+Derived from committed migrations; expected count: 61 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -34,6 +34,18 @@ Derived from committed migrations; expected count: 47 tables.
 | `raw_archives` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.RawArchive` |
 | `normalized_intake_events` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.NormalizedIntakeEvent` |
 | `external_references` | `OfficeGraph.ExternalRefs.Domain` | `OfficeGraph.ExternalRefs.ExternalReference` |
+| `repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Repository` |
+| `repository_refs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.RepositoryRef` |
+| `commits` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Commit` |
+| `pull_requests` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.PullRequest` |
+| `review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewThread` |
+| `review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewComment` |
+| `check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.CheckRun` |
+| `github_repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.RepositoryExtension` |
+| `github_pull_requests` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.PullRequestExtension` |
+| `github_review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension` |
+| `github_review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension` |
+| `github_check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.GitHub.CheckRunExtension` |
 | `graph_items` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.GraphItem` |
 | `relationship_definitions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipDefinition` |
 | `relationship_endpoint_rules` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipEndpointRule` |
@@ -70,13 +82,6 @@ as the complete MVP persistence model.
 | `decisions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Decision` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
 | `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
 | `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `repositories` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Repository` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `repository_refs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.RepositoryRef` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `commits` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Commit` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `pull_requests` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.PullRequest` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `review_threads` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewThread` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `review_comments` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ReviewComment` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
-| `check_runs` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.CheckRun` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
 | `issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Issue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
 | `observability_issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityIssue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
 | `observability_events` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityEvent` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
