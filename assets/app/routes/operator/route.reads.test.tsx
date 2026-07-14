@@ -282,7 +282,7 @@ describe("operator route reads", () => {
     const item = support.operatorWorkflowItem({
       relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn((request, variables): GraphQLResponse => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return support.workflowConnectionResponse([item], variables);
       }
@@ -364,7 +364,7 @@ describe("operator route reads", () => {
       commandAffordances: [proposalAffordance],
       relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn((request, variables): GraphQLResponse => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return support.workflowConnectionResponse([item], variables);
       }
