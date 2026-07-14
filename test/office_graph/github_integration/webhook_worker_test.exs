@@ -157,6 +157,177 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert outcome.retry_at == reset_at
   end
 
+  test "rate-limit snoozes cannot extend the fixed inbound attempt budget" do
+    context = worker_context("rate-limit-exhausted")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_rate_limit_exhausted", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-rate-limit-exhausted",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{
+      {"pull_request", "PR_worker_rate_limit_exhausted"} =>
+        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 60, :second)}}
+    })
+
+    job = webhook_job("delivery-worker-rate-limit-exhausted")
+    snoozed_job = %{job | attempt: 10, max_attempts: 19}
+
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(snoozed_job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "provider_rate_limited"
+    assert outcome.retry_at == nil
+  end
+
+  test "exhausted transient reconciliation persists a terminal outcome" do
+    context = worker_context("network-exhausted")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_network_exhausted", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-network-exhausted",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{
+      {"pull_request", "PR_worker_network_exhausted"} => {:error, :network_error}
+    })
+
+    job = webhook_job("delivery-worker-network-exhausted")
+    exhausted_job = %{job | attempt: 10, max_attempts: 10}
+
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(exhausted_job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "provider_unavailable"
+    assert outcome.retry_at == nil
+  end
+
+  test "exhausted reconciliation retains a terminalization-only retry phase" do
+    context = worker_context("terminalization-retry")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_terminalization_retry", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-terminalization-retry",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{
+      {"pull_request", "PR_worker_terminalization_retry"} => {:error, :network_error}
+    })
+
+    Repo.query!("""
+    ALTER TABLE github_sync_outcomes
+    ADD CONSTRAINT test_github_terminalization_retry
+    CHECK (state <> 'terminal')
+    """)
+
+    job = webhook_job("delivery-worker-terminalization-retry")
+    exhausted_job = %{job | attempt: 10, max_attempts: 10}
+
+    assert {:snooze, 5} = WebhookWorker.perform(exhausted_job)
+
+    terminalization_job = Repo.get!(Oban.Job, job.id)
+
+    assert %{
+             "terminal_failure_code" => "provider_unavailable",
+             "terminal_operation_id" => operation_id
+           } = terminalization_job.meta
+
+    assert is_binary(operation_id)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "retryable"
+
+    Repo.query!(
+      "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_terminalization_retry"
+    )
+
+    terminalization_job = Repo.get!(Oban.Job, job.id)
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(terminalization_job)
+
+    outcome = Ash.get!(SyncOutcome, outcome.id, authorize?: false)
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "provider_unavailable"
+  end
+
+  test "numeric webhook object ids match authoritative snapshot database ids" do
+    context = worker_context("database-id")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"id" => 602, "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-database-id",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{{"pull_request", "602"} => {:ok, snapshot()}})
+
+    assert :ok = WebhookWorker.perform(webhook_job("delivery-worker-database-id"))
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "reconciled"
+    assert outcome.object_type == "pull_request"
+    assert outcome.object_id == "602"
+  end
+
   defp worker_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     external_installation_id = System.unique_integer([:positive])

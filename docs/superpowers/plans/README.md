@@ -11,5 +11,6 @@ Current status:
 - Completed foundations:
   - `archive/2026-07-13-typed-graph-relationships.md`
   - `archive/2026-07-13-github-review-integration.md`
+  - `archive/2026-07-14-github-review-followup.md`
 - OpenSpec is the project workflow source of truth for new changes.
 - Completed OpenSpec changes are under `openspec/changes/archive/`.

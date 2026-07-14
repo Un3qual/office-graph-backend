@@ -206,6 +206,31 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Enum.map(health.recent_failures, & &1.code) == ["provider_rate_limited"]
   end
 
+  test "rate-limit snoozes cannot extend the fixed outbound attempt budget", context do
+    attrs = reply_attrs(context, "The provider remains rate limited.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:rate-limit-exhausted", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 30, :second)}}
+    })
+
+    job = job_for(action.id)
+    snoozed_job = %{job | attempt: 10, max_attempts: 19}
+
+    assert {:cancel, "attempts_exhausted"} = OutboundWorker.perform(snoozed_job)
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_class == "terminal"
+    assert action.failure_code == "provider_rate_limited"
+    assert %DateTime{} = action.completed_at
+  end
+
   test "exhausted transient retries persist a terminal action state", context do
     attrs = reply_attrs(context, "Retry budget is exhausted.")
     operation = command_operation!(context, :github_review_reply, "reply:exhausted", attrs)
@@ -222,6 +247,33 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.state == "terminal"
     assert action.failure_class == "terminal"
     assert action.failure_code == "provider_unavailable"
+    assert %DateTime{} = action.completed_at
+  end
+
+  test "an unavailable outbound adapter is classified as configuration", context do
+    configured = Application.fetch_env!(:office_graph, :github_adapter)
+
+    Application.put_env(
+      :office_graph,
+      :github_adapter,
+      OfficeGraph.GitHubIntegration.Adapter.Unavailable
+    )
+
+    on_exit(fn -> Application.put_env(:office_graph, :github_adapter, configured) end)
+
+    attrs = reply_attrs(context, "The adapter must be configured.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:adapter-unavailable", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert {:cancel, "adapter_unavailable"} = OutboundWorker.perform(job_for(action.id))
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_class == "configuration"
+    assert action.failure_code == "adapter_unavailable"
     assert %DateTime{} = action.completed_at
   end
 

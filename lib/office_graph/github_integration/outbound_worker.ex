@@ -1,9 +1,11 @@
 defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   @moduledoc false
 
+  @max_attempts 10
+
   use Oban.Worker,
     queue: :integrations,
-    max_attempts: 10,
+    max_attempts: @max_attempts,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
   alias OfficeGraph.{Audit, DurableDelivery, Repo, Revisions}
@@ -135,36 +137,51 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp record_adapter_result({:error, reason}, action, job) do
     {failure_class, failure_code, result} = classify(reason, job)
 
+    persisted_state = if match?({:cancel, _code}, result), do: :terminal, else: :retryable
+
     persisted_class =
       if result == {:cancel, "attempts_exhausted"}, do: :terminal, else: failure_class
 
-    persisted_class_string = Atom.to_string(persisted_class)
-
     updated =
       update_action!(action, %{
-        state: persisted_class_string,
-        failure_class: persisted_class_string,
+        state: Atom.to_string(persisted_state),
+        failure_class: Atom.to_string(persisted_class),
         failure_code: Atom.to_string(failure_code),
         attempted_at: DateTime.utc_now(),
-        completed_at: if(persisted_class == :terminal, do: DateTime.utc_now())
+        completed_at: if(persisted_state == :terminal, do: DateTime.utc_now())
       })
 
-    if persisted_class == :terminal, do: trace!(updated, "terminal")
+    if persisted_state == :terminal, do: trace!(updated, "terminal")
     result
   end
 
-  defp classify({:rate_limited, %DateTime{} = reset_at}, _job) do
-    delay = reset_at |> DateTime.diff(DateTime.utc_now(), :second) |> max(1) |> min(3_600)
-    {:retryable, :provider_rate_limited, {:snooze, delay}}
+  defp classify({:rate_limited, %DateTime{} = reset_at}, %Oban.Job{} = job) do
+    job = retry_budget(job)
+
+    result =
+      if job.attempt >= job.max_attempts do
+        {:cancel, "attempts_exhausted"}
+      else
+        delay = reset_at |> DateTime.diff(DateTime.utc_now(), :second) |> max(1) |> min(3_600)
+        {:snooze, delay}
+      end
+
+    {:retryable, :provider_rate_limited, result}
   end
 
   defp classify(reason, job)
        when reason in [:network_error, :provider_unavailable, :unavailable] do
     result =
-      DurableDelivery.normalize_worker_result({:error, {:retryable, :provider_unavailable}}, job)
+      DurableDelivery.normalize_worker_result(
+        {:error, {:retryable, :provider_unavailable}},
+        retry_budget(job)
+      )
 
     {:retryable, :provider_unavailable, result}
   end
+
+  defp classify(:adapter_unavailable, _job),
+    do: {:configuration, :adapter_unavailable, {:cancel, "adapter_unavailable"}}
 
   defp classify(:installation_revoked, _job),
     do: {:terminal, :installation_revoked, {:cancel, "installation_revoked"}}
@@ -177,6 +194,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   defp classify(_reason, _job),
     do: {:terminal, :invalid_provider_response, {:cancel, "invalid_provider_response"}}
+
+  defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
 
   defp update_action!(action, attrs) do
     action

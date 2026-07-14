@@ -1,9 +1,12 @@
 defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   @moduledoc false
 
+  @max_attempts 10
+  @terminal_retry_delay_seconds 5
+
   use Oban.Worker,
     queue: :integrations,
-    max_attempts: 10,
+    max_attempts: @max_attempts,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
   alias OfficeGraph.{DurableDelivery, Integrations, Operations}
@@ -16,6 +19,38 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   }
 
   require Ash.Query
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{
+        meta: %{
+          "terminal_failure_code" => failure_code,
+          "terminal_operation_id" => operation_id,
+          "terminal_installation_id" => installation_id,
+          "terminal_object_type" => object_type,
+          "terminal_object_id" => object_id,
+          "terminal_delivery_id" => delivery_id
+        }
+      })
+      when is_binary(failure_code) and is_binary(operation_id) and is_binary(installation_id) and
+             is_binary(object_type) and is_binary(object_id) and is_binary(delivery_id) do
+    with {:ok, failure_code} <- retry_failure_code(failure_code),
+         {:ok, request} <-
+           ReconciliationRequest.new(%{
+             installation_id: installation_id,
+             object_type: object_type,
+             object_id: object_id,
+             delivery_id: delivery_id
+           }),
+         {:ok, operation} <- Operations.lock_operation(operation_id) do
+      persist_terminal_failure(operation, request, failure_code)
+    else
+      {:error, :invalid_retry_failure_code} ->
+        {:cancel, "invalid_github_webhook_terminalization"}
+
+      {:error, _error} ->
+        retry_terminal_failure()
+    end
+  end
 
   @impl Oban.Worker
   def perform(
@@ -42,7 +77,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
          {:ok, operation} <- Operations.start_system_operation(operation_request) do
       operation
       |> Reconciler.reconcile(request)
-      |> normalize_result(job)
+      |> normalize_result(job, operation, request)
     else
       {:error, code} -> normalize_result({:error, {:terminal, safe_code(code)}}, job)
     end
@@ -153,17 +188,92 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     DurableDelivery.normalize_worker_result({:error, {:terminal, code}}, job)
   end
 
-  defp normalize_result({:error, {:retryable, _code, %DateTime{} = retry_at}}, job) do
+  defp normalize_result(result, job),
+    do: DurableDelivery.normalize_worker_result(result, job)
+
+  defp normalize_result(
+         {:error, {:retryable, code, %DateTime{} = retry_at}},
+         job,
+         operation,
+         request
+       ) do
+    job = retry_budget(job)
+
     if job.attempt >= job.max_attempts do
-      {:cancel, "attempts_exhausted"}
+      stage_and_persist_terminal_failure(job, operation, request, code)
     else
       delay = retry_at |> DateTime.diff(DateTime.utc_now(), :second) |> max(1) |> min(3_600)
       {:snooze, delay}
     end
   end
 
-  defp normalize_result(result, job),
-    do: DurableDelivery.normalize_worker_result(result, job)
+  defp normalize_result(
+         {:error, {:retryable, code}} = result,
+         job,
+         operation,
+         request
+       ) do
+    job = retry_budget(job)
+
+    case DurableDelivery.normalize_worker_result(result, job) do
+      {:cancel, "attempts_exhausted"} ->
+        stage_and_persist_terminal_failure(job, operation, request, code)
+
+      other ->
+        other
+    end
+  end
+
+  defp normalize_result(result, job, _operation, _request), do: normalize_result(result, job)
+
+  defp stage_and_persist_terminal_failure(job, operation, request, failure_code) do
+    case stage_terminal_failure(job, operation, request, failure_code) do
+      :ok -> persist_terminal_failure(operation, request, failure_code)
+      {:error, _error} -> retry_terminal_failure()
+    end
+  end
+
+  defp stage_terminal_failure(job, operation, request, failure_code) do
+    meta =
+      Map.merge(job.meta || %{}, %{
+        "terminal_failure_code" => Atom.to_string(failure_code),
+        "terminal_operation_id" => operation.id,
+        "terminal_installation_id" => request.installation_id,
+        "terminal_object_type" => request.object_type,
+        "terminal_object_id" => request.object_id,
+        "terminal_delivery_id" => request.delivery_id
+      })
+
+    case Oban.update_job(job, %{meta: meta}) do
+      {:ok, _updated_job} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  rescue
+    error in [
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error
+    ] ->
+      {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp persist_terminal_failure(operation, request, failure_code) do
+    case Reconciler.exhaust_retry(operation, request, failure_code) do
+      {:ok, _outcome} -> {:cancel, "attempts_exhausted"}
+      {:error, _error} -> retry_terminal_failure()
+    end
+  end
+
+  defp retry_terminal_failure, do: {:snooze, @terminal_retry_delay_seconds}
+
+  defp retry_failure_code("provider_rate_limited"), do: {:ok, :provider_rate_limited}
+  defp retry_failure_code("provider_unavailable"), do: {:ok, :provider_unavailable}
+  defp retry_failure_code(_code), do: {:error, :invalid_retry_failure_code}
+
+  defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
 
   defp safe_code(code) when is_atom(code), do: code
   defp safe_code(_code), do: :invalid_worker_result

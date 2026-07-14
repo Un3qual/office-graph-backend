@@ -7,7 +7,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
   alias OfficeGraph.SoftwareProving.PullRequest
 
-  test "concurrent reconciliation produces one canonical provider object" do
+  test "distinct webhook objects for one pull request produce one canonical provider object" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
     private_key_reference = "test-secret://github/concurrency/private-key"
@@ -30,14 +30,6 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
 
     credential = Enum.find(bound.credentials, &(&1.purpose == "app_private_key"))
 
-    request =
-      ReconciliationRequest.new!(%{
-        installation_id: bound.installation.id,
-        object_type: "pull_request",
-        object_id: "PR_concurrent",
-        delivery_id: "delivery-concurrent"
-      })
-
     snapshot = %Adapter.ReconciliationSnapshot{
       provider_version: "v1",
       provider_sequence: 1,
@@ -59,14 +51,47 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
         is_draft: false
       },
       review_threads: [],
-      review_comments: [],
-      check_runs: []
+      review_comments: [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: "PRRC_concurrent",
+          database_id: 503,
+          body: "Concurrent review comment",
+          state: "published"
+        }
+      ],
+      check_runs: [
+        %Adapter.CheckRunSnapshot{
+          node_id: "CR_concurrent",
+          database_id: 504,
+          name: "Concurrent check",
+          status: "completed",
+          conclusion: "success"
+        }
+      ]
     }
 
-    Provider.put(%{{"pull_request", "PR_concurrent"} => {:ok, snapshot}})
+    requests = [
+      ReconciliationRequest.new!(%{
+        installation_id: bound.installation.id,
+        object_type: "review_comment",
+        object_id: "PRRC_concurrent",
+        delivery_id: "delivery-concurrent-review-comment"
+      }),
+      ReconciliationRequest.new!(%{
+        installation_id: bound.installation.id,
+        object_type: "check_run",
+        object_id: "CR_concurrent",
+        delivery_id: "delivery-concurrent-check-run"
+      })
+    ]
+
+    Provider.put(%{
+      {"review_comment", "PRRC_concurrent"} => {:ok, snapshot},
+      {"check_run", "CR_concurrent"} => {:ok, snapshot}
+    })
 
     operations =
-      for suffix <- 1..2 do
+      Enum.map(requests, fn request ->
         {:ok, system_request} =
           Operations.new_system_operation_request(%{
             organization_id: bootstrap.organization.id,
@@ -74,19 +99,21 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
             principal_id: bound.installation.service_principal_id,
             action: :integration_reconcile,
             authority_basis: "github_installation:#{bound.installation.id}",
-            causation_key: "github_delivery:delivery-concurrent-#{suffix}",
+            causation_key: "github_delivery:#{request.delivery_id}",
             idempotency_scope: "github:object",
-            idempotency_key: "pull_request:PR_concurrent:v1:#{suffix}",
+            idempotency_key: "#{request.object_type}:#{request.object_id}:v1",
             credential_id: credential.credential_id
           })
 
         {:ok, operation} = Operations.start_system_operation(system_request)
-        operation
-      end
+        {operation, request}
+      end)
 
     results =
       operations
-      |> Enum.map(&Task.async(fn -> Reconciler.reconcile(&1, request) end))
+      |> Enum.map(fn {operation, request} ->
+        Task.async(fn -> Reconciler.reconcile(operation, request) end)
+      end)
       |> Task.await_many(10_000)
 
     assert Enum.all?(results, &match?({:ok, _outcome}, &1))

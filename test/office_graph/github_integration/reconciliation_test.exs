@@ -155,6 +155,71 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 0
   end
 
+  test "check snapshots enforce status and conclusion invariants before writes" do
+    invalid_checks = [
+      {"completed-without-conclusion",
+       %Adapter.CheckRunSnapshot{
+         node_id: "CR_completed_without_conclusion",
+         database_id: 501,
+         name: "Missing conclusion",
+         status: "completed",
+         conclusion: nil
+       }},
+      {"progress-with-conclusion",
+       %Adapter.CheckRunSnapshot{
+         node_id: "CR_progress_with_conclusion",
+         database_id: 502,
+         name: "Stale conclusion",
+         status: "in_progress",
+         conclusion: "failure"
+       }}
+    ]
+
+    for {label, check} <- invalid_checks do
+      context = reconciliation_context("invalid-check-#{label}")
+      pull_request_node_id = "PR_invalid_check_#{label}"
+      request = request(context, "pull_request", pull_request_node_id, "delivery-#{label}")
+      operation = reconciliation_operation!(context, request, label)
+
+      invalid_snapshot =
+        snapshot(1, "open", pull_request_node_id, "R_invalid_check_#{label}")
+        |> Map.put(:check_runs, [check])
+
+      Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, invalid_snapshot}})
+
+      assert {:error, {:terminal, :invalid_provider_response}} =
+               Reconciler.reconcile(operation, request)
+    end
+
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
+  test "review comments cannot reference absent review threads" do
+    context = reconciliation_context("missing-review-thread")
+    object_id = "PRRC_missing_review_thread"
+    request = request(context, "review_comment", object_id, "delivery-missing-review-thread")
+    operation = reconciliation_operation!(context, request, "missing-review-thread")
+
+    invalid_snapshot =
+      snapshot(1, "open", "PR_missing_review_thread", "R_missing_review_thread")
+      |> Map.put(:review_comments, [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: object_id,
+          database_id: 601,
+          review_thread_node_id: "PRRT_missing",
+          body: "This comment points to a thread outside the snapshot.",
+          state: "published"
+        }
+      ])
+
+    Provider.put(%{{"review_comment", object_id} => {:ok, invalid_snapshot}})
+
+    assert {:error, {:terminal, :invalid_provider_response}} =
+             Reconciler.reconcile(operation, request)
+
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
   test "non-pull-request deliveries require the requested object in the snapshot" do
     context = reconciliation_context("requested-object")
 

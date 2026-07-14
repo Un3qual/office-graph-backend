@@ -42,6 +42,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   @review_comment_states ~w(pending published minimized deleted)
   @check_statuses ~w(queued in_progress completed)
   @check_conclusions ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+  @retryable_failure_codes [:provider_rate_limited, :provider_unavailable]
 
   require Ash.Query
 
@@ -53,6 +54,21 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   def reconcile(_operation, _request), do: {:error, :forbidden}
+
+  def exhaust_retry(operation, %ReconciliationRequest{} = request, failure_code) do
+    if failure_code in @retryable_failure_codes do
+      with :ok <- Operations.validate_system_operation(operation, :integration_reconcile) do
+        Repo.transaction(fn ->
+          lock!("github:sync-outcome:#{operation.id}")
+          terminalize_retry!(operation.id, request, failure_code)
+        end)
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def exhaust_retry(_operation, _request, _failure_code), do: {:error, :forbidden}
 
   defp continue_or_replay(operation, request, nil),
     do: reconcile_provider(operation, request)
@@ -162,21 +178,27 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         unique_node_ids?(snapshot.review_threads) and
         unique_node_ids?(snapshot.review_comments) and
         unique_node_ids?(snapshot.check_runs) and
-        valid_comment_parents?(snapshot.review_comments)
+        valid_comment_parents?(snapshot.review_comments) and
+        valid_comment_threads?(snapshot.review_comments, snapshot.review_threads)
 
     if valid?, do: {:ok, snapshot}, else: {:error, {:provider, :invalid_provider_response}}
   end
 
   defp matching_root_object?(snapshot, %{object_type: "pull_request", object_id: object_id}),
-    do: snapshot.pull_request.node_id == object_id
+    do: provider_object_matches?(snapshot.pull_request, object_id)
 
   defp matching_root_object?(snapshot, %{object_type: "review_comment", object_id: object_id}),
-    do: Enum.any?(snapshot.review_comments, &(&1.node_id == object_id))
+    do: Enum.any?(snapshot.review_comments, &provider_object_matches?(&1, object_id))
 
   defp matching_root_object?(snapshot, %{object_type: "check_run", object_id: object_id}),
-    do: Enum.any?(snapshot.check_runs, &(&1.node_id == object_id))
+    do: Enum.any?(snapshot.check_runs, &provider_object_matches?(&1, object_id))
 
   defp matching_root_object?(_snapshot, _request), do: false
+
+  defp provider_object_matches?(object, object_id) do
+    object.node_id == object_id or
+      (is_integer(object.database_id) and Integer.to_string(object.database_id) == object_id)
+  end
 
   defp valid_repository?(%Adapter.RepositorySnapshot{} = repository) do
     nonblank_string?(repository.node_id) and optional_positive_integer?(repository.database_id) and
@@ -223,13 +245,21 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp valid_check_run?(%Adapter.CheckRunSnapshot{} = check) do
     nonblank_string?(check.node_id) and optional_positive_integer?(check.database_id) and
       optional_positive_integer?(check.check_suite_database_id) and nonblank_string?(check.name) and
-      check.status in @check_statuses and
-      (is_nil(check.conclusion) or check.conclusion in @check_conclusions) and
+      check.status in @check_statuses and valid_check_state?(check) and
       optional_string?(check.details_url) and optional_datetime?(check.started_at) and
       optional_datetime?(check.completed_at)
   end
 
   defp valid_check_run?(_check), do: false
+
+  defp valid_check_state?(%{status: "completed", conclusion: conclusion}),
+    do: conclusion in @check_conclusions
+
+  defp valid_check_state?(%{status: status, conclusion: nil})
+       when status in ~w(queued in_progress),
+       do: true
+
+  defp valid_check_state?(_check), do: false
 
   defp valid_collection?(items, validator) when is_list(items), do: Enum.all?(items, validator)
   defp valid_collection?(_items, _validator), do: false
@@ -246,6 +276,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       is_nil(comment.parent_comment_node_id) or
         (comment.parent_comment_node_id != comment.node_id and
            MapSet.member?(node_ids, comment.parent_comment_node_id))
+    end)
+  end
+
+  defp valid_comment_threads?(comments, threads) when is_list(comments) and is_list(threads) do
+    thread_node_ids = MapSet.new(threads, & &1.node_id)
+
+    Enum.all?(comments, fn comment ->
+      is_nil(comment.review_thread_node_id) or
+        MapSet.member?(thread_node_ids, comment.review_thread_node_id)
     end)
   end
 
@@ -883,6 +922,46 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       {:error, error} ->
         Repo.rollback(error)
     end
+  end
+
+  defp terminalize_retry!(operation_id, request, failure_code) do
+    case outcome_by_operation(operation_id) do
+      {:ok, %SyncOutcome{} = outcome} ->
+        if outcome_matches_request?(outcome, request) and
+             known_code(outcome.failure_code) == failure_code do
+          terminalize_retry_outcome!(outcome, failure_code)
+        else
+          Repo.rollback(:forbidden)
+        end
+
+      {:ok, nil} ->
+        Repo.rollback(:sync_outcome_not_found)
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp terminalize_retry_outcome!(%SyncOutcome{state: "retryable"} = outcome, failure_code) do
+    outcome
+    |> Ash.Changeset.for_update(:record_result, %{
+      state: "terminal",
+      failure_class: "terminal",
+      failure_code: Atom.to_string(failure_code),
+      retry_at: nil
+    })
+    |> Repo.ash_update!()
+  end
+
+  defp terminalize_retry_outcome!(%SyncOutcome{state: "terminal"} = outcome, _failure_code),
+    do: outcome
+
+  defp terminalize_retry_outcome!(_outcome, _failure_code),
+    do: Repo.rollback(:invalid_sync_outcome_state)
+
+  defp outcome_matches_request?(outcome, request) do
+    outcome.object_type == request.object_type and outcome.object_id == request.object_id and
+      outcome.delivery_id == request.delivery_id
   end
 
   defp lock!(key), do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
