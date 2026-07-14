@@ -40,6 +40,12 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       assert MapSet.member?(first.session.capabilities, "graph_relationship.restore")
       refute MapSet.member?(first.session.capabilities, "graph_relationship.cross_workspace")
 
+      assert Ash.get!(
+               OfficeGraph.Authorization.Capability,
+               %{key: "graph_relationship.cross_workspace"},
+               authorize?: false
+             )
+
       assert Ash.get!(OfficeGraph.Tenancy.Organization, first.organization.id, authorize?: false)
       assert Ash.get!(OfficeGraph.Tenancy.Workspace, first.workspace.id, authorize?: false)
       assert Ash.get!(OfficeGraph.Tenancy.Initiative, first.initiative.id, authorize?: false)

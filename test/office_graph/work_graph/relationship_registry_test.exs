@@ -92,4 +92,15 @@ defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
              "relationship_definitions_provenance_policy_valid"
            ]
   end
+
+  test "relationship validity starts cannot be later than persistence" do
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT conname
+      FROM pg_constraint
+      WHERE conname = 'graph_relationships_valid_from_not_future'
+      """)
+
+    assert List.flatten(rows) == ["graph_relationships_valid_from_not_future"]
+  end
 end

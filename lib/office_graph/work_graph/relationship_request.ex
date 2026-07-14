@@ -61,6 +61,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipRequest do
 
   @spec validate(t()) :: :ok | {:error, {:invalid_relationship_request, atom()}}
   def validate(%__MODULE__{} = request) do
+    with :ok <- validate_required_fields(request),
+         :ok <- validate_valid_from(request.valid_from) do
+      :ok
+    end
+  end
+
+  defp validate_required_fields(request) do
     Enum.find_value(
       [
         definition_key: request.definition_key,
@@ -74,6 +81,18 @@ defmodule OfficeGraph.WorkGraph.RelationshipRequest do
       end
     )
   end
+
+  defp validate_valid_from(nil), do: :ok
+
+  defp validate_valid_from(%DateTime{} = valid_from) do
+    case DateTime.compare(valid_from, DateTime.utc_now()) do
+      :gt -> {:error, {:invalid_relationship_request, :valid_from}}
+      _not_future -> :ok
+    end
+  end
+
+  defp validate_valid_from(_valid_from),
+    do: {:error, {:invalid_relationship_request, :valid_from}}
 
   defp normalize_key(key) when key in @fields, do: key
 

@@ -39,17 +39,22 @@ defmodule OfficeGraph.Authorization do
     verification_waive: "verification.waive"
   }
 
-  @recognized_capabilities Map.put(
-                             @owner_capabilities,
-                             :graph_relationship_cross_workspace,
-                             "graph_relationship.cross_workspace"
-                           )
+  @restricted_capabilities %{
+    graph_relationship_cross_workspace: "graph_relationship.cross_workspace"
+  }
+
+  @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
 
   def ensure_owner_role(principal, tenant) do
     Repo.transaction(fn ->
+      capabilities_by_key =
+        @recognized_capabilities
+        |> Map.values()
+        |> Map.new(fn key -> {key, ensure_capability!(key)} end)
+
       capabilities =
         @owner_capabilities
-        |> Enum.map(fn {_capability, key} -> ensure_capability!(key) end)
+        |> Enum.map(fn {_action, key} -> Map.fetch!(capabilities_by_key, key) end)
 
       role =
         get_or_create!(

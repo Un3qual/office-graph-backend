@@ -7,6 +7,8 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
   @typed_migration_module OfficeGraph.Repo.Migrations.TypeGraphRelationships
   @constraint_migration_version 20_260_713_103_000
   @constraint_migration_module OfficeGraph.Repo.Migrations.HardenRelationshipPolicyConstraints
+  @validity_migration_version 20_260_713_104_000
+  @validity_migration_module OfficeGraph.Repo.Migrations.EnforceGraphRelationshipValidityStart
 
   test "all legacy edge values become canonical typed edges and roll back losslessly" do
     run_migration!(:down)
@@ -54,6 +56,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
 
     refute column_exists?("graph_relationships", "relationship_type")
     assert constraint_exists?("graph_relationships_lifecycle_window_valid")
+    assert constraint_exists?("graph_relationships_valid_from_not_future")
 
     run_migration!(:down)
 
@@ -94,6 +97,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
 
   defp run_migration!(:down) do
     run_migration!(
+      @validity_migration_version,
+      @validity_migration_module,
+      "20260713104000_enforce_graph_relationship_validity_start.exs",
+      :down
+    )
+
+    run_migration!(
       @constraint_migration_version,
       @constraint_migration_module,
       "20260713103000_harden_relationship_policy_constraints.exs",
@@ -120,6 +130,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
       @constraint_migration_version,
       @constraint_migration_module,
       "20260713103000_harden_relationship_policy_constraints.exs",
+      :up
+    )
+
+    run_migration!(
+      @validity_migration_version,
+      @validity_migration_module,
+      "20260713104000_enforce_graph_relationship_validity_start.exs",
       :up
     )
   end

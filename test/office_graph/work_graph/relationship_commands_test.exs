@@ -2,7 +2,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Foundation, Integrations, Operations, WorkGraph}
-  alias OfficeGraph.Authorization.Capability
   alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest}
 
   import OfficeGraph.TestSupport.WorkPacketCommandLoopSupport,
@@ -130,8 +129,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
 
   test "cross-workspace capability preserves governing scope without granting target access",
        context do
-    ensure_cross_workspace_capability!()
-
     {:ok, other_scope} =
       Foundation.bootstrap_local_owner(
         organization_name: context.bootstrap.organization.name,
@@ -188,7 +185,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   end
 
   test "an active edge cannot replay under a different governing workspace", context do
-    ensure_cross_workspace_capability!()
     other_scope = bootstrap_other_workspace!(context, "Governing Scope")
     remote_item = insert_graph_item!(other_scope, "task", "Remote governing-scope task")
 
@@ -231,6 +227,19 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
     persisted = Ash.get!(GraphRelationship, relationship.id, authorize?: false)
     assert persisted.workspace_id == local_session.workspace_id
     assert persisted.operation_id == local_operation.id
+  end
+
+  test "create rejects a relationship validity start in the future", context do
+    request = %RelationshipRequest{
+      definition_key: "depends_on",
+      source_item_id: context.task_item.id,
+      target_item_id: context.other_task_item.id,
+      workspace_id: context.session.workspace_id,
+      valid_from: DateTime.add(DateTime.utc_now(), 60, :second)
+    }
+
+    assert {:error, {:invalid_relationship_request, :valid_from}} =
+             WorkGraph.create_relationship(context.session, context.operation, request)
   end
 
   test "cycle-permitting definitions accept reciprocal compatible edges", context do
@@ -358,7 +367,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   end
 
   test "supersede authorizes both the existing and replacement edge scopes", context do
-    ensure_cross_workspace_capability!()
     other_scope = bootstrap_other_workspace!(context, "Supersede Scope")
     remote_item = insert_graph_item!(other_scope, "task", "Remote superseded endpoint")
 
@@ -671,18 +679,5 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
         source_item_id: context.task_item.id,
         target_item_id: context.other_task_item.id
     }
-  end
-
-  defp ensure_cross_workspace_capability! do
-    Ash.create!(
-      Capability,
-      %{
-        id: Ecto.UUID.generate(),
-        key: "graph_relationship.cross_workspace",
-        description: "Authorize relationships with an endpoint outside the governing workspace."
-      },
-      action: :create,
-      authorize?: false
-    )
   end
 end
