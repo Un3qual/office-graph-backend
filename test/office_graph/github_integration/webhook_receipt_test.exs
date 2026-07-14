@@ -11,6 +11,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   alias OfficeGraph.Integrations.RawArchive
   alias OfficeGraph.Operations.OperationCorrelation
 
+  defmodule UnavailableSecretStore do
+    @behaviour OfficeGraph.GitHubIntegration.SecretStore
+
+    @impl true
+    def fetch(_reference, _scope), do: {:error, :unavailable}
+  end
+
   test "valid supported deliveries archive and enqueue exactly once" do
     context = installation_context("accepted")
     delivery_id = "delivery-#{Ecto.UUID.generate()}"
@@ -105,6 +112,20 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     headers = signed_headers(delivery_id, "installation", body, context.webhook_secret)
 
     assert {:error, :unsupported_event} = WebhookReceipt.accept(headers, body)
+    assert no_receipt_effects?(delivery_id)
+  end
+
+  test "secret-store outages return a retryable service failure without receipt effects" do
+    context = installation_context("secret-unavailable")
+    delivery_id = "delivery-secret-unavailable-#{Ecto.UUID.generate()}"
+    body = payload(context.external_installation_id)
+    headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+    configured = Application.fetch_env!(:office_graph, :github_secret_store)
+    Application.put_env(:office_graph, :github_secret_store, UnavailableSecretStore)
+    on_exit(fn -> Application.put_env(:office_graph, :github_secret_store, configured) end)
+
+    assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
     assert no_receipt_effects?(delivery_id)
   end
 

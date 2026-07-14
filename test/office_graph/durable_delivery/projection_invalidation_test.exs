@@ -2,7 +2,13 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
-  alias OfficeGraph.DurableDelivery.{DispatchEventWorker, DomainEvent}
+
+  alias OfficeGraph.DurableDelivery.{
+    DispatchEventWorker,
+    DomainEvent,
+    ProjectionInvalidation,
+    Subscriptions
+  }
 
   @delivery_timeout 500
 
@@ -61,6 +67,31 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
     assert :ok = DispatchEventWorker.perform(job)
     refute_receive {:projection_invalidated, _invalidation}
+  end
+
+  test "workspace subscribers receive organization-scoped invalidations" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert :ok =
+             DurableDelivery.subscribe(
+               bootstrap.session,
+               bootstrap.organization.id,
+               bootstrap.workspace.id
+             )
+
+    invalidation = %ProjectionInvalidation{
+      event_id: Ecto.UUID.generate(),
+      event_kind: "github.reconciliation.completed",
+      operation_id: Ecto.UUID.generate(),
+      organization_id: bootstrap.organization.id,
+      workspace_id: nil,
+      subject_kind: "pull_request",
+      subject_id: Ecto.UUID.generate(),
+      subject_version: 1
+    }
+
+    assert :ok = Subscriptions.broadcast(invalidation)
+    assert_receive {:projection_invalidated, ^invalidation}, @delivery_timeout
   end
 
   test "subscription rejects invalid and cross-scope sessions" do

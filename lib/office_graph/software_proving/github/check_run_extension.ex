@@ -6,6 +6,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
     accept: [
       :check_run_id,
       :organization_id,
+      :workspace_id,
       :node_id,
       :database_id,
       :check_suite_database_id
@@ -19,6 +20,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
       public?: true
 
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     attribute :database_id, :integer, public?: true
     attribute :check_suite_database_id, :integer, public?: true
@@ -36,6 +38,10 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
   end
 
   identities do
-    identity :unique_organization_node_id, [:organization_id, :node_id]
+    identity :unique_workspace_node_id, [:organization_id, :workspace_id, :node_id],
+      where: expr(not is_nil(workspace_id))
+
+    identity :unique_organization_node_id, [:organization_id, :node_id],
+      where: expr(is_nil(workspace_id))
   end
 end

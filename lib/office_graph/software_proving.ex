@@ -31,6 +31,7 @@ defmodule OfficeGraph.SoftwareProving do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
          :ok <- validate_source(source),
          :ok <- validate_scope(operation, attrs),
+         :ok <- validate_existing_scope(operation, existing),
          :ok <- validate_sequence(attrs) do
       do_upsert_provider_resource(operation, source, resource, existing, attrs)
     end
@@ -90,6 +91,15 @@ defmodule OfficeGraph.SoftwareProving do
     else
       {:error, :forbidden}
     end
+  end
+
+  defp validate_existing_scope(_operation, nil), do: :ok
+
+  defp validate_existing_scope(operation, existing) do
+    if existing.organization_id == operation.organization_id and
+         existing.workspace_id == operation.workspace_id,
+       do: :ok,
+       else: {:error, :forbidden}
   end
 
   defp validate_sequence(%{provider_sequence: sequence})

@@ -175,9 +175,14 @@ defmodule OfficeGraph.GitHubIntegration.Health do
   end
 
   defp credential_posture(credentials) do
-    required = MapSet.new(~w(webhook_secret app_private_key))
-    active = credentials |> Enum.filter(&(&1.status == "active")) |> MapSet.new(& &1.purpose)
-    if MapSet.subset?(required, active), do: "active", else: "invalid"
+    active_purposes =
+      credentials
+      |> Enum.filter(&(&1.status == "active"))
+      |> Enum.map(& &1.purpose)
+
+    if Enum.all?(~w(webhook_secret app_private_key), &(&1 in active_purposes)),
+      do: "active",
+      else: "invalid"
   end
 
   defp remediation_code(%{lifecycle_state: "revoked"}, _credentials, _failures),

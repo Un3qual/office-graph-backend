@@ -91,6 +91,57 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
              OutboundCommands.update_check(context.session, stale_operation, stale_attrs)
   end
 
+  test "queued and in-progress check updates do not require a conclusion", context do
+    attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "in_progress",
+      details_url: "https://example.test/checks/in-progress",
+      expected_provider_version: context.check.provider_version
+    }
+
+    operation = command_operation!(context, :github_check_update, "check:update:progress", attrs)
+
+    assert {:ok, action} = OutboundCommands.update_check(context.session, operation, attrs)
+    assert action.state == "pending"
+    assert action.input["conclusion"] == nil
+  end
+
+  test "outbound targets must have reconciliation provenance for the selected installation",
+       context do
+    unique = System.unique_integer([:positive])
+
+    {:ok, second} =
+      GitHubIntegration.bind_installation(context.session, %{
+        idempotency_key: "bind-outbound-second-#{unique}",
+        external_installation_id: unique,
+        workspace_id: context.session.workspace_id,
+        app_slug: "office-graph",
+        account_login: "Un3qual-second",
+        account_type: "organization",
+        service_principal_email: "github-service-outbound-second-#{unique}@office-graph.local",
+        webhook_principal_email: "github-webhook-outbound-second-#{unique}@office-graph.local",
+        webhook_secret_reference: "test-secret://github/outbound-second/#{unique}/webhook",
+        app_private_key_reference: "test-secret://github/outbound-second/#{unique}/private-key",
+        permissions: [%{name: "pull_requests", access_level: "write"}]
+      })
+
+    attrs = %{
+      installation_id: second.installation.id,
+      review_comment_id: context.comment.id,
+      body: "The selected installation did not reconcile this target.",
+      expected_provider_version: context.comment.provider_version
+    }
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:wrong-installation", attrs)
+
+    assert {:error, :forbidden} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert count_jobs_for_worker() == 0
+  end
+
   test "repository writes are not representable" do
     refute function_exported?(OutboundCommands, :commit, 3)
     refute function_exported?(OutboundCommands, :merge, 3)

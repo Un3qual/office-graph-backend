@@ -38,12 +38,18 @@ defmodule OfficeGraph.ExternalRefs do
   def upsert_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
   defp persist_reference(operation, source, attrs, identity) do
-    case reference_by_external_id(operation.organization_id, source.id, identity.external_id) do
+    case reference_by_external_id(
+           operation.organization_id,
+           operation.workspace_id,
+           source.id,
+           identity.external_id
+         ) do
       {:ok, nil} ->
         reference =
           Repo.ash_create!(ExternalReference, %{
             id: Ecto.UUID.generate(),
             organization_id: operation.organization_id,
+            workspace_id: operation.workspace_id,
             source_id: source.id,
             provider: Map.get(attrs, :provider),
             object_type: identity.object_type,
@@ -68,6 +74,7 @@ defmodule OfficeGraph.ExternalRefs do
 
   defp reconcile_reference(operation, existing, attrs, identity) do
     if existing.organization_id == operation.organization_id and
+         existing.workspace_id == operation.workspace_id and
          existing.resource_type == identity.resource_type and
          existing.resource_id == identity.resource_id and
          existing.object_type == identity.object_type do
@@ -91,13 +98,20 @@ defmodule OfficeGraph.ExternalRefs do
     end
   end
 
-  defp reference_by_external_id(organization_id, source_id, external_id) do
-    ExternalReference
-    |> Ash.Query.filter(
-      organization_id == ^organization_id and source_id == ^source_id and
-        external_id == ^external_id
-    )
-    |> Ash.read_one(authorize?: false)
+  defp reference_by_external_id(organization_id, workspace_id, source_id, external_id) do
+    query =
+      ExternalReference
+      |> Ash.Query.filter(
+        organization_id == ^organization_id and source_id == ^source_id and
+          external_id == ^external_id
+      )
+
+    query =
+      if is_nil(workspace_id),
+        do: Ash.Query.filter(query, is_nil(workspace_id)),
+        else: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
+    Ash.read_one(query, authorize?: false)
   end
 
   defp validate_source(%{id: id, kind: "provider"}) when is_binary(id), do: :ok

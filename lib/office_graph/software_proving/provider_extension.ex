@@ -15,7 +15,10 @@ defmodule OfficeGraph.SoftwareProving.ProviderExtension do
         repo OfficeGraph.Repo
         migrate? false
 
-        identity_index_names unique_organization_node_id: unquote("#{table}_node_id_index")
+        identity_index_names unique_workspace_node_id:
+                               unquote("#{table}_workspace_node_id_index"),
+                             unique_organization_node_id:
+                               unquote("#{table}_organization_node_id_index")
       end
 
       actions do

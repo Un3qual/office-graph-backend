@@ -64,7 +64,8 @@ defmodule OfficeGraph.DurableDelivery do
           [job],
           job.state in ["cancelled", "discarded"] and
             fragment("?->>'organization_id'", job.args) == ^session_context.organization_id and
-            fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id
+            (fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id or
+               fragment("?->>'workspace_id' IS NULL", job.args))
         )
         |> order_by([job],
           desc:
@@ -336,7 +337,7 @@ defmodule OfficeGraph.DurableDelivery do
       |> Ash.Query.filter(
         id in ^event_ids and
           organization_id == ^session_context.organization_id and
-          workspace_id == ^session_context.workspace_id
+          (workspace_id == ^session_context.workspace_id or is_nil(workspace_id))
       )
       |> Ash.read!()
       |> Map.new(&{&1.id, &1.failure_code})

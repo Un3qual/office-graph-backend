@@ -48,6 +48,10 @@ defmodule OfficeGraph.DurableDelivery.Subscriptions do
     Phoenix.PubSub.subscribe(OfficeGraph.PubSub, topic(organization_id, workspace_id))
   end
 
+  def subscribe_organization_topic(organization_id) do
+    Phoenix.PubSub.subscribe(OfficeGraph.PubSub, organization_topic(organization_id))
+  end
+
   def topic(organization_id, workspace_id) do
     "projection-invalidation:#{organization_id}:#{workspace_id}"
   end

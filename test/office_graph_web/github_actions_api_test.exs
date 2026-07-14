@@ -2,6 +2,7 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.{Foundation, GitHubIntegration}
+  alias OfficeGraphWeb.OperatorCommands.Input
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -110,6 +111,20 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
 
     assert error["command"] == "reply_to_github_review"
     assert error["error"]["code"] == "forbidden"
+  end
+
+  test "public check-update input accepts an omitted conclusion for progress states" do
+    assert {:ok, parsed} =
+             Input.parse(:update_github_check, %{
+               idempotency_key: "check-progress-input",
+               installation_id: Ecto.UUID.generate(),
+               check_run_id: Ecto.UUID.generate(),
+               status: "in_progress",
+               details_url: "https://example.test/checks/progress",
+               expected_provider_version: "v1"
+             })
+
+    refute Map.has_key?(parsed, :conclusion)
   end
 
   defp graphql(conn, query, variables) do

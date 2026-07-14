@@ -83,6 +83,125 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert event.subject_id == outcome.resource_id
   end
 
+  test "review deliveries reconcile the pull request represented by the snapshot" do
+    context = worker_context("review")
+
+    body =
+      Jason.encode!(%{
+        "action" => "submitted",
+        "installation" => %{"id" => context.external_installation_id},
+        "review" => %{"node_id" => "PRR_worker_review"},
+        "pull_request" => %{"node_id" => "PR_worker_review", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-review",
+      "x-github-event" => "pull_request_review",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    provider_snapshot =
+      snapshot()
+      |> then(fn value ->
+        %{value | pull_request: %{value.pull_request | node_id: "PR_worker_review"}}
+      end)
+
+    Provider.put(%{{"pull_request", "PR_worker_review"} => {:ok, provider_snapshot}})
+
+    job = webhook_job("delivery-worker-review")
+    assert :ok = WebhookWorker.perform(job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.object_type == "pull_request"
+    assert outcome.object_id == "PR_worker_review"
+  end
+
+  test "rate-limited reconciliation snoozes until the bounded provider reset" do
+    context = worker_context("rate-limit")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_rate_limit", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-rate-limit",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    reset_at = DateTime.add(DateTime.utc_now(), 60, :second)
+
+    Provider.put(%{
+      {"pull_request", "PR_worker_rate_limit"} => {:error, {:rate_limited, reset_at}}
+    })
+
+    assert {:snooze, delay} = WebhookWorker.perform(webhook_job("delivery-worker-rate-limit"))
+    assert delay in 1..60
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.retry_at == reset_at
+  end
+
+  defp worker_context(label) do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    external_installation_id = System.unique_integer([:positive])
+    webhook_reference = "test-secret://github/worker/#{label}/webhook"
+    private_key_reference = "test-secret://github/worker/#{label}/private-key"
+    webhook_secret = "webhook-secret-worker-#{label}"
+
+    {:ok, bound} =
+      GitHubIntegration.bind_installation(bootstrap.session, %{
+        idempotency_key: "bind-webhook-worker-#{label}",
+        external_installation_id: external_installation_id,
+        workspace_id: bootstrap.workspace.id,
+        app_slug: "office-graph",
+        account_login: "Un3qual",
+        account_type: "organization",
+        service_principal_email: "github-service-worker-#{label}@office-graph.local",
+        webhook_principal_email: "github-webhook-worker-#{label}@office-graph.local",
+        webhook_secret_reference: webhook_reference,
+        app_private_key_reference: private_key_reference,
+        permissions: [%{name: "pull_requests", access_level: "write"}]
+      })
+
+    TestAdapter.put(%{
+      webhook_reference => webhook_secret,
+      private_key_reference => "private-key-worker-#{label}"
+    })
+
+    %{
+      installation: bound.installation,
+      external_installation_id: external_installation_id,
+      webhook_secret: webhook_secret
+    }
+  end
+
+  defp webhook_job(delivery_id) do
+    worker_name = inspect(WebhookWorker)
+
+    Repo.one!(
+      from job in Oban.Job,
+        where:
+          job.worker == ^worker_name and
+            fragment("?->>'delivery_id'", job.args) == ^delivery_id
+    )
+  end
+
   defp snapshot do
     %Adapter.ReconciliationSnapshot{
       provider_version: "v1",

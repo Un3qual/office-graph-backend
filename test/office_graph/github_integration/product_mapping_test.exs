@@ -12,6 +12,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
+  alias OfficeGraph.SoftwareProving.ReviewComment
   alias OfficeGraph.WorkGraph.{GraphRelationship, Signal}
 
   require Ash.Query
@@ -69,6 +70,56 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert outcome.state == "reconciled"
     assert outcome.signal_ids == []
     assert Repo.aggregate(Signal, :count) == signal_count
+  end
+
+  test "reconciliation preserves review comment parent relationships" do
+    context = context("comment-parent")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-comment-parent"
+      })
+
+    parent = %Adapter.ReviewCommentSnapshot{
+      node_id: "PRRC_parent",
+      database_id: 501,
+      review_thread_node_id: "PRRT_mapping",
+      body: "Parent review comment",
+      author_label: "reviewer",
+      state: "published",
+      published_at: ~U[2026-07-14 12:57:00Z]
+    }
+
+    reply = %Adapter.ReviewCommentSnapshot{
+      node_id: "PRRC_reply",
+      database_id: 502,
+      review_thread_node_id: "PRRT_mapping",
+      parent_comment_node_id: "PRRC_parent",
+      body: "Reply review comment",
+      author_label: "author",
+      state: "published",
+      published_at: ~U[2026-07-14 12:58:00Z]
+    }
+
+    snapshot = %{mapping_snapshot() | review_comments: [reply, parent], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
+
+    assert {:ok, _outcome} = Reconciler.reconcile(operation!(context, request), request)
+
+    persisted_parent =
+      ReviewComment
+      |> Ash.Query.filter(body == "Parent review comment")
+      |> Ash.read_one!(authorize?: false)
+
+    persisted_reply =
+      ReviewComment
+      |> Ash.Query.filter(body == "Reply review comment")
+      |> Ash.read_one!(authorize?: false)
+
+    assert persisted_reply.parent_comment_id == persisted_parent.id
   end
 
   test "concurrent signal mapping reuses the persisted graph item and signal" do

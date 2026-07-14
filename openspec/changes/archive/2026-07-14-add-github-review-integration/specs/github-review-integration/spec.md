@@ -38,6 +38,12 @@ archiving a payload or creating product work.
 - **THEN** Office Graph MUST return the prior receipt outcome without duplicate
   resource, signal, event, or job effects
 
+#### Scenario: Webhook secret store is temporarily unavailable
+- **WHEN** signature verification cannot resolve the bound webhook secret due to
+  a transient secret-store outage
+- **THEN** Office Graph MUST return a retryable service response without
+  misclassifying the delivery as an invalid signature or creating receipt effects
+
 ### Requirement: GitHub State Is Reconciled Into Provider-Neutral Resources
 Office Graph SHALL reconcile supported repository, pull request, review,
 review-comment, and check activity into provider-neutral resources and GitHub
@@ -54,6 +60,17 @@ extension records.
 - **THEN** Office Graph MUST skip or reconcile it and MUST NOT overwrite newer
   state
 
+#### Scenario: The same provider object is visible in multiple workspaces
+- **WHEN** two installations in one organization reconcile the same GitHub object
+  under different governing workspaces
+- **THEN** Office Graph MUST retain independent workspace-scoped provider-neutral
+  resources, extension identities, and external references
+
+#### Scenario: A non-pull-request delivery is reconciled
+- **WHEN** a review-comment or check delivery requests an authoritative read
+- **THEN** the returned snapshot MUST contain the requested object, while a review
+  submission SHALL reconcile through its containing pull request identity
+
 #### Scenario: Review signal becomes product work
 - **WHEN** a reconciled review comment or failing check matches the proving
   workflow
@@ -69,6 +86,16 @@ the first GitHub integration.
   credential scope, operation, and idempotency key requests a review reply
 - **THEN** Office Graph MUST enqueue one provider action and record its provider
   response identity and classified outcome
+
+#### Scenario: Selected installation does not own target provenance
+- **WHEN** an outbound action selects an installation that has not reconciled the
+  target pull request
+- **THEN** Office Graph MUST reject the action before credential or provider access
+
+#### Scenario: Check progress is updated
+- **WHEN** an authorized caller updates a check to queued or in-progress
+- **THEN** the command MUST omit a conclusion, while completed checks MUST provide
+  a supported conclusion
 
 #### Scenario: Repository write is requested
 - **WHEN** a caller requests a commit, branch write, merge, or other unsupported

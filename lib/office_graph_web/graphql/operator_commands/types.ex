@@ -8,6 +8,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
 
   input_object :bind_github_installation_input do
     field :idempotency_key, non_null(:string)
+    field :workspace_id, :id
     field :external_installation_id, non_null(:string)
     field :app_slug, non_null(:string)
     field :account_login, non_null(:string)
@@ -69,7 +70,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :installation_id, non_null(:id)
     field :check_run_id, non_null(:id)
     field :status, non_null(:string)
-    field :conclusion, non_null(:string)
+    field :conclusion, :string
     field :details_url, non_null(:string)
     field :expected_provider_version, non_null(:string)
   end

@@ -57,14 +57,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         _created_or_conflicted =
           Support.ash_create_internal(
             GraphItem,
-            %{
-              id: Ecto.UUID.generate(),
-              organization_id: operation.organization_id,
-              workspace_id: operation.workspace_id,
-              resource_type: "external_reference",
-              resource_id: reference.id,
-              title: title
-            },
+            reference_item_attrs(operation, reference, title),
             upsert?: true,
             upsert_identity: :unique_resource,
             upsert_fields: []
@@ -82,6 +75,18 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
       {:error, error} ->
         Repo.rollback(error)
     end
+  end
+
+  defp reference_item_attrs(operation, reference, title) do
+    [
+      id: Ecto.UUID.generate(),
+      organization_id: operation.organization_id,
+      workspace_id: operation.workspace_id,
+      resource_type: "external_reference",
+      resource_id: reference.id,
+      title: title
+    ]
+    |> Map.new()
   end
 
   defp fetch_reference_item!(operation, reference_id) do

@@ -138,10 +138,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     persisted_class =
       if result == {:cancel, "attempts_exhausted"}, do: :terminal, else: failure_class
 
+    persisted_class_string = Atom.to_string(persisted_class)
+
     updated =
       update_action!(action, %{
-        state: Atom.to_string(persisted_class),
-        failure_class: Atom.to_string(persisted_class),
+        state: persisted_class_string,
+        failure_class: persisted_class_string,
         failure_code: Atom.to_string(failure_code),
         attempted_at: DateTime.utc_now(),
         completed_at: if(persisted_class == :terminal, do: DateTime.utc_now())

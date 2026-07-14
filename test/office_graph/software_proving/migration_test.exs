@@ -28,20 +28,32 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
       assert table_exists?(table)
       assert column_exists?(table, "node_id")
       assert column_exists?(table, "organization_id")
-      refute column_exists?(table, "workspace_id")
+      assert column_exists?(table, "workspace_id")
       refute column_exists?(table, "lifecycle_state")
-      assert index_columns("#{table}_node_id_index") == ["organization_id", "node_id"]
+
+      assert index_columns("#{table}_workspace_node_id_index") == [
+               "organization_id",
+               "workspace_id",
+               "node_id"
+             ]
+
+      assert index_columns("#{table}_organization_node_id_index") == [
+               "organization_id",
+               "node_id"
+             ]
     end
 
     refute column_exists?("repositories", "github_node_id")
     refute column_exists?("pull_requests", "github_database_id")
 
-    for column <- ~w(organization_id provider object_type url sync_state operation_id) do
+    for column <-
+          ~w(organization_id workspace_id provider object_type url sync_state operation_id) do
       assert column_exists?("external_references", column)
     end
 
     assert constraint_exists?("external_references_provider_scope_required")
-    assert index_exists?("external_references_scoped_source_external_id_index")
+    assert index_exists?("external_references_workspace_source_external_id_index")
+    assert index_exists?("external_references_organization_source_external_id_index")
     assert index_exists?("integration_credentials_workspace_reference_index")
     assert index_exists?("integration_credentials_organization_reference_index")
   end

@@ -77,6 +77,30 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
     refute encoded =~ input.app_private_key_reference
   end
 
+  test "GraphQL and JSON can explicitly bind an organization-scoped installation", %{conn: conn} do
+    graphql_input = Map.put(graphql_input("graphql-organization"), :workspaceId, nil)
+
+    mutation = """
+    mutation BindGitHub($input: BindGithubInstallationInput!) {
+      bindGithubInstallation(input: $input) {
+        installation { id workspaceId }
+      }
+    }
+    """
+
+    graphql_result = graphql(conn, mutation, %{input: graphql_input})
+    assert graphql_result["installation"]["workspaceId"] == nil
+
+    json_input = Map.put(json_input("json-organization"), :workspace_id, nil)
+
+    json_result =
+      build_conn()
+      |> post("/api/v1/commands/bind-github-installation", json_input)
+      |> json_response(200)
+
+    assert json_result["result"]["installation"]["workspace_id"] == nil
+  end
+
   defp graphql(conn, query, variables) do
     response =
       conn

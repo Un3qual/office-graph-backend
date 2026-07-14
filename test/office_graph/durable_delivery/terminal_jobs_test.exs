@@ -68,6 +68,23 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     assert %{failure_code: "event_not_found"} = Enum.find(summaries, &(&1.id == job.id))
   end
 
+  test "includes organization-scoped terminal jobs for authorized operators" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    job =
+      insert_terminal_job(
+        bootstrap,
+        Ecto.UUID.generate(),
+        "organization_delivery_failed",
+        nil
+      )
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+
+    assert %{failure_code: "organization_delivery_failed"} =
+             Enum.find(summaries, &(&1.id == job.id))
+  end
+
   test "does not trust failure state from an event outside the authorized scope" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -127,12 +144,15 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     |> Repo.update!()
   end
 
-  defp insert_terminal_job(bootstrap, event_id, failure_code) do
+  defp insert_terminal_job(bootstrap, event_id, failure_code, workspace_id \\ :session_workspace) do
+    workspace_id =
+      if workspace_id == :session_workspace, do: bootstrap.workspace.id, else: workspace_id
+
     {:ok, job} =
       %{
         "event_id" => event_id,
         "organization_id" => bootstrap.organization.id,
-        "workspace_id" => bootstrap.workspace.id
+        "workspace_id" => workspace_id
       }
       |> OfficeGraph.DurableDelivery.DispatchEventWorker.new()
       |> Oban.insert()

@@ -260,19 +260,54 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_repository_number: [:repository_id, :number]
     },
     OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{
-      unique_organization_node_id: [:organization_id, :node_id]
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{
-      unique_organization_node_id: [:organization_id, :node_id]
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{
-      unique_organization_node_id: [:organization_id, :node_id]
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{
-      unique_organization_node_id: [:organization_id, :node_id]
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
-      unique_organization_node_id: [:organization_id, :node_id]
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.Integrations.IntegrationCredential => %{
       unique_workspace_reference: %{

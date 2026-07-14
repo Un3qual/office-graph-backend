@@ -7,7 +7,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     Installation,
     OutboundAction,
     OutboundWorker,
-    PermissionEntry
+    PermissionEntry,
+    SyncOutcome
   }
 
   alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
@@ -28,7 +29,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          {:ok, installation} <- active_installation(session_context, normalized.installation_id),
          :ok <- require_permission(installation, "pull_requests"),
          {:ok, target} <- review_target(session_context, normalized),
-         :ok <- require_version(target.record, normalized.expected_provider_version) do
+         :ok <- require_version(target.record, normalized.expected_provider_version),
+         :ok <- require_installation_provenance(installation, target.record) do
       persist_and_enqueue(
         session_context,
         operation,
@@ -51,7 +53,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          {:ok, installation} <- active_installation(session_context, normalized.installation_id),
          :ok <- require_permission(installation, "checks"),
          {:ok, target} <- check_target(session_context, normalized),
-         :ok <- require_version(target.record, normalized.expected_provider_version) do
+         :ok <- require_version(target.record, normalized.expected_provider_version),
+         :ok <- require_installation_provenance(installation, target.record) do
       persist_and_enqueue(
         session_context,
         operation,
@@ -90,12 +93,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     with {:ok, installation_id} <- required_uuid(attrs, :installation_id),
          {:ok, check_run_id} <- required_uuid(attrs, :check_run_id),
          {:ok, status} <- one_of_string(attrs, :status, ~w(queued in_progress completed)),
-         {:ok, conclusion} <-
-           one_of_string(
-             attrs,
-             :conclusion,
-             ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
-           ),
+         {:ok, conclusion} <- check_conclusion(attrs, status),
          {:ok, details_url} <- required_string(attrs, :details_url),
          {:ok, expected_provider_version} <- required_string(attrs, :expected_provider_version) do
       {:ok,
@@ -107,6 +105,21 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          details_url: details_url,
          expected_provider_version: expected_provider_version
        }}
+    end
+  end
+
+  defp check_conclusion(attrs, "completed") do
+    one_of_string(
+      attrs,
+      :conclusion,
+      ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+    )
+  end
+
+  defp check_conclusion(attrs, status) when status in ~w(queued in_progress) do
+    case fetch(attrs, :conclusion) do
+      nil -> {:ok, nil}
+      _conclusion -> {:error, {:invalid_field, :conclusion}}
     end
   end
 
@@ -189,6 +202,25 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
 
   defp require_version(%{provider_version: expected}, expected), do: :ok
   defp require_version(_record, _expected), do: {:error, {:stale_version, :provider_version}}
+
+  defp require_installation_provenance(installation, %{pull_request_id: pull_request_id}) do
+    if is_binary(pull_request_id) do
+      SyncOutcome
+      |> Ash.Query.filter(
+        installation_id == ^installation.id and resource_type == "pull_request" and
+          resource_id == ^pull_request_id and state in ["reconciled", "skipped_stale"]
+      )
+      |> Ash.exists?(authorize?: false)
+      |> case do
+        true -> :ok
+        _missing_or_unavailable -> {:error, :forbidden}
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp require_installation_provenance(_installation, _target), do: {:error, :forbidden}
 
   defp persist_and_enqueue(session_context, operation, installation, target, action_kind, attrs) do
     Repo.transaction(fn ->

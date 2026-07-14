@@ -24,6 +24,7 @@ defmodule OfficeGraph.Repo.Migrations.CreateGitHubSyncOutcomes do
       add :signal_ids, {:array, :binary_id}, null: false, default: []
       add :failure_class, :text
       add :failure_code, :text
+      add :retry_at, :utc_datetime_usec
       timestamps(type: :utc_datetime_usec)
     end
 

@@ -16,8 +16,9 @@ defmodule OfficeGraph.GitHubIntegration.SecretStore do
     with {:ok, %IntegrationCredential{} = credential} <-
            load_credential(credential_id),
          :ok <- authorize_scope(credential, scope),
-         :ok <- require_active(credential) do
-      adapter.fetch(credential.secret_reference, scope)
+         :ok <- require_active(credential),
+         {:ok, secret} <- adapter.fetch(credential.secret_reference, scope) do
+      {:ok, secret}
     else
       {:ok, nil} ->
         {:error, :secret_not_found}

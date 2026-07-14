@@ -44,7 +44,6 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       |> Reconciler.reconcile(request)
       |> normalize_result(job)
     else
-      {:error, {:retryable, code}} -> normalize_result({:error, {:retryable, code}}, job)
       {:error, code} -> normalize_result({:error, {:terminal, safe_code(code)}}, job)
     end
   end
@@ -112,7 +111,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     do: nested_object(payload, "pull_request", "pull_request")
 
   defp provider_object("pull_request_review", payload),
-    do: nested_object(payload, "review", "review")
+    do: nested_object(payload, "pull_request", "pull_request")
 
   defp provider_object("pull_request_review_comment", payload),
     do: nested_object(payload, "comment", "review_comment")
@@ -152,6 +151,15 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   defp normalize_result({:error, {class, code}}, job)
        when class in [:authorization, :configuration] do
     DurableDelivery.normalize_worker_result({:error, {:terminal, code}}, job)
+  end
+
+  defp normalize_result({:error, {:retryable, _code, %DateTime{} = retry_at}}, job) do
+    if job.attempt >= job.max_attempts do
+      {:cancel, "attempts_exhausted"}
+    else
+      delay = retry_at |> DateTime.diff(DateTime.utc_now(), :second) |> max(1) |> min(3_600)
+      {:snooze, delay}
+    end
   end
 
   defp normalize_result(result, job),

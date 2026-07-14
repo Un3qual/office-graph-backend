@@ -4,6 +4,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
   @fields %{
     bind_github_installation: [
       idempotency_key: :string,
+      workspace_id: :optional_uuid,
       external_installation_id: :string,
       app_slug: :string,
       account_login: :string,
@@ -26,7 +27,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       installation_id: :uuid,
       check_run_id: :uuid,
       status: :string,
-      conclusion: :string,
+      conclusion: :optional_string,
       details_url: :string,
       expected_provider_version: :string
     ],
@@ -135,6 +136,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
     |> Enum.reduce_while({:ok, %{}}, fn {key, type}, {:ok, parsed} ->
       case required(params, key, type) do
         {:ok, value} -> {:cont, {:ok, Map.put(parsed, key, value)}}
+        :skip -> {:cont, {:ok, parsed}}
         error -> {:halt, error}
       end
     end)
@@ -151,6 +153,14 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       :error -> {:error, {:invalid_field, key}}
       error -> error
     end
+  end
+
+  defp required(params, key, :optional_uuid) do
+    optional(params, key, fn value -> required(%{key => value}, key, :uuid) end)
+  end
+
+  defp required(params, key, :optional_string) do
+    optional(params, key, fn value -> required(%{key => value}, key, :string) end)
   end
 
   defp required(params, key, :github_permissions) do
@@ -226,4 +236,18 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       true -> nil
     end
   end
+
+  defp optional(params, key, parser) do
+    if has_key?(params, key) do
+      case fetch(params, key) do
+        nil -> {:ok, nil}
+        value -> parser.(value)
+      end
+    else
+      :skip
+    end
+  end
+
+  defp has_key?(params, key),
+    do: Map.has_key?(params, key) or Map.has_key?(params, to_string(key))
 end

@@ -38,12 +38,14 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          :ok <- supported_event(event_name) do
       record_receipt(installation, credential_binding, delivery_id, event_name, raw_body)
     else
+      {:error, :unavailable} ->
+        {:error, :receipt_unavailable}
+
       {:error, reason}
       when reason in [
              :forbidden,
              :invalid_secret_reference,
              :secret_not_found,
-             :unavailable,
              :unknown_installation
            ] ->
         {:error, :invalid_signature}
@@ -168,7 +170,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
   defp positive_integer(_value), do: {:error, :invalid_delivery}
 
   defp required_header(headers, name) do
-    case Map.get(headers, name) || Map.get(headers, String.to_atom(name)) do
+    case Map.get(headers, name) || Map.get(headers, header_atom(name)) do
       value when is_binary(value) and byte_size(value) in 1..255 ->
         if Regex.match?(@header_pattern, value),
           do: {:ok, value},
@@ -178,6 +180,10 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
         {:error, :invalid_delivery}
     end
   end
+
+  defp header_atom("x-github-delivery"), do: :"x-github-delivery"
+  defp header_atom("x-github-event"), do: :"x-github-event"
+  defp header_atom("x-hub-signature-256"), do: :"x-hub-signature-256"
 
   defp supported_event(event_name) do
     if MapSet.member?(@supported_events, event_name),

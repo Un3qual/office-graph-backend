@@ -28,6 +28,7 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
     attribute :signal_ids, {:array, :uuid}, allow_nil?: false, default: [], public?: true
     attribute :failure_class, :string, public?: true
     attribute :failure_code, :string, public?: true
+    attribute :retry_at, :utc_datetime_usec, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -53,7 +54,8 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
         :resource_id,
         :signal_ids,
         :failure_class,
-        :failure_code
+        :failure_code,
+        :retry_at
       ]
 
       validate one_of(
@@ -73,7 +75,8 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
         :resource_id,
         :signal_ids,
         :failure_class,
-        :failure_code
+        :failure_code,
+        :retry_at
       ]
 
       validate one_of(

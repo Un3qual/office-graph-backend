@@ -44,6 +44,9 @@ defmodule OfficeGraphWeb.GitHubWebhookController do
   defp render_error(conn, :invalid_delivery),
     do: error(conn, :unprocessable_entity, "invalid_delivery")
 
+  defp render_error(conn, :receipt_unavailable),
+    do: error(conn, :service_unavailable, "receipt_unavailable")
+
   defp render_error(conn, _reason),
     do: error(conn, :service_unavailable, "receipt_unavailable")
 

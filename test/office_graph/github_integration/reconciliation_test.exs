@@ -18,6 +18,13 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   alias OfficeGraph.SoftwareProving.{PullRequest, Repository}
   alias OfficeGraph.SoftwareProving.GitHub.RepositoryExtension
 
+  defmodule UnavailableSecretStore do
+    @behaviour OfficeGraph.GitHubIntegration.SecretStore
+
+    @impl true
+    def fetch(_reference, _scope), do: {:error, :unavailable}
+  end
+
   test "newer provider versions win and stale or replayed snapshots do not overwrite truth" do
     context = reconciliation_context("ordering")
     request = request(context, "pull_request", "PR_node_44", "delivery-ordering")
@@ -52,13 +59,21 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     context = reconciliation_context("failures")
     request = request(context, "pull_request", "PR_node_failure", "delivery-failure")
     rate_limited_operation = reconciliation_operation!(context, request, "rate-limited")
+    reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
 
     Provider.put(%{
-      {"pull_request", "PR_node_failure"} => {:error, {:rate_limited, ~U[2026-07-14 20:00:00Z]}}
+      {"pull_request", "PR_node_failure"} => {:error, {:rate_limited, reset_at}}
     })
 
-    assert {:error, {:retryable, :provider_rate_limited}} =
+    assert {:error, {:retryable, :provider_rate_limited, ^reset_at}} =
              Reconciler.reconcile(rate_limited_operation, request)
+
+    rate_limited_outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^rate_limited_operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert rate_limited_outcome.retry_at == reset_at
 
     Provider.put(%{
       {"pull_request", "PR_node_failure"} =>
@@ -68,6 +83,28 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:ok, recovered} = Reconciler.reconcile(rate_limited_operation, request)
     assert recovered.state == "reconciled"
 
+    network_operation = reconciliation_operation!(context, request, "network-unavailable")
+    Provider.put(%{{"pull_request", "PR_node_failure"} => {:error, :network_error}})
+
+    assert {:error, {:retryable, :provider_unavailable}} =
+             Reconciler.reconcile(network_operation, request)
+
+    network_outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^network_operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert network_outcome.state == "retryable"
+    assert network_outcome.failure_code == "provider_unavailable"
+
+    Provider.put(%{
+      {"pull_request", "PR_node_failure"} =>
+        {:ok, snapshot(2, "open", "PR_node_failure", "R_node_failure")}
+    })
+
+    assert {:ok, network_recovered} = Reconciler.reconcile(network_operation, request)
+    assert network_recovered.state == "reconciled"
+
     Provider.put(%{
       {"pull_request", "PR_node_failure"} => {:error, :installation_revoked}
     })
@@ -76,6 +113,73 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert {:error, {:terminal, :installation_revoked}} =
              Reconciler.reconcile(revoked_operation, request)
+  end
+
+  test "transient private-key resolution failures are persisted as retryable outcomes" do
+    context = reconciliation_context("credential-unavailable")
+    request = request(context, "pull_request", "PR_credential", "delivery-credential")
+    operation = reconciliation_operation!(context, request, "credential-unavailable")
+
+    configured = Application.fetch_env!(:office_graph, :github_secret_store)
+    Application.put_env(:office_graph, :github_secret_store, UnavailableSecretStore)
+    on_exit(fn -> Application.put_env(:office_graph, :github_secret_store, configured) end)
+
+    assert {:error, {:retryable, :provider_unavailable}} =
+             Reconciler.reconcile(operation, request)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "retryable"
+    assert outcome.failure_code == "provider_unavailable"
+  end
+
+  test "malformed nested snapshots fail as invalid provider responses before writes" do
+    context = reconciliation_context("invalid-nested-snapshot")
+    request = request(context, "pull_request", "PR_invalid_nested", "delivery-invalid-nested")
+    operation = reconciliation_operation!(context, request, "invalid-nested")
+
+    invalid_snapshot =
+      snapshot(1, "open", "PR_invalid_nested", "R_invalid_nested")
+      |> then(fn provider_snapshot ->
+        %{provider_snapshot | repository: %{provider_snapshot.repository | name: nil}}
+      end)
+
+    Provider.put(%{{"pull_request", "PR_invalid_nested"} => {:ok, invalid_snapshot}})
+
+    assert {:error, {:terminal, :invalid_provider_response}} =
+             Reconciler.reconcile(operation, request)
+
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
+  test "non-pull-request deliveries require the requested object in the snapshot" do
+    context = reconciliation_context("requested-object")
+
+    for {object_type, object_id} <- [
+          {"review_comment", "PRRC_missing"},
+          {"check_run", "CR_missing"}
+        ] do
+      request =
+        request(
+          context,
+          object_type,
+          object_id,
+          "delivery-requested-object-#{object_type}"
+        )
+
+      operation = reconciliation_operation!(context, request, object_type)
+
+      Provider.put(%{
+        {object_type, object_id} =>
+          {:ok, snapshot(1, "open", "PR_requested_object", "R_requested_object")}
+      })
+
+      assert {:error, {:terminal, :invalid_provider_response}} =
+               Reconciler.reconcile(operation, request)
+    end
   end
 
   test "shared GitHub node identities reconcile independently per organization" do
@@ -137,6 +241,78 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert Enum.sort(Enum.map(references, & &1.organization_id)) ==
              Enum.sort([first.bootstrap.organization.id, second.bootstrap.organization.id])
+  end
+
+  test "shared GitHub node identities reconcile independently per workspace" do
+    suffix = System.unique_integer([:positive])
+    owner_email = "github-shared-workspace-#{suffix}@office-graph.local"
+
+    first =
+      reconciliation_context("workspace-a-#{suffix}",
+        owner_email: owner_email,
+        owner_name: "GitHub Shared Workspace Owner #{suffix}",
+        workspace_name: "GitHub Shared Workspace A #{suffix}",
+        workspace_slug: "github-shared-workspace-a-#{suffix}",
+        initiative_name: "GitHub Shared Initiative A #{suffix}",
+        initiative_slug: "github-shared-initiative-a-#{suffix}"
+      )
+
+    second =
+      reconciliation_context("workspace-b-#{suffix}",
+        owner_email: owner_email,
+        owner_name: "GitHub Shared Workspace Owner #{suffix}",
+        workspace_name: "GitHub Shared Workspace B #{suffix}",
+        workspace_slug: "github-shared-workspace-b-#{suffix}",
+        initiative_name: "GitHub Shared Initiative B #{suffix}",
+        initiative_slug: "github-shared-initiative-b-#{suffix}"
+      )
+
+    assert first.bootstrap.organization.id == second.bootstrap.organization.id
+    assert first.bootstrap.workspace.id != second.bootstrap.workspace.id
+
+    TestAdapter.put(%{
+      first.private_key_reference => "private-key-workspace-a",
+      second.private_key_reference => "private-key-workspace-b"
+    })
+
+    provider_snapshot = snapshot(1, "open", "PR_workspace_shared", "R_workspace_shared")
+    Provider.put(%{{"pull_request", "PR_workspace_shared"} => {:ok, provider_snapshot}})
+
+    first_request =
+      request(first, "pull_request", "PR_workspace_shared", "delivery-workspace-a")
+
+    second_request =
+      request(second, "pull_request", "PR_workspace_shared", "delivery-workspace-b")
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(first, first_request, "shared"),
+               first_request
+             )
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(second, second_request, "shared"),
+               second_request
+             )
+
+    repositories =
+      Repository
+      |> Ash.Query.filter(provider_version == "v1")
+      |> Ash.read!(authorize?: false)
+
+    assert Enum.sort(Enum.map(repositories, & &1.workspace_id)) ==
+             Enum.sort([first.bootstrap.workspace.id, second.bootstrap.workspace.id])
+
+    assert Repo.aggregate(RepositoryExtension, :count) == 2
+
+    references =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "repository:R_workspace_shared")
+      |> Ash.read!(authorize?: false)
+
+    assert Enum.sort(Enum.map(references, & &1.workspace_id)) ==
+             Enum.sort([first.bootstrap.workspace.id, second.bootstrap.workspace.id])
   end
 
   defp reconciliation_context(label, bootstrap_opts \\ []) do
