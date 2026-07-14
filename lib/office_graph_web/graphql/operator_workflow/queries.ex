@@ -4,10 +4,35 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
   alias Absinthe.Relay.Connection
   alias OfficeGraph.Projections
+  alias OfficeGraph.WorkGraph
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.RequestSession
 
   object :operator_workflow_queries do
+    field :graph_relationships, non_null(list_of(non_null(:graph_relationship_view))) do
+      arg(:item_id, non_null(:id))
+      arg(:direction, :string)
+      arg(:definition_keys, list_of(non_null(:string)))
+      arg(:lifecycle, :string)
+      arg(:limit, :integer)
+
+      resolve(fn args, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, item_id} <- normalize_graph_item_id(args.item_id),
+             {:ok, opts} <- relationship_opts(args),
+             {:ok, relationships} <-
+               WorkGraph.list_relationships(session_context, item_id, opts) do
+          {:ok, relationships}
+        else
+          {:error, {:invalid_relationship_option, field}} ->
+            Errors.to_absinthe({:error, {:invalid_field, field}})
+
+          error ->
+            Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     connection field :operator_workflow_items,
                  node_type: :operator_workflow_item,
                  paginate: :forward do
@@ -228,4 +253,54 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         end
     end
   end
+
+  defp normalize_graph_item_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, graph_item_id} ->
+        {:ok, graph_item_id}
+
+      :error ->
+        schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+
+        case Absinthe.Relay.Node.from_global_id(id, schema) do
+          {:ok, %{type: :graph_item, id: graph_item_id}} -> {:ok, graph_item_id}
+          _other -> {:error, {:invalid_field, :item_id}}
+        end
+    end
+  end
+
+  defp relationship_opts(args) do
+    with {:ok, direction} <- normalize_relationship_direction(Map.get(args, :direction)),
+         {:ok, lifecycle} <- normalize_relationship_lifecycle(Map.get(args, :lifecycle)) do
+      {:ok,
+       [
+         direction: direction,
+         definition_keys: Map.get(args, :definition_keys),
+         lifecycle: lifecycle,
+         limit: Map.get(args, :limit, 25)
+       ]}
+    end
+  end
+
+  defp normalize_relationship_direction(nil), do: {:ok, :both}
+
+  defp normalize_relationship_direction(direction) when is_binary(direction) do
+    case String.downcase(direction) do
+      "incoming" -> {:ok, :incoming}
+      "outgoing" -> {:ok, :outgoing}
+      "both" -> {:ok, :both}
+      _direction -> {:error, {:invalid_field, :direction}}
+    end
+  end
+
+  defp normalize_relationship_direction(_direction),
+    do: {:error, {:invalid_field, :direction}}
+
+  defp normalize_relationship_lifecycle(nil), do: {:ok, "active"}
+
+  defp normalize_relationship_lifecycle(lifecycle) when lifecycle in ["active", "archived"],
+    do: {:ok, lifecycle}
+
+  defp normalize_relationship_lifecycle(_lifecycle),
+    do: {:error, {:invalid_field, :lifecycle}}
 end

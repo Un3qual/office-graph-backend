@@ -282,7 +282,7 @@ describe("operator route reads", () => {
     const item = support.operatorWorkflowItem({
       relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn((request, variables): GraphQLResponse => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return support.workflowConnectionResponse([item], variables);
       }
@@ -303,14 +303,16 @@ describe("operator route reads", () => {
                         stableId: "relationship_2",
                         title: "Second relationship",
                         status: null,
-                        relationshipType: "depends_on",
+                        linkType: null,
+                        definitionKey: "depends_on",
                       }
                     : {
                         kind: "graph_link",
                         stableId: "task:task_1",
                         title: "First related task",
                         status: "open",
-                        relationshipType: "task",
+                        linkType: "task",
+                        definitionKey: null,
                       },
                 },
               ],
@@ -362,7 +364,7 @@ describe("operator route reads", () => {
       commandAffordances: [proposalAffordance],
       relationshipSummary: { graphLinks: 21, graphRelationships: 1, hasMore: true },
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn((request, variables): GraphQLResponse => {
       if (request.name === "OperatorWorkflowRouteQuery") {
         return support.workflowConnectionResponse([item], variables);
       }
@@ -390,7 +392,8 @@ describe("operator route reads", () => {
                     stableId: `task:task_${relationshipReads}`,
                     title,
                     status: "open",
-                    relationshipType: "task",
+                    linkType: "task",
+                    definitionKey: null,
                   },
                 },
               ],

@@ -110,7 +110,9 @@ function RelationshipOverflowDetails({
           edge?.node
             ? [
                 <li key={`${edge.node.kind}:${edge.node.stableId}`}>
-                  {edge.node.title} · {formatLabel(edge.node.relationshipType)}
+                  {edge.node.title}
+                  {" · "}
+                  {formatLabel(edge.node.definitionKey ?? edge.node.linkType ?? edge.node.kind)}
                 </li>,
               ]
             : [],

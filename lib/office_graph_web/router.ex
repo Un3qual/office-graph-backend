@@ -23,6 +23,10 @@ defmodule OfficeGraphWeb.Router do
   scope "/api", OfficeGraphWeb do
     pipe_through [:api, :generated_json_api]
 
+    get "/v1/graph-items/:item_id/relationships",
+        JsonApi.Relationships.Controller,
+        :index
+
     post "/v1/commands/submit-manual-intake",
          JsonApi.OperatorCommands.IntakeController,
          :submit_manual_intake

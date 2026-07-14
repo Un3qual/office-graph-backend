@@ -7,10 +7,7 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
   alias OfficeGraph.Repo
   alias OfficeGraph.Revisions
 
-  alias OfficeGraph.WorkGraph.{
-    GraphItem,
-    GraphRelationship
-  }
+  alias OfficeGraph.WorkGraph.GraphItem
 
   require Ash.Query
 
@@ -33,18 +30,22 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
     |> unwrap_ash_result()
   end
 
-  def ash_create_internal(resource, attrs) do
+  def ash_create_internal(resource, attrs, opts \\ []) do
     resource
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> Ash.create(Keyword.merge([authorize?: false, return_notifications?: true], opts))
     |> unwrap_ash_result()
   end
 
-  def ash_update_internal(record, action) do
+  def ash_update_internal(record, action, attrs \\ %{}) do
     record
-    |> Ash.Changeset.for_update(action, %{})
+    |> Ash.Changeset.for_update(action, attrs)
     |> Ash.update(authorize?: false, return_notifications?: true)
     |> unwrap_ash_result()
+  end
+
+  def ash_read_one_internal(query) do
+    Ash.read_one(query, authorize?: false)
   end
 
   def ash_get(resource, id) do
@@ -132,19 +133,6 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
         resource_type: resource_type,
         resource_id: resource_id,
         title: title
-      }
-    )
-    |> unwrap_ash()
-  end
-
-  def create_relationship!(source_item_id, target_item_id, relationship_type) do
-    ash_create_internal(
-      GraphRelationship,
-      %{
-        id: Ecto.UUID.generate(),
-        source_item_id: source_item_id,
-        target_item_id: target_item_id,
-        relationship_type: relationship_type
       }
     )
     |> unwrap_ash()

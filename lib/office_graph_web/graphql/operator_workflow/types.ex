@@ -43,7 +43,43 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :id, non_null(:id)
     field :source_graph_item_id, non_null(:id)
     field :target_graph_item_id, non_null(:id)
-    field :relationship_type, non_null(:string)
+    field :definition_key, non_null(:string)
+  end
+
+  object :graph_relationship_endpoint do
+    field :visibility, non_null(:string) do
+      resolve(fn endpoint, _, _ -> {:ok, endpoint.visibility |> Atom.to_string()} end)
+    end
+
+    field :id, :id do
+      resolve(fn
+        %{id: id}, _, _ -> {:ok, relay_id(:graph_item, id)}
+        _endpoint, _, _ -> {:ok, nil}
+      end)
+    end
+
+    field :workspace_id, :id
+    field :resource_type, :string
+    field :title, :string
+  end
+
+  node object(:graph_relationship_view,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.graph_relationship_view_id/2
+       ) do
+    field :definition_key, non_null(:string)
+    field :family, non_null(:string)
+    field :direction, non_null(:string)
+    field :lifecycle, non_null(:string)
+    field :governing_workspace_id, :id
+    field :valid_from, non_null(:datetime)
+    field :valid_until, :datetime
+    field :operation_id, non_null(:id)
+    field :run_id, :id
+    field :integration_event_id, :id
+    field :supersedes_relationship_id, :id
+    field :tombstone_id, :id
+    field :source, non_null(:graph_relationship_endpoint)
+    field :target, non_null(:graph_relationship_endpoint)
   end
 
   object :operator_trace do
@@ -115,7 +151,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :status, :string
     field :source_graph_item_id, :id
     field :target_graph_item_id, :id
-    field :relationship_type, non_null(:string)
+    field :link_type, :string
+    field :definition_key, :string
   end
 
   connection(node_type: :operator_relationship_detail)
@@ -473,4 +510,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   end
 
   def operator_workflow_item_id(_item, _resolution), do: nil
+
+  def graph_relationship_view_id(%{id: id}, _resolution), do: id
+  def graph_relationship_view_id(_relationship, _resolution), do: nil
+
+  defp relay_id(type, id) do
+    schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+    Absinthe.Relay.Node.to_global_id(type, id, schema)
+  end
 end

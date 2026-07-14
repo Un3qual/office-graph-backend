@@ -300,8 +300,9 @@ defmodule OfficeGraph.WorkGraph.AshTypedFlowAuthorizationTest do
                body: "Task should point at the persisted signal graph item."
              })
 
-    assert task_relationship.source_item_id == signal.graph_item_id
-    refute task_relationship.source_item_id == other_signal.graph_item_id
+    assert task_relationship.source_item_id == task.graph_item_id
+    assert task_relationship.target_item_id == signal.graph_item_id
+    refute task_relationship.target_item_id == other_signal.graph_item_id
 
     other_task = create_task!(bootstrap, other_signal, "Other parent task")
     tampered_task = %{task | graph_item_id: other_task.graph_item_id}
@@ -312,13 +313,14 @@ defmodule OfficeGraph.WorkGraph.AshTypedFlowAuthorizationTest do
                body: "Finding should point at the persisted task graph item."
              })
 
-    assert finding_relationship.source_item_id == task.graph_item_id
-    refute finding_relationship.source_item_id == other_task.graph_item_id
+    assert finding_relationship.source_item_id == review_finding.graph_item_id
+    assert finding_relationship.target_item_id == task.graph_item_id
+    refute finding_relationship.target_item_id == other_task.graph_item_id
 
     other_finding = create_review_finding!(bootstrap, other_task)
     tampered_finding = %{review_finding | graph_item_id: other_finding.graph_item_id}
 
-    assert {:ok, %{relationship: check_relationship}} =
+    assert {:ok, %{verification_check: verification_check, relationship: check_relationship}} =
              WorkGraph.create_verification_check(
                bootstrap.session,
                operation,
@@ -330,6 +332,7 @@ defmodule OfficeGraph.WorkGraph.AshTypedFlowAuthorizationTest do
              )
 
     assert check_relationship.source_item_id == review_finding.graph_item_id
+    assert check_relationship.target_item_id == verification_check.graph_item_id
     refute check_relationship.source_item_id == other_finding.graph_item_id
   end
 

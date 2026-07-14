@@ -162,13 +162,13 @@ defmodule OfficeGraph.WorkPackets.WorkRunContractsTest do
     assert relationship_exists?(
              verification_check.graph_item_id,
              accepted.evidence_item.graph_item_id,
-             "has_evidence"
+             "evidenced_by"
            )
 
     assert relationship_exists?(
              accepted.evidence_item.graph_item_id,
              artifact.graph_item_id,
-             "references_artifact"
+             "generated_from"
            )
   end
 

@@ -776,6 +776,7 @@ interface Node {
 
 type RootQueryType {
   health: String!
+  graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
   operatorRelationshipDetails(after: String, first: Int!, id: ID!): OperatorRelationshipDetailConnection
@@ -1149,7 +1150,48 @@ type OperatorGraphRelationship {
   id: ID!
   sourceGraphItemId: ID!
   targetGraphItemId: ID!
-  relationshipType: String!
+  definitionKey: String!
+}
+
+type GraphRelationshipEndpoint {
+  visibility: String!
+  id: ID
+  workspaceId: ID
+  resourceType: String
+  title: String
+}
+
+type GraphRelationshipView implements Node {
+  "The ID of an object"
+  id: ID!
+
+  definitionKey: String!
+
+  family: String!
+
+  direction: String!
+
+  lifecycle: String!
+
+  governingWorkspaceId: ID
+
+  validFrom: DateTime!
+
+  validUntil: DateTime
+
+  operationId: ID!
+
+  runId: ID
+
+  integrationEventId: ID
+
+  supersedesRelationshipId: ID
+
+  tombstoneId: ID
+
+  source: GraphRelationshipEndpoint!
+
+  target: GraphRelationshipEndpoint!
 }
 
 type OperatorTrace {
@@ -1242,7 +1284,8 @@ type OperatorRelationshipDetail {
   status: String
   sourceGraphItemId: ID
   targetGraphItemId: ID
-  relationshipType: String!
+  linkType: String
+  definitionKey: String
 }
 
 type OperatorRelationshipDetailConnection {

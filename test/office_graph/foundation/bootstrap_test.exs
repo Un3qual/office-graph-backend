@@ -34,6 +34,17 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
       assert MapSet.member?(first.session.capabilities, "skeleton.read")
       assert MapSet.member?(first.session.capabilities, "verification.waive")
       assert MapSet.member?(first.session.capabilities, "durable_delivery.read")
+      assert MapSet.member?(first.session.capabilities, "graph_relationship.create")
+      assert MapSet.member?(first.session.capabilities, "graph_relationship.supersede")
+      assert MapSet.member?(first.session.capabilities, "graph_relationship.archive")
+      assert MapSet.member?(first.session.capabilities, "graph_relationship.restore")
+      refute MapSet.member?(first.session.capabilities, "graph_relationship.cross_workspace")
+
+      assert Ash.get!(
+               OfficeGraph.Authorization.Capability,
+               %{key: "graph_relationship.cross_workspace"},
+               authorize?: false
+             )
 
       assert Ash.get!(OfficeGraph.Tenancy.Organization, first.organization.id, authorize?: false)
       assert Ash.get!(OfficeGraph.Tenancy.Workspace, first.workspace.id, authorize?: false)
@@ -120,6 +131,10 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :durable_delivery_read,
             :evidence_link,
             :verification_complete,
+            :graph_relationship_create,
+            :graph_relationship_supersede,
+            :graph_relationship_archive,
+            :graph_relationship_restore,
             :work_packet_version_create,
             :durable_delivery_read,
             :verification_waive
@@ -145,6 +160,10 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
             :durable_delivery_read,
             :evidence_link,
             :verification_complete,
+            :graph_relationship_create,
+            :graph_relationship_supersede,
+            :graph_relationship_archive,
+            :graph_relationship_restore,
             :work_packet_version_create,
             :durable_delivery_read,
             :verification_waive

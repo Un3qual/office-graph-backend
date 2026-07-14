@@ -135,7 +135,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             }
             blockerReasons
             graphLinks { type id graphItemId state }
-            graphRelationships { relationshipType }
+            graphRelationships { definitionKey }
             auditTrace { resourceCount }
             revisionTrace { resourceCount }
           }
@@ -207,14 +207,14 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
 
     assert %{"type" => "verification_check", "id" => applied.verification_check.id} in prepare_targets
 
-    assert Enum.map(item["graphRelationships"], & &1["relationshipType"]) == [
-             "produced_task",
-             "has_review_finding",
-             "requires_verification"
+    assert Enum.map(item["graphRelationships"], & &1["definitionKey"]) == [
+             "generated_from",
+             "review_finding_for",
+             "requires_check"
            ]
 
-    assert item["auditTrace"]["resourceCount"] == 4
-    assert item["revisionTrace"]["resourceCount"] == 4
+    assert item["auditTrace"]["resourceCount"] == 7
+    assert item["revisionTrace"]["resourceCount"] == 7
 
     first_related =
       graphql(
@@ -222,7 +222,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         """
         query Related($id: ID!, $first: Int!, $after: String) {
           operatorRelationshipDetails(id: $id, first: $first, after: $after) {
-            edges { cursor node { kind stableId title relationshipType } }
+            edges { cursor node { kind stableId title linkType definitionKey } }
             pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
           }
         }
@@ -240,7 +240,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         """
         query RelatedPage($id: ID!, $first: Int!, $after: String) {
           operatorRelationshipDetails(id: $id, first: $first, after: $after) {
-            edges { cursor node { kind stableId title relationshipType } }
+            edges { cursor node { kind stableId title linkType definitionKey } }
             pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
           }
         }

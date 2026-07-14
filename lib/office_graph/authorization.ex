@@ -32,14 +32,29 @@ defmodule OfficeGraph.Authorization do
     execution_observation_record: "execution_observation.record",
     evidence_candidate_create: "evidence_candidate.create",
     evidence_accept: "evidence.accept",
+    graph_relationship_create: "graph_relationship.create",
+    graph_relationship_supersede: "graph_relationship.supersede",
+    graph_relationship_archive: "graph_relationship.archive",
+    graph_relationship_restore: "graph_relationship.restore",
     verification_waive: "verification.waive"
   }
 
+  @restricted_capabilities %{
+    graph_relationship_cross_workspace: "graph_relationship.cross_workspace"
+  }
+
+  @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
+
   def ensure_owner_role(principal, tenant) do
     Repo.transaction(fn ->
+      capabilities_by_key =
+        @recognized_capabilities
+        |> Map.values()
+        |> Map.new(fn key -> {key, ensure_capability!(key)} end)
+
       capabilities =
         @owner_capabilities
-        |> Enum.map(fn {_capability, key} -> ensure_capability!(key) end)
+        |> Enum.map(fn {_action, key} -> Map.fetch!(capabilities_by_key, key) end)
 
       role =
         get_or_create!(
@@ -168,7 +183,7 @@ defmodule OfficeGraph.Authorization do
   def authorize_operation(_session_context, _operation, _action, _opts), do: {:error, :forbidden}
 
   defp evaluate_authorization(session_context, organization_id, action, opts) do
-    case Map.fetch(@owner_capabilities, action) do
+    case Map.fetch(@recognized_capabilities, action) do
       {:ok, required} ->
         cond do
           Identity.validate_session_context(session_context) != :ok ->
@@ -190,7 +205,7 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp evaluate_trusted_session_authorization(session_context, organization_id, action, opts) do
-    case Map.fetch(@owner_capabilities, action) do
+    case Map.fetch(@recognized_capabilities, action) do
       {:ok, required} ->
         cond do
           Identity.validate_session_context(session_context) != :ok ->

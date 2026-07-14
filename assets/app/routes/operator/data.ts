@@ -83,7 +83,7 @@ export const OperatorWorkflowItemFragment = graphql`
       id
       sourceGraphItemId
       targetGraphItemId
-      relationshipType
+      definitionKey
     }
     relationshipSummary {
       graphLinks
@@ -106,7 +106,7 @@ export const OperatorRelationshipDetailsQuery = graphql`
     operatorRelationshipDetails(id: $id, first: $first, after: $after) {
       edges {
         cursor
-        node { kind stableId title status relationshipType }
+        node { kind stableId title status linkType definitionKey }
       }
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }

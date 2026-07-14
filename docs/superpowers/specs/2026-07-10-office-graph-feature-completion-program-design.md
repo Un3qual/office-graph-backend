@@ -1,8 +1,44 @@
 # Office Graph Feature Completion Program Design
 
 date: 2026-07-10
-status: approved
+status: approved, amended 2026-07-13
 program branch: `codex/close-completed-changes`
+
+## 2026-07-13 Scope And Dependency Amendment
+
+Identity and governance administration is deferred, not removed from the
+feature-completion gate. Browser login and logout, SSO/OIDC/SAML, SCIM,
+external identity reconciliation, role administration, group mapping,
+temporary-grant administration, and governance settings UI remain future work.
+Until that work resumes, Office Graph cannot satisfy the non-bootstrap-user
+completion criterion in this document.
+
+The GitHub integration and internal agent runtime may introduce only the
+backend-only service, webhook-source, and agent principals plus credential
+metadata required to authenticate and authorize their own work. They must not
+add human authentication or general identity/governance administration by
+another name.
+
+The remaining dependency sequence is amended to:
+
+```text
+implement-typed-graph-relationships
+  |
+  +-- add-github-review-integration
+        owns the first organization-scoped system-operation consumer
+        |
+        +-- implement-internal-agent-runtime
+              consumes typed relationships and the shared system-operation contract
+
+identity/governance administration (deferred)
+  |
+  +-- required before the final non-bootstrap feature-complete product loop
+```
+
+The approved detailed design for these three changes is recorded in
+`docs/superpowers/specs/2026-07-13-typed-relationships-github-agent-program-design.md`.
+Where this amendment conflicts with the original PR 4 through PR 7 dependency
+description below, this amendment controls.
 
 ## Outcome
 

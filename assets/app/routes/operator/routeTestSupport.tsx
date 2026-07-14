@@ -558,7 +558,7 @@ type OperatorWorkflowItemPayload = {
     id: string;
     sourceGraphItemId: string;
     targetGraphItemId: string;
-    relationshipType: string;
+    definitionKey: string;
   }>;
   relationshipSummary: {
     graphLinks: number;

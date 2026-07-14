@@ -529,17 +529,24 @@ defmodule OfficeGraph.WorkGraph.AshScopeAuthorizationTest do
     {:ok, actor_scope} = bootstrap_scope("relationship-actor")
     {:ok, other_scope} = bootstrap_scope("relationship-other")
 
-    source = insert_graph_item!(actor_scope, "signal", Ecto.UUID.generate(), "Source")
+    source = insert_graph_item!(actor_scope, "task", Ecto.UUID.generate(), "Source")
     target = insert_graph_item!(other_scope, "task", Ecto.UUID.generate(), "Target")
+    {:ok, definition} = OfficeGraph.WorkGraph.RelationshipDefinitions.fetch_by_key("depends_on")
+    {:ok, operation} = Operations.start_operation(actor_scope.session, :graph_relationship_create)
 
     assert {:error, error} =
              Ash.create(
                GraphRelationship,
                %{
                  id: Ecto.UUID.generate(),
+                 definition_id: definition.id,
+                 organization_id: actor_scope.organization.id,
+                 workspace_id: actor_scope.workspace.id,
                  source_item_id: source.id,
                  target_item_id: target.id,
-                 relationship_type: "cross_scope"
+                 asserting_principal_id: actor_scope.principal.id,
+                 operation_id: operation.id,
+                 valid_from: DateTime.utc_now()
                },
                action: :create,
                authorize?: false

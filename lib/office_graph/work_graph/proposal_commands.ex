@@ -5,6 +5,8 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
   alias OfficeGraph.WorkGraph.CommandSupport, as: Support
 
   alias OfficeGraph.WorkGraph.{
+    RelationshipCommands,
+    RelationshipRequest,
     ReviewFinding,
     Signal,
     Task,
@@ -98,10 +100,12 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
         source_signal_graph_item_id = Support.persisted_graph_item_id!(Signal, signal.id)
 
         relationship =
-          Support.create_relationship!(
-            source_signal_graph_item_id,
+          create_relationship!(
+            session_context,
+            operation,
             graph_item_id,
-            "produced_task"
+            source_signal_graph_item_id,
+            "generated_from"
           )
 
         Support.trace!(operation, "task.create", "task", task.id)
@@ -118,7 +122,8 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
       child_resource: ReviewFinding,
       child_key: :review_finding,
       resource_type: "review_finding",
-      relationship_type: "has_review_finding",
+      relationship_key: "review_finding_for",
+      relationship_direction: :child_to_parent,
       trace_action: "review_finding.create",
       trace_resource: "review_finding",
       child_attrs: fn task, document ->
@@ -133,7 +138,8 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
       child_resource: VerificationCheck,
       child_key: :verification_check,
       resource_type: "verification_check",
-      relationship_type: "requires_verification",
+      relationship_key: "requires_check",
+      relationship_direction: :parent_to_child,
       trace_action: "verification_check.create",
       trace_resource: "verification_check",
       child_attrs: fn review_finding, document ->
@@ -185,11 +191,19 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
           )
           |> Support.unwrap_ash()
 
+        {source_item_id, target_item_id} =
+          case opts.relationship_direction do
+            :child_to_parent -> {graph_item_id, parent.graph_item_id}
+            :parent_to_child -> {parent.graph_item_id, graph_item_id}
+          end
+
         relationship =
-          Support.create_relationship!(
-            parent.graph_item_id,
-            graph_item_id,
-            opts.relationship_type
+          create_relationship!(
+            session_context,
+            operation,
+            source_item_id,
+            target_item_id,
+            opts.relationship_key
           )
 
         Support.trace!(operation, opts.trace_action, opts.trace_resource, child.id)
@@ -213,5 +227,25 @@ defmodule OfficeGraph.WorkGraph.ProposalCommands do
     Authorization.authorize_operation(session_context, operation, :proposed_change_apply,
       organization_id: session_context.organization_id
     )
+  end
+
+  defp create_relationship!(
+         session_context,
+         operation,
+         source_item_id,
+         target_item_id,
+         definition_key
+       ) do
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: definition_key,
+        source_item_id: source_item_id,
+        target_item_id: target_item_id,
+        workspace_id: session_context.workspace_id
+      })
+
+    session_context
+    |> RelationshipCommands.create(operation, request)
+    |> Support.unwrap_ash()
   end
 end
