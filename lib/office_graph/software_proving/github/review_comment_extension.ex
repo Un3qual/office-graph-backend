@@ -3,7 +3,13 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension do
 
   use OfficeGraph.SoftwareProving.ProviderExtension,
     table: "github_review_comments",
-    accept: [:review_comment_id, :node_id, :database_id, :review_database_id]
+    accept: [
+      :review_comment_id,
+      :organization_id,
+      :node_id,
+      :database_id,
+      :review_database_id
+    ]
 
   attributes do
     attribute :review_comment_id, :uuid,
@@ -12,6 +18,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension do
       writable?: true,
       public?: true
 
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     attribute :database_id, :integer, public?: true
     attribute :review_database_id, :integer, public?: true
@@ -29,6 +36,6 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension do
   end
 
   identities do
-    identity :unique_node_id, [:node_id]
+    identity :unique_organization_node_id, [:organization_id, :node_id]
   end
 end

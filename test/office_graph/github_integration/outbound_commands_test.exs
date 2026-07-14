@@ -1,6 +1,13 @@
 defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
   use OfficeGraph.DataCase, async: false
 
+  defmodule UnavailableSecretStore do
+    @behaviour OfficeGraph.GitHubIntegration.SecretStore
+
+    @impl true
+    def fetch(_reference, _scope), do: {:error, :unavailable}
+  end
+
   import Ecto.Query
 
   alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo}
@@ -146,6 +153,65 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert health.retryable_count == 1
     assert health.terminal_count == 0
     assert Enum.map(health.recent_failures, & &1.code) == ["provider_rate_limited"]
+  end
+
+  test "exhausted transient retries persist a terminal action state", context do
+    attrs = reply_attrs(context, "Retry budget is exhausted.")
+    operation = command_operation!(context, :github_review_reply, "reply:exhausted", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :network_error}})
+
+    job = job_for(action.id)
+    exhausted_job = %{job | attempt: job.max_attempts}
+
+    assert {:cancel, "attempts_exhausted"} = OutboundWorker.perform(exhausted_job)
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_class == "terminal"
+    assert action.failure_code == "provider_unavailable"
+    assert %DateTime{} = action.completed_at
+  end
+
+  test "unexpected persisted input is recorded as terminal instead of crashing", context do
+    attrs = reply_attrs(context, "Persisted input must be allowlisted.")
+    operation = command_operation!(context, :github_review_reply, "reply:invalid-input", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    unknown_key = "unrecognized_#{Ecto.UUID.generate()}"
+
+    Repo.query!(
+      "UPDATE github_outbound_actions SET input = $2 WHERE id::text = $1",
+      [action.id, %{unknown_key => "value"}]
+    )
+
+    assert {:cancel, "invalid_provider_response"} = OutboundWorker.perform(job_for(action.id))
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_code == "invalid_provider_response"
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+  end
+
+  test "temporary secret-store outages keep outbound work retryable", context do
+    configured = Application.fetch_env!(:office_graph, :github_secret_store)
+    Application.put_env(:office_graph, :github_secret_store, UnavailableSecretStore)
+    on_exit(fn -> Application.put_env(:office_graph, :github_secret_store, configured) end)
+
+    attrs = reply_attrs(context, "Retry secret resolution.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:secret-unavailable", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert {:error, "provider_unavailable"} =
+             OutboundWorker.perform(job_for(action.id))
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "retryable"
+    assert action.failure_code == "provider_unavailable"
   end
 
   test "revoked credentials fail terminally with a rotate-credential remediation", context do

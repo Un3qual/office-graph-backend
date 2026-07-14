@@ -15,8 +15,6 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
 
   @supported_events MapSet.new(~w(
     check_run
-    installation
-    installation_repositories
     pull_request
     pull_request_review
     pull_request_review_comment
@@ -40,9 +38,18 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          :ok <- supported_event(event_name) do
       record_receipt(installation, credential_binding, delivery_id, event_name, raw_body)
     else
-      {:error, :secret_not_found} -> {:error, :invalid_signature}
-      {:error, :forbidden} -> {:error, :unknown_installation}
-      error -> error
+      {:error, reason}
+      when reason in [
+             :forbidden,
+             :invalid_secret_reference,
+             :secret_not_found,
+             :unavailable,
+             :unknown_installation
+           ] ->
+        {:error, :invalid_signature}
+
+      error ->
+        error
     end
   end
 

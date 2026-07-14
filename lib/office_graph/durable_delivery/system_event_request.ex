@@ -14,11 +14,18 @@ defmodule OfficeGraph.DurableDelivery.SystemEventRequest do
   ]
 
   defstruct [
+    :event_key,
+    :event_kind,
+    :organization_id,
+    :operation_id,
+    :operation_kind,
+    :event_scope,
+    :occurred_at,
     :workspace_id,
     :subject_kind,
     :subject_id,
     :subject_version,
-    :causation_event_id | @enforce_keys
+    :causation_event_id
   ]
 
   def new(operation, attrs) when is_map(operation) and is_map(attrs) do

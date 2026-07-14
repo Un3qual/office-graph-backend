@@ -3,7 +3,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension do
 
   use OfficeGraph.SoftwareProving.ProviderExtension,
     table: "github_review_threads",
-    accept: [:review_thread_id, :node_id]
+    accept: [:review_thread_id, :organization_id, :node_id]
 
   attributes do
     attribute :review_thread_id, :uuid,
@@ -12,6 +12,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension do
       writable?: true,
       public?: true
 
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -27,6 +28,6 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension do
   end
 
   identities do
-    identity :unique_node_id, [:node_id]
+    identity :unique_organization_node_id, [:organization_id, :node_id]
   end
 end

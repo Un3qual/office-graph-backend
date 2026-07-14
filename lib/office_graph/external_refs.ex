@@ -38,7 +38,7 @@ defmodule OfficeGraph.ExternalRefs do
   def upsert_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
   defp persist_reference(operation, source, attrs, identity) do
-    case reference_by_external_id(source.id, identity.external_id) do
+    case reference_by_external_id(operation.organization_id, source.id, identity.external_id) do
       {:ok, nil} ->
         reference =
           Repo.ash_create!(ExternalReference, %{
@@ -91,9 +91,12 @@ defmodule OfficeGraph.ExternalRefs do
     end
   end
 
-  defp reference_by_external_id(source_id, external_id) do
+  defp reference_by_external_id(organization_id, source_id, external_id) do
     ExternalReference
-    |> Ash.Query.filter(source_id == ^source_id and external_id == ^external_id)
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and source_id == ^source_id and
+        external_id == ^external_id
+    )
     |> Ash.read_one(authorize?: false)
   end
 

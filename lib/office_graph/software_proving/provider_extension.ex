@@ -14,6 +14,8 @@ defmodule OfficeGraph.SoftwareProving.ProviderExtension do
         table unquote(table)
         repo OfficeGraph.Repo
         migrate? false
+
+        identity_index_names unique_organization_node_id: unquote("#{table}_node_id_index")
       end
 
       actions do

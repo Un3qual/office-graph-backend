@@ -10,7 +10,10 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
     repo OfficeGraph.Repo
     migrate? false
 
-    identity_index_names unique_scope_reference: "integration_credentials_scope_reference_index"
+    identity_index_names unique_workspace_reference:
+                           "integration_credentials_workspace_reference_index",
+                         unique_organization_reference:
+                           "integration_credentials_organization_reference_index"
   end
 
   attributes do
@@ -60,7 +63,13 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
   end
 
   identities do
-    identity :unique_scope_reference, [:organization_id, :kind, :secret_reference]
+    identity :unique_workspace_reference,
+             [:organization_id, :workspace_id, :kind, :secret_reference],
+             where: expr(not is_nil(workspace_id))
+
+    identity :unique_organization_reference,
+             [:organization_id, :kind, :secret_reference],
+             where: expr(is_nil(workspace_id))
   end
 
   relationships do

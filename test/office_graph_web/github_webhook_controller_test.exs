@@ -3,6 +3,7 @@ defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
 
   alias OfficeGraph.{Foundation, GitHubIntegration}
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
+  alias OfficeGraphWeb.RawBodyReader
 
   test "accepts the exact signed raw body promptly and returns duplicate safely", %{conn: conn} do
     context = installation_context("controller")
@@ -46,6 +47,18 @@ defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
              |> recycle()
              |> post_raw(body, unsupported_headers)
              |> json_response(422)
+  end
+
+  test "raw body buffering is limited to the GitHub webhook endpoint" do
+    graphql_conn = Plug.Test.conn(:post, "/api/graphql", ~s({"query":"{ __typename }"}))
+
+    assert {:ok, _body, graphql_conn} = RawBodyReader.read_body(graphql_conn, [])
+    refute Map.has_key?(graphql_conn.assigns, :raw_body_chunks)
+
+    webhook_conn = Plug.Test.conn(:post, "/api/v1/webhooks/github", ~s({"action":"opened"}))
+
+    assert {:ok, _body, webhook_conn} = RawBodyReader.read_body(webhook_conn, [])
+    assert RawBodyReader.body(webhook_conn) == ~s({"action":"opened"})
   end
 
   defp post_raw(conn, body, headers) do

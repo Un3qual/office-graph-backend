@@ -65,6 +65,11 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
         :subject_version,
         :metadata
       ]
+
+      validate present([:authority_basis, :causation_key, :idempotency_scope]),
+        where: [attribute_equals(:operation_kind, "system")]
+
+      validate absent(:session_id), where: [attribute_equals(:operation_kind, "system")]
     end
   end
 

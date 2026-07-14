@@ -11,7 +11,9 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
     repo OfficeGraph.Repo
     migrate? false
 
-    identity_index_names unique_source_external_id:
+    identity_index_names unique_scoped_source_external_id:
+                           "external_references_scoped_source_external_id_index",
+                         unique_legacy_source_external_id:
                            "external_references_source_id_external_id_index"
 
     foreign_key_names source_id: "external_references_source_id_fkey"
@@ -61,6 +63,7 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
       ]
 
       validate one_of(:sync_state, ~w(pending synced stale failed))
+      validate present([:organization_id, :operation_id]), where: [present(:provider)]
     end
 
     update :reconcile do
@@ -81,6 +84,12 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
   end
 
   identities do
-    identity :unique_source_external_id, [:source_id, :external_id]
+    identity :unique_scoped_source_external_id,
+             [:organization_id, :source_id, :external_id],
+             where: expr(not is_nil(organization_id))
+
+    identity :unique_legacy_source_external_id,
+             [:source_id, :external_id],
+             where: expr(is_nil(organization_id))
   end
 end

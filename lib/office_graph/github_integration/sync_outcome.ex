@@ -63,6 +63,27 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
 
       public? false
     end
+
+    update :record_result do
+      accept [
+        :state,
+        :provider_version,
+        :provider_sequence,
+        :resource_type,
+        :resource_id,
+        :signal_ids,
+        :failure_class,
+        :failure_code
+      ]
+
+      validate one_of(
+                 :state,
+                 ~w(reconciled skipped_stale retryable terminal authorization configuration)
+               )
+
+      require_atomic? false
+      public? false
+    end
   end
 
   identities do

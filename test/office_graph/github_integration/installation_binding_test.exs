@@ -104,6 +104,95 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert Repo.aggregate(Installation, :count) == 1
   end
 
+  test "installations in the same scope reuse credential metadata for shared references" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    shared = binding_attrs(bootstrap, "shared-first")
+
+    second =
+      bootstrap
+      |> binding_attrs("shared-second")
+      |> Map.put(:webhook_secret_reference, shared.webhook_secret_reference)
+      |> Map.put(:app_private_key_reference, shared.app_private_key_reference)
+
+    assert {:ok, first_binding} =
+             GitHubIntegration.bind_installation(bootstrap.session, shared)
+
+    assert {:ok, second_binding} =
+             GitHubIntegration.bind_installation(bootstrap.session, second)
+
+    first_credentials =
+      Map.new(first_binding.credentials, &{&1.purpose, &1.credential_id})
+
+    second_credentials =
+      Map.new(second_binding.credentials, &{&1.purpose, &1.credential_id})
+
+    assert second_credentials == first_credentials
+    assert Repo.aggregate(IntegrationCredential, :count) == 2
+  end
+
+  test "secret references reject content outside one complete URI or environment reference" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    attrs =
+      bootstrap
+      |> binding_attrs("invalid-secret-reference")
+      |> Map.put(
+        :webhook_secret_reference,
+        "test-secret://github/valid-prefix\nUNTRUSTED_SUFFIX"
+      )
+
+    assert {:error, {:invalid_field, :webhook_secret_reference}} =
+             GitHubIntegration.bind_installation(bootstrap.session, attrs)
+
+    assert Repo.aggregate(Installation, :count) == 0
+  end
+
+  test "concurrent external installation claims have one stable forbidden loser" do
+    suffix = System.unique_integer([:positive])
+
+    {:ok, first} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Installation race A #{suffix}",
+        organization_slug: "installation-race-a-#{suffix}",
+        workspace_name: "Installation race A workspace #{suffix}",
+        workspace_slug: "installation-race-a-workspace-#{suffix}",
+        initiative_name: "Installation race A initiative #{suffix}",
+        initiative_slug: "installation-race-a-initiative-#{suffix}",
+        owner_email: "installation-race-a-#{suffix}@office-graph.local"
+      )
+
+    {:ok, second} =
+      Foundation.bootstrap_local_owner(
+        organization_name: "Installation race B #{suffix}",
+        organization_slug: "installation-race-b-#{suffix}",
+        workspace_name: "Installation race B workspace #{suffix}",
+        workspace_slug: "installation-race-b-workspace-#{suffix}",
+        initiative_name: "Installation race B initiative #{suffix}",
+        initiative_slug: "installation-race-b-initiative-#{suffix}",
+        owner_email: "installation-race-b-#{suffix}@office-graph.local"
+      )
+
+    external_installation_id = System.unique_integer([:positive])
+
+    requests = [
+      {first,
+       %{binding_attrs(first, "race-a") | external_installation_id: external_installation_id}},
+      {second,
+       %{binding_attrs(second, "race-b") | external_installation_id: external_installation_id}}
+    ]
+
+    results =
+      requests
+      |> Enum.map(fn {bootstrap, attrs} ->
+        Task.async(fn -> GitHubIntegration.bind_installation(bootstrap.session, attrs) end)
+      end)
+      |> Task.await_many(10_000)
+
+    assert Enum.count(results, &match?({:ok, _binding}, &1)) == 1
+    assert Enum.count(results, &(&1 == {:error, :forbidden})) == 1
+    assert Repo.aggregate(Installation, :count) == 1
+  end
+
   defp binding_attrs(bootstrap, label) do
     %{
       idempotency_key: "github-bind-#{label}",

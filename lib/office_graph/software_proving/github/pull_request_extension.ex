@@ -3,7 +3,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.PullRequestExtension do
 
   use OfficeGraph.SoftwareProving.ProviderExtension,
     table: "github_pull_requests",
-    accept: [:pull_request_id, :node_id, :database_id]
+    accept: [:pull_request_id, :organization_id, :node_id, :database_id]
 
   attributes do
     attribute :pull_request_id, :uuid,
@@ -12,6 +12,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.PullRequestExtension do
       writable?: true,
       public?: true
 
+    attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     attribute :database_id, :integer, public?: true
     create_timestamp :inserted_at, public?: true
@@ -28,6 +29,6 @@ defmodule OfficeGraph.SoftwareProving.GitHub.PullRequestExtension do
   end
 
   identities do
-    identity :unique_node_id, [:node_id]
+    identity :unique_organization_node_id, [:organization_id, :node_id]
   end
 end

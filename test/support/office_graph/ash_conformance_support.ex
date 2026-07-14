@@ -259,13 +259,30 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.SoftwareProving.PullRequest => %{
       unique_repository_number: [:repository_id, :number]
     },
-    OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{unique_node_id: [:node_id]},
-    OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{unique_node_id: [:node_id]},
-    OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{unique_node_id: [:node_id]},
-    OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{unique_node_id: [:node_id]},
-    OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{unique_node_id: [:node_id]},
+    OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{
+      unique_organization_node_id: [:organization_id, :node_id]
+    },
+    OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{
+      unique_organization_node_id: [:organization_id, :node_id]
+    },
+    OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{
+      unique_organization_node_id: [:organization_id, :node_id]
+    },
+    OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{
+      unique_organization_node_id: [:organization_id, :node_id]
+    },
+    OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
+      unique_organization_node_id: [:organization_id, :node_id]
+    },
     OfficeGraph.Integrations.IntegrationCredential => %{
-      unique_scope_reference: [:organization_id, :kind, :secret_reference]
+      unique_workspace_reference: %{
+        keys: [:organization_id, :workspace_id, :kind, :secret_reference],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_reference: %{
+        keys: [:organization_id, :kind, :secret_reference],
+        where: "is_nil(workspace_id)"
+      }
     },
     OfficeGraph.GitHubIntegration.Installation => %{
       unique_external_installation: [:external_installation_id],

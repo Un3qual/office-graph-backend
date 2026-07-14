@@ -38,7 +38,7 @@ defmodule OfficeGraph.GitHubIntegration do
   alias OfficeGraph.Integrations.IntegrationCredential
 
   @permission_levels ~w(none read write admin)
-  @secret_reference ~r/^[a-z][a-z0-9+.-]*:\/\/.+|^env:[A-Z][A-Z0-9_]*$/
+  @secret_reference ~r/\A(?:[a-z][a-z0-9+.-]*:\/\/\S+|env:[A-Z][A-Z0-9_]*)\z/
 
   def accept_webhook(headers, raw_body), do: WebhookReceipt.accept(headers, raw_body)
 
@@ -89,8 +89,7 @@ defmodule OfficeGraph.GitHubIntegration do
              operation,
              :github_installation_bind,
              organization_id: session_context.organization_id
-           ),
-         :ok <- installation_available?(session_context, operation, normalized) do
+           ) do
       persist_binding(session_context, operation, normalized)
     end
   end
@@ -176,20 +175,23 @@ defmodule OfficeGraph.GitHubIntegration do
   end
 
   defp persist_binding(session_context, operation, normalized) do
-    case Repo.transaction(fn ->
-           with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
-                {:ok, existing} <- installation_by_operation(operation.id) do
-             case existing do
-               nil -> create_binding!(session_context, operation, normalized)
-               installation -> binding_result(operation, installation)
-             end
-           else
-             {:error, reason} -> Repo.rollback(reason)
-           end
-         end) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
+    Repo.transaction(fn ->
+      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
+        lock_installation!(normalized.external_installation_id)
+
+        with :ok <- installation_available?(session_context, operation, normalized),
+             {:ok, existing} <- installation_by_operation(operation.id) do
+          case existing do
+            nil -> create_binding!(session_context, operation, normalized)
+            installation -> binding_result(operation, installation)
+          end
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   defp create_binding!(session_context, operation, attrs) do
@@ -284,16 +286,34 @@ defmodule OfficeGraph.GitHubIntegration do
   end
 
   defp create_credential_binding!(session_context, operation, installation, purpose, reference) do
+    lookup = [
+      organization_id: session_context.organization_id,
+      workspace_id: installation.workspace_id,
+      kind: "secret_reference",
+      secret_reference: reference
+    ]
+
     credential =
-      Repo.ash_create!(IntegrationCredential, %{
-        id: Ecto.UUID.generate(),
-        organization_id: session_context.organization_id,
-        workspace_id: installation.workspace_id,
-        kind: "secret_reference",
-        secret_reference: reference,
-        status: "active",
-        operation_id: operation.id
-      })
+      Repo.get_or_insert!(
+        IntegrationCredential,
+        lookup,
+        %{
+          organization_id: session_context.organization_id,
+          workspace_id: installation.workspace_id,
+          kind: "secret_reference",
+          secret_reference: reference,
+          status: "active",
+          operation_id: operation.id
+        },
+        &credential_insert_contract/2,
+        &credential_by_reference/2
+      )
+
+    if credential.status != "active" or
+         credential.organization_id != session_context.organization_id or
+         credential.workspace_id != installation.workspace_id do
+      Repo.rollback(:forbidden)
+    end
 
     binding =
       Repo.ash_create!(InstallationCredential, %{
@@ -367,6 +387,50 @@ defmodule OfficeGraph.GitHubIntegration do
     Installation
     |> Ash.Query.filter(operation_id == ^operation_id)
     |> Ash.read_one(authorize?: false)
+  end
+
+  defp credential_by_reference(IntegrationCredential, lookup) do
+    organization_id = Keyword.fetch!(lookup, :organization_id)
+    workspace_id = Keyword.fetch!(lookup, :workspace_id)
+    kind = Keyword.fetch!(lookup, :kind)
+    secret_reference = Keyword.fetch!(lookup, :secret_reference)
+
+    query =
+      IntegrationCredential
+      |> Ash.Query.filter(
+        organization_id == ^organization_id and kind == ^kind and
+          secret_reference == ^secret_reference
+      )
+
+    query =
+      if is_nil(workspace_id),
+        do: Ash.Query.filter(query, is_nil(workspace_id)),
+        else: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
+    Ash.read_one(query, authorize?: false)
+  end
+
+  defp credential_insert_contract(IntegrationCredential, %{workspace_id: nil}) do
+    {
+      "integration_credentials",
+      {:unsafe_fragment, "(organization_id, kind, secret_reference) WHERE workspace_id IS NULL"},
+      [:id, :organization_id, :operation_id]
+    }
+  end
+
+  defp credential_insert_contract(IntegrationCredential, _attrs) do
+    {
+      "integration_credentials",
+      {:unsafe_fragment,
+       "(organization_id, workspace_id, kind, secret_reference) WHERE workspace_id IS NOT NULL"},
+      [:id, :organization_id, :workspace_id, :operation_id]
+    }
+  end
+
+  defp lock_installation!(external_installation_id) do
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      "github:installation:#{external_installation_id}"
+    ])
   end
 
   defp positive_integer(attrs, key) do

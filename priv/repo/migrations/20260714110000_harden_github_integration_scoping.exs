@@ -1,0 +1,118 @@
+defmodule OfficeGraph.Repo.Migrations.HardenGitHubIntegrationScoping do
+  use Ecto.Migration
+
+  @github_extensions [
+    {:github_repositories, :repositories, :repository_id},
+    {:github_pull_requests, :pull_requests, :pull_request_id},
+    {:github_review_threads, :review_threads, :review_thread_id},
+    {:github_review_comments, :review_comments, :review_comment_id},
+    {:github_check_runs, :check_runs, :check_run_id}
+  ]
+
+  def up do
+    for {extension, base, base_id} <- @github_extensions do
+      alter table(extension) do
+        add :organization_id,
+            references(:organizations, type: :binary_id, on_delete: :restrict)
+      end
+
+      execute("""
+      UPDATE #{extension} AS extension
+      SET organization_id = base.organization_id
+      FROM #{base} AS base
+      WHERE extension.#{base_id} = base.id
+      """)
+
+      alter table(extension) do
+        modify :organization_id,
+               references(:organizations, type: :binary_id, on_delete: :restrict),
+               null: false,
+               from:
+                 {references(:organizations, type: :binary_id, on_delete: :restrict), null: true}
+      end
+
+      index_name = String.to_atom("#{extension}_node_id_index")
+      drop_if_exists index(extension, [], name: index_name)
+      create unique_index(extension, [:organization_id, :node_id], name: index_name)
+    end
+
+    drop_if_exists index(:external_references, [],
+                     name: :external_references_source_id_external_id_index
+                   )
+
+    create unique_index(
+             :external_references,
+             [:organization_id, :source_id, :external_id],
+             where: "organization_id IS NOT NULL",
+             name: :external_references_scoped_source_external_id_index
+           )
+
+    create unique_index(
+             :external_references,
+             [:source_id, :external_id],
+             where: "organization_id IS NULL",
+             name: :external_references_source_id_external_id_index
+           )
+
+    create constraint(:external_references, :external_references_provider_scope_required,
+             check:
+               "provider IS NULL OR (organization_id IS NOT NULL AND operation_id IS NOT NULL)"
+           )
+
+    drop_if_exists index(:integration_credentials, [],
+                     name: :integration_credentials_scope_reference_index
+                   )
+
+    create unique_index(
+             :integration_credentials,
+             [:organization_id, :workspace_id, :kind, :secret_reference],
+             where: "workspace_id IS NOT NULL",
+             name: :integration_credentials_workspace_reference_index
+           )
+
+    create unique_index(
+             :integration_credentials,
+             [:organization_id, :kind, :secret_reference],
+             where: "workspace_id IS NULL",
+             name: :integration_credentials_organization_reference_index
+           )
+  end
+
+  def down do
+    drop_if_exists index(:integration_credentials, [],
+                     name: :integration_credentials_organization_reference_index
+                   )
+
+    drop_if_exists index(:integration_credentials, [],
+                     name: :integration_credentials_workspace_reference_index
+                   )
+
+    create unique_index(:integration_credentials, [:organization_id, :kind, :secret_reference],
+             name: :integration_credentials_scope_reference_index
+           )
+
+    drop constraint(:external_references, :external_references_provider_scope_required)
+
+    drop_if_exists index(:external_references, [],
+                     name: :external_references_source_id_external_id_index
+                   )
+
+    drop_if_exists index(:external_references, [],
+                     name: :external_references_scoped_source_external_id_index
+                   )
+
+    create unique_index(:external_references, [:source_id, :external_id],
+             name: :external_references_source_id_external_id_index
+           )
+
+    for {extension, _base, _base_id} <- Enum.reverse(@github_extensions) do
+      index_name = String.to_atom("#{extension}_node_id_index")
+      drop_if_exists index(extension, [], name: index_name)
+      create unique_index(extension, [:node_id], name: index_name)
+
+      alter table(extension) do
+        remove :organization_id
+      end
+    end
+  end
+end

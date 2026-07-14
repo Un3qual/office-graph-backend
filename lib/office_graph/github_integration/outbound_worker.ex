@@ -101,11 +101,13 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   defp call_adapter(action, credential) do
     adapter = Application.fetch_env!(:office_graph, :github_adapter)
-    request = atomize_input(action.input)
 
-    case action.action_kind do
-      "review_reply" -> adapter.reply_to_review(request, credential)
-      "check_update" -> adapter.update_check(request, credential)
+    with {:ok, request} <- normalize_input(action.input) do
+      case action.action_kind do
+        "review_reply" -> adapter.reply_to_review(request, credential)
+        "check_update" -> adapter.update_check(request, credential)
+        _unsupported -> {:error, :invalid_provider_response}
+      end
     end
   end
 
@@ -133,16 +135,19 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp record_adapter_result({:error, reason}, action, job) do
     {failure_class, failure_code, result} = classify(reason, job)
 
+    persisted_class =
+      if result == {:cancel, "attempts_exhausted"}, do: :terminal, else: failure_class
+
     updated =
       update_action!(action, %{
-        state: Atom.to_string(failure_class),
-        failure_class: Atom.to_string(failure_class),
+        state: Atom.to_string(persisted_class),
+        failure_class: Atom.to_string(persisted_class),
         failure_code: Atom.to_string(failure_code),
         attempted_at: DateTime.utc_now(),
-        completed_at: if(failure_class == :terminal, do: DateTime.utc_now())
+        completed_at: if(persisted_class == :terminal, do: DateTime.utc_now())
       })
 
-    if failure_class == :terminal, do: trace!(updated, "terminal")
+    if persisted_class == :terminal, do: trace!(updated, "terminal")
     result
   end
 
@@ -151,7 +156,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     {:retryable, :provider_rate_limited, {:snooze, delay}}
   end
 
-  defp classify(reason, job) when reason in [:network_error, :provider_unavailable] do
+  defp classify(reason, job)
+       when reason in [:network_error, :provider_unavailable, :unavailable] do
     result =
       DurableDelivery.normalize_worker_result({:error, {:retryable, :provider_unavailable}}, job)
 
@@ -198,12 +204,25 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
-  defp atomize_input(input) do
-    Map.new(input, fn
-      {key, value} when is_binary(key) -> {String.to_existing_atom(key), value}
-      pair -> pair
+  @input_keys %{
+    "body" => :body,
+    "conclusion" => :conclusion,
+    "details_url" => :details_url,
+    "expected_provider_version" => :expected_provider_version,
+    "status" => :status,
+    "target_node_id" => :target_node_id
+  }
+
+  defp normalize_input(input) when is_map(input) do
+    Enum.reduce_while(input, {:ok, %{}}, fn {key, value}, {:ok, normalized} ->
+      case Map.fetch(@input_keys, to_string(key)) do
+        {:ok, atom_key} -> {:cont, {:ok, Map.put(normalized, atom_key, value)}}
+        :error -> {:halt, {:error, :invalid_provider_response}}
+      end
     end)
   end
+
+  defp normalize_input(_input), do: {:error, :invalid_provider_response}
 
   defp safe_code(code) when is_atom(code), do: Atom.to_string(code)
 end

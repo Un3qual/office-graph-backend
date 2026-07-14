@@ -40,20 +40,37 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def reconcile(operation, %ReconciliationRequest{} = request) do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
-         {:ok, nil} <- outcome_by_operation(operation.id),
-         {:ok, installation} <- authorized_installation(operation, request),
+         {:ok, outcome} <- outcome_by_operation(operation.id) do
+      continue_or_replay(operation, request, outcome)
+    end
+  end
+
+  def reconcile(_operation, _request), do: {:error, :forbidden}
+
+  defp continue_or_replay(operation, request, nil),
+    do: reconcile_provider(operation, request)
+
+  defp continue_or_replay(operation, request, %SyncOutcome{state: "retryable"} = outcome) do
+    case replay_outcome(outcome, request) do
+      {:error, {:retryable, _code}} -> reconcile_provider(operation, request)
+      error -> error
+    end
+  end
+
+  defp continue_or_replay(_operation, request, %SyncOutcome{} = outcome),
+    do: replay_outcome(outcome, request)
+
+  defp reconcile_provider(operation, request) do
+    with {:ok, installation} <- authorized_installation(operation, request),
          {:ok, credential} <- resolve_credential(operation, installation),
          {:ok, source} <- Integrations.ensure_provider_source("github", "GitHub"),
          {:ok, snapshot} <- fetch_snapshot(request, installation, credential) do
       reconcile_snapshot(operation, request, installation, source, snapshot)
     else
-      {:ok, %SyncOutcome{} = outcome} -> replay_outcome(outcome, request)
       {:error, {:provider, reason}} -> record_failure(operation, request, reason)
       {:error, _error} = error -> error
     end
   end
-
-  def reconcile(_operation, _request), do: {:error, :forbidden}
 
   defp authorized_installation(operation, request) do
     case Ash.get(Installation, request.installation_id,
@@ -136,9 +153,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
            lock!("github:#{installation.id}:#{request.object_type}:#{request.object_id}")
 
            case outcome_by_operation(operation.id) do
-             {:ok, nil} -> persist_snapshot!(operation, request, installation, source, snapshot)
-             {:ok, outcome} -> outcome
-             {:error, error} -> Repo.rollback(error)
+             {:ok, nil} ->
+               persist_snapshot!(operation, request, installation, source, snapshot)
+
+             {:ok, %SyncOutcome{state: "retryable"}} ->
+               persist_snapshot!(operation, request, installation, source, snapshot)
+
+             {:ok, outcome} ->
+               outcome
+
+             {:error, error} ->
+               Repo.rollback(error)
            end
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
@@ -183,10 +208,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp reconcile_repository!(operation, source, snapshot) do
-    lock!("github:repository:#{snapshot.repository.node_id}")
+    lock!("github:repository:#{operation.organization_id}:#{snapshot.repository.node_id}")
 
     existing =
       base_by_extension(
+        operation.organization_id,
         RepositoryExtension,
         :repository_id,
         Repository,
@@ -205,11 +231,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       })
       |> unwrap!()
 
-    ensure_extension!(RepositoryExtension, :repository_id, result.record.id, %{
-      node_id: snapshot.repository.node_id,
-      database_id: snapshot.repository.database_id,
-      owner_login: snapshot.repository.owner_login
-    })
+    ensure_extension!(
+      operation.organization_id,
+      RepositoryExtension,
+      :repository_id,
+      result.record.id,
+      %{
+        node_id: snapshot.repository.node_id,
+        database_id: snapshot.repository.database_id,
+        owner_login: snapshot.repository.owner_login
+      }
+    )
 
     maybe_reference!(
       operation,
@@ -226,6 +258,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp reconcile_pull_request!(operation, source, repository, snapshot) do
     existing =
       base_by_extension(
+        operation.organization_id,
         PullRequestExtension,
         :pull_request_id,
         PullRequest,
@@ -250,10 +283,16 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       })
       |> unwrap!()
 
-    ensure_extension!(PullRequestExtension, :pull_request_id, result.record.id, %{
-      node_id: snapshot.pull_request.node_id,
-      database_id: snapshot.pull_request.database_id
-    })
+    ensure_extension!(
+      operation.organization_id,
+      PullRequestExtension,
+      :pull_request_id,
+      result.record.id,
+      %{
+        node_id: snapshot.pull_request.node_id,
+        database_id: snapshot.pull_request.database_id
+      }
+    )
 
     maybe_reference!(
       operation,
@@ -270,7 +309,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp reconcile_threads!(operation, source, pull_request, snapshot) do
     Map.new(snapshot.review_threads, fn thread ->
       existing =
-        base_by_extension(ReviewThreadExtension, :review_thread_id, ReviewThread, thread.node_id)
+        base_by_extension(
+          operation.organization_id,
+          ReviewThreadExtension,
+          :review_thread_id,
+          ReviewThread,
+          thread.node_id
+        )
 
       result =
         SoftwareProving.upsert_provider_resource(operation, source, ReviewThread, existing, %{
@@ -286,9 +331,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         })
         |> unwrap!()
 
-      ensure_extension!(ReviewThreadExtension, :review_thread_id, result.record.id, %{
-        node_id: thread.node_id
-      })
+      ensure_extension!(
+        operation.organization_id,
+        ReviewThreadExtension,
+        :review_thread_id,
+        result.record.id,
+        %{node_id: thread.node_id}
+      )
 
       {thread.node_id, result.record.id}
     end)
@@ -298,6 +347,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     Enum.map(snapshot.review_comments, fn comment ->
       existing =
         base_by_extension(
+          operation.organization_id,
           ReviewCommentExtension,
           :review_comment_id,
           ReviewComment,
@@ -318,11 +368,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         })
         |> unwrap!()
 
-      ensure_extension!(ReviewCommentExtension, :review_comment_id, result.record.id, %{
-        node_id: comment.node_id,
-        database_id: comment.database_id,
-        review_database_id: comment.review_database_id
-      })
+      ensure_extension!(
+        operation.organization_id,
+        ReviewCommentExtension,
+        :review_comment_id,
+        result.record.id,
+        %{
+          node_id: comment.node_id,
+          database_id: comment.database_id,
+          review_database_id: comment.review_database_id
+        }
+      )
 
       reference =
         maybe_reference!(
@@ -340,7 +396,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_checks!(operation, source, repository, pull_request, snapshot) do
     Enum.map(snapshot.check_runs, fn check ->
-      existing = base_by_extension(CheckRunExtension, :check_run_id, CheckRun, check.node_id)
+      existing =
+        base_by_extension(
+          operation.organization_id,
+          CheckRunExtension,
+          :check_run_id,
+          CheckRun,
+          check.node_id
+        )
 
       result =
         SoftwareProving.upsert_provider_resource(operation, source, CheckRun, existing, %{
@@ -358,11 +421,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         })
         |> unwrap!()
 
-      ensure_extension!(CheckRunExtension, :check_run_id, result.record.id, %{
-        node_id: check.node_id,
-        database_id: check.database_id,
-        check_suite_database_id: check.check_suite_database_id
-      })
+      ensure_extension!(
+        operation.organization_id,
+        CheckRunExtension,
+        :check_run_id,
+        result.record.id,
+        %{
+          node_id: check.node_id,
+          database_id: check.database_id,
+          check_suite_database_id: check.check_suite_database_id
+        }
+      )
 
       reference =
         maybe_reference!(
@@ -379,6 +448,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp map_product_work!(operation, _source, comments, checks) do
+    if is_nil(operation.workspace_id),
+      do: [],
+      else: map_workspace_product_work!(operation, comments, checks)
+  end
+
+  defp map_workspace_product_work!(operation, comments, checks) do
     comment_signals =
       Enum.map(comments, fn item ->
         WorkGraph.ensure_integration_signal(operation, item.reference, %{
@@ -423,24 +498,33 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> unwrap!()
   end
 
-  defp base_by_extension(extension, base_key, base_resource, node_id) do
+  defp base_by_extension(organization_id, extension, base_key, base_resource, node_id) do
     extension
-    |> Ash.Query.filter(node_id == ^node_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> nil
-      {:ok, record} -> Ash.get!(base_resource, Map.fetch!(record, base_key), authorize?: false)
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp ensure_extension!(extension, base_key, base_id, attrs) do
-    extension
-    |> Ash.Query.filter(node_id == ^attrs.node_id)
+    |> Ash.Query.filter(organization_id == ^organization_id and node_id == ^node_id)
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, nil} ->
-        Repo.ash_create!(extension, Map.put(attrs, base_key, base_id))
+        nil
+
+      {:ok, record} ->
+        Ash.get!(base_resource, Map.fetch!(record, base_key),
+          action: :read_with_deleted,
+          authorize?: false
+        )
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp ensure_extension!(organization_id, extension, base_key, base_id, attrs) do
+    extension
+    |> Ash.Query.filter(organization_id == ^organization_id and node_id == ^attrs.node_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        attrs = attrs |> Map.put(:organization_id, organization_id) |> Map.put(base_key, base_id)
+        Repo.ash_create!(extension, attrs)
 
       {:ok, existing} ->
         if Map.fetch!(existing, base_key) == base_id,
@@ -453,7 +537,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp create_outcome!(operation, request, installation, snapshot, resource, signal_ids, state) do
-    Repo.ash_create!(SyncOutcome, %{
+    attrs = %{
       id: Ecto.UUID.generate(),
       installation_id: installation.id,
       operation_id: operation.id,
@@ -465,8 +549,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       provider_sequence: snapshot.provider_sequence,
       resource_type: resource_type(resource),
       resource_id: resource.id,
-      signal_ids: signal_ids
-    })
+      signal_ids: signal_ids,
+      failure_class: nil,
+      failure_code: nil
+    }
+
+    persist_outcome!(operation.id, attrs)
   end
 
   defp record_invalidation!(operation, pull_request, snapshot) do
@@ -485,19 +573,20 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
     case authorized_installation(operation, request) do
       {:ok, installation} ->
-        outcome =
-          Repo.ash_create!(SyncOutcome, %{
-            id: Ecto.UUID.generate(),
-            installation_id: installation.id,
-            operation_id: operation.id,
-            object_type: request.object_type,
-            object_id: request.object_id,
-            delivery_id: request.delivery_id,
-            state: Atom.to_string(failure_class),
-            signal_ids: [],
-            failure_class: Atom.to_string(failure_class),
-            failure_code: Atom.to_string(failure_code)
-          })
+        attrs = %{
+          id: Ecto.UUID.generate(),
+          installation_id: installation.id,
+          operation_id: operation.id,
+          object_type: request.object_type,
+          object_id: request.object_id,
+          delivery_id: request.delivery_id,
+          state: Atom.to_string(failure_class),
+          signal_ids: [],
+          failure_class: Atom.to_string(failure_class),
+          failure_code: Atom.to_string(failure_code)
+        }
+
+        outcome = persist_outcome!(operation.id, attrs)
 
         replay_outcome(outcome, request)
 
@@ -509,6 +598,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp classify_failure({:rate_limited, %DateTime{}}), do: {:retryable, :provider_rate_limited}
   defp classify_failure(:installation_revoked), do: {:terminal, :installation_revoked}
   defp classify_failure(:invalid_credential), do: {:terminal, :invalid_credential}
+  defp classify_failure(:permission_denied), do: {:authorization, :permission_denied}
   defp classify_failure(:adapter_unavailable), do: {:configuration, :adapter_unavailable}
   defp classify_failure(:fixture_not_found), do: {:terminal, :provider_object_not_found}
   defp classify_failure(_reason), do: {:terminal, :invalid_provider_response}
@@ -531,6 +621,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp known_code("provider_rate_limited"), do: :provider_rate_limited
   defp known_code("installation_revoked"), do: :installation_revoked
   defp known_code("invalid_credential"), do: :invalid_credential
+  defp known_code("permission_denied"), do: :permission_denied
   defp known_code("adapter_unavailable"), do: :adapter_unavailable
   defp known_code("provider_object_not_found"), do: :provider_object_not_found
   defp known_code(_code), do: :invalid_provider_response
@@ -539,6 +630,34 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     SyncOutcome
     |> Ash.Query.filter(operation_id == ^operation_id)
     |> Ash.read_one(authorize?: false)
+  end
+
+  defp persist_outcome!(operation_id, attrs) do
+    case outcome_by_operation(operation_id) do
+      {:ok, nil} ->
+        Repo.ash_create!(SyncOutcome, attrs)
+
+      {:ok, %SyncOutcome{state: "retryable"} = outcome} ->
+        result_attrs =
+          Map.drop(attrs, [
+            :id,
+            :installation_id,
+            :operation_id,
+            :object_type,
+            :object_id,
+            :delivery_id
+          ])
+
+        outcome
+        |> Ash.Changeset.for_update(:record_result, result_attrs)
+        |> Repo.ash_update!()
+
+      {:ok, outcome} ->
+        outcome
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
   end
 
   defp lock!(key), do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])

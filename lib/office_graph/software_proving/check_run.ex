@@ -14,7 +14,11 @@ defmodule OfficeGraph.SoftwareProving.CheckRun do
       :started_at,
       :completed_at
     ],
-    validations: [status: ~w(queued in_progress completed)]
+    validations: [
+      status: ~w(queued in_progress completed),
+      conclusion:
+        ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+    ]
 
   attributes do
     attribute :repository_id, :uuid, allow_nil?: false, public?: true

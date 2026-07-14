@@ -76,8 +76,9 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
          :ok <- RelationshipRequest.validate(request),
          {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
          :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
-         {:ok, _endpoints} <- validate_endpoints(session_context, definition, request),
-         :ok <- validate_provenance_scope(session_context, request) do
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- validate_provenance_scope(session_context, request),
+         :ok <- authorize_system_cross_workspace(operation, endpoints) do
       Support.transaction(fn ->
         RelationshipCyclePolicy.lock_and_validate!(
           definition,
@@ -417,6 +418,20 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
         operation,
         :graph_relationship_cross_workspace,
         organization_id: session_context.organization_id
+      )
+    end
+  end
+
+  defp authorize_system_cross_workspace(operation, endpoints) do
+    if endpoints.source.workspace_id == operation.workspace_id and
+         endpoints.target.workspace_id == operation.workspace_id do
+      :ok
+    else
+      Authorization.authorize_system_principal(
+        operation.principal_id,
+        operation.organization_id,
+        operation.workspace_id,
+        :graph_relationship_cross_workspace
       )
     end
   end

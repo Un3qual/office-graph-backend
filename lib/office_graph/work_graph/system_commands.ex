@@ -24,7 +24,11 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
          {:ok, title} <- required_string(attrs, :title),
          {:ok, body} <- required_string(attrs, :body) do
       transact(fn ->
-        reference_item = ensure_reference_item!(operation, reference, title)
+        reference_item =
+          operation
+          |> ensure_reference_item!(reference, title)
+          |> then(&Support.ash_get_for_update(GraphItem, &1.id))
+          |> Support.unwrap_ash()
 
         case signal_for_reference(reference_item.id) do
           {:ok, nil} -> create_signal!(operation, reference_item, title, body)
@@ -50,27 +54,51 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, nil} ->
-        Support.ash_create_internal(
-          GraphItem,
-          %{
-            id: Ecto.UUID.generate(),
-            organization_id: operation.organization_id,
-            workspace_id: operation.workspace_id,
-            resource_type: "external_reference",
-            resource_id: reference.id,
-            title: title
-          },
-          upsert?: true,
-          upsert_identity: :unique_resource,
-          upsert_fields: []
-        )
-        |> Support.unwrap_ash()
+        _created_or_conflicted =
+          Support.ash_create_internal(
+            GraphItem,
+            %{
+              id: Ecto.UUID.generate(),
+              organization_id: operation.organization_id,
+              workspace_id: operation.workspace_id,
+              resource_type: "external_reference",
+              resource_id: reference.id,
+              title: title
+            },
+            upsert?: true,
+            upsert_identity: :unique_resource,
+            upsert_fields: []
+          )
+          |> Support.unwrap_ash()
+
+        fetch_reference_item!(operation, reference.id)
 
       {:ok, item} ->
         if item.organization_id == operation.organization_id and
              item.workspace_id == operation.workspace_id,
            do: item,
            else: Repo.rollback(:forbidden)
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp fetch_reference_item!(operation, reference_id) do
+    GraphItem
+    |> Ash.Query.filter(resource_type == "external_reference" and resource_id == ^reference_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %GraphItem{} = item}
+      when item.organization_id == operation.organization_id and
+             item.workspace_id == operation.workspace_id ->
+        item
+
+      {:ok, nil} ->
+        Repo.rollback(:provider_identity_conflict)
+
+      {:ok, _cross_scope} ->
+        Repo.rollback(:forbidden)
 
       {:error, error} ->
         Repo.rollback(error)

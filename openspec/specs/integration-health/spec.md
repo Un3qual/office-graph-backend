@@ -1,10 +1,12 @@
 # integration-health Specification
 
 ## Purpose
+
 Define safe, tenant-scoped, query-bounded operational health projections for
 external integrations.
 
 ## Requirements
+
 ### Requirement: Integration Health Is Bounded And Safe
 
 Office Graph SHALL expose organization-scoped installation, sync, credential,

@@ -1,7 +1,8 @@
 defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo, WorkGraph}
+  alias OfficeGraph.ExternalRefs.ExternalReference
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
@@ -49,8 +50,80 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == signal_count + 2
   end
 
-  defp context(label) do
+  test "organization-scoped reconciliation skips workspace-only signal creation" do
+    context = context("organization-scoped", nil)
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-organization-scoped"
+      })
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
+    operation = operation!(context, request, "organization-scoped")
+    signal_count = Repo.aggregate(Signal, :count)
+
+    assert {:ok, outcome} = Reconciler.reconcile(operation, request)
+    assert outcome.state == "reconciled"
+    assert outcome.signal_ids == []
+    assert Repo.aggregate(Signal, :count) == signal_count
+  end
+
+  test "concurrent signal mapping reuses the persisted graph item and signal" do
+    context = context("signal-concurrency")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-signal-concurrency"
+      })
+
+    snapshot = %{mapping_snapshot() | review_comments: [], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(operation!(context, request, "seed-reference"), request)
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(object_type == "repository")
+      |> Ash.read_one!(authorize?: false)
+
+    operations =
+      for suffix <- 1..10 do
+        operation!(context, request, suffix)
+      end
+
+    signal_count = Repo.aggregate(Signal, :count)
+
+    results =
+      operations
+      |> Enum.map(fn operation ->
+        Task.async(fn ->
+          WorkGraph.ensure_integration_signal(operation, reference, %{
+            title: "Shared provider signal",
+            body: "One signal must own this provider reference."
+          })
+        end)
+      end)
+      |> Task.await_many(10_000)
+
+    assert Enum.all?(results, &match?({:ok, _result}, &1))
+
+    signal_ids = Enum.map(results, fn {:ok, result} -> result.signal.id end)
+    assert signal_ids |> Enum.uniq() |> length() == 1
+    assert Repo.aggregate(Signal, :count) == signal_count + 1
+  end
+
+  defp context(label, workspace_id \\ :session_workspace) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    workspace_id =
+      if workspace_id == :session_workspace, do: bootstrap.workspace.id, else: workspace_id
 
     private_key_reference = "test-secret://github/#{label}/private-key"
 
@@ -58,7 +131,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       GitHubIntegration.bind_installation(bootstrap.session, %{
         idempotency_key: "bind-product-mapping-#{label}",
         external_installation_id: System.unique_integer([:positive]),
-        workspace_id: bootstrap.workspace.id,
+        workspace_id: workspace_id,
         app_slug: "office-graph",
         account_login: "Un3qual",
         account_type: "organization",
@@ -83,17 +156,17 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     }
   end
 
-  defp operation!(context, request) do
+  defp operation!(context, request, suffix \\ "v3") do
     {:ok, system_request} =
       Operations.new_system_operation_request(%{
         organization_id: context.bootstrap.organization.id,
-        workspace_id: context.bootstrap.workspace.id,
+        workspace_id: context.installation.workspace_id,
         principal_id: context.installation.service_principal_id,
         action: :integration_reconcile,
         authority_basis: "github_installation:#{context.installation.id}",
         causation_key: "github_delivery:#{request.delivery_id}",
         idempotency_scope: "github:object",
-        idempotency_key: "mapping:#{request.object_id}:v3",
+        idempotency_key: "mapping:#{request.object_id}:#{suffix}",
         credential_id: context.credential_id
       })
 

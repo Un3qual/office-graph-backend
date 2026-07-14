@@ -4,7 +4,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationRequest do
   @enforce_keys [:installation_id, :object_type, :object_id, :delivery_id]
   defstruct [:installation_id, :object_type, :object_id, :delivery_id]
 
-  @object_types ~w(pull_request review review_comment check_run installation repository_access)
+  @object_types ~w(pull_request review review_comment check_run)
   @fields [:installation_id, :object_type, :object_id, :delivery_id]
 
   def new(attrs) when is_map(attrs) do

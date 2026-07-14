@@ -1,10 +1,13 @@
 defmodule OfficeGraph.SystemOperationsTest do
   use OfficeGraph.DataCase, async: false
 
+  import Ecto.Query
+
   alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
   alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.DurableDelivery.{DomainEvent, Subscriptions, SystemConformanceWorker}
   alias OfficeGraph.Identity.Principal
+  alias OfficeGraph.Operations.OperationCorrelation
 
   test "organization-scoped system operations authorize and replay without a human session" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -64,6 +67,30 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert system_operation_count() == 0
   end
 
+  test "system-operation resource validation rejects missing authenticated envelope fields" do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      operation_kind: "system",
+      principal_id: Ecto.UUID.generate(),
+      session_id: nil,
+      organization_id: Ecto.UUID.generate(),
+      workspace_id: nil,
+      action: "integration.reconcile",
+      correlation_id: Ecto.UUID.generate(),
+      idempotency_key: "missing-system-envelope",
+      metadata: %{}
+    }
+
+    assert {:error, error} =
+             Ash.create(OperationCorrelation, attrs, action: :create, authorize?: false)
+
+    message = Exception.message(error)
+    assert message =~ "authority_basis"
+    assert message =~ "causation_key"
+    assert message =~ "idempotency_scope"
+    refute message =~ "constraint error when attempting to insert struct"
+  end
+
   test "organization-scoped events retain system authority and enqueue once" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     principal = system_principal!(bootstrap, "system.conformance")
@@ -120,7 +147,7 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert system_operation_count() == 1
     assert system_event_count() == 1
 
-    [event] = Repo.all(DomainEvent) |> Enum.filter(&(&1.operation_kind == "system"))
+    [event] = Repo.all(from(event in DomainEvent, where: event.operation_kind == "system"))
     assert length(jobs_for_event(event.id)) == 1
   end
 

@@ -19,9 +19,18 @@ defmodule OfficeGraph.GitHubIntegration.SecretStore do
          :ok <- require_active(credential) do
       adapter.fetch(credential.secret_reference, scope)
     else
-      {:ok, nil} -> {:error, :secret_not_found}
-      {:error, :forbidden} = error -> error
-      {:error, _error} -> {:error, :secret_not_found}
+      {:ok, nil} ->
+        {:error, :secret_not_found}
+
+      {:error, :forbidden} = error ->
+        error
+
+      {:error, reason}
+      when reason in [:invalid_secret_reference, :secret_not_found, :unavailable] ->
+        {:error, reason}
+
+      {:error, _error} ->
+        {:error, :unavailable}
     end
   end
 

@@ -29,7 +29,8 @@ defmodule OfficeGraph.SoftwareProving.Resource do
     quote do
       use Ash.Resource,
         domain: OfficeGraph.SoftwareProving.Domain,
-        data_layer: AshPostgres.DataLayer
+        data_layer: AshPostgres.DataLayer,
+        primary_read_warning?: false
 
       postgres do
         table unquote(table)
@@ -66,6 +67,11 @@ defmodule OfficeGraph.SoftwareProving.Resource do
       actions do
         read :read do
           primary? true
+          public? false
+          filter expr(is_nil(^Ash.Expr.ref(:deleted_at)))
+        end
+
+        read :read_with_deleted do
           public? false
         end
 

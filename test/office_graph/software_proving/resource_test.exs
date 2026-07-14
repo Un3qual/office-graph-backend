@@ -189,6 +189,7 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
                RepositoryExtension,
                %{
                  repository_id: repository.id,
+                 organization_id: context.bootstrap.organization.id,
                  node_id: "R_kgDOOfficeGraph",
                  database_id: 10_001,
                  owner_login: "Un3qual"
@@ -200,7 +201,12 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
     assert {:ok, _extension} =
              Ash.create(
                PullRequestExtension,
-               %{pull_request_id: pull_request.id, node_id: "PR_25", database_id: 25},
+               %{
+                 pull_request_id: pull_request.id,
+                 organization_id: context.bootstrap.organization.id,
+                 node_id: "PR_25",
+                 database_id: 25
+               },
                action: :create,
                authorize?: false
              )
@@ -208,7 +214,11 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
     assert {:ok, _extension} =
              Ash.create(
                ReviewThreadExtension,
-               %{review_thread_id: thread.id, node_id: "PRRT_1"},
+               %{
+                 review_thread_id: thread.id,
+                 organization_id: context.bootstrap.organization.id,
+                 node_id: "PRRT_1"
+               },
                action: :create,
                authorize?: false
              )
@@ -218,6 +228,7 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
                ReviewCommentExtension,
                %{
                  review_comment_id: comment.id,
+                 organization_id: context.bootstrap.organization.id,
                  node_id: "PRRC_1",
                  database_id: 101,
                  review_database_id: 100
@@ -231,6 +242,7 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
                CheckRunExtension,
                %{
                  check_run_id: check.id,
+                 organization_id: context.bootstrap.organization.id,
                  node_id: "CR_1",
                  database_id: 201,
                  check_suite_database_id: 200
@@ -298,6 +310,59 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
              )
 
     assert Exception.message(error) =~ "lifecycle_state"
+  end
+
+  test "rejects unknown check conclusions while preserving optional conclusions", context do
+    repository =
+      create!(Repository, base_attrs(context, 30), %{
+        name: "conclusion-validation",
+        full_name: "conclusion-validation",
+        visibility: "internal"
+      })
+
+    attrs =
+      base_attrs(context, 31)
+      |> Map.merge(%{
+        repository_id: repository.id,
+        name: "verify",
+        status: "completed",
+        conclusion: "unknown_provider_conclusion"
+      })
+
+    assert {:error, error} =
+             Ash.create(CheckRun, attrs, action: :create, authorize?: false)
+
+    assert Exception.message(error) =~ "conclusion"
+
+    assert {:ok, pending} =
+             Ash.create(
+               CheckRun,
+               %{attrs | id: Ecto.UUID.generate(), status: "in_progress", conclusion: nil},
+               action: :create,
+               authorize?: false
+             )
+
+    assert is_nil(pending.conclusion)
+  end
+
+  test "normal reads exclude soft-deleted provider-neutral resources", context do
+    deleted =
+      create!(Repository, %{base_attrs(context, 40) | lifecycle_state: "deleted"}, %{
+        name: "deleted-repository",
+        full_name: "deleted-repository",
+        visibility: "internal",
+        deleted_at: DateTime.utc_now()
+      })
+
+    refute deleted.id in Enum.map(Ash.read!(Repository, authorize?: false), & &1.id)
+
+    assert %Repository{id: id} =
+             Ash.get!(Repository, deleted.id,
+               action: :read_with_deleted,
+               authorize?: false
+             )
+
+    assert id == deleted.id
   end
 
   defp base_attrs(context, provider_sequence) do

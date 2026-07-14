@@ -44,9 +44,9 @@ archiving a payload or creating product work.
   resource, signal, event, or job effects
 
 ### Requirement: GitHub State Is Reconciled Into Provider-Neutral Resources
-Office Graph SHALL reconcile supported pull request, review, review-comment,
-check, installation, and repository-access activity into provider-neutral
-resources and GitHub extension records.
+Office Graph SHALL reconcile supported repository, pull request, review,
+review-comment, and check activity into provider-neutral resources and GitHub
+extension records.
 
 #### Scenario: Partial webhook is processed
 - **WHEN** a webhook does not contain authoritative current provider state

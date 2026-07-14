@@ -27,9 +27,10 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     for table <- @github_extension_tables do
       assert table_exists?(table)
       assert column_exists?(table, "node_id")
-      refute column_exists?(table, "organization_id")
+      assert column_exists?(table, "organization_id")
       refute column_exists?(table, "workspace_id")
       refute column_exists?(table, "lifecycle_state")
+      assert index_columns("#{table}_node_id_index") == ["organization_id", "node_id"]
     end
 
     refute column_exists?("repositories", "github_node_id")
@@ -38,6 +39,11 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     for column <- ~w(organization_id provider object_type url sync_state operation_id) do
       assert column_exists?("external_references", column)
     end
+
+    assert constraint_exists?("external_references_provider_scope_required")
+    assert index_exists?("external_references_scoped_source_external_id_index")
+    assert index_exists?("integration_credentials_workspace_reference_index")
+    assert index_exists?("integration_credentials_organization_reference_index")
   end
 
   defp table_exists?(table) do
@@ -83,5 +89,26 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
       )
 
     exists?
+  end
+
+  defp index_columns(name) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT attribute.attname
+        FROM pg_class index_relation
+        JOIN pg_index index_definition ON index_definition.indexrelid = index_relation.oid
+        JOIN pg_class table_relation ON table_relation.oid = index_definition.indrelid
+        JOIN LATERAL unnest(index_definition.indkey) WITH ORDINALITY AS keys(attnum, position)
+          ON true
+        JOIN pg_attribute attribute
+          ON attribute.attrelid = table_relation.oid AND attribute.attnum = keys.attnum
+        WHERE index_relation.relname = $1
+        ORDER BY keys.position
+        """,
+        [name]
+      )
+
+    Enum.map(rows, fn [column] -> column end)
   end
 end

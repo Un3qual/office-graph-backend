@@ -34,6 +34,17 @@ defmodule OfficeGraph.Repo.Migrations.AddProviderDeliveryArchives do
   end
 
   def down do
+    execute("""
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM raw_archives WHERE workspace_id IS NULL) THEN
+        RAISE EXCEPTION
+          'cannot remove organization-scoped provider archives; delete or migrate them explicitly first';
+      END IF;
+    END
+    $$
+    """)
+
     drop constraint(:raw_archives, :raw_archives_archive_kind_valid)
     drop_if_exists index(:raw_archives, [], name: :raw_archives_provider_delivery_index)
 

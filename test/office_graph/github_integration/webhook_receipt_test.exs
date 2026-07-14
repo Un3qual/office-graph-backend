@@ -5,7 +5,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
   require Ash.Query
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Integrations, Repo}
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.GitHubIntegration.{SecretStore.TestAdapter, WebhookReceipt, WebhookWorker}
   alias OfficeGraph.Integrations.RawArchive
@@ -33,6 +33,16 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert archive.body == body
     assert archive.archive_kind == "provider_delivery"
     refute inspect(archive.metadata) =~ context.webhook_secret
+
+    assert {:ok, scoped_archive} =
+             Integrations.provider_delivery_archive(
+               context.organization_id,
+               nil,
+               archive.id,
+               delivery_id
+             )
+
+    assert scoped_archive.id == archive.id
   end
 
   test "invalid signatures, unknown installations, and unsupported events have no receipt effects" do
@@ -53,7 +63,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     unknown_delivery = "delivery-unknown-#{Ecto.UUID.generate()}"
     unknown_body = payload(System.unique_integer([:positive]))
 
-    assert {:error, :unknown_installation} =
+    assert {:error, :invalid_signature} =
              WebhookReceipt.accept(
                signed_headers(
                  unknown_delivery,
@@ -82,13 +92,29 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert no_receipt_effects?(unsupported_delivery)
   end
 
+  test "events without an implemented authoritative reconciliation path are rejected" do
+    context = installation_context("unsupported-installation-event")
+    delivery_id = "delivery-installation-#{Ecto.UUID.generate()}"
+
+    body =
+      Jason.encode!(%{
+        "action" => "created",
+        "installation" => %{"id" => context.external_installation_id}
+      })
+
+    headers = signed_headers(delivery_id, "installation", body, context.webhook_secret)
+
+    assert {:error, :unsupported_event} = WebhookReceipt.accept(headers, body)
+    assert no_receipt_effects?(delivery_id)
+  end
+
   defp installation_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     external_installation_id = System.unique_integer([:positive])
     webhook_reference = "test-secret://github/#{label}/webhook"
     webhook_secret = "webhook-secret-#{label}"
 
-    assert {:ok, _bound} =
+    assert {:ok, bound} =
              GitHubIntegration.bind_installation(bootstrap.session, %{
                idempotency_key: "bind-webhook-#{label}",
                external_installation_id: external_installation_id,
@@ -107,6 +133,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     %{
       external_installation_id: external_installation_id,
+      organization_id: bootstrap.organization.id,
+      installation_id: bound.installation.id,
       webhook_secret: webhook_secret
     }
   end

@@ -1,7 +1,10 @@
 defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   use OfficeGraph.DataCase, async: false
 
+  require Ash.Query
+
   alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo}
+  alias OfficeGraph.ExternalRefs.ExternalReference
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
@@ -13,6 +16,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.SoftwareProving.{PullRequest, Repository}
+  alias OfficeGraph.SoftwareProving.GitHub.RepositoryExtension
 
   test "newer provider versions win and stale or replayed snapshots do not overwrite truth" do
     context = reconciliation_context("ordering")
@@ -57,6 +61,14 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              Reconciler.reconcile(rate_limited_operation, request)
 
     Provider.put(%{
+      {"pull_request", "PR_node_failure"} =>
+        {:ok, snapshot(1, "open", "PR_node_failure", "R_node_failure")}
+    })
+
+    assert {:ok, recovered} = Reconciler.reconcile(rate_limited_operation, request)
+    assert recovered.state == "reconciled"
+
+    Provider.put(%{
       {"pull_request", "PR_node_failure"} => {:error, :installation_revoked}
     })
 
@@ -66,8 +78,69 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              Reconciler.reconcile(revoked_operation, request)
   end
 
-  defp reconciliation_context(label) do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+  test "shared GitHub node identities reconcile independently per organization" do
+    suffix = System.unique_integer([:positive])
+
+    first =
+      reconciliation_context("tenant-a-#{suffix}",
+        organization_name: "GitHub tenant A #{suffix}",
+        organization_slug: "github-tenant-a-#{suffix}",
+        workspace_name: "GitHub tenant A workspace #{suffix}",
+        workspace_slug: "github-tenant-a-workspace-#{suffix}",
+        initiative_name: "GitHub tenant A initiative #{suffix}",
+        initiative_slug: "github-tenant-a-initiative-#{suffix}",
+        owner_email: "github-tenant-a-#{suffix}@office-graph.local"
+      )
+
+    second =
+      reconciliation_context("tenant-b-#{suffix}",
+        organization_name: "GitHub tenant B #{suffix}",
+        organization_slug: "github-tenant-b-#{suffix}",
+        workspace_name: "GitHub tenant B workspace #{suffix}",
+        workspace_slug: "github-tenant-b-workspace-#{suffix}",
+        initiative_name: "GitHub tenant B initiative #{suffix}",
+        initiative_slug: "github-tenant-b-initiative-#{suffix}",
+        owner_email: "github-tenant-b-#{suffix}@office-graph.local"
+      )
+
+    provider_snapshot = snapshot(1, "open", "PR_shared", "R_shared")
+
+    TestAdapter.put(%{
+      first.private_key_reference => "private-key-tenant-a",
+      second.private_key_reference => "private-key-tenant-b"
+    })
+
+    Provider.put(%{{"pull_request", "PR_shared"} => {:ok, provider_snapshot}})
+
+    first_request = request(first, "pull_request", "PR_shared", "delivery-tenant-a")
+    second_request = request(second, "pull_request", "PR_shared", "delivery-tenant-b")
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(first, first_request, "shared"),
+               first_request
+             )
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(second, second_request, "shared"),
+               second_request
+             )
+
+    assert Repo.aggregate(Repository, :count) == 2
+    assert Repo.aggregate(RepositoryExtension, :count) == 2
+
+    references =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "repository:R_shared")
+      |> Ash.read!(authorize?: false)
+
+    assert Enum.sort(Enum.map(references, & &1.organization_id)) ==
+             Enum.sort([first.bootstrap.organization.id, second.bootstrap.organization.id])
+  end
+
+  defp reconciliation_context(label, bootstrap_opts \\ []) do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner(bootstrap_opts)
     external_installation_id = System.unique_integer([:positive])
     private_key_reference = "test-secret://github/#{label}/private-key"
 
@@ -96,7 +169,8 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     %{
       bootstrap: bootstrap,
       installation: bound.installation,
-      credential_id: credential.credential_id
+      credential_id: credential.credential_id,
+      private_key_reference: private_key_reference
     }
   end
 
@@ -127,13 +201,18 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     operation
   end
 
-  defp snapshot(sequence, state) do
+  defp snapshot(
+         sequence,
+         state,
+         pull_request_node_id \\ "PR_node_44",
+         repository_node_id \\ "R_node_office_graph"
+       ) do
     %Adapter.ReconciliationSnapshot{
       provider_version: "v#{sequence}",
       provider_sequence: sequence,
       provider_updated_at: DateTime.add(~U[2026-07-14 12:00:00Z], sequence, :second),
       repository: %Adapter.RepositorySnapshot{
-        node_id: "R_node_office_graph",
+        node_id: repository_node_id,
         database_id: 101,
         name: "office-graph-backend",
         full_name: "Un3qual/office-graph-backend",
@@ -143,7 +222,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         url: "https://github.com/Un3qual/office-graph-backend"
       },
       pull_request: %Adapter.PullRequestSnapshot{
-        node_id: "PR_node_44",
+        node_id: pull_request_node_id,
         database_id: 44,
         number: 24,
         title: "Typed GitHub reconciliation",

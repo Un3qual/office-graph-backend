@@ -191,30 +191,27 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp require_version(_record, _expected), do: {:error, {:stale_version, :provider_version}}
 
   defp persist_and_enqueue(session_context, operation, installation, target, action_kind, attrs) do
-    case Repo.transaction(fn ->
-           with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
-                {:ok, existing} <- action_by_operation(operation.id) do
-             case existing do
-               nil ->
-                 create_action!(
-                   session_context,
-                   operation,
-                   installation,
-                   target,
-                   action_kind,
-                   attrs
-                 )
+    Repo.transaction(fn ->
+      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
+           {:ok, existing} <- action_by_operation(operation.id) do
+        case existing do
+          nil ->
+            create_action!(
+              session_context,
+              operation,
+              installation,
+              target,
+              action_kind,
+              attrs
+            )
 
-               action ->
-                 action
-             end
-           else
-             {:error, error} -> Repo.rollback(error)
-           end
-         end) do
-      {:ok, action} -> {:ok, action}
-      {:error, error} -> {:error, error}
-    end
+          action ->
+            action
+        end
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
   end
 
   defp create_action!(session_context, operation, installation, target, action_kind, attrs) do

@@ -93,9 +93,9 @@ defmodule OfficeGraph.Integrations do
     RawArchive
     |> Ash.Query.filter(
       id == ^archive_id and organization_id == ^organization_id and
-        workspace_id == ^workspace_id and archive_kind == "provider_delivery" and
-        external_delivery_id == ^delivery_id
+        archive_kind == "provider_delivery" and external_delivery_id == ^delivery_id
     )
+    |> scope_archive_query(workspace_id)
     |> read_provider_delivery_archive()
     |> case do
       {:ok, nil} -> {:error, :invalid_delivery_archive}
@@ -106,6 +106,11 @@ defmodule OfficeGraph.Integrations do
 
   def provider_delivery_archive(_organization_id, _workspace_id, _archive_id, _delivery_id),
     do: {:error, :invalid_delivery_archive}
+
+  defp scope_archive_query(query, nil), do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp scope_archive_query(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
   defp read_provider_delivery_archive(query), do: Ash.read_one(query, authorize?: false)
 

@@ -120,12 +120,6 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   defp provider_object("check_run", payload),
     do: nested_object(payload, "check_run", "check_run")
 
-  defp provider_object("installation", payload),
-    do: nested_object(payload, "installation", "installation")
-
-  defp provider_object("installation_repositories", payload),
-    do: nested_object(payload, "installation", "repository_access")
-
   defp provider_object(_event_name, _payload), do: {:error, :unsupported_event}
 
   defp nested_object(payload, key, object_type) do
