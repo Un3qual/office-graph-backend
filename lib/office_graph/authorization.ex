@@ -40,7 +40,8 @@ defmodule OfficeGraph.Authorization do
   }
 
   @restricted_capabilities %{
-    graph_relationship_cross_workspace: "graph_relationship.cross_workspace"
+    graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    system_conformance: "system.conformance"
   }
 
   @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
@@ -124,6 +125,26 @@ defmodule OfficeGraph.Authorization do
   end
 
   def authorize(_session_context, _action, _opts), do: {:error, :forbidden}
+
+  def authorize_system_principal(principal_id, organization_id, workspace_id, action)
+      when is_binary(principal_id) and is_binary(organization_id) do
+    with {:ok, required} <- Map.fetch(@recognized_capabilities, action),
+         true <- Identity.active_system_principal?(principal_id),
+         true <-
+           granted_capability_for_principal?(
+             principal_id,
+             organization_id,
+             workspace_id,
+             required
+           ) do
+      :ok
+    else
+      _other -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_system_principal(_principal_id, _organization_id, _workspace_id, _action),
+    do: {:error, :forbidden}
 
   def authorize_projection(session_context, action, opts \\ [])
 
@@ -261,11 +282,25 @@ defmodule OfficeGraph.Authorization do
   defp recorded_action_name(action), do: inspect(action)
 
   defp granted_capability?(session_context, required) do
+    granted_capability_for_principal?(
+      session_context.principal_id,
+      session_context.organization_id,
+      session_context.workspace_id,
+      required
+    )
+  end
+
+  defp granted_capability_for_principal?(
+         principal_id,
+         organization_id,
+         workspace_id,
+         required
+       ) do
     with {:ok, %Capability{id: capability_id}} <-
            Ash.get(Capability, %{key: required}, authorize?: false),
          role_ids when role_ids != [] <-
-           role_ids_for_capability(capability_id, session_context.organization_id) do
-      role_assignment_exists?(session_context, role_ids)
+           role_ids_for_capability(capability_id, organization_id) do
+      role_assignment_exists?(principal_id, organization_id, workspace_id, role_ids)
     else
       _ -> false
     end
@@ -300,16 +335,36 @@ defmodule OfficeGraph.Authorization do
     end
   end
 
-  defp role_assignment_exists?(session_context, role_ids) do
+  defp role_assignment_exists?(principal_id, organization_id, nil, role_ids) do
     RoleAssignment
     |> Ash.Query.filter(
-      principal_id == ^session_context.principal_id and
-        organization_id == ^session_context.organization_id and
+      principal_id == ^principal_id and
+        organization_id == ^organization_id and
         role_id in ^role_ids and
-        (is_nil(workspace_id) or workspace_id == ^session_context.workspace_id)
+        is_nil(workspace_id)
     )
     |> Ash.exists?(authorize?: false)
   end
+
+  defp role_assignment_exists?(
+         principal_id,
+         organization_id,
+         requested_workspace_id,
+         role_ids
+       )
+       when is_binary(requested_workspace_id) do
+    RoleAssignment
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and
+        organization_id == ^organization_id and
+        role_id in ^role_ids and
+        (is_nil(workspace_id) or workspace_id == ^requested_workspace_id)
+    )
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp role_assignment_exists?(_principal_id, _organization_id, _workspace_id, _role_ids),
+    do: false
 
   defp ensure_capability!(key) do
     get_or_create!(

@@ -18,6 +18,7 @@ defmodule OfficeGraph.DurableDelivery do
     EventRequest,
     ProjectionInvalidation,
     Subscriptions,
+    SystemEventRequest,
     TerminalJob
   }
 
@@ -29,6 +30,12 @@ defmodule OfficeGraph.DurableDelivery do
 
   def record_and_enqueue(session_context, operation, attrs) do
     with {:ok, request} <- EventRequest.new(session_context, operation, attrs) do
+      transaction(fn -> record_and_enqueue_request(request) end)
+    end
+  end
+
+  def record_system_and_enqueue(operation, attrs) do
+    with {:ok, request} <- SystemEventRequest.new(operation, attrs) do
       transaction(fn -> record_and_enqueue_request(request) end)
     end
   end
@@ -109,7 +116,8 @@ defmodule OfficeGraph.DurableDelivery do
         event_id,
         %{organization_id: organization_id, workspace_id: workspace_id} = scope
       )
-      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id) do
+      when is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
     dispatch_validated(event_id, scope, Subscriptions)
   end
 
@@ -212,7 +220,7 @@ defmodule OfficeGraph.DurableDelivery do
 
   defp create_or_replay_event(request) do
     DomainEvent
-    |> Ash.Changeset.for_create(:create, EventRequest.to_attrs(request))
+    |> Ash.Changeset.for_create(:create, event_attrs(request))
     |> Ash.create(
       upsert?: true,
       upsert_identity: :event_key,
@@ -241,6 +249,11 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
+  defp event_attrs(%EventRequest{} = request), do: EventRequest.to_attrs(request)
+
+  defp event_attrs(%SystemEventRequest{} = request),
+    do: SystemEventRequest.to_attrs(request)
+
   defp validate_replay(event, request) do
     matching? =
       Enum.all?(
@@ -250,6 +263,8 @@ defmodule OfficeGraph.DurableDelivery do
           :subject_kind,
           :subject_id,
           :subject_version,
+          :operation_kind,
+          :event_scope,
           :organization_id,
           :workspace_id,
           :operation_id,

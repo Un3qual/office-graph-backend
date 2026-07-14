@@ -28,6 +28,14 @@ defmodule OfficeGraph.DurableDelivery.Subscriptions do
     end
   end
 
+  def broadcast(%{organization_id: organization_id, workspace_id: nil} = invalidation) do
+    Phoenix.PubSub.broadcast(
+      OfficeGraph.PubSub,
+      organization_topic(organization_id),
+      {:projection_invalidated, invalidation}
+    )
+  end
+
   def broadcast(%{organization_id: organization_id, workspace_id: workspace_id} = invalidation) do
     Phoenix.PubSub.broadcast(
       OfficeGraph.PubSub,
@@ -42,6 +50,10 @@ defmodule OfficeGraph.DurableDelivery.Subscriptions do
 
   def topic(organization_id, workspace_id) do
     "projection-invalidation:#{organization_id}:#{workspace_id}"
+  end
+
+  def organization_topic(organization_id) do
+    "projection-invalidation:#{organization_id}:organization"
   end
 
   defp start_subscriber(session_context, organization_id, workspace_id) do

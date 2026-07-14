@@ -3,14 +3,14 @@ defmodule OfficeGraph.Operations do
   Public boundary for operation correlation and mutation context.
   """
 
-  use Boundary, deps: [OfficeGraph.Identity], exports: []
+  use Boundary, deps: [OfficeGraph.Authorization, OfficeGraph.Identity], exports: []
 
   require Ash.Query
 
   alias OfficeGraph.Identity
-  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Operations.{OperationCorrelation, SystemOperationRequest}
 
-  @actions %{
+  @human_actions %{
     manual_intake_submit: "manual_intake.submit",
     proposed_change_apply: "proposed_change.apply",
     evidence_link: "evidence.link",
@@ -30,6 +30,30 @@ defmodule OfficeGraph.Operations do
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"
   }
+
+  @system_actions %{
+    system_conformance: "system.conformance"
+  }
+
+  def new_system_operation_request(attrs) do
+    SystemOperationRequest.new(attrs, @system_actions)
+  end
+
+  def start_system_operation(%SystemOperationRequest{} = request) do
+    with :ok <-
+           OfficeGraph.Authorization.authorize_system_principal(
+             request.principal_id,
+             request.organization_id,
+             request.workspace_id,
+             request.action
+           ),
+         {:ok, operation} <- find_or_create_system_operation(request),
+         :ok <- validate_system_replay(operation, request) do
+      {:ok, operation}
+    end
+  end
+
+  def start_system_operation(_request), do: {:error, :invalid_system_operation_request}
 
   def start_command(session_context, action, idempotency_key, input)
       when is_binary(idempotency_key) and idempotency_key != "" do
@@ -117,7 +141,7 @@ defmodule OfficeGraph.Operations do
   end
 
   def start_operation(session_context, action, attrs \\ []) do
-    action_name = Map.fetch!(@actions, action)
+    action_name = Map.fetch!(@human_actions, action)
     correlation_id = Keyword.get_lazy(attrs, :correlation_id, &Ecto.UUID.generate/0)
     idempotency_key = attrs[:idempotency_key]
 
@@ -133,6 +157,98 @@ defmodule OfficeGraph.Operations do
           {:error, error}
       end
     end
+  end
+
+  defp find_or_create_system_operation(request) do
+    case existing_system_operation(request) do
+      {:ok, nil} -> create_system_operation(request)
+      {:ok, operation} -> {:ok, operation}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp existing_system_operation(request) do
+    OperationCorrelation
+    |> Ash.Query.filter(
+      operation_kind == "system" and
+        organization_id == ^request.organization_id and
+        principal_id == ^request.principal_id and
+        action == ^request.action_name and
+        idempotency_scope == ^request.idempotency_scope and
+        idempotency_key == ^request.idempotency_key
+    )
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp create_system_operation(request) do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      operation_kind: "system",
+      principal_id: request.principal_id,
+      session_id: nil,
+      organization_id: request.organization_id,
+      workspace_id: request.workspace_id,
+      action: request.action_name,
+      correlation_id: Ecto.UUID.generate(),
+      idempotency_key: request.idempotency_key,
+      authority_basis: request.authority_basis,
+      causation_key: request.causation_key,
+      idempotency_scope: request.idempotency_scope,
+      credential_id: request.credential_id,
+      subject_kind: request.subject_kind,
+      subject_id: request.subject_id,
+      subject_version: request.subject_version,
+      metadata: %{}
+    }
+
+    OperationCorrelation
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(
+      authorize?: false,
+      return_notifications?: true,
+      upsert?: true,
+      upsert_identity: :unique_system_idempotency,
+      upsert_fields: []
+    )
+    |> case do
+      {:ok, operation, _notifications} -> {:ok, operation}
+      {:ok, operation} -> {:ok, operation}
+      {:error, error} -> refetch_system_operation_after_conflict(request, error)
+    end
+  end
+
+  defp refetch_system_operation_after_conflict(request, error) do
+    case existing_system_operation(request) do
+      {:ok, nil} -> {:error, error}
+      {:ok, operation} -> {:ok, operation}
+      {:error, _refetch_error} -> {:error, error}
+    end
+  end
+
+  defp validate_system_replay(operation, request) do
+    matching? =
+      Enum.all?(
+        [
+          {:operation_kind, "system"},
+          {:principal_id, request.principal_id},
+          {:organization_id, request.organization_id},
+          {:workspace_id, request.workspace_id},
+          {:action, request.action_name},
+          {:authority_basis, request.authority_basis},
+          {:causation_key, request.causation_key},
+          {:idempotency_scope, request.idempotency_scope},
+          {:idempotency_key, request.idempotency_key},
+          {:credential_id, request.credential_id},
+          {:subject_kind, request.subject_kind},
+          {:subject_id, request.subject_id},
+          {:subject_version, request.subject_version}
+        ],
+        fn {field, expected} -> Map.get(operation, field) == expected end
+      )
+
+    if matching?,
+      do: :ok,
+      else: {:error, {:system_idempotency_conflict, operation.id}}
   end
 
   defp existing_operation(_session_context, _action_name, nil), do: {:ok, nil}

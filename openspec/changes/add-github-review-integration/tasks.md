@@ -1,7 +1,7 @@
 ## 1. System Operations Foundation
 
-- [ ] 1.1 Add failing operation/event/migration tests for authenticated organization-scoped system work, optional governing workspace/subject version, and unchanged human-session invariants.
-- [ ] 1.2 Implement the generic system-operation request, constraints, authorization, idempotency scope, DurableDelivery support, organization invalidations, and a non-GitHub conformance worker.
+- [x] 1.1 Add failing operation/event/migration tests for authenticated organization-scoped system work, optional governing workspace/subject version, and unchanged human-session invariants.
+- [x] 1.2 Implement the generic system-operation request, constraints, authorization, idempotency scope, DurableDelivery support, organization invalidations, and a non-GitHub conformance worker.
 
 ## 2. Provider-Neutral Software Resources
 

@@ -17,7 +17,8 @@ defmodule OfficeGraph.DurableDelivery.DispatchEventWorker do
         },
         meta: %{"terminal_failure_code" => failure_code}
       })
-      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id) do
+      when is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
     scope = %{organization_id: organization_id, workspace_id: workspace_id}
 
     failure_code =
@@ -36,7 +37,8 @@ defmodule OfficeGraph.DurableDelivery.DispatchEventWorker do
           }
         } = job
       )
-      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id) do
+      when is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
     scope = %{organization_id: organization_id, workspace_id: workspace_id}
 
     result =
