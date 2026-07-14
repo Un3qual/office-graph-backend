@@ -15,7 +15,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   }
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
-  alias OfficeGraph.SoftwareProving.{PullRequest, Repository}
+  alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, Repository}
   alias OfficeGraph.SoftwareProving.GitHub.RepositoryExtension
 
   defmodule UnavailableSecretStore do
@@ -192,6 +192,70 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     end
 
     assert Repo.aggregate(Repository, :count) == 0
+  end
+
+  test "GitHub waiting-family check states normalize to queued" do
+    for {status, sequence} <- Enum.with_index(~w(requested waiting pending), 1) do
+      context = reconciliation_context("github-check-status-#{status}")
+      pull_request_node_id = "PR_github_check_status_#{status}"
+      request = request(context, "pull_request", pull_request_node_id, "delivery-#{status}")
+      operation = reconciliation_operation!(context, request, status)
+
+      check = %Adapter.CheckRunSnapshot{
+        node_id: "CR_github_check_status_#{status}",
+        database_id: 510 + sequence,
+        name: "GitHub #{status} check",
+        status: status,
+        conclusion: nil
+      }
+
+      provider_snapshot =
+        snapshot(1, "open", pull_request_node_id, "R_github_check_status_#{status}")
+        |> Map.put(:check_runs, [check])
+
+      Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, provider_snapshot}})
+
+      assert {:ok, _outcome} = Reconciler.reconcile(operation, request)
+
+      persisted =
+        CheckRun
+        |> Ash.Query.filter(name == ^check.name)
+        |> Ash.read_one!(authorize?: false)
+
+      assert persisted.status == "queued"
+      assert persisted.conclusion == nil
+    end
+  end
+
+  test "GitHub stale check conclusions are preserved" do
+    context = reconciliation_context("github-stale-conclusion")
+    pull_request_node_id = "PR_github_stale_conclusion"
+    request = request(context, "pull_request", pull_request_node_id, "delivery-stale")
+    operation = reconciliation_operation!(context, request, "stale-conclusion")
+
+    check = %Adapter.CheckRunSnapshot{
+      node_id: "CR_github_stale_conclusion",
+      database_id: 520,
+      name: "GitHub stale check",
+      status: "completed",
+      conclusion: "stale"
+    }
+
+    provider_snapshot =
+      snapshot(1, "open", pull_request_node_id, "R_github_stale_conclusion")
+      |> Map.put(:check_runs, [check])
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, provider_snapshot}})
+
+    assert {:ok, _outcome} = Reconciler.reconcile(operation, request)
+
+    persisted =
+      CheckRun
+      |> Ash.Query.filter(name == ^check.name)
+      |> Ash.read_one!(authorize?: false)
+
+    assert persisted.status == "completed"
+    assert persisted.conclusion == "stale"
   end
 
   test "review comments cannot reference absent review threads" do

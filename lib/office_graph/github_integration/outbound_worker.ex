@@ -53,11 +53,17 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
              workspace_id: action.workspace_id
            }) do
       action
-      |> call_adapter(credential)
+      |> call_adapter(installation, credential)
       |> record_adapter_result(action, job)
     else
-      {:error, :forbidden} -> record_adapter_result({:error, :invalid_credential}, action, job)
-      {:error, reason} -> record_adapter_result({:error, reason}, action, job)
+      {:error, :forbidden} ->
+        record_adapter_result({:error, :invalid_credential}, action, job)
+
+      {:error, reason} when reason in [:invalid_secret_reference, :secret_not_found] ->
+        record_adapter_result({:error, :invalid_credential}, action, job)
+
+      {:error, reason} ->
+        record_adapter_result({:error, reason}, action, job)
     end
   end
 
@@ -101,10 +107,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
-  defp call_adapter(action, credential) do
+  defp call_adapter(action, installation, credential) do
     adapter = Application.fetch_env!(:office_graph, :github_adapter)
 
     with {:ok, request} <- normalize_input(action.input) do
+      request = Map.put(request, :external_installation_id, installation.external_installation_id)
+
       case action.action_kind do
         "review_reply" -> adapter.reply_to_review(request, credential)
         "check_update" -> adapter.update_check(request, credential)

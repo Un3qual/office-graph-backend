@@ -51,6 +51,124 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == signal_count + 2
   end
 
+  test "check signals close when healthy and reopen on a later failure" do
+    context = context("check-signal-lifecycle")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-check-signal-lifecycle"
+      })
+
+    failing = %{mapping_snapshot() | review_comments: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, failing}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "failing"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+
+    [failed_check] = failing.check_runs
+
+    healthy = %{
+      failing
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        check_runs: [%{failed_check | conclusion: "success"}]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, healthy}})
+
+    assert {:ok, healthy_outcome} =
+             Reconciler.reconcile(operation!(context, request, "healthy"), request)
+
+    assert healthy_outcome.signal_ids == []
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    failing_again = %{
+      failing
+      | provider_version: "v5",
+        provider_sequence: 5,
+        provider_updated_at: ~U[2026-07-14 13:02:00Z]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, failing_again}})
+
+    assert {:ok, repeated_outcome} =
+             Reconciler.reconcile(operation!(context, request, "failing-again"), request)
+
+    assert repeated_outcome.signal_ids == [signal_id]
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+    assert Repo.aggregate(Signal, :count) == 1
+  end
+
+  test "non-published review comments do not create or retain open signals" do
+    context = context("comment-signal-lifecycle")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-comment-signal-lifecycle"
+      })
+
+    published = %{mapping_snapshot() | check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, published}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "published"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+    [published_comment] = published.review_comments
+
+    deleted = %{
+      published
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_comments: [%{published_comment | state: "deleted", body: ""}]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, deleted}})
+
+    assert {:ok, deleted_outcome} =
+             Reconciler.reconcile(operation!(context, request, "deleted"), request)
+
+    assert deleted_outcome.signal_ids == []
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    pending_context = context("pending-comment")
+
+    pending_request =
+      ReconciliationRequest.new!(%{
+        installation_id: pending_context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-pending-comment"
+      })
+
+    pending = %{
+      published
+      | review_comments: [%{published_comment | state: "pending"}]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, pending}})
+
+    assert {:ok, pending_outcome} =
+             Reconciler.reconcile(
+               operation!(pending_context, pending_request, "pending"),
+               pending_request
+             )
+
+    assert pending_outcome.signal_ids == []
+    assert Repo.aggregate(Signal, :count) == 1
+  end
+
   test "organization-scoped reconciliation skips workspace-only signal creation" do
     context = context("organization-scoped", nil)
 

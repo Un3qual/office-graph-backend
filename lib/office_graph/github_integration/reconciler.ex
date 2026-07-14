@@ -41,7 +41,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   @review_thread_states ~w(open resolved outdated)
   @review_comment_states ~w(pending published minimized deleted)
   @check_statuses ~w(queued in_progress completed)
-  @check_conclusions ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+  @check_conclusions ~w(success failure neutral cancelled skipped timed_out action_required startup_failure stale)
   @retryable_failure_codes [:provider_rate_limited, :provider_unavailable]
 
   require Ash.Query
@@ -158,11 +158,31 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> Map.put(:credential, credential)
     |> adapter.fetch()
     |> case do
-      {:ok, %Adapter.ReconciliationSnapshot{} = snapshot} -> validate_snapshot(snapshot, request)
-      {:ok, _invalid} -> {:error, {:provider, :invalid_provider_response}}
-      {:error, reason} -> {:error, {:provider, reason}}
+      {:ok, %Adapter.ReconciliationSnapshot{} = snapshot} ->
+        snapshot
+        |> normalize_snapshot()
+        |> validate_snapshot(request)
+
+      {:ok, _invalid} ->
+        {:error, {:provider, :invalid_provider_response}}
+
+      {:error, reason} ->
+        {:error, {:provider, reason}}
     end
   end
+
+  defp normalize_snapshot(%Adapter.ReconciliationSnapshot{check_runs: check_runs} = snapshot)
+       when is_list(check_runs) do
+    %{snapshot | check_runs: Enum.map(check_runs, &normalize_check_run/1)}
+  end
+
+  defp normalize_snapshot(snapshot), do: snapshot
+
+  defp normalize_check_run(%Adapter.CheckRunSnapshot{status: status} = check)
+       when status in ~w(requested waiting pending),
+       do: %{check | status: "queued"}
+
+  defp normalize_check_run(check), do: check
 
   defp validate_snapshot(snapshot, request) do
     valid? =
@@ -235,12 +255,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     nonblank_string?(comment.node_id) and optional_positive_integer?(comment.database_id) and
       optional_positive_integer?(comment.review_database_id) and
       optional_string?(comment.review_thread_node_id) and
-      optional_string?(comment.parent_comment_node_id) and is_binary(comment.body) and
+      optional_string?(comment.parent_comment_node_id) and valid_review_comment_body?(comment) and
       optional_string?(comment.author_label) and comment.state in @review_comment_states and
       optional_datetime?(comment.published_at) and optional_string?(comment.url)
   end
 
   defp valid_review_comment?(_comment), do: false
+
+  defp valid_review_comment_body?(%{state: "published", body: body}),
+    do: nonblank_string?(body)
+
+  defp valid_review_comment_body?(%{body: body}), do: is_binary(body)
 
   defp valid_check_run?(%Adapter.CheckRunSnapshot{} = check) do
     nonblank_string?(check.node_id) and optional_positive_integer?(check.database_id) and
@@ -686,27 +711,42 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp map_workspace_product_work!(operation, comments, checks) do
     comment_signals =
-      Enum.map(comments, fn item ->
-        WorkGraph.ensure_integration_signal(operation, item.reference, %{
-          title: "Review comment from #{item.record.author_label || "GitHub"}",
-          body: item.record.body
-        })
-        |> unwrap!()
-        |> Map.fetch!(:signal)
-        |> Map.fetch!(:id)
+      Enum.flat_map(comments, fn item ->
+        actionable? = item.record.state == "published"
+
+        result =
+          WorkGraph.sync_integration_signal(
+            operation,
+            item.reference,
+            %{
+              title: "Review comment from #{item.record.author_label || "GitHub"}",
+              body: item.record.body
+            },
+            actionable?
+          )
+          |> unwrap!()
+
+        if actionable?, do: [result.signal.id], else: []
       end)
 
     check_signals =
       checks
-      |> Enum.filter(&failing_check?(&1.record))
-      |> Enum.map(fn item ->
-        WorkGraph.ensure_integration_signal(operation, item.reference, %{
-          title: "Failing check: #{item.record.name}",
-          body: "#{item.record.name} concluded with #{item.record.conclusion}."
-        })
-        |> unwrap!()
-        |> Map.fetch!(:signal)
-        |> Map.fetch!(:id)
+      |> Enum.flat_map(fn item ->
+        actionable? = failing_check?(item.record)
+
+        result =
+          WorkGraph.sync_integration_signal(
+            operation,
+            item.reference,
+            %{
+              title: "Failing check: #{item.record.name}",
+              body: "#{item.record.name} concluded with #{item.record.conclusion}."
+            },
+            actionable?
+          )
+          |> unwrap!()
+
+        if actionable?, do: [result.signal.id], else: []
       end)
 
     comment_signals ++ check_signals

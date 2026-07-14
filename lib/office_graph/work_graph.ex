@@ -56,6 +56,9 @@ defmodule OfficeGraph.WorkGraph do
   defdelegate ensure_integration_signal(operation, reference, attrs),
     to: SystemCommands
 
+  defdelegate sync_integration_signal(operation, reference, attrs, actionable?),
+    to: SystemCommands
+
   defdelegate create_task(session_context, operation, signal, attrs),
     to: ProposalCommands
 

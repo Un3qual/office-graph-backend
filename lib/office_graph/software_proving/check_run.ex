@@ -17,7 +17,7 @@ defmodule OfficeGraph.SoftwareProving.CheckRun do
     validations: [
       status: ~w(queued in_progress completed),
       conclusion:
-        ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+        ~w(success failure neutral cancelled skipped timed_out action_required startup_failure stale)
     ]
 
   attributes do

@@ -82,6 +82,21 @@ extension records.
 - **THEN** Office Graph MUST create the authorized signal, external references,
   and canonical typed relationships through owning domain commands
 
+#### Scenario: Provider review work becomes non-actionable
+- **WHEN** a newer reconciliation marks a review comment pending, minimized, or
+  deleted, or marks a previously failing check non-failing
+- **THEN** Office Graph MUST close the existing mapped signal without deleting
+  its provenance, MUST NOT create an open signal for first-seen non-actionable
+  state, and MUST reopen the same signal identity if the provider item later
+  becomes actionable again
+
+#### Scenario: GitHub returns provider-only check states
+- **WHEN** GitHub returns a check in requested, waiting, or pending state, or a
+  completed check with a stale conclusion
+- **THEN** reconciliation MUST normalize the waiting-family states to the
+  provider-neutral queued state and MUST preserve stale as a non-failing
+  completed conclusion
+
 ### Requirement: GitHub Outbound Actions Are Narrow And Authorized
 Office Graph SHALL expose only review-reply and status/check-update commands for
 the first GitHub integration.
@@ -90,7 +105,8 @@ the first GitHub integration.
 - **WHEN** an actor with required capability, installation permission,
   credential scope, operation, and idempotency key requests a review reply
 - **THEN** Office Graph MUST enqueue one provider action and record its provider
-  response identity and classified outcome
+  response identity and classified outcome, and the adapter request MUST carry
+  the selected external installation identity
 
 #### Scenario: Selected installation does not own target provenance
 - **WHEN** an outbound action selects an installation that has not reconciled the
@@ -121,3 +137,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **WHEN** GitHub reports a revoked installation or invalid credential
 - **THEN** new provider work MUST fail closed, active retries MUST become
   configuration or terminal state, and historical provenance MUST remain
+
+#### Scenario: Stored outbound secret is missing
+- **WHEN** the selected outbound credential resolves to a missing or invalid
+  secret reference
+- **THEN** the action MUST fail terminally as an invalid credential before
+  provider access and health MUST expose credential-rotation remediation

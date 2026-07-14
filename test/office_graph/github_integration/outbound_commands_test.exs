@@ -56,6 +56,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert :ok = OutboundWorker.perform(job_for(first.id))
     assert Provider.calls("review_reply", "PRRC_outbound") == 1
 
+    assert Provider.request("review_reply", "PRRC_outbound").external_installation_id ==
+             context.installation.external_installation_id
+
     action = Ash.get!(OutboundAction, first.id, authorize?: false)
     assert action.state == "succeeded"
     assert action.provider_response_id == "PRRC_reply_1"
@@ -315,6 +318,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     action = Ash.get!(OutboundAction, action.id, authorize?: false)
     assert action.state == "retryable"
     assert action.failure_code == "provider_unavailable"
+  end
+
+  test "missing outbound secrets are classified as credential failures", context do
+    TestAdapter.put(%{})
+
+    attrs = reply_attrs(context, "Resolve the installation credential.")
+    operation = command_operation!(context, :github_review_reply, "reply:missing-secret", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert {:cancel, "invalid_credential"} = OutboundWorker.perform(job_for(action.id))
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_class == "terminal"
+    assert action.failure_code == "invalid_credential"
+
+    assert {:ok, health} =
+             GitHubIntegration.integration_health(context.session, context.installation.id)
+
+    assert health.remediation_code == "rotate_credentials"
   end
 
   test "revoked credentials fail terminally with a rotate-credential remediation", context do

@@ -69,6 +69,12 @@ defmodule OfficeGraph.WorkGraph.Signal do
                 body_document_id: OfficeGraph.Content.Document
               ]}
     end
+
+    update :set_state do
+      accept [:state]
+      validate one_of(:state, ~w(open closed))
+      require_atomic? false
+    end
   end
 
   policies do

@@ -16,26 +16,20 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
   require Ash.Query
 
   def ensure_integration_signal(operation, reference, attrs)
+      when is_map(operation) and is_map(reference) and is_map(attrs),
+      do: sync_integration_signal(operation, reference, attrs, true)
+
+  def ensure_integration_signal(_operation, _reference, _attrs), do: {:error, :forbidden}
+
+  def sync_integration_signal(operation, reference, attrs, actionable?)
       when is_map(operation) and is_map(reference) and is_map(attrs) do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
          true <- is_binary(operation.workspace_id),
          true <- is_binary(Map.get(reference, :id)),
          true <- reference.organization_id == operation.organization_id,
-         {:ok, title} <- required_string(attrs, :title),
-         {:ok, body} <- required_string(attrs, :body) do
-      transact(fn ->
-        reference_item =
-          operation
-          |> ensure_reference_item!(reference, title)
-          |> then(&Support.ash_get_for_update(GraphItem, &1.id))
-          |> Support.unwrap_ash()
-
-        case signal_for_reference(reference_item.id) do
-          {:ok, nil} -> create_signal!(operation, reference_item, title, body)
-          {:ok, signal} -> %{signal: signal, created?: false}
-          {:error, error} -> Repo.rollback(error)
-        end
-      end)
+         true <- is_boolean(actionable?),
+         {:ok, {title, body}} <- signal_content(attrs, actionable?) do
+      transact(fn -> sync_signal!(operation, reference, title, body, actionable?) end)
       |> case do
         {:ok, result} -> {:ok, result}
         {:error, error} -> {:error, error}
@@ -46,7 +40,36 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     end
   end
 
-  def ensure_integration_signal(_operation, _reference, _attrs), do: {:error, :forbidden}
+  def sync_integration_signal(_operation, _reference, _attrs, _actionable?),
+    do: {:error, :forbidden}
+
+  defp sync_signal!(operation, reference, title, body, true) do
+    reference_item =
+      operation
+      |> ensure_reference_item!(reference, title)
+      |> then(&Support.ash_get_for_update(GraphItem, &1.id))
+      |> Support.unwrap_ash()
+
+    case signal_for_reference(reference_item.id) do
+      {:ok, nil} -> create_signal!(operation, reference_item, title, body)
+      {:ok, signal} -> transition_signal!(operation, signal, "open")
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp sync_signal!(operation, reference, _title, _body, false) do
+    case reference_item_for_update!(operation, reference.id) do
+      nil ->
+        %{signal: nil, created?: false, state_changed?: false}
+
+      reference_item ->
+        case signal_for_reference(reference_item.id) do
+          {:ok, nil} -> %{signal: nil, created?: false, state_changed?: false}
+          {:ok, signal} -> transition_signal!(operation, signal, "closed")
+          {:error, error} -> Repo.rollback(error)
+        end
+    end
+  end
 
   defp ensure_reference_item!(operation, reference, title) do
     GraphItem
@@ -101,6 +124,29 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
 
       {:ok, nil} ->
         Repo.rollback(:provider_identity_conflict)
+
+      {:ok, _cross_scope} ->
+        Repo.rollback(:forbidden)
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp reference_item_for_update!(operation, reference_id) do
+    GraphItem
+    |> Ash.Query.filter(resource_type == "external_reference" and resource_id == ^reference_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} ->
+        nil
+
+      {:ok, %GraphItem{} = item}
+      when item.organization_id == operation.organization_id and
+             item.workspace_id == operation.workspace_id ->
+        GraphItem
+        |> Support.ash_get_for_update(item.id)
+        |> Support.unwrap_ash()
 
       {:ok, _cross_scope} ->
         Repo.rollback(:forbidden)
@@ -177,12 +223,33 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     %{signal: signal, relationship: relationship, created?: true}
   end
 
+  defp transition_signal!(_operation, %{state: state} = signal, state),
+    do: %{signal: signal, created?: false, state_changed?: false}
+
+  defp transition_signal!(operation, signal, state) do
+    updated =
+      signal
+      |> Support.ash_update_internal(:set_state, %{state: state})
+      |> Support.unwrap_ash()
+
+    Support.trace!(operation, "signal.#{state}", "signal", updated.id)
+    %{signal: updated, created?: false, state_changed?: true}
+  end
+
   defp required_string(attrs, key) do
     case Map.get(attrs, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _invalid -> {:error, {:invalid_integration_signal, key}}
     end
   end
+
+  defp signal_content(attrs, true) do
+    with {:ok, title} <- required_string(attrs, :title),
+         {:ok, body} <- required_string(attrs, :body),
+         do: {:ok, {title, body}}
+  end
+
+  defp signal_content(_attrs, false), do: {:ok, {nil, nil}}
 
   defp transact(fun), do: Repo.transaction(fun)
 end

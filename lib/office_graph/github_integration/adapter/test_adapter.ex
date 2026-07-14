@@ -22,13 +22,13 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.TestAdapter do
   end
 
   @impl true
-  def reply_to_review(%{target_node_id: node_id}, _credential) do
-    fetch_outbound("review_reply", node_id)
+  def reply_to_review(%{target_node_id: node_id} = request, _credential) do
+    fetch_outbound("review_reply", node_id, request)
   end
 
   @impl true
-  def update_check(%{target_node_id: node_id}, _credential) do
-    fetch_outbound("check_update", node_id)
+  def update_check(%{target_node_id: node_id} = request, _credential) do
+    fetch_outbound("check_update", node_id, request)
   end
 
   def calls(kind, node_id) do
@@ -40,8 +40,18 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.TestAdapter do
     end
   end
 
-  defp fetch_outbound(kind, node_id) do
+  def request(kind, node_id) do
     ensure_table!()
+
+    case :ets.lookup(@table, {:request, kind, node_id}) do
+      [{{:request, ^kind, ^node_id}, request}] -> request
+      [] -> nil
+    end
+  end
+
+  defp fetch_outbound(kind, node_id, request) do
+    ensure_table!()
+    :ets.insert(@table, {{:request, kind, node_id}, request})
     :ets.update_counter(@table, {:calls, kind, node_id}, {2, 1}, {{:calls, kind, node_id}, 0})
 
     case :ets.lookup(@table, {kind, node_id}) do

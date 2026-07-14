@@ -18,7 +18,12 @@ defmodule OfficeGraph.SoftwareProving.ReviewComment do
     attribute :pull_request_id, :uuid, allow_nil?: false, public?: true
     attribute :review_thread_id, :uuid, public?: true
     attribute :parent_comment_id, :uuid, public?: true
-    attribute :body, :string, allow_nil?: false, public?: true
+
+    attribute :body, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_empty?: true]
+
     attribute :author_label, :string, public?: true
 
     attribute :state, :string, allow_nil?: false, public?: true
