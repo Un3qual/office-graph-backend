@@ -42,6 +42,8 @@ defmodule OfficeGraph.Authorization do
 
   @restricted_capabilities %{
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    integration_reconcile: "integration.reconcile",
+    provider_webhook_receive: "provider.webhook.receive",
     system_conformance: "system.conformance"
   }
 
@@ -146,6 +148,59 @@ defmodule OfficeGraph.Authorization do
 
   def authorize_system_principal(_principal_id, _organization_id, _workspace_id, _action),
     do: {:error, :forbidden}
+
+  def ensure_system_role(
+        %{id: principal_id},
+        %{organization_id: organization_id, workspace_id: workspace_id},
+        actions
+      )
+      when is_binary(principal_id) and is_binary(organization_id) and is_list(actions) do
+    with true <- Identity.active_system_principal?(principal_id),
+         {:ok, capability_keys} <- system_capability_keys(actions) do
+      role =
+        get_or_create!(
+          Role,
+          [organization_id: organization_id, key: "system:#{principal_id}"],
+          %{
+            organization_id: organization_id,
+            key: "system:#{principal_id}",
+            name: "System principal #{principal_id}"
+          }
+        )
+
+      Enum.each(capability_keys, fn capability_key ->
+        capability = ensure_capability!(capability_key)
+
+        get_or_create!(
+          RoleCapability,
+          [role_id: role.id, capability_id: capability.id],
+          %{role_id: role.id, capability_id: capability.id}
+        )
+      end)
+
+      get_or_create!(
+        RoleAssignment,
+        [
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        ],
+        %{
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        }
+      )
+
+      :ok
+    else
+      _error -> {:error, :forbidden}
+    end
+  end
+
+  def ensure_system_role(_principal, _scope, _actions), do: {:error, :forbidden}
 
   def authorize_projection(session_context, action, opts \\ [])
 
@@ -373,6 +428,16 @@ defmodule OfficeGraph.Authorization do
       [key: key],
       %{key: key, description: key}
     )
+  end
+
+  defp system_capability_keys(actions) do
+    actions
+    |> Enum.reduce_while({:ok, []}, fn action, {:ok, keys} ->
+      case Map.fetch(@restricted_capabilities, action) do
+        {:ok, key} -> {:cont, {:ok, [key | keys]}}
+        :error -> {:halt, {:error, :forbidden}}
+      end
+    end)
   end
 
   defp get_or_create!(resource, lookup, attrs) do

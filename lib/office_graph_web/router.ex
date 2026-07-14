@@ -21,6 +21,12 @@ defmodule OfficeGraphWeb.Router do
   end
 
   scope "/api", OfficeGraphWeb do
+    pipe_through :api
+
+    post "/v1/webhooks/github", GitHubWebhookController, :create
+  end
+
+  scope "/api", OfficeGraphWeb do
     pipe_through [:api, :generated_json_api]
 
     get "/v1/graph-items/:item_id/relationships",

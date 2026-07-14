@@ -33,6 +33,8 @@ defmodule OfficeGraph.Operations do
   }
 
   @system_actions %{
+    integration_reconcile: "integration.reconcile",
+    provider_webhook_receive: "provider.webhook.receive",
     system_conformance: "system.conformance"
   }
 

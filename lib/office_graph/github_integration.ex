@@ -6,6 +6,7 @@ defmodule OfficeGraph.GitHubIntegration do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.DurableDelivery,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
@@ -21,13 +22,16 @@ defmodule OfficeGraph.GitHubIntegration do
     Installation,
     InstallationCredential,
     PermissionEntry,
-    PermissionSnapshot
+    PermissionSnapshot,
+    WebhookReceipt
   }
 
   alias OfficeGraph.Integrations.IntegrationCredential
 
   @permission_levels ~w(none read write admin)
   @secret_reference ~r/^[a-z][a-z0-9+.-]*:\/\/.+|^env:[A-Z][A-Z0-9_]*$/
+
+  def accept_webhook(headers, raw_body), do: WebhookReceipt.accept(headers, raw_body)
 
   def bind_installation(session_context, attrs) when is_map(attrs) do
     with {:ok, idempotency_key} <- required_string(attrs, :idempotency_key),
@@ -174,6 +178,21 @@ defmodule OfficeGraph.GitHubIntegration do
     webhook_principal =
       ensure_system_principal!(attrs.webhook_principal_email, "webhook")
 
+    ensure_system_role!(
+      webhook_principal,
+      %{organization_id: session_context.organization_id, workspace_id: nil},
+      [:provider_webhook_receive]
+    )
+
+    ensure_system_role!(
+      service_principal,
+      %{
+        organization_id: session_context.organization_id,
+        workspace_id: attrs.workspace_id
+      },
+      [:integration_reconcile]
+    )
+
     installation =
       Repo.ash_create!(Installation, %{
         id: Ecto.UUID.generate(),
@@ -234,6 +253,13 @@ defmodule OfficeGraph.GitHubIntegration do
     ]
 
     result(operation, installation, snapshot, permissions, credentials)
+  end
+
+  defp ensure_system_role!(principal, scope, actions) do
+    case Authorization.ensure_system_role(principal, scope, actions) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp create_credential_binding!(session_context, operation, installation, purpose, reference) do

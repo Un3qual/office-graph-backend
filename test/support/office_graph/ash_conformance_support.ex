@@ -201,6 +201,12 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
+    OfficeGraph.Integrations.RawArchive => %{
+      provider_delivery: %{
+        keys: [:source_id, :external_delivery_id],
+        where: "not is_nil(external_delivery_id)"
+      }
+    },
     OfficeGraph.Identity.Session => %{
       unique_context: %{
         keys: [:principal_id, :organization_id, :workspace_id, :purpose],

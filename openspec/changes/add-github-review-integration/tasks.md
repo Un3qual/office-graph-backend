@@ -15,8 +15,8 @@
 
 ## 4. Verified Webhook Receipt
 
-- [ ] 4.1 Add failing controller/adapter tests for raw-body signature verification, active installation lookup, supported events, duplicate delivery, invalid/unknown rejection before archive, and prompt response.
-- [ ] 4.2 Implement the GitHub adapter boundary, webhook route/controller, verified archive receipt, system operation creation, unique Oban enqueue, and safe response/error mapping.
+- [x] 4.1 Add failing controller/adapter tests for raw-body signature verification, active installation lookup, supported events, duplicate delivery, invalid/unknown rejection before archive, and prompt response.
+- [x] 4.2 Implement the GitHub adapter boundary, webhook route/controller, verified archive receipt, system operation creation, unique Oban enqueue, and safe response/error mapping.
 
 ## 5. Reconciliation And Product Mapping
 

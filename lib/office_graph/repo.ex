@@ -96,7 +96,10 @@ defmodule OfficeGraph.Repo do
 
   defp dump_uuid_fields(attrs, fields) do
     Enum.reduce(fields, attrs, fn field, acc ->
-      Map.update!(acc, field, &Ecto.UUID.dump!/1)
+      Map.update!(acc, field, fn
+        nil -> nil
+        value -> Ecto.UUID.dump!(value)
+      end)
     end)
   end
 

@@ -1858,6 +1858,48 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
 
     Repo.query!(
       """
+      DELETE FROM oban_jobs
+      WHERE args->>'organization_id' IN (
+        SELECT id::text FROM organizations WHERE slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM domain_events
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM proposed_graph_changes
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM normalized_intake_events
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM raw_archives
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
       DELETE FROM audit_records
       WHERE operation_id IN (
         SELECT oc.id
