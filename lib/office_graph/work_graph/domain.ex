@@ -22,6 +22,8 @@ defmodule OfficeGraph.WorkGraph.Domain do
   end
 
   resources do
+    resource OfficeGraph.WorkGraph.RelationshipDefinition
+    resource OfficeGraph.WorkGraph.RelationshipEndpointRule
     resource OfficeGraph.WorkGraph.GraphItem
     resource OfficeGraph.WorkGraph.GraphRelationship
     resource OfficeGraph.WorkGraph.Signal

@@ -38,7 +38,7 @@
 - Sets cycle policy `forbid` for `contained_in`, `decomposes_to`, `depends_on`, and `blocked_by`; sets `allow` for the other eight definitions.
 - Installs the endpoint semantics fixed in `openspec/specs/graph-relationships/spec.md`: containment targets scope items; decomposition targets child work/check/finding items; dependency/blocking connect work items; provenance connects graph/proposal/evidence items to source items; requirements connect tasks/findings/requirements/decisions to checks; satisfaction/evidence connect work/check/finding/run outputs to evidence/results; review findings target reviewed items; discussion targets conversations; external references target external-reference items; affected-scope targets scope/resource items.
 
-- [ ] **Step 1: Write the registry contract test**
+- [x] **Step 1: Write the registry contract test**
 
 ```elixir
 defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
@@ -66,13 +66,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
 end
 ```
 
-- [ ] **Step 2: Run the focused test and observe the missing registry**
+- [x] **Step 2: Run the focused test and observe the missing registry**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_registry_test.exs`
 
 Expected: FAIL because `RelationshipDefinitions` and the registry tables do not exist.
 
-- [ ] **Step 3: Add the migration-owned registry and read boundary**
+- [x] **Step 3: Add the migration-owned registry and read boundary**
 
 Create relational tables with typed columns and install the accepted rows in `up/0`. Keep the resource actions private and preload endpoint rules in the lookup.
 
@@ -102,13 +102,13 @@ end
 
 The migration must enforce unique definition keys, unique endpoint-rule triples, allowed direction/lifecycle/cycle values, and indexes on active keys and endpoint kinds. Add both resources to `WorkGraph.Domain` and the backend ownership inventory.
 
-- [ ] **Step 4: Run registry and architecture tests**
+- [x] **Step 4: Run registry and architecture tests**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_registry_test.exs test/office_graph/architecture/ash_api_ledger_conformance_test.exs`
 
 Expected: PASS with the migration-installed vocabulary and no public registry mutations.
 
-- [ ] **Step 5: Commit the registry checkpoint**
+- [x] **Step 5: Commit the registry checkpoint**
 
 ```bash
 git add priv/repo/migrations/20260713100000_create_relationship_registry.exs lib/office_graph/work_graph test/office_graph/work_graph/relationship_registry_test.exs test/office_graph/architecture/ash_api_ledger_conformance_test.exs
@@ -443,7 +443,7 @@ test "adjacency redacts an endpoint the actor cannot read", context do
              limit: 25
            )
 
-  assert view.definition_key == "references"
+  assert view.definition_key == "references_external"
   assert view.source.visibility == :visible
   assert view.target == %{visibility: :redacted}
 end

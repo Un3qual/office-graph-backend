@@ -55,6 +55,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "external_references" =>
       {OfficeGraph.ExternalRefs.Domain, OfficeGraph.ExternalRefs.ExternalReference},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
+    "relationship_definitions" =>
+      {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},
+    "relationship_endpoint_rules" =>
+      {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipEndpointRule},
     "graph_relationships" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphRelationship},
     "signals" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Signal},
@@ -168,6 +172,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.Tenancy.Workspace => %{unique_slug: [:organization_id, :slug]},
     OfficeGraph.Tenancy.Initiative => %{unique_slug: [:workspace_id, :slug]},
     OfficeGraph.Tenancy.Workstream => %{unique_slug: [:initiative_id, :slug]},
+    OfficeGraph.WorkGraph.RelationshipDefinition => %{unique_key: [:key]},
+    OfficeGraph.WorkGraph.RelationshipEndpointRule => %{
+      unique_definition_kinds: [:relationship_definition_id, :source_kind, :target_kind]
+    },
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
@@ -300,6 +308,16 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   }
 
   @expected_work_graph_relationships %{
+    OfficeGraph.WorkGraph.RelationshipDefinition => %{
+      endpoint_rules:
+        {:has_many, OfficeGraph.WorkGraph.RelationshipEndpointRule, :id,
+         :relationship_definition_id}
+    },
+    OfficeGraph.WorkGraph.RelationshipEndpointRule => %{
+      definition:
+        {:belongs_to, OfficeGraph.WorkGraph.RelationshipDefinition, :relationship_definition_id,
+         :id}
+    },
     OfficeGraph.WorkGraph.GraphItem => %{
       outgoing_relationships:
         {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :source_item_id},

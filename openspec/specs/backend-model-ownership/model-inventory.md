@@ -35,6 +35,8 @@ Derived from committed migrations; expected count: 47 tables.
 | `normalized_intake_events` | `OfficeGraph.Integrations.Domain` | `OfficeGraph.Integrations.NormalizedIntakeEvent` |
 | `external_references` | `OfficeGraph.ExternalRefs.Domain` | `OfficeGraph.ExternalRefs.ExternalReference` |
 | `graph_items` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.GraphItem` |
+| `relationship_definitions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipDefinition` |
+| `relationship_endpoint_rules` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipEndpointRule` |
 | `graph_relationships` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.GraphRelationship` |
 | `signals` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Signal` |
 | `tasks` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Task` |
