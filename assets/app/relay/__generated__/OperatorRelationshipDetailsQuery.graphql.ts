@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<096551c7753f3b143cddc7aac58ddc05>>
+ * @generated SignedSource<<9dbad7337fd4fdb84c15a340207de5a5>>
  * @lightSyntaxTransform
  */
 
@@ -18,8 +18,9 @@ export type OperatorRelationshipDetailsQuery$data = {
     readonly edges: ReadonlyArray<{
       readonly cursor: string | null | undefined;
       readonly node: {
+        readonly definitionKey: string | null | undefined;
         readonly kind: string;
-        readonly relationshipType: string;
+        readonly linkType: string | null | undefined;
         readonly stableId: string;
         readonly status: string | null | undefined;
         readonly title: string;
@@ -134,7 +135,14 @@ v3 = [
                 "alias": null,
                 "args": null,
                 "kind": "ScalarField",
-                "name": "relationshipType",
+                "name": "linkType",
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "kind": "ScalarField",
+                "name": "definitionKey",
                 "storageKey": null
               }
             ],
@@ -212,16 +220,16 @@ return {
     "selections": (v3/*:: as any*/)
   },
   "params": {
-    "cacheID": "823c65cf28fe878c769bf0fd4a6b289d",
+    "cacheID": "ef5b21c0a4182b4031dfa9a77cde47aa",
     "id": null,
     "metadata": {},
     "name": "OperatorRelationshipDetailsQuery",
     "operationKind": "query",
-    "text": "query OperatorRelationshipDetailsQuery(\n  $id: ID!\n  $first: Int!\n  $after: String\n) {\n  operatorRelationshipDetails(id: $id, first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n        relationshipType\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n"
+    "text": "query OperatorRelationshipDetailsQuery(\n  $id: ID!\n  $first: Int!\n  $after: String\n) {\n  operatorRelationshipDetails(id: $id, first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n        linkType\n        definitionKey\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "7943e699063ee213f436001f3824a111";
+(node as any).hash = "6d6bf2d52c08a38080191f876dc5d31e";
 
 export default node;

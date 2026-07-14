@@ -137,14 +137,14 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     assert %{type: "verification_check", id: applied.verification_check.id} in prepare_command.target_ids
 
-    assert Enum.map(detail.graph_relationships, & &1.relationship_type) == [
-             "produced_task",
-             "has_review_finding",
-             "requires_verification"
+    assert Enum.map(detail.graph_relationships, & &1.definition_key) == [
+             "generated_from",
+             "review_finding_for",
+             "requires_check"
            ]
 
-    assert detail.audit_trace.resource_count == 4
-    assert detail.revision_trace.resource_count == 4
+    assert detail.audit_trace.resource_count == 7
+    assert detail.revision_trace.resource_count == 7
 
     {{:ok, relationship_page}, relationship_queries} =
       QueryCounter.count(fn ->
@@ -455,16 +455,28 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
     {:ok, other_run} = create_ready_run(other_scope.session, other_check)
     cross_tenant_relationship_id = Ecto.UUID.generate()
 
+    {:ok, relationship_definition} =
+      OfficeGraph.WorkGraph.RelationshipDefinitions.fetch_by_key("depends_on")
+
+    {:ok, relationship_operation} =
+      Operations.start_operation(bootstrap.session, :graph_relationship_create)
+
     Repo.query!(
       """
       INSERT INTO graph_relationships
-        (id, source_item_id, target_item_id, relationship_type, inserted_at, updated_at)
-      VALUES ($1, $2, $3, 'cross_tenant_probe', now(), now())
+        (id, definition_id, organization_id, workspace_id, source_item_id, target_item_id,
+         lifecycle, asserting_principal_id, operation_id, valid_from, inserted_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, now(), now(), now())
       """,
       [
         Ecto.UUID.dump!(cross_tenant_relationship_id),
+        Ecto.UUID.dump!(relationship_definition.id),
+        Ecto.UUID.dump!(bootstrap.organization.id),
+        Ecto.UUID.dump!(bootstrap.workspace.id),
         Ecto.UUID.dump!(applied.signal.graph_item_id),
-        Ecto.UUID.dump!(other_check.graph_item_id)
+        Ecto.UUID.dump!(other_check.graph_item_id),
+        Ecto.UUID.dump!(bootstrap.principal.id),
+        Ecto.UUID.dump!(relationship_operation.id)
       ]
     )
 

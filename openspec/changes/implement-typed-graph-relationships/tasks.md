@@ -17,8 +17,8 @@
 
 ## 4. Reads, APIs, And Projections
 
-- [ ] 4.1 Update projection and traversal tests for canonical definition identity, lifecycle, redacted endpoints, and constant/batched query shape.
-- [ ] 4.2 Update GraphQL/JSON relationship types, generated schema/artifacts, projection assembly, and API migration ledger without adding registry administration.
+- [x] 4.1 Update projection and traversal tests for canonical definition identity, lifecycle, redacted endpoints, and constant/batched query shape.
+- [x] 4.2 Update GraphQL/JSON relationship types, generated schema/artifacts, projection assembly, and API migration ledger without adding registry administration.
 
 ## 5. Verification And Archive
 

@@ -126,7 +126,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     )
     SELECT paged_details.kind, paged_details.stable_id, paged_details.title,
            paged_details.status, paged_details.source_graph_item_id::text,
-           paged_details.target_graph_item_id::text, paged_details.relationship_type,
+           paged_details.target_graph_item_id::text, paged_details.link_type,
+           paged_details.definition_key,
            COALESCE(detail_totals.graph_link_count, 0),
            COALESCE(detail_totals.graph_relationship_count, 0)
     FROM requested_events
@@ -253,16 +254,16 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     ), details AS (
       SELECT event_id, 'graph_link'::text AS kind, link_type || ':' || id::text AS stable_id,
              title, status, graph_item_id AS source_graph_item_id, NULL::uuid AS target_graph_item_id,
-             link_type AS relationship_type
+             link_type, NULL::text AS definition_key
       FROM applied_links
       UNION ALL
       SELECT event_id, 'graph_link', link_type || ':' || id::text, title, status,
-             NULL::uuid, NULL::uuid, link_type
+             NULL::uuid, NULL::uuid, link_type, NULL::text
       FROM workflow_links
       UNION ALL
       SELECT applied_sources.event_id, 'graph_relationship', gr.id::text,
              rd.key, NULL,
-             gr.source_item_id, gr.target_item_id, rd.key
+             gr.source_item_id, gr.target_item_id, NULL::text, rd.key
       FROM (
         SELECT DISTINCT event_id, graph_item_id FROM applied_links
       ) applied_sources
@@ -304,7 +305,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          status,
          source_id,
          target_id,
-         type,
+         link_type,
+         definition_key,
          _graph_link_count,
          _graph_relationship_count
        ]) do
@@ -315,12 +317,25 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       status: status,
       source_graph_item_id: source_id,
       target_graph_item_id: target_id,
-      relationship_type: type
+      link_type: link_type,
+      definition_key: definition_key
     }
   end
 
   defp relationship_counts_from_rows([
-         [_kind, _id, _title, _status, _source, _target, _type, links, relationships] | _rest
+         [
+           _kind,
+           _id,
+           _title,
+           _status,
+           _source,
+           _target,
+           _link_type,
+           _definition_key,
+           links,
+           relationships
+         ]
+         | _rest
        ]),
        do: %{graph_links: links, graph_relationships: relationships}
 
@@ -670,7 +685,8 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
          {:ok, graph_links_by_operation_id} <-
            graph_links_by_operation_id(session_context, audit_records_by_operation_id),
          all_graph_links = flatten_map_values(graph_links_by_operation_id),
-         {:ok, graph_relationships} <- graph_relationships_for_links(all_graph_links),
+         {:ok, graph_relationships} <-
+           graph_relationships_for_links(session_context, all_graph_links),
          {:ok, workflow_links_by_operation_id} <-
            workflow_links_by_operation_id(session_context, graph_links_by_operation_id) do
       projections =
@@ -810,17 +826,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     }
   end
 
-  defp graph_relationships_for_links([]), do: {:ok, []}
+  defp graph_relationships_for_links(_session_context, []), do: {:ok, []}
 
-  defp graph_relationships_for_links(graph_links) do
+  defp graph_relationships_for_links(session_context, graph_links) do
     graph_item_ids =
       graph_links
       |> Enum.map(& &1.graph_item_id)
       |> Enum.reject(&is_nil/1)
 
     GraphRelationship
-    |> Ash.Query.filter(source_item_id in ^graph_item_ids and target_item_id in ^graph_item_ids)
-    |> Ash.Query.filter(lifecycle == "active")
+    |> Ash.Query.filter(
+      source_item_id in ^graph_item_ids and target_item_id in ^graph_item_ids and
+        organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and lifecycle == "active"
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.Query.load(:definition)
     |> Ash.read(authorize?: false)
@@ -832,7 +851,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
              id: relationship.id,
              source_graph_item_id: relationship.source_item_id,
              target_graph_item_id: relationship.target_item_id,
-             relationship_type: relationship.definition.key
+             definition_key: relationship.definition.key
            }
          end)}
 

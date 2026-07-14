@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<9bd9a82a62782f43dcaa948ec2c19306>>
+ * @generated SignedSource<<731876e4c1fd2e06f977837edf81e318>>
  * @lightSyntaxTransform
  */
 
@@ -422,7 +422,7 @@ v15 = [
         "alias": null,
         "args": null,
         "kind": "ScalarField",
-        "name": "relationshipType",
+        "name": "definitionKey",
         "storageKey": null
       }
     ],
@@ -625,12 +625,12 @@ return {
     ]
   },
   "params": {
-    "cacheID": "ee22b43edecc2781ac8b5802d674607e",
+    "cacheID": "8d0a2e18d6ecf33b2aa534a0204ff1bf",
     "id": null,
     "metadata": {},
     "name": "OperatorWorkflowRouteQuery",
     "operationKind": "query",
-    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorManualIntakeAffordance {\n    identity\n    state\n  }\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  typedId {\n    type\n    id\n  }\n  normalizedEventId\n  duplicateOfId\n  title\n  sourceSummary\n  proposedActionPreviews {\n    action\n    title\n    status\n  }\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    relationshipType\n  }\n  relationshipSummary {\n    graphLinks\n    graphRelationships\n    hasMore\n  }\n  auditTrace {\n    operationId\n    resourceCount\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n  }\n}\n"
+    "text": "query OperatorWorkflowRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorManualIntakeAffordance {\n    identity\n    state\n  }\n  operatorWorkflowItems(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        ...OperatorWorkflowItemFragment\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n\nfragment OperatorWorkflowItemFragment on OperatorWorkflowItem {\n  id\n  type\n  typedId {\n    type\n    id\n  }\n  normalizedEventId\n  duplicateOfId\n  title\n  sourceSummary\n  proposedActionPreviews {\n    action\n    title\n    status\n  }\n  status\n  reasonCodes\n  source {\n    identity\n    replayIdentity\n    outcome\n  }\n  proposedChangeStatus {\n    pending\n    applied\n    rejected\n    total\n  }\n  blockerReasons\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  operationWatermark\n  sourceWatermark\n  graphLinks {\n    type\n    id\n    graphItemId\n    title\n    state\n  }\n  graphRelationships {\n    id\n    sourceGraphItemId\n    targetGraphItemId\n    definitionKey\n  }\n  relationshipSummary {\n    graphLinks\n    graphRelationships\n    hasMore\n  }\n  auditTrace {\n    operationId\n    resourceCount\n  }\n  revisionTrace {\n    operationId\n    resourceCount\n  }\n}\n"
   }
 };
 })();

@@ -30,6 +30,9 @@ defmodule OfficeGraph.WorkGraph do
   defdelegate get_verification_check(session_context, id),
     to: Queries
 
+  defdelegate list_relationships(session_context, item_id, opts \\ []),
+    to: Queries
+
   defdelegate create_relationship(session_context, operation, request),
     to: RelationshipCommands,
     as: :create

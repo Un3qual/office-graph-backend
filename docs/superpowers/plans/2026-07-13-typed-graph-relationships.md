@@ -406,7 +406,7 @@ Run: `nix --extra-experimental-features 'nix-command flakes' develop --command m
 
 Expected: PASS with exactly one concurrent cyclic insert rejected.
 
-- [ ] **Step 7: Commit the command checkpoint**
+- [x] **Step 7: Commit the command checkpoint**
 
 ```bash
 git add lib/office_graph/work_graph.ex lib/office_graph/work_graph/relationship_request.ex lib/office_graph/work_graph/relationship_commands.ex lib/office_graph/work_graph/relationship_cycle_policy.ex lib/office_graph/work_graph/relationship_operation_policy.ex lib/office_graph/work_graph/proposal_commands.ex lib/office_graph/work_graph/command_support.ex lib/office_graph/work_graph/verification_commands.ex lib/office_graph/operations.ex lib/office_graph/authorization.ex lib/office_graph/foundation/bootstrap.ex lib/office_graph/verification.ex test/office_graph/work_graph/relationship_commands_test.exs test/office_graph/work_graph/relationship_cycle_concurrency_test.exs test/office_graph/proposed_changes/proposed_changes_test.exs test/office_graph/verification test/office_graph/foundation/bootstrap_test.exs
@@ -433,7 +433,7 @@ git commit -m "feat: add typed relationship commands"
 - `opts` accepts `direction: :incoming | :outgoing | :both`, `definition_keys: [String.t()]`, `lifecycle: "active" | "archived"`, and `limit: 1..100`.
 - API output exposes canonical key, family, direction, lifecycle, governing scope, validity, safe provenance IDs, and authorized/redacted endpoint views; it exposes no registry mutation.
 
-- [ ] **Step 1: Write read authorization and query-count tests**
+- [x] **Step 1: Write read authorization and query-count tests**
 
 ```elixir
 test "adjacency redacts an endpoint the actor cannot read", context do
@@ -457,13 +457,13 @@ test "bounded adjacency does not add one query per edge", context do
 end
 ```
 
-- [ ] **Step 2: Run relationship read tests and observe the absent projection**
+- [x] **Step 2: Run relationship read tests and observe the absent projection**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_queries_test.exs test/office_graph_web/relationship_graphql_test.exs test/office_graph_web/relationship_json_test.exs`
 
 Expected: FAIL because canonical relationship reads and transport fields are absent.
 
-- [ ] **Step 3: Implement bounded, batched, authorization-filtered reads**
+- [x] **Step 3: Implement bounded, batched, authorization-filtered reads**
 
 ```elixir
 def list_relationships(session, item_id, opts \\ []) do
@@ -479,7 +479,7 @@ end
 
 Use Relay-stable IDs in GraphQL, the same safe projection in JSON, and regenerate schema/Relay artifacts through the pinned commands. Keep definition resources out of generated mutation roots.
 
-- [ ] **Step 4: Regenerate and verify transport artifacts**
+- [x] **Step 4: Regenerate and verify transport artifacts**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command zsh -lc 'cd assets && pnpm relay && pnpm vitest run app/routes/operator/route.reads.test.tsx'`
 
