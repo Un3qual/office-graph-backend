@@ -489,7 +489,7 @@ Run: `nix --extra-experimental-features 'nix-command flakes' develop --command m
 
 Expected: PASS with endpoint redaction and bounded query counts.
 
-- [ ] **Step 5: Commit the read/API checkpoint**
+- [x] **Step 5: Commit the read/API checkpoint**
 
 ```bash
 git add lib/office_graph/work_graph/queries.ex lib/office_graph/projections/operator_workflow.ex lib/office_graph_web/graphql/operator_workflow lib/office_graph_web/json_api/router.ex test/office_graph/work_graph/relationship_queries_test.exs test/office_graph_web/relationship_graphql_test.exs test/office_graph_web/relationship_json_test.exs test/office_graph/projections/operator_inbox_projection_test.exs assets/schema.graphql assets/app/relay/__generated__/OperatorRelationshipDetailsQuery.graphql.ts
@@ -510,13 +510,13 @@ git commit -m "feat: expose authorized typed relationships"
 **Interfaces:**
 - Produces: archived canonical typed-relationship specs that `add-github-review-integration` and `implement-internal-agent-runtime` can target without compatibility aliases.
 
-- [ ] **Step 1: Run the focused backend suite**
+- [x] **Step 1: Run the focused backend suite**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph test/office_graph/proposed_changes test/office_graph/projections/operator_inbox_projection_test.exs test/office_graph_web/relationship_graphql_test.exs test/office_graph_web/relationship_json_test.exs test/office_graph/architecture`
 
 Expected: PASS with zero failures.
 
-- [ ] **Step 2: Run strict change and repository verification**
+- [x] **Step 2: Run strict change and repository verification**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate implement-typed-graph-relationships --strict`
 
@@ -530,17 +530,17 @@ Run: `git diff --check`
 
 Expected: no output.
 
-- [ ] **Step 3: Verify every requirement against implementation evidence**
+- [x] **Step 3: Verify every requirement against implementation evidence**
 
 Update each checkbox in `openspec/changes/implement-typed-graph-relationships/tasks.md` only after its named tests and implementation exist. Run `openspec show implement-typed-graph-relationships` and map every requirement scenario to at least one focused test before archiving.
 
-- [ ] **Step 4: Synchronize and archive the completed change**
+- [x] **Step 4: Synchronize and archive the completed change**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command openspec archive implement-typed-graph-relationships --yes`
 
 Expected: delta specs merge into canonical specs and the change moves under `openspec/changes/archive/2026-07-13-implement-typed-graph-relationships/`.
 
-- [ ] **Step 5: Re-run strict validation after archive and commit**
+- [x] **Step 5: Re-run strict validation after archive and commit**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --all --strict`
 

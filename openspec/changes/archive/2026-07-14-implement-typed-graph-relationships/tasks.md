@@ -22,6 +22,6 @@
 
 ## 5. Verification And Archive
 
-- [ ] 5.1 Run focused migrations, WorkGraph, authorization, concurrency, projection, GraphQL/JSON, and architecture tests; fix all failures.
-- [ ] 5.2 Run strict OpenSpec validation, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
-- [ ] 5.3 Synchronize delta specs, archive `implement-typed-graph-relationships`, and confirm GitHub and agent branches can target the archived canonical contract.
+- [x] 5.1 Run focused migrations, WorkGraph, authorization, concurrency, projection, GraphQL/JSON, and architecture tests; fix all failures.
+- [x] 5.2 Run strict OpenSpec validation, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
+- [x] 5.3 Synchronize delta specs, archive `implement-typed-graph-relationships`, and confirm GitHub and agent branches can target the archived canonical contract.

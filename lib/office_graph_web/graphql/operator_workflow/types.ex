@@ -515,6 +515,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   def graph_relationship_view_id(_relationship, _resolution), do: nil
 
   defp relay_id(type, id) do
-    Absinthe.Relay.Node.to_global_id(type, id, OfficeGraphWeb.GraphQL.Schema)
+    schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+    Absinthe.Relay.Node.to_global_id(type, id, schema)
   end
 end

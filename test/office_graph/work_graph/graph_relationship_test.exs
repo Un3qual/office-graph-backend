@@ -24,9 +24,11 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     end
 
     refute :relationship_type in attribute_names
+    refute :metadata in attribute_names
 
     create = Ash.Resource.Info.action(GraphRelationship, :create)
     refute :relationship_type in create.accept
+    refute :metadata in create.accept
 
     assert [:organization_id, :definition_id, :source_item_id, :target_item_id] ==
              Ash.Resource.Info.identity(GraphRelationship, :active_definition_edge).keys

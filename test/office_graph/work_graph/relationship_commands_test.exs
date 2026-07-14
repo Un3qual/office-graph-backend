@@ -2,6 +2,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Foundation, Operations, WorkGraph}
+  alias OfficeGraph.Authorization.Capability
   alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest}
 
   setup do
@@ -106,6 +107,112 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
                context.operation,
                cross_workspace_request
              )
+  end
+
+  test "cross-workspace capability preserves governing scope without granting target access",
+       context do
+    Ash.create!(
+      Capability,
+      %{
+        id: Ecto.UUID.generate(),
+        key: "graph_relationship.cross_workspace",
+        description: "Create a relationship governed by one workspace across workspace endpoints."
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    {:ok, other_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_name: context.bootstrap.organization.name,
+        organization_slug: context.bootstrap.organization.slug,
+        workspace_name: "Authorized Relationship Commands Other Workspace",
+        workspace_slug:
+          "authorized-relationship-commands-other-#{System.unique_integer([:positive])}",
+        initiative_name: "Authorized Relationship Commands Other Initiative",
+        initiative_slug:
+          "authorized-relationship-commands-other-#{System.unique_integer([:positive])}",
+        owner_email: context.bootstrap.principal.email
+      )
+
+    privileged_session =
+      OfficeGraph.SessionCaseHelpers.create_session_with_capabilities!(
+        context.bootstrap,
+        [
+          "graph_relationship.create",
+          "graph_relationship.cross_workspace",
+          "skeleton.read"
+        ],
+        prefix: "cross-workspace-relationship"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(privileged_session, :graph_relationship_create)
+
+    other_workspace_item =
+      insert_graph_item!(other_scope, "task", "Authorized cross-workspace command task")
+
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: other_workspace_item.id,
+        workspace_id: privileged_session.workspace_id
+      })
+
+    assert {:ok, relationship} =
+             WorkGraph.create_relationship(privileged_session, operation, request)
+
+    assert relationship.workspace_id == privileged_session.workspace_id
+    assert relationship.target_item_id == other_workspace_item.id
+
+    assert {:ok, [view]} =
+             WorkGraph.list_relationships(privileged_session, context.task_item.id,
+               direction: :outgoing,
+               definition_keys: ["depends_on"]
+             )
+
+    assert view.governing_workspace_id == privileged_session.workspace_id
+    assert view.source.visibility == :visible
+    assert view.target == %{visibility: :redacted}
+  end
+
+  test "cycle-permitting definitions accept reciprocal compatible edges", context do
+    artifact_item = insert_graph_item!(context.bootstrap, "artifact", "Cycle-safe artifact")
+
+    evidence_item =
+      insert_graph_item!(context.bootstrap, "evidence_item", "Cycle-safe evidence")
+
+    artifact_from_evidence =
+      RelationshipRequest.new!(%{
+        definition_key: "generated_from",
+        source_item_id: artifact_item.id,
+        target_item_id: evidence_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    evidence_from_artifact = %{
+      artifact_from_evidence
+      | source_item_id: evidence_item.id,
+        target_item_id: artifact_item.id
+    }
+
+    assert {:ok, first} =
+             WorkGraph.create_relationship(
+               context.session,
+               context.operation,
+               artifact_from_evidence
+             )
+
+    assert {:ok, second} =
+             WorkGraph.create_relationship(
+               context.session,
+               context.operation,
+               evidence_from_artifact
+             )
+
+    assert first.source_item_id == second.target_item_id
+    assert first.target_item_id == second.source_item_id
   end
 
   test "archive and restore preserve one relationship identity", context do
