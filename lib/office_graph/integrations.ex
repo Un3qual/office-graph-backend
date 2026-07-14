@@ -87,6 +87,28 @@ defmodule OfficeGraph.Integrations do
   def archive_system_delivery(_operation, _source, _attrs),
     do: {:error, :invalid_provider_delivery}
 
+  def provider_delivery_archive(organization_id, workspace_id, archive_id, delivery_id)
+      when is_binary(organization_id) and (is_binary(workspace_id) or is_nil(workspace_id)) and
+             is_binary(archive_id) and is_binary(delivery_id) do
+    RawArchive
+    |> Ash.Query.filter(
+      id == ^archive_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id and archive_kind == "provider_delivery" and
+        external_delivery_id == ^delivery_id
+    )
+    |> read_provider_delivery_archive()
+    |> case do
+      {:ok, nil} -> {:error, :invalid_delivery_archive}
+      {:ok, archive} -> {:ok, archive}
+      {:error, _error} -> {:error, :invalid_delivery_archive}
+    end
+  end
+
+  def provider_delivery_archive(_organization_id, _workspace_id, _archive_id, _delivery_id),
+    do: {:error, :invalid_delivery_archive}
+
+  defp read_provider_delivery_archive(query), do: Ash.read_one(query, authorize?: false)
+
   def submit_manual_intake(session_context, operation, attrs) do
     with :ok <- validate_manual_intake_attrs(attrs),
          :ok <- validate_manual_intake_operation(session_context, operation),

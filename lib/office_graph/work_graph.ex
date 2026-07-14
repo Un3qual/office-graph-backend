@@ -21,6 +21,7 @@ defmodule OfficeGraph.WorkGraph do
     ProposalCommands,
     Queries,
     RelationshipCommands,
+    SystemCommands,
     VerificationCommands
   }
 
@@ -51,6 +52,9 @@ defmodule OfficeGraph.WorkGraph do
 
   defdelegate create_signal(session_context, operation, attrs),
     to: ProposalCommands
+
+  defdelegate ensure_integration_signal(operation, reference, attrs),
+    to: SystemCommands
 
   defdelegate create_task(session_context, operation, signal, attrs),
     to: ProposalCommands

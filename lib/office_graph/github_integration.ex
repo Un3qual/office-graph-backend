@@ -7,10 +7,13 @@ defmodule OfficeGraph.GitHubIntegration do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.DurableDelivery,
+      OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
-      OfficeGraph.Repo
+      OfficeGraph.Repo,
+      OfficeGraph.SoftwareProving,
+      OfficeGraph.WorkGraph
     ],
     exports: [SecretStore]
 
@@ -23,6 +26,8 @@ defmodule OfficeGraph.GitHubIntegration do
     InstallationCredential,
     PermissionEntry,
     PermissionSnapshot,
+    Reconciler,
+    ReconciliationRequest,
     WebhookReceipt
   }
 
@@ -32,6 +37,9 @@ defmodule OfficeGraph.GitHubIntegration do
   @secret_reference ~r/^[a-z][a-z0-9+.-]*:\/\/.+|^env:[A-Z][A-Z0-9_]*$/
 
   def accept_webhook(headers, raw_body), do: WebhookReceipt.accept(headers, raw_body)
+
+  def reconcile(operation, %ReconciliationRequest{} = request),
+    do: Reconciler.reconcile(operation, request)
 
   def bind_installation(session_context, attrs) when is_map(attrs) do
     with {:ok, idempotency_key} <- required_string(attrs, :idempotency_key),

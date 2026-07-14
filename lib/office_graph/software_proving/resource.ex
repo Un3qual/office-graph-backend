@@ -76,6 +76,15 @@ defmodule OfficeGraph.SoftwareProving.Resource do
           unquote_splicing(validations)
           public? false
         end
+
+        update :reconcile do
+          accept unquote(accept -- [:id, :organization_id, :workspace_id, :source_id])
+          validate one_of(:sync_state, ~w(native pending synced stale failed))
+          validate one_of(:lifecycle_state, ~w(active archived deleted))
+          unquote_splicing(validations)
+          require_atomic? false
+          public? false
+        end
       end
 
       relationships do

@@ -9,3 +9,92 @@ defmodule OfficeGraph.GitHubIntegration.Adapter do
   @callback update_check(request :: map(), credential :: String.t()) ::
               {:ok, map()} | {:error, term()}
 end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.ReconciliationSnapshot do
+  @moduledoc "Normalized authoritative state returned by a provider adapter."
+
+  @enforce_keys [:provider_version, :provider_sequence, :repository, :pull_request]
+  defstruct [
+    :provider_version,
+    :provider_sequence,
+    :provider_updated_at,
+    :repository,
+    :pull_request,
+    review_threads: [],
+    review_comments: [],
+    check_runs: []
+  ]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.RepositorySnapshot do
+  @moduledoc false
+  @enforce_keys [:node_id, :name, :full_name, :owner_login, :visibility]
+  defstruct [
+    :node_id,
+    :database_id,
+    :name,
+    :full_name,
+    :owner_login,
+    :default_ref_name,
+    :visibility,
+    :url
+  ]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.PullRequestSnapshot do
+  @moduledoc false
+  @enforce_keys [:node_id, :number, :title, :state, :is_draft]
+  defstruct [
+    :node_id,
+    :database_id,
+    :number,
+    :title,
+    :body,
+    :state,
+    :is_draft,
+    :author_label,
+    :url,
+    :opened_at,
+    :closed_at,
+    :merged_at
+  ]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.ReviewThreadSnapshot do
+  @moduledoc false
+  @enforce_keys [:node_id, :state]
+  defstruct [:node_id, :state, :path, :line, :side, :resolved_at]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.ReviewCommentSnapshot do
+  @moduledoc false
+  @enforce_keys [:node_id, :body, :state]
+  defstruct [
+    :node_id,
+    :database_id,
+    :review_database_id,
+    :review_thread_node_id,
+    :parent_comment_node_id,
+    :body,
+    :author_label,
+    :state,
+    :published_at,
+    :url
+  ]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.CheckRunSnapshot do
+  @moduledoc false
+  @enforce_keys [:node_id, :name, :status]
+  defstruct [
+    :node_id,
+    :database_id,
+    :check_suite_database_id,
+    :name,
+    :status,
+    :conclusion,
+    :details_url,
+    :started_at,
+    :completed_at
+  ]
+end

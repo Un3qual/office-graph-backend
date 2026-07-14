@@ -40,6 +40,8 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
                "causation_event_id",
                "event_key",
                "event_kind",
+               "operation_kind",
+               "event_scope",
                "subject_kind",
                "subject_id",
                "subject_version",

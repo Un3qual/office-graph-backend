@@ -35,6 +35,10 @@ config :office_graph,
        :github_secret_store,
        OfficeGraph.GitHubIntegration.SecretStore.Environment
 
+config :office_graph,
+       :github_adapter,
+       OfficeGraph.GitHubIntegration.Adapter.Unavailable
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

@@ -20,8 +20,8 @@
 
 ## 5. Reconciliation And Product Mapping
 
-- [ ] 5.1 Add deterministic provider fixtures and failing tests for pull request, review/comment, check, installation, and repository-access reconciliation, batching, rate limits, stale versions, replay, and out-of-order delivery.
-- [ ] 5.2 Implement reconciliation workers and provider-neutral upserts with GitHub extensions, sync outcomes, external references, typed relationships, signals, operation/audit/revision provenance, and projection invalidations.
+- [x] 5.1 Add deterministic provider fixtures and failing tests for pull request, review/comment, check, installation, and repository-access reconciliation, batching, rate limits, stale versions, replay, and out-of-order delivery.
+- [x] 5.2 Implement reconciliation workers and provider-neutral upserts with GitHub extensions, sync outcomes, external references, typed relationships, signals, operation/audit/revision provenance, and projection invalidations.
 
 ## 6. Outbound Actions And Health
 

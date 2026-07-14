@@ -1,0 +1,6 @@
+{
+  "action": "submitted",
+  "installation": {"id": 9001},
+  "pull_request": {"node_id": "PR_fixture", "number": 24},
+  "review": {"node_id": "PRR_fixture"}
+}

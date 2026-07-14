@@ -19,7 +19,8 @@ defmodule OfficeGraph.DurableDelivery do
     ProjectionInvalidation,
     Subscriptions,
     SystemEventRequest,
-    TerminalJob
+    TerminalJob,
+    WorkerResult
   }
 
   alias OfficeGraph.Repo
@@ -122,6 +123,8 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   def dispatch(_event_id, _broadcaster), do: {:error, {:terminal, :invalid_event_id}}
+
+  def normalize_worker_result(result, job), do: WorkerResult.normalize(result, job)
 
   defp dispatch_validated(event_id, expected_scope, broadcaster) do
     if valid_event_id?(event_id) do

@@ -120,5 +120,6 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
 
     has_many :permission_snapshots, OfficeGraph.GitHubIntegration.PermissionSnapshot
     has_many :credential_bindings, OfficeGraph.GitHubIntegration.InstallationCredential
+    has_many :sync_outcomes, OfficeGraph.GitHubIntegration.SyncOutcome
   end
 end

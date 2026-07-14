@@ -58,6 +58,30 @@ defmodule OfficeGraph.Operations do
 
   def start_system_operation(_request), do: {:error, :invalid_system_operation_request}
 
+  def validate_system_operation(operation, action) when is_map(operation) and is_atom(action) do
+    with {:ok, expected_action} <- Map.fetch(@system_actions, action),
+         true <- operation.operation_kind == "system",
+         true <- operation.action == expected_action,
+         true <- is_binary(operation.organization_id),
+         true <- is_binary(operation.principal_id),
+         true <- is_binary(operation.authority_basis),
+         true <- is_binary(operation.causation_key),
+         true <- is_binary(operation.idempotency_scope),
+         :ok <-
+           OfficeGraph.Authorization.authorize_system_principal(
+             operation.principal_id,
+             operation.organization_id,
+             operation.workspace_id,
+             action
+           ) do
+      :ok
+    else
+      _invalid -> {:error, :forbidden}
+    end
+  end
+
+  def validate_system_operation(_operation, _action), do: {:error, :forbidden}
+
   def start_command(session_context, action, idempotency_key, input)
       when is_binary(idempotency_key) and idempotency_key != "" do
     digest = command_input_digest(input)
