@@ -261,19 +261,20 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
       FROM workflow_links
       UNION ALL
       SELECT applied_sources.event_id, 'graph_relationship', gr.id::text,
-             gr.relationship_type, NULL,
-             gr.source_item_id, gr.target_item_id, gr.relationship_type
+             rd.key, NULL,
+             gr.source_item_id, gr.target_item_id, rd.key
       FROM (
         SELECT DISTINCT event_id, graph_item_id FROM applied_links
       ) applied_sources
       JOIN graph_relationships gr ON gr.source_item_id = applied_sources.graph_item_id
-      -- graph_relationships has no tenant columns, so both endpoint graph_items are the
-      -- storage-boundary tenant constraint for this projection.
+      JOIN relationship_definitions rd ON rd.id = gr.definition_id
       JOIN graph_items source_gi ON source_gi.id = gr.source_item_id
         AND source_gi.organization_id = $2 AND source_gi.workspace_id = $3
       JOIN graph_items target_gi ON target_gi.id = gr.target_item_id
         AND target_gi.organization_id = $2 AND target_gi.workspace_id = $3
-      WHERE EXISTS (
+      WHERE gr.organization_id = $2 AND gr.workspace_id = $3
+        AND gr.lifecycle = 'active'
+        AND EXISTS (
         SELECT 1 FROM applied_links target_link
         WHERE target_link.event_id = applied_sources.event_id
           AND target_link.graph_item_id = target_gi.id
@@ -819,7 +820,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
     GraphRelationship
     |> Ash.Query.filter(source_item_id in ^graph_item_ids and target_item_id in ^graph_item_ids)
+    |> Ash.Query.filter(lifecycle == "active")
     |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.load(:definition)
     |> Ash.read(authorize?: false)
     |> case do
       {:ok, relationships} ->
@@ -829,7 +832,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
              id: relationship.id,
              source_graph_item_id: relationship.source_item_id,
              target_graph_item_id: relationship.target_item_id,
-             relationship_type: relationship.relationship_type
+             relationship_type: relationship.definition.key
            }
          end)}
 

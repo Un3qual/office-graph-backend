@@ -128,7 +128,7 @@ git commit -m "feat: add typed relationship registry"
 - Produces: `graph_relationships.definition_id`, `organization_id`, nullable `workspace_id`, `lifecycle`, `asserting_principal_id`, `operation_id`, `valid_from`, nullable `valid_until`, `run_id`, `integration_event_id`, `supersedes_relationship_id`, and `tombstone_id`.
 - Removes: writable `relationship_type` input and the legacy database column after verified backfill.
 
-- [ ] **Step 1: Write migration and resource failures first**
+- [x] **Step 1: Write migration and resource failures first**
 
 ```elixir
 test "all legacy edge values become canonical typed edges" do
@@ -170,13 +170,13 @@ test "unknown legacy values abort before changing rows" do
 end
 ```
 
-- [ ] **Step 2: Run the migration tests and observe missing typed columns**
+- [x] **Step 2: Run the migration tests and observe missing typed columns**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/office_graph/work_graph/relationship_migration_test.exs test/office_graph/work_graph/persistence_test.exs`
 
 Expected: FAIL because the typed edge migration and resource attributes are absent.
 
-- [ ] **Step 3: Implement the guarded backfill and resource shape**
+- [x] **Step 3: Implement the guarded backfill and resource shape**
 
 Use SQL inside the migration to reject unknown values, verify the legacy endpoint kinds before reversal, populate definition/scope/lifecycle/provenance columns, then enforce constraints and remove `relationship_type`. Model the canonical relation on the Ash resource:
 
@@ -209,7 +209,7 @@ The rollback must derive only the five supported legacy values from endpoint
 rules, restore their old names and directions, and raise if post-change rows
 cannot be represented without loss.
 
-- [ ] **Step 4: Reset and verify both migration directions**
+- [x] **Step 4: Reset and verify both migration directions**
 
 Run: `nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.reset`
 
@@ -219,7 +219,7 @@ Run: `nix --extra-experimental-features 'nix-command flakes' develop --command m
 
 Expected: PASS, including unknown-value and endpoint-direction guards.
 
-- [ ] **Step 5: Commit the edge migration checkpoint**
+- [x] **Step 5: Commit the edge migration checkpoint**
 
 ```bash
 git add priv/repo/migrations/20260713101000_type_graph_relationships.exs lib/office_graph/work_graph/graph_relationship.ex test/office_graph/work_graph/relationship_migration_test.exs test/office_graph/work_graph/persistence_test.exs

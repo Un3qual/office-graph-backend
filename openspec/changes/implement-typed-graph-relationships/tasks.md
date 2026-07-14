@@ -2,12 +2,12 @@
 
 - [x] 1.1 Add failing migration/resource tests for relationship definitions, endpoint rules, migration-installed MVP vocabulary, and absent generic registry mutations.
 - [x] 1.2 Add registry and endpoint-rule migrations plus Ash resources/domain registration, indexes, identities, and backend ownership inventory entries.
-- [ ] 1.3 Add failing legacy-data migration tests, then backfill all five current values to canonical `generated_from`, `review_finding_for`, `requires_check`, and `evidenced_by` rows with direction validation and bounded unknown-value failure.
+- [x] 1.3 Add failing legacy-data migration tests, then backfill all five current values to canonical `generated_from`, `review_finding_for`, `requires_check`, and `evidenced_by` rows with direction validation and bounded unknown-value failure.
 
 ## 2. Definition-Backed Relationship Resource
 
-- [ ] 2.1 Add failing resource tests for definition foreign keys, explicit scope/lifecycle/provenance, uniqueness, and removal of free-form create input.
-- [ ] 2.2 Extend `GraphRelationship`, migrations, and relationships to canonical definitions, operation/actor, scope, validity, run/integration provenance, and supersession/tombstone references.
+- [x] 2.1 Add failing resource tests for definition foreign keys, explicit scope/lifecycle/provenance, uniqueness, and removal of free-form create input.
+- [x] 2.2 Extend `GraphRelationship`, migrations, and relationships to canonical definitions, operation/actor, scope, validity, run/integration provenance, and supersession/tombstone references.
 
 ## 3. WorkGraph Relationship Commands
 

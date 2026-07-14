@@ -346,13 +346,20 @@ defmodule OfficeGraph.Verification do
 
     _check_evidence_relationship =
       create_relationship!(
+        session_context,
+        operation,
         verification_check.graph_item_id,
         evidence_item.graph_item_id,
-        "has_evidence"
+        "evidenced_by"
       )
 
     _evidence_artifact_relationship =
-      maybe_create_evidence_artifact_relationship!(evidence_item, artifact)
+      maybe_create_evidence_artifact_relationship!(
+        session_context,
+        operation,
+        evidence_item,
+        artifact
+      )
 
     verification_result =
       Repo.ash_create!(
@@ -771,24 +778,55 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp maybe_create_evidence_artifact_relationship!(_evidence_item, nil), do: nil
+  defp maybe_create_evidence_artifact_relationship!(
+         _session_context,
+         _operation,
+         _evidence_item,
+         nil
+       ),
+       do: nil
 
-  defp maybe_create_evidence_artifact_relationship!(evidence_item, artifact) do
+  defp maybe_create_evidence_artifact_relationship!(
+         session_context,
+         operation,
+         evidence_item,
+         artifact
+       ) do
     create_relationship!(
+      session_context,
+      operation,
       evidence_item.graph_item_id,
       artifact.graph_item_id,
-      "references_artifact"
+      "generated_from"
     )
   end
 
-  defp create_relationship!(source_item_id, target_item_id, relationship_type) do
+  defp create_relationship!(
+         session_context,
+         operation,
+         source_item_id,
+         target_item_id,
+         definition_key
+       ) do
+    definition =
+      case WorkGraph.fetch_relationship_definition(definition_key) do
+        {:ok, definition} -> definition
+        {:error, error} -> Repo.rollback(error)
+      end
+
     Repo.ash_create!(
       GraphRelationship,
       %{
         id: Ecto.UUID.generate(),
+        definition_id: definition.id,
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
         source_item_id: source_item_id,
         target_item_id: target_item_id,
-        relationship_type: relationship_type
+        lifecycle: "active",
+        asserting_principal_id: session_context.principal_id,
+        operation_id: operation.id,
+        valid_from: DateTime.utc_now()
       }
     )
   end

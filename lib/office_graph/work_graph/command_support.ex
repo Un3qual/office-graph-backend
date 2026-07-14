@@ -9,7 +9,8 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
 
   alias OfficeGraph.WorkGraph.{
     GraphItem,
-    GraphRelationship
+    GraphRelationship,
+    RelationshipDefinitions
   }
 
   require Ash.Query
@@ -137,14 +138,31 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
     |> unwrap_ash()
   end
 
-  def create_relationship!(source_item_id, target_item_id, relationship_type) do
+  def create_relationship!(
+        session_context,
+        operation,
+        source_item_id,
+        target_item_id,
+        definition_key
+      ) do
+    definition =
+      definition_key
+      |> RelationshipDefinitions.fetch_by_key()
+      |> unwrap_ash()
+
     ash_create_internal(
       GraphRelationship,
       %{
         id: Ecto.UUID.generate(),
+        definition_id: definition.id,
+        organization_id: session_context.organization_id,
+        workspace_id: session_context.workspace_id,
         source_item_id: source_item_id,
         target_item_id: target_item_id,
-        relationship_type: relationship_type
+        lifecycle: "active",
+        asserting_principal_id: session_context.principal_id,
+        operation_id: operation.id,
+        valid_from: DateTime.utc_now()
       }
     )
     |> unwrap_ash()

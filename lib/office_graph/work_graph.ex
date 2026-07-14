@@ -8,15 +8,19 @@ defmodule OfficeGraph.WorkGraph do
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
       OfficeGraph.Content,
+      OfficeGraph.Identity,
       OfficeGraph.Operations,
       OfficeGraph.Repo,
-      OfficeGraph.Revisions
+      OfficeGraph.Revisions,
+      OfficeGraph.Tenancy,
+      OfficeGraph.Tombstones
     ],
     exports: []
 
   alias OfficeGraph.WorkGraph.{
     ProposalCommands,
     Queries,
+    RelationshipDefinitions,
     VerificationCommands
   }
 
@@ -25,6 +29,10 @@ defmodule OfficeGraph.WorkGraph do
 
   defdelegate get_verification_check(session_context, id),
     to: Queries
+
+  defdelegate fetch_relationship_definition(key),
+    to: RelationshipDefinitions,
+    as: :fetch_by_key
 
   defdelegate create_signal(session_context, operation, attrs),
     to: ProposalCommands

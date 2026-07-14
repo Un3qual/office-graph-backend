@@ -104,16 +104,20 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
 
         check_evidence_relationship =
           Support.create_relationship!(
+            session_context,
+            operation,
             verification_check.graph_item_id,
             evidence_graph_item_id,
-            "has_evidence"
+            "evidenced_by"
           )
 
         evidence_artifact_relationship =
           Support.create_relationship!(
+            session_context,
+            operation,
             evidence_graph_item_id,
             artifact_graph_item_id,
-            "references_artifact"
+            "generated_from"
           )
 
         verification_result =

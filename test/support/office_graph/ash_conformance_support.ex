@@ -176,6 +176,12 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.WorkGraph.RelationshipEndpointRule => %{
       unique_definition_kinds: [:relationship_definition_id, :source_kind, :target_kind]
     },
+    OfficeGraph.WorkGraph.GraphRelationship => %{
+      active_definition_edge: %{
+        keys: [:organization_id, :definition_id, :source_item_id, :target_item_id],
+        where: ~s(lifecycle == "active")
+      }
+    },
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
@@ -325,8 +331,18 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         {:has_many, OfficeGraph.WorkGraph.GraphRelationship, :id, :target_item_id}
     },
     OfficeGraph.WorkGraph.GraphRelationship => %{
+      definition:
+        {:belongs_to, OfficeGraph.WorkGraph.RelationshipDefinition, :definition_id, :id},
+      organization: {:belongs_to, OfficeGraph.Tenancy.Organization, :organization_id, :id},
+      governing_workspace: {:belongs_to, OfficeGraph.Tenancy.Workspace, :workspace_id, :id},
       source_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :source_item_id, :id},
-      target_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_item_id, :id}
+      target_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :target_item_id, :id},
+      asserting_principal:
+        {:belongs_to, OfficeGraph.Identity.Principal, :asserting_principal_id, :id},
+      operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
+      superseded_relationship:
+        {:belongs_to, OfficeGraph.WorkGraph.GraphRelationship, :supersedes_relationship_id, :id},
+      tombstone: {:belongs_to, OfficeGraph.Tombstones.Tombstone, :tombstone_id, :id}
     },
     OfficeGraph.WorkGraph.Signal => %{
       graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
