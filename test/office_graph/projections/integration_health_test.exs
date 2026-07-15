@@ -4,7 +4,13 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
   import OfficeGraph.SessionCaseHelpers
 
   alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter, Repo}
-  alias OfficeGraph.GitHubIntegration.{Installation, RecordLoaderTestAdapter, SyncOutcome}
+
+  alias OfficeGraph.GitHubIntegration.{
+    Installation,
+    OutboundAction,
+    RecordLoaderTestAdapter,
+    SyncOutcome
+  }
 
   test "health is bounded, safe, and contains no credential references or payloads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -48,8 +54,8 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
     assert QueryCounter.source_count(queries, "github_permission_entries") <= 1
     assert QueryCounter.source_count(queries, "github_installation_credentials") <= 1
     assert QueryCounter.source_count(queries, "integration_credentials") <= 1
-    assert QueryCounter.source_count(queries, "github_sync_outcomes") <= 2
-    assert QueryCounter.source_count(queries, "github_outbound_actions") <= 1
+    assert QueryCounter.source_count(queries, "github_sync_outcomes") <= 3
+    assert QueryCounter.source_count(queries, "github_outbound_actions") <= 2
   end
 
   test "unknown installation is non-enumerating" do
@@ -151,6 +157,34 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
     assert health.remediation_code == "rotate_credentials"
   end
 
+  test "headline failure counts include records outside the recent display limit" do
+    context = health_context("complete-failure-counts")
+
+    for sequence <- 1..3 do
+      create_outcome!(
+        context,
+        "retryable-#{sequence}",
+        "retryable",
+        "provider_unavailable"
+      )
+    end
+
+    for sequence <- 1..2 do
+      create_action!(context, "terminal-#{sequence}", "terminal", "invalid_credential")
+    end
+
+    assert {:ok, health} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id,
+               limit: 2
+             )
+
+    assert health.retryable_count == 3
+    assert health.terminal_count == 2
+    assert length(health.recent_failures) == 2
+  end
+
   test "health reports incomplete required permission grants as insufficient" do
     incomplete_permissions = [
       {"unrelated-read", [%{name: "issues", access_level: "read"}]},
@@ -226,6 +260,32 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
       failure_class: if(failure_code, do: state),
       failure_code: failure_code
     })
+  end
+
+  defp create_action!(context, label, state, failure_code) do
+    operation = sync_operation!(context, "action-#{label}")
+
+    OutboundAction
+    |> Repo.ash_create!(%{
+      id: Ecto.UUID.generate(),
+      installation_id: context.installation.id,
+      operation_id: operation.id,
+      principal_id: context.installation.service_principal_id,
+      organization_id: context.bootstrap.organization.id,
+      workspace_id: context.bootstrap.workspace.id,
+      action_kind: "review_reply",
+      target_type: "review_comment",
+      target_id: Ecto.UUID.generate(),
+      expected_provider_version: "v1",
+      input: %{}
+    })
+    |> Ash.Changeset.for_update(:record_result, %{
+      state: state,
+      failure_class: state,
+      failure_code: failure_code,
+      attempted_at: DateTime.utc_now()
+    })
+    |> Repo.ash_update!()
   end
 
   defp sync_operation!(context, label) do

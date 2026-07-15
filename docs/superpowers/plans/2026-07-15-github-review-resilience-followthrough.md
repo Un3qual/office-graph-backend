@@ -26,12 +26,12 @@ Resolve the fresh PR #25 bot findings at their shared boundaries: preserve retry
 
 ## Task 3: Keep health totals complete while reads stay bounded
 
-- [ ] Add a regression with more failures than the display limit and assert full retryable/terminal totals alongside a capped `recent_failures` list.
-- [ ] Add bounded filtered count aggregates for sync outcomes and outbound actions instead of deriving totals from the display sample.
-- [ ] Update query-count expectations to account for the two bounded aggregate queries.
-- [ ] Update canonical and archived integration-health specs to distinguish totals from the recent sample.
-- [ ] Run the health projection tests and strict OpenSpec validation.
-- [ ] Commit the health aggregation fix.
+- [x] Add a regression with more failures than the display limit and assert full retryable/terminal totals alongside a capped `recent_failures` list.
+- [x] Add bounded filtered count aggregates for sync outcomes and outbound actions instead of deriving totals from the display sample.
+- [x] Update query-count expectations to account for the two bounded aggregate queries.
+- [x] Update canonical and archived integration-health specs to distinguish totals from the recent sample.
+- [x] Run the health projection tests and strict OpenSpec validation.
+- [x] Commit the health aggregation fix.
 
 ## Task 4: Make terminal delivery state durable and scope-exact
 

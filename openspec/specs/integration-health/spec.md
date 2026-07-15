@@ -17,7 +17,8 @@ tokens, or internal exception text.
 
 - **WHEN** an authorized operator reads GitHub integration health
 - **THEN** Office Graph MUST return installation lifecycle, permission posture,
-  last successful sync, bounded retry/terminal counts, and safe remediation codes
+  last successful sync, complete retry/terminal counts, a bounded recent-failure
+  sample, and safe remediation codes
 
 #### Scenario: Workspace operator requests organization-scoped health
 
@@ -52,6 +53,13 @@ tokens, or internal exception text.
   older classified failure remains
 - **THEN** health MUST filter classified failures before applying the bounded
   display limit so the failure and its safe remediation remain visible
+
+#### Scenario: Classified failures outnumber the health limit
+
+- **WHEN** retryable or terminal outcomes and actions exceed the requested
+  recent-failure display limit
+- **THEN** health MUST report complete retryable and terminal headline counts
+  while keeping the recent-failure collection bounded to the requested limit
 
 #### Scenario: Other tenant health is requested
 

@@ -33,6 +33,8 @@ defmodule OfficeGraph.GitHubIntegration.Health do
       credentials = credentials(installation)
       outcomes = recent_failure_outcomes(installation.id, limit)
       actions = recent_failure_actions(installation.id, limit)
+      outcome_counts = failure_counts(SyncOutcome, installation.id)
+      action_counts = failure_counts(OutboundAction, installation.id)
       last_success = last_success(installation.id)
 
       {:ok,
@@ -42,6 +44,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          credentials,
          outcomes,
          actions,
+         merge_counts(outcome_counts, action_counts),
          last_success,
          limit
        )}
@@ -132,7 +135,35 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp view(installation, permissions, credentials, outcomes, actions, last_success, limit) do
+  defp failure_counts(resource, installation_id) do
+    resource
+    |> Ash.Query.filter(installation_id == ^installation_id)
+    |> Ash.aggregate!(
+      [
+        {:retryable, :count, query: [filter: [state: "retryable"]]},
+        {:terminal, :count, query: [filter: [state: "terminal"]]}
+      ],
+      authorize?: false
+    )
+  end
+
+  defp merge_counts(outcome_counts, action_counts) do
+    %{
+      retryable: outcome_counts.retryable + action_counts.retryable,
+      terminal: outcome_counts.terminal + action_counts.terminal
+    }
+  end
+
+  defp view(
+         installation,
+         permissions,
+         credentials,
+         outcomes,
+         actions,
+         counts,
+         last_success,
+         limit
+       ) do
     failures = failure_summaries(outcomes, actions, limit)
 
     %{
@@ -144,8 +175,8 @@ defmodule OfficeGraph.GitHubIntegration.Health do
       credential_posture: credential_posture(credentials),
       credentials: credentials,
       last_success_at: last_success && last_success.updated_at,
-      retryable_count: Enum.count(failures, &(&1.class == "retryable")),
-      terminal_count: Enum.count(failures, &(&1.class == "terminal")),
+      retryable_count: counts.retryable,
+      terminal_count: counts.terminal,
       remediation_code: remediation_code(installation, permissions, credentials, failures),
       recent_failures: failures
     }
