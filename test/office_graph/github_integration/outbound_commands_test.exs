@@ -65,6 +65,22 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.provider_response_version == "reply-v1"
   end
 
+  test "review replies preserve intentional body whitespace", context do
+    body = "\n    indented code\n"
+    attrs = reply_attrs(context, body)
+    operation = command_operation!(context, :github_review_reply, "reply:whitespace", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    assert action.input["body"] == body
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} => {:ok, %{id: "reply-whitespace", version: "v1"}}
+    })
+
+    assert :ok = OutboundWorker.perform(job_for(action.id))
+    assert Provider.request("review_reply", "PRRC_outbound").body == body
+  end
+
   test "review replies reject non-published targets before enqueue", context do
     Enum.reduce(Enum.with_index(~w(pending minimized deleted), 2), context.comment, fn
       {state, sequence}, comment ->

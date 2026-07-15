@@ -77,7 +77,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp normalize_reply(attrs) do
     with {:ok, installation_id} <- required_uuid(attrs, :installation_id),
          {:ok, review_comment_id} <- required_uuid(attrs, :review_comment_id),
-         {:ok, body} <- required_string(attrs, :body),
+         {:ok, body} <- required_raw_string(attrs, :body),
          {:ok, expected_provider_version} <- required_string(attrs, :expected_provider_version) do
       {:ok,
        %{
@@ -333,6 +333,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
           "" -> {:error, {:invalid_field, key}}
           normalized -> {:ok, normalized}
         end
+
+      _invalid ->
+        {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp required_raw_string(attrs, key) do
+    case fetch(attrs, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "",
+          do: {:error, {:invalid_field, key}},
+          else: {:ok, value}
 
       _invalid ->
         {:error, {:invalid_field, key}}

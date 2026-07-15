@@ -184,6 +184,13 @@ the first GitHub integration.
 - **THEN** Office Graph MUST reject the command before action enqueue,
   credential resolution, or provider access
 
+#### Scenario: Review reply contains intentional Markdown whitespace
+
+- **WHEN** an actor submits a nonblank review reply with leading indentation or
+  surrounding newlines
+- **THEN** Office Graph MUST preserve the exact body through durable action
+  storage and provider delivery
+
 #### Scenario: Review-reply success is ambiguous
 
 - **WHEN** GitHub may have created a reply before Office Graph persisted the
