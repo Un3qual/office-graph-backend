@@ -37,11 +37,11 @@
 - Consumes: `RecordLoader.get/3` and `RecordLoader.read_one/3`.
 - Produces: `RecordLoader.read/3` and `RecordLoader.aggregate/4`; storage-aware archive reads; safe `{:error, :integration_storage_unavailable}` results at secret, outbound-command, and health boundaries.
 
-- [ ] Add regressions for archive, credential-metadata, permission, target, and health-dependency read outages.
-- [ ] Run the focused tests and confirm they fail because storage errors are currently collapsed or raised.
-- [ ] Extend `RecordLoader` and route the affected reads through it without changing missing/cross-scope behavior.
-- [ ] Run the focused tests and confirm they pass.
-- [ ] Commit the storage-classification batch.
+- [x] Add regressions for archive, credential-metadata, permission, target, and health-dependency read outages.
+- [x] Run the focused tests and confirm they fail because storage errors are currently collapsed or raised.
+- [x] Extend `RecordLoader` and route the affected reads through it without changing missing/cross-scope behavior.
+- [x] Run the focused tests and confirm they pass.
+- [x] Commit the storage-classification batch.
 
 ### Task 2: Make Concurrent And Stale Reconciliation Side Effects Converge
 
@@ -54,11 +54,11 @@
 - Consumes: `SoftwareProving.upsert_provider_resource/5` result `%{record: struct(), status: :created | :updated | :stale}` and `persist_outcome!/2`.
 - Produces: reference updates only for created/updated resources; installation revocation only when the persisted winning outcome is terminal `installation_revoked`.
 
-- [ ] Add a stale-URL regression and a deterministic success-then-revocation race regression.
-- [ ] Run both tests and confirm the stale URL and lifecycle assertions fail on the current ordering.
-- [ ] Gate reference writes on non-stale status and move lifecycle application behind the winning persisted outcome.
-- [ ] Run reconciliation and concurrency tests and confirm they pass.
-- [ ] Commit the reconciliation-ordering batch.
+- [x] Add a stale-URL regression and a deterministic success-then-revocation race regression.
+- [x] Run both tests and confirm the stale URL and lifecycle assertions fail on the current ordering.
+- [x] Gate reference writes on non-stale status and move lifecycle application behind the winning persisted outcome.
+- [x] Run reconciliation and concurrency tests and confirm they pass.
+- [x] Commit the reconciliation-ordering batch.
 
 ### Task 3: Retain Exhausted Pre-Operation Webhook Failures
 
@@ -71,11 +71,11 @@
 - Consumes: receipt `event_id`, installation/delivery job scope, `Operations.lock_operation/1`, and `DurableDelivery.mark_failed/3`.
 - Produces: a staged `pre_operation` terminalization phase, a terminal `provider_delivery` `SyncOutcome`, a failed receipt event, and safe `integration_storage_unavailable` terminal history before job cancellation.
 
-- [ ] Add a final-attempt installation-read outage regression that forces the first terminal outcome write to fail, then recovers storage.
-- [ ] Run it and confirm the current worker cancels without staged metadata or a terminal outcome.
-- [ ] Add pre-operation terminalization and accept `integration_storage_unavailable` in staged retry decoding.
-- [ ] Run webhook worker tests and confirm terminalization persists before cancellation.
-- [ ] Commit the durable inbound-terminalization batch.
+- [x] Add a final-attempt installation-read outage regression that forces the first terminal outcome write to fail, then recovers storage.
+- [x] Run it and confirm the current worker cancels without staged metadata or a terminal outcome.
+- [x] Add pre-operation terminalization and accept `integration_storage_unavailable` in staged retry decoding.
+- [x] Run webhook worker tests and confirm terminalization persists before cancellation.
+- [x] Commit the durable inbound-terminalization batch.
 
 ### Task 4: Scope System Operation Idempotency By Workspace
 
@@ -90,11 +90,11 @@
 - Consumes: `SystemOperationRequest.workspace_id`.
 - Produces: exact workspace-aware replay lookup and Ash identity; a concurrent forward index with `nulls_distinct: false` so organization-scoped nil work remains unique.
 
-- [ ] Add behavior and migration-shape regressions for identical system keys in two workspaces and nil-scope uniqueness.
-- [ ] Run them and confirm the second workspace currently conflicts.
-- [ ] Update lookup/identity and add an idempotent forward migration rather than editing the applied historical migration.
-- [ ] Run system-operation and migration tests and confirm they pass.
-- [ ] Commit the idempotency-scope batch.
+- [x] Add behavior and migration-shape regressions for identical system keys in two workspaces and nil-scope uniqueness.
+- [x] Run them and confirm the second workspace currently conflicts.
+- [x] Update lookup/identity and add an idempotent forward migration rather than editing the applied historical migration.
+- [x] Run system-operation and migration tests and confirm they pass.
+- [x] Commit the idempotency-scope batch.
 
 ### Task 5: Synchronize Contracts And Verify
 
@@ -112,8 +112,11 @@
 - Consumes: implemented behavior and cached PR review thread IDs.
 - Produces: canonical/archived contract parity, strict validation, one pushed head, and evidence-backed thread replies.
 
-- [ ] Update canonical and archived scenarios for all clarified contracts.
-- [ ] Run the complete affected test set, `mix format --check-formatted`, `openspec validate --all --strict`, `mix verify`, and `git diff --check` in the Nix shell.
-- [ ] Mark all plan steps complete, archive the plan, and commit closeout.
-- [ ] Push `codex/github-review-integration` once.
-- [ ] Reply to and resolve the 10 fresh inline threads, post one consolidated outside-diff reply if needed, and stop without a post-push refresh.
+- [x] Update canonical and archived scenarios for all clarified contracts.
+- [x] Run the complete affected test set, `mix format --check-formatted`, `openspec validate --all --strict`, `mix verify`, and `git diff --check` in the Nix shell.
+- [x] Mark all repository-local plan steps complete, archive the plan, and commit closeout.
+
+Final delivery occurs after the archive commit: push
+`codex/github-review-integration` once, reply to and resolve the 11 fresh inline
+threads (10 distinct issue clusters), post one consolidated outside-diff reply
+if needed, and stop without a post-push refresh.
