@@ -2,7 +2,15 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
-  alias OfficeGraph.GitHubIntegration.{Installation, PermissionEntry, PermissionSnapshot}
+  alias OfficeGraph.Authorization.RoleAssignment
+
+  alias OfficeGraph.GitHubIntegration.{
+    Installation,
+    InstallationCredential,
+    PermissionEntry,
+    PermissionSnapshot
+  }
+
   alias OfficeGraph.Identity.Principal
   alias OfficeGraph.Integrations.IntegrationCredential
 
@@ -58,6 +66,26 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert Repo.aggregate(Installation, :count) == 1
     assert Repo.aggregate(PermissionSnapshot, :count) == 1
     assert Repo.aggregate(PermissionEntry, :count) == 2
+  end
+
+  test "organization-scoped binding requires an organization-scoped capability grant" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    attrs = %{binding_attrs(bootstrap, "organization-scope") | workspace_id: nil}
+    principal_count = Repo.aggregate(Principal, :count)
+    role_assignment_count = Repo.aggregate(RoleAssignment, :count)
+
+    assert {:error, :forbidden} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
+    assert Repo.aggregate(Installation, :count) == 0
+    assert Repo.aggregate(Principal, :count) == principal_count
+    assert Repo.aggregate(RoleAssignment, :count) == role_assignment_count
+    assert Repo.aggregate(IntegrationCredential, :count) == 0
+    assert Repo.aggregate(InstallationCredential, :count) == 0
+
+    grant_organization_role_assignment!(bootstrap)
+
+    assert {:ok, bound} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
+    assert bound.installation.workspace_id == nil
+    assert Repo.aggregate(Installation, :count) == 1
   end
 
   test "binding rejects changed replay input, missing capability, and cross-tenant scope" do

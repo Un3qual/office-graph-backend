@@ -20,6 +20,20 @@ references through a narrow authorized command.
 - **THEN** Office Graph MUST create or idempotently return the installation
   binding without returning secret values
 
+#### Scenario: Workspace-scoped owner requests organization binding
+
+- **WHEN** an owner whose installation-binding capability is assigned only to
+  the current workspace requests a binding with no governing workspace
+- **THEN** Office Graph MUST reject the request without creating an
+  organization-scoped installation, principal role, or credential binding
+
+#### Scenario: Organization-scoped owner requests organization binding
+
+- **WHEN** an owner with an organization-scoped installation-binding grant
+  requests a binding with no governing workspace
+- **THEN** Office Graph MUST create or idempotently return the
+  organization-scoped binding without returning secret values
+
 #### Scenario: Unauthenticated setup is attempted
 
 - **WHEN** a request without an authorized human session attempts to bind an

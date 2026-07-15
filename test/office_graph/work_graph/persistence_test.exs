@@ -641,7 +641,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
              Ash.create(ExternalSource, source_attrs, action: :create, authorize?: false)
 
     source_message = ash_error_message(source_error)
-    assert source_message =~ "key"
+    assert source_message =~ "kind"
     assert source_message =~ "has already been taken"
     refute source_message =~ "constraint error when attempting to insert struct"
 

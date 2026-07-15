@@ -272,6 +272,8 @@ defmodule OfficeGraph.Authorization do
   def authorize_operation(_session_context, _operation, _action, _opts), do: {:error, :forbidden}
 
   defp evaluate_authorization(session_context, organization_id, action, opts) do
+    requested_workspace_id = Keyword.get(opts, :workspace_id, session_context.workspace_id)
+
     case Map.fetch(@recognized_capabilities, action) do
       {:ok, required} ->
         cond do
@@ -281,7 +283,7 @@ defmodule OfficeGraph.Authorization do
           organization_id != opts[:organization_id] ->
             deny(required, "scope_mismatch")
 
-          not granted_capability?(session_context, required) ->
+          not granted_capability?(session_context, requested_workspace_id, required) ->
             deny(required, "missing_capability")
 
           true ->
@@ -349,11 +351,11 @@ defmodule OfficeGraph.Authorization do
   defp recorded_action_name(action) when is_binary(action), do: action
   defp recorded_action_name(action), do: inspect(action)
 
-  defp granted_capability?(session_context, required) do
+  defp granted_capability?(session_context, requested_workspace_id, required) do
     granted_capability_for_principal?(
       session_context.principal_id,
       session_context.organization_id,
-      session_context.workspace_id,
+      requested_workspace_id,
       required
     )
   end

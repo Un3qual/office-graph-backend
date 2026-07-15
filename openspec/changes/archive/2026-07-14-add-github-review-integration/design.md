@@ -58,8 +58,10 @@ ordering differ and can overwrite newer provider state.
 
 GraphQL and JSON commands bind installation ID, organization, optional
 workspace, service principal, permission snapshot, and credential references.
-The current local owner may invoke them during development. No unauthenticated
-callback or settings UI creates product authority.
+The current local owner may invoke them within its assigned scope during
+development; an organization-scoped binding requires an organization-scoped
+capability assignment. No unauthenticated callback or settings UI creates
+product authority.
 
 Automatic installation acceptance was rejected because an external installation
 event cannot choose an Office Graph tenant or credential authority safely.

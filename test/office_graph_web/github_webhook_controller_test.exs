@@ -1,6 +1,8 @@
 defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
+  import OfficeGraph.SessionCaseHelpers
+
   alias OfficeGraph.{Foundation, GitHubIntegration}
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
   alias OfficeGraphWeb.RawBodyReader
@@ -74,6 +76,8 @@ defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
 
   defp installation_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    grant_organization_role_assignment!(bootstrap)
+
     external_installation_id = System.unique_integer([:positive])
     webhook_reference = "test-secret://github/#{label}/webhook"
     webhook_secret = "controller-secret-#{label}"

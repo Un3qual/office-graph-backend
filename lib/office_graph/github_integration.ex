@@ -88,7 +88,8 @@ defmodule OfficeGraph.GitHubIntegration do
              session_context,
              operation,
              :github_installation_bind,
-             organization_id: session_context.organization_id
+             organization_id: session_context.organization_id,
+             workspace_id: normalized.workspace_id
            ) do
       persist_binding(session_context, operation, normalized)
     end

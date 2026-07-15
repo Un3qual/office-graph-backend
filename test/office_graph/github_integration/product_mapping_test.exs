@@ -1,6 +1,8 @@
 defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   use OfficeGraph.DataCase, async: false
 
+  import OfficeGraph.SessionCaseHelpers
+
   alias OfficeGraph.{Content, Foundation, GitHubIntegration, Operations, Repo, WorkGraph}
   alias OfficeGraph.ExternalRefs.ExternalReference
 
@@ -394,6 +396,8 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     workspace_id =
       if workspace_id == :session_workspace, do: bootstrap.workspace.id, else: workspace_id
+
+    if is_nil(workspace_id), do: grant_organization_role_assignment!(bootstrap)
 
     private_key_reference = "test-secret://github/#{label}/private-key"
 

@@ -1,6 +1,10 @@
 defmodule OfficeGraphWeb.GitHubInstallationApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
+  import OfficeGraph.SessionCaseHelpers
+
+  alias OfficeGraph.ApiSupport
+
   test "GraphQL binds an installation idempotently without disclosing secret references", %{
     conn: conn
   } do
@@ -78,6 +82,9 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
   end
 
   test "GraphQL and JSON can explicitly bind an organization-scoped installation", %{conn: conn} do
+    {:ok, bootstrap} = ApiSupport.bootstrap_local_api_owner()
+    grant_organization_role_assignment!(bootstrap)
+
     graphql_input = Map.put(graphql_input("graphql-organization"), :workspaceId, nil)
 
     mutation = """

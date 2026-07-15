@@ -2,6 +2,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   use OfficeGraph.DataCase, async: false
 
   import Ecto.Query
+  import OfficeGraph.SessionCaseHelpers
 
   require Ash.Query
 
@@ -182,6 +183,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
   defp installation_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    grant_organization_role_assignment!(bootstrap)
     external_installation_id = System.unique_integer([:positive])
     app_slug = "office-graph"
     webhook_reference = "test-secret://github/#{label}/webhook"
