@@ -872,6 +872,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp record_failure(operation, request, installation, reason) do
     {failure_class, failure_code, retry_at} = classify_failure(reason)
+    failure_class_name = Atom.to_string(failure_class)
 
     attrs = %{
       id: Ecto.UUID.generate(),
@@ -880,9 +881,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       object_type: request.object_type,
       object_id: request.object_id,
       delivery_id: request.delivery_id,
-      state: Atom.to_string(failure_class),
+      state: failure_class_name,
       signal_ids: [],
-      failure_class: Atom.to_string(failure_class),
+      failure_class: failure_class_name,
       failure_code: Atom.to_string(failure_code),
       retry_at: retry_at
     }
