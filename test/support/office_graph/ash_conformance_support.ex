@@ -242,6 +242,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_system_idempotency: %{
         keys: [
           :organization_id,
+          :workspace_id,
           :principal_id,
           :action,
           :idempotency_scope,

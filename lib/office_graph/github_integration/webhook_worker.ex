@@ -411,10 +411,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     end
   end
 
-  defp receipt_operation(
-         event_id,
-         %{organization_id: organization_id, workspace_id: workspace_id}
-       ) do
+  defp receipt_operation(event_id, scope) do
+    %{organization_id: organization_id, workspace_id: workspace_id} = scope
+
     case RecordLoader.get(DomainEvent, event_id,
            authorize?: false,
            not_found_error?: false
