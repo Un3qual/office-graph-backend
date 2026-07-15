@@ -134,18 +134,20 @@
 - Consumes: the cached PR snapshot `/tmp/office_graph_pr25_review_snapshot_20260715_5.json` and its three fresh thread IDs.
 - Produces: a clean repository gate, one pushed branch head, and evidence-backed replies/resolution for `PRRT_kwDOS7ymi86RRYvi`, `PRRT_kwDOS7ymi86RRYvo`, and `PRRT_kwDOS7ymi86RRYvt`.
 
-- [ ] **Step 1: Run focused and complete verification**
+- [x] **Step 1: Run focused and complete verification**
 
   Run the combined affected modules, `mix format --check-formatted`, `openspec validate --all --strict`, `mix verify`, and `git diff --check` in Nix; inspect every exit code and test count.
 
-- [ ] **Step 2: Archive the completed plan**
+- [x] **Step 2: Archive the completed plan**
 
   Mark every checkbox complete, move this file under `docs/superpowers/plans/archive/`, restore the README to list only the internal-agent-runtime plan as active, and commit `docs: archive github storage review plan`.
 
-- [ ] **Step 3: Push once**
+**Final delivery after the archive commit:**
+
+**Step 3: Push once**
 
   Push `codex/github-review-integration` and record the pushed head SHA.
 
-- [ ] **Step 4: Reply to and resolve the cached review threads**
+**Step 4: Reply to and resolve the cached review threads**
 
   Reply in each cached thread with the root-cause fix, pushed commit evidence, and exact verification results, resolve each thread, and stop without fetching PR state again.
