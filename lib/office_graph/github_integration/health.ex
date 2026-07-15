@@ -22,11 +22,12 @@ defmodule OfficeGraph.GitHubIntegration.Health do
   def read(session_context, installation_id, opts) when is_binary(installation_id) do
     limit = opts |> Keyword.get(:limit, 20) |> normalize_limit()
 
-    with :ok <-
+    with {:ok, installation} <- scoped_installation(session_context, installation_id),
+         :ok <-
            Authorization.authorize_projection(session_context, :skeleton_read,
-             organization_id: session_context.organization_id
-           ),
-         {:ok, installation} <- authorized_installation(session_context, installation_id) do
+             organization_id: installation.organization_id,
+             workspace_id: installation.workspace_id
+           ) do
       permissions = permissions(installation)
       credentials = credentials(installation)
       outcomes = recent_failure_outcomes(installation.id, limit)
@@ -48,7 +49,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
 
   def read(_session_context, _installation_id, _opts), do: {:error, :forbidden}
 
-  defp authorized_installation(session_context, installation_id) do
+  defp scoped_installation(session_context, installation_id) do
     case Ash.get(Installation, installation_id, authorize?: false, not_found_error?: false) do
       {:ok,
        %Installation{organization_id: organization_id, workspace_id: workspace_id} = installation}
@@ -211,12 +212,23 @@ defmodule OfficeGraph.GitHubIntegration.Health do
 
   defp remediation_code(_installation, permissions, credentials, failures) do
     cond do
-      credential_posture(credentials) != "active" -> "rotate_credentials"
-      permission_posture(permissions) != "configured" -> "reauthorize_installation"
-      Enum.any?(failures, &(&1.code == "installation_revoked")) -> "reauthorize_installation"
-      Enum.any?(failures, &(&1.code == "invalid_credential")) -> "rotate_credentials"
-      Enum.any?(failures, &(&1.code == "adapter_unavailable")) -> "configure_adapter"
-      true -> nil
+      credential_posture(credentials) != "active" ->
+        "rotate_credentials"
+
+      permission_posture(permissions) != "configured" ->
+        "reauthorize_installation"
+
+      Enum.any?(failures, &(&1.code in ~w(installation_revoked permission_denied))) ->
+        "reauthorize_installation"
+
+      Enum.any?(failures, &(&1.code == "invalid_credential")) ->
+        "rotate_credentials"
+
+      Enum.any?(failures, &(&1.code == "adapter_unavailable")) ->
+        "configure_adapter"
+
+      true ->
+        nil
     end
   end
 

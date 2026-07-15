@@ -330,6 +330,11 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.state == "terminal"
     assert action.failure_class == "authorization"
     assert action.failure_code == "permission_denied"
+
+    assert {:ok, health} =
+             GitHubIntegration.integration_health(context.session, context.installation.id)
+
+    assert health.remediation_code == "reauthorize_installation"
   end
 
   test "rate-limit snoozes cannot extend the fixed outbound attempt budget", context do

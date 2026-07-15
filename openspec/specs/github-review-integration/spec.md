@@ -254,7 +254,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **WHEN** GitHub rejects an outbound action because the installation no longer
   has permission
 - **THEN** Office Graph MUST retain an authorization failure classification and
-  MUST stop retrying the action
+  MUST stop retrying the action, and health MUST direct operators to reauthorize
+  the installation
 
 #### Scenario: Webhook reconciliation terminates
 

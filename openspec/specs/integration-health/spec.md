@@ -19,12 +19,26 @@ tokens, or internal exception text.
 - **THEN** Office Graph MUST return installation lifecycle, permission posture,
   last successful sync, bounded retry/terminal counts, and safe remediation codes
 
+#### Scenario: Workspace operator requests organization-scoped health
+
+- **WHEN** an operator whose health-read authority is assigned only to the
+  current workspace requests an organization-scoped installation
+- **THEN** Office Graph MUST return a non-enumerating forbidden response without
+  exposing organization-level permission, credential, or failure posture
+
 #### Scenario: Required GitHub permissions are incomplete
 
 - **WHEN** an installation permission snapshot lacks write access to checks or
   pull requests
 - **THEN** health MUST report an insufficient permission posture and safe
   installation-reauthorization remediation
+
+#### Scenario: Provider rejects an action after permissions change
+
+- **WHEN** a recent GitHub outbound action has an authorization-class
+  `permission_denied` failure
+- **THEN** health MUST expose safe installation-reauthorization remediation even
+  when the stored permission snapshot still appears configured
 
 #### Scenario: Retryable reconciliation later succeeds
 

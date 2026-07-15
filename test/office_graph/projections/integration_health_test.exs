@@ -1,6 +1,8 @@
 defmodule OfficeGraph.Projections.IntegrationHealthTest do
   use OfficeGraph.DataCase, async: false
 
+  import OfficeGraph.SessionCaseHelpers
+
   alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter, Repo}
   alias OfficeGraph.GitHubIntegration.SyncOutcome
 
@@ -55,6 +57,37 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
 
     assert {:error, :forbidden} =
              Projections.integration_health(bootstrap.session, Ecto.UUID.generate())
+  end
+
+  test "organization-scoped health requires organization-scoped read authority" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    grant_organization_role_assignment!(bootstrap)
+
+    {:ok, bound} =
+      GitHubIntegration.bind_installation(bootstrap.session, %{
+        idempotency_key: "bind-health-organization-scope",
+        external_installation_id: System.unique_integer([:positive]),
+        workspace_id: nil,
+        app_slug: "office-graph",
+        account_login: "Un3qual",
+        account_type: "organization",
+        service_principal_email: "github-service-health-org@office-graph.local",
+        webhook_principal_email: "github-webhook-health-org@office-graph.local",
+        webhook_secret_reference: "test-secret://github/health/org/webhook",
+        app_private_key_reference: "test-secret://github/health/org/private-key",
+        permissions: [
+          %{name: "checks", access_level: "write"},
+          %{name: "pull_requests", access_level: "write"}
+        ]
+      })
+
+    workspace_reader =
+      create_session_with_capabilities!(bootstrap, ["skeleton.read"],
+        prefix: "github-health-workspace-reader"
+      )
+
+    assert {:error, :forbidden} =
+             Projections.integration_health(workspace_reader, bound.installation.id)
   end
 
   test "last success uses the successful transition time of a recovered outcome" do
