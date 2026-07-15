@@ -124,6 +124,13 @@ credential reference when required.
 - **THEN** Office Graph MUST create or replay a system operation bound to the
   installation source principal and organization without fabricating a session
 
+#### Scenario: System idempotency key is reused across governing workspaces
+- **WHEN** one organization, principal, action, idempotency scope, and key are
+  used under two different governing workspaces
+- **THEN** Office Graph MUST create independent system operations for the exact
+  workspace scopes while replaying the same operation within either workspace
+  or within the organization scope where workspace is absent
+
 #### Scenario: Unsupported system action is requested
 - **WHEN** a service principal requests an action outside its capabilities,
   installation scope, or declared job kinds

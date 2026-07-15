@@ -96,7 +96,7 @@ extension records.
 - **WHEN** a delivery or reconciliation result is older than the stored provider
   version
 - **THEN** Office Graph MUST skip or reconcile it and MUST NOT overwrite newer
-  state
+  provider-neutral state, signal content, or external-reference URLs
 
 #### Scenario: The same provider object is visible in multiple workspaces
 
@@ -240,8 +240,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 #### Scenario: Integration record lookup is temporarily unavailable
 
 - **WHEN** a valid webhook, reconciliation, outbound command, outbound job, or
-  health read cannot read its installation, outbound action, target, or
-  credential record because storage is temporarily unavailable
+  health read cannot read its installation, archived delivery, permission
+  snapshot, outbound action, target, credential metadata, or dependent health
+  record because storage is temporarily unavailable
 - **THEN** Office Graph MUST preserve a retryable storage-unavailable result,
   MUST NOT misclassify the record as revoked, invalid, cross-scope, forbidden,
   or terminal, and durable work MUST retain that classification within its fixed
@@ -257,8 +258,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 
 - **WHEN** GitHub reports that an installation is revoked
 - **THEN** Office Graph MUST atomically persist the installation's revoked
-  lifecycle with its terminal outcome, new provider work MUST fail closed, and
-  historical provenance MUST remain
+  lifecycle only when its terminal revoked outcome wins any concurrent outcome
+  race, new provider work MUST fail closed, and historical provenance MUST remain
 
 #### Scenario: Installation credential is invalid
 
@@ -302,3 +303,11 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST persist a terminalization phase, retry the action
   state transition after storage recovers, and MUST NOT cancel while the action
   remains pending
+
+#### Scenario: Webhook storage is unavailable before operation start at retry exhaustion
+
+- **WHEN** the final inbound attempt cannot load the installation or receipt
+  operation because integration storage is temporarily unavailable
+- **THEN** the worker MUST persist a terminalization phase, durably record the
+  terminal provider-delivery outcome and failed receipt after storage recovers,
+  expose the classified failure through health, and MUST NOT cancel first

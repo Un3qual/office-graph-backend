@@ -68,6 +68,14 @@ tokens, or internal exception text.
 - **THEN** Office Graph MUST return a non-enumerating forbidden or not-found
   response and MUST NOT reveal installation existence
 
+#### Scenario: Health dependency storage is temporarily unavailable
+
+- **WHEN** health cannot read or aggregate installation permissions,
+  credentials, synchronization outcomes, or outbound actions because storage is
+  temporarily unavailable
+- **THEN** Office Graph MUST return a safe storage-unavailable classification
+  without exposing or raising an internal storage exception
+
 ### Requirement: Health Reads Are Query-Bounded
 
 Office Graph SHALL assemble integration health without query count growing per
