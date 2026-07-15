@@ -2,6 +2,7 @@ defmodule OfficeGraph.Repo.Migrations.ScopeExternalSourceIdentities do
   use Ecto.Migration
 
   @disable_ddl_transaction true
+  @disable_migration_lock true
 
   def up do
     drop_if_exists index(:external_sources, [:key],

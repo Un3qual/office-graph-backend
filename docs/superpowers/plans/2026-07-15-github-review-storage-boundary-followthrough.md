@@ -104,23 +104,23 @@
 - Consumes: Ecto migration metadata and PostgreSQL concurrent index creation.
 - Produces: `disable_ddl_transaction: true` and `disable_migration_lock: true` for the online external-source identity migration.
 
-- [ ] **Step 1: Add a failing migration metadata assertion**
+- [x] **Step 1: Add a failing migration metadata assertion**
 
   Extend `external source identity indexes migrate concurrently and remain irreversible` to assert `migration.__migration__()[:disable_migration_lock]`.
 
-- [ ] **Step 2: Run the migration test and verify RED**
+- [x] **Step 2: Run the migration test and verify RED**
 
   Run `mix test test/office_graph/software_proving/migration_test.exs` and confirm the new assertion fails because the lock flag is absent.
 
-- [ ] **Step 3: Disable the migration lock**
+- [x] **Step 3: Disable the migration lock**
 
   Add `@disable_migration_lock true` next to the existing `@disable_ddl_transaction true`; do not change the already-reviewed index identity or irreversible down path.
 
-- [ ] **Step 4: Verify the migration on tests and a fresh isolated database**
+- [x] **Step 4: Verify the migration on tests and a fresh isolated database**
 
   Run the focused migration test, then create and migrate a uniquely suffixed test database with `MIX_TEST_PARTITION=_review_storage_boundary`; confirm migration completes without the concurrent-index lock warning or timeout, then drop only that isolated database.
 
-- [ ] **Step 5: Commit the migration execution fix**
+- [x] **Step 5: Commit the migration execution fix**
 
   Stage the migration and regression, then commit `fix: disable lock for concurrent migration`.
 
