@@ -18,6 +18,8 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
     Installation,
+    InstallationCredential,
+    RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest,
     SecretStore.TestAdapter,
@@ -147,6 +149,38 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert outcome.state == "retryable"
     assert outcome.failure_code == "provider_unavailable"
+  end
+
+  test "transient installation and credential lookup failures persist retryable outcomes" do
+    context = reconciliation_context("record-lookup-unavailable")
+
+    for {resource, label} <- [
+          {Installation, "installation"},
+          {InstallationCredential, "credential"}
+        ] do
+      request =
+        request(
+          context,
+          "pull_request",
+          "PR_#{label}_lookup_unavailable",
+          "delivery-#{label}-lookup-unavailable"
+        )
+
+      operation = reconciliation_operation!(context, request, "#{label}-lookup-unavailable")
+
+      RecordLoaderTestAdapter.configure!(%{resource => {:error, :database_unavailable}})
+
+      assert {:error, {:retryable, :integration_storage_unavailable}} =
+               Reconciler.reconcile(operation, request)
+
+      outcome =
+        SyncOutcome
+        |> Ash.Query.filter(operation_id == ^operation.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert outcome.state == "retryable"
+      assert outcome.failure_code == "integration_storage_unavailable"
+    end
   end
 
   test "malformed nested snapshots fail as invalid provider responses before writes" do

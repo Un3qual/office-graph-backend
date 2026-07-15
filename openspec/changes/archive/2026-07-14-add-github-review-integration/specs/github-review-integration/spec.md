@@ -72,6 +72,13 @@ archiving a payload or creating product work.
 - **THEN** Office Graph MUST return a retryable service response without
   misclassifying the delivery as an invalid signature or creating receipt effects
 
+#### Scenario: Receipt authentication records are temporarily unavailable
+
+- **WHEN** webhook receipt cannot read its installation or credential binding
+  because integration storage is temporarily unavailable
+- **THEN** Office Graph MUST return a retryable service response without
+  misclassifying the installation or signature or creating receipt effects
+
 ### Requirement: GitHub State Is Reconciled Into Provider-Neutral Resources
 
 Office Graph SHALL reconcile supported repository, pull request, review,
@@ -232,11 +239,13 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 
 #### Scenario: Integration record lookup is temporarily unavailable
 
-- **WHEN** a valid webhook or outbound job cannot read its installation,
-  outbound action, target, or credential record because storage is temporarily
-  unavailable
-- **THEN** the job MUST retry within its fixed attempt budget without
-  misclassifying the record as revoked, invalid, cross-scope, or terminal
+- **WHEN** a valid webhook, reconciliation, outbound command, outbound job, or
+  health read cannot read its installation, outbound action, target, or
+  credential record because storage is temporarily unavailable
+- **THEN** Office Graph MUST preserve a retryable storage-unavailable result,
+  MUST NOT misclassify the record as revoked, invalid, cross-scope, forbidden,
+  or terminal, and durable work MUST retain that classification within its fixed
+  attempt budget
 
 #### Scenario: GitHub rate limit is returned
 

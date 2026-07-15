@@ -15,6 +15,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     Adapter,
     Installation,
     InstallationCredential,
+    RecordLoader,
     ReconciliationRequest,
     SecretStore,
     SyncOutcome
@@ -42,7 +43,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   @review_comment_states ~w(pending published minimized deleted)
   @check_statuses ~w(queued in_progress completed)
   @check_conclusions ~w(success failure neutral cancelled skipped timed_out action_required startup_failure stale)
-  @retryable_failure_codes [:provider_rate_limited, :provider_unavailable]
+  @retryable_failure_codes [
+    :provider_rate_limited,
+    :provider_unavailable,
+    :integration_storage_unavailable
+  ]
 
   require Ash.Query
 
@@ -85,8 +90,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: replay_outcome(outcome, request)
 
   defp reconcile_provider(operation, request) do
-    with {:ok, installation} <- authorized_installation(operation, request) do
-      reconcile_provider(operation, request, installation)
+    case authorized_installation(operation, request) do
+      {:ok, installation} ->
+        reconcile_provider(operation, request, installation)
+
+      {:error, :integration_storage_unavailable} ->
+        record_storage_failure(operation, request)
+
+      error ->
+        error
     end
   end
 
@@ -97,12 +109,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       reconcile_snapshot(operation, request, installation, source, snapshot)
     else
       {:error, {:provider, reason}} -> record_failure(operation, request, installation, reason)
+      {:error, :integration_storage_unavailable} -> record_storage_failure(operation, request)
       {:error, _error} = error -> error
     end
   end
 
   defp authorized_installation(operation, request) do
-    case Ash.get(Installation, request.installation_id,
+    case RecordLoader.get(Installation, request.installation_id,
            authorize?: false,
            not_found_error?: false
          ) do
@@ -120,19 +133,23 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           do: {:ok, installation},
           else: {:error, :forbidden}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :forbidden}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
   defp resolve_credential(operation, installation) do
-    InstallationCredential
-    |> Ash.Query.filter(
-      installation_id == ^installation.id and purpose == "app_private_key" and
-        credential_id == ^operation.credential_id
-    )
-    |> Ash.read_one(authorize?: false)
-    |> case do
+    query =
+      Ash.Query.filter(
+        InstallationCredential,
+        installation_id == ^installation.id and purpose == "app_private_key" and
+          credential_id == ^operation.credential_id
+      )
+
+    case RecordLoader.read_one(InstallationCredential, query, authorize?: false) do
       {:ok, %InstallationCredential{credential_id: credential_id}} ->
         credential_id
         |> SecretStore.resolve(%{
@@ -141,8 +158,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         })
         |> classify_credential_resolution()
 
-      _missing_or_invalid ->
+      {:ok, _missing_or_invalid} ->
         {:error, :forbidden}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -898,6 +918,30 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end
   end
 
+  defp record_storage_failure(operation, request) do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      installation_id: request.installation_id,
+      operation_id: operation.id,
+      object_type: request.object_type,
+      object_id: request.object_id,
+      delivery_id: request.delivery_id,
+      state: "retryable",
+      signal_ids: [],
+      failure_class: "retryable",
+      failure_code: "integration_storage_unavailable",
+      retry_at: nil
+    }
+
+    case Repo.transaction(fn ->
+           lock!("github:sync-outcome:#{operation.id}")
+           persist_outcome!(operation.id, attrs)
+         end) do
+      {:ok, outcome} -> replay_outcome(outcome, request)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp persist_installation_failure!(installation, :installation_revoked) do
     installation
     |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
@@ -946,6 +990,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp known_code("provider_rate_limited"), do: :provider_rate_limited
   defp known_code("provider_unavailable"), do: :provider_unavailable
+  defp known_code("integration_storage_unavailable"), do: :integration_storage_unavailable
   defp known_code("installation_revoked"), do: :installation_revoked
   defp known_code("invalid_credential"), do: :invalid_credential
   defp known_code("permission_denied"), do: :permission_denied

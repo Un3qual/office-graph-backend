@@ -4,7 +4,7 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
   import OfficeGraph.SessionCaseHelpers
 
   alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter, Repo}
-  alias OfficeGraph.GitHubIntegration.SyncOutcome
+  alias OfficeGraph.GitHubIntegration.{Installation, RecordLoaderTestAdapter, SyncOutcome}
 
   test "health is bounded, safe, and contains no credential references or payloads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -57,6 +57,18 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
 
     assert {:error, :forbidden} =
              Projections.integration_health(bootstrap.session, Ecto.UUID.generate())
+  end
+
+  test "installation lookup outages remain distinguishable from forbidden reads" do
+    context = health_context("installation-lookup-unavailable")
+
+    RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id
+             )
   end
 
   test "organization-scoped health requires organization-scoped read authority" do

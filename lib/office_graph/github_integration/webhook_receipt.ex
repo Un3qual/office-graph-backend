@@ -8,6 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
   alias OfficeGraph.GitHubIntegration.{
     Installation,
     InstallationCredential,
+    RecordLoader,
     SecretStore,
     WebhookSignature,
     WebhookWorker
@@ -38,7 +39,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          :ok <- supported_event(event_name) do
       record_receipt(installation, credential_binding, delivery_id, event_name, raw_body)
     else
-      {:error, :unavailable} ->
+      {:error, reason} when reason in [:unavailable, :integration_storage_unavailable] ->
         {:error, :receipt_unavailable}
 
       {:error, reason}
@@ -150,26 +151,30 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
   end
 
   defp active_installation(external_installation_id) do
-    Installation
-    |> Ash.Query.filter(
-      external_installation_id == ^external_installation_id and lifecycle_state == "active"
-    )
-    |> Ash.read_one(authorize?: false)
-    |> case do
+    query =
+      Ash.Query.filter(
+        Installation,
+        external_installation_id == ^external_installation_id and lifecycle_state == "active"
+      )
+
+    case RecordLoader.read_one(Installation, query, authorize?: false) do
       {:ok, nil} -> {:error, :unknown_installation}
       {:ok, installation} -> {:ok, installation}
-      {:error, _error} -> {:error, :unknown_installation}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
   defp webhook_credential(installation_id) do
-    InstallationCredential
-    |> Ash.Query.filter(installation_id == ^installation_id and purpose == "webhook_secret")
-    |> Ash.read_one(authorize?: false)
-    |> case do
+    query =
+      Ash.Query.filter(
+        InstallationCredential,
+        installation_id == ^installation_id and purpose == "webhook_secret"
+      )
+
+    case RecordLoader.read_one(InstallationCredential, query, authorize?: false) do
       {:ok, nil} -> {:error, :unknown_installation}
       {:ok, binding} -> {:ok, binding}
-      {:error, _error} -> {:error, :unknown_installation}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 

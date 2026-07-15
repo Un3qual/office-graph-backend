@@ -8,7 +8,16 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
   alias OfficeGraph.{Foundation, GitHubIntegration, Integrations, Repo}
   alias OfficeGraph.DurableDelivery.DomainEvent
-  alias OfficeGraph.GitHubIntegration.{SecretStore.TestAdapter, WebhookReceipt, WebhookWorker}
+
+  alias OfficeGraph.GitHubIntegration.{
+    Installation,
+    InstallationCredential,
+    RecordLoaderTestAdapter,
+    SecretStore.TestAdapter,
+    WebhookReceipt,
+    WebhookWorker
+  }
+
   alias OfficeGraph.Integrations.{ExternalSource, RawArchive}
   alias OfficeGraph.Operations.OperationCorrelation
 
@@ -179,6 +188,24 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
     assert no_receipt_effects?(delivery_id)
+  end
+
+  test "installation and credential lookup outages return a retryable service failure" do
+    context = installation_context("record-lookup-unavailable")
+
+    for {resource, label} <- [
+          {Installation, "installation-lookup-unavailable"},
+          {InstallationCredential, "credential-lookup-unavailable"}
+        ] do
+      delivery_id = "delivery-#{label}-#{Ecto.UUID.generate()}"
+      body = payload(context.external_installation_id)
+      headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+      RecordLoaderTestAdapter.configure!(%{resource => {:error, :database_unavailable}})
+
+      assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
+      assert no_receipt_effects?(delivery_id)
+    end
   end
 
   defp installation_context(label) do

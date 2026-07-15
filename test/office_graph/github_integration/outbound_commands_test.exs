@@ -171,6 +171,19 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.failure_code == "stale_provider_version"
   end
 
+  test "command installation lookup outages do not create actions or jobs", context do
+    attrs = reply_attrs(context, "Retry command creation after storage recovers.")
+    operation = command_operation!(context, :github_review_reply, "reply:lookup-outage", attrs)
+
+    RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
   test "transient outbound action lookup failures retry without terminalizing", context do
     attrs = reply_attrs(context, "Retry after the action record can be read.")
     operation = command_operation!(context, :github_review_reply, "reply:lookup-retry", attrs)
@@ -199,6 +212,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
           {InstallationCredential, "credential"},
           {ReviewComment, "target"}
         ] do
+      RecordLoaderTestAdapter.put(%{})
       attrs = reply_attrs(context, "Retry after the #{label} record can be read.")
 
       operation =

@@ -8,6 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     OutboundAction,
     OutboundWorker,
     PermissionEntry,
+    RecordLoader,
     SyncOutcome
   }
 
@@ -124,7 +125,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   end
 
   defp active_installation(session_context, installation_id) do
-    case Ash.get(Installation, installation_id, authorize?: false, not_found_error?: false) do
+    case RecordLoader.get(Installation, installation_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok,
        %Installation{
          lifecycle_state: "active",
@@ -135,8 +139,11 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
              workspace_id == session_context.workspace_id ->
         {:ok, installation}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :forbidden}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 

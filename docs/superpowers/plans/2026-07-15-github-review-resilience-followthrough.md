@@ -15,14 +15,14 @@ Resolve the fresh PR #25 bot findings at their shared boundaries: preserve retry
 
 ## Task 2: Preserve storage failures at GitHub integration read boundaries
 
-- [ ] Add receipt regressions for installation and webhook-credential lookup outages; expect `:receipt_unavailable` and no receipt effects.
-- [ ] Add outbound-command regression for installation lookup outage; expect `:integration_storage_unavailable` and no action or job.
-- [ ] Add reconciler regressions for installation and app-private-key binding lookup outages; expect retryable storage classification and no sync outcome.
-- [ ] Add health regression for installation lookup outage; expect a safe storage-unavailable result rather than `:forbidden`.
-- [ ] Route these lookups through `RecordLoader`, preserve non-enumerating missing/cross-scope behavior, and normalize loader errors to the public retryable error for each boundary.
-- [ ] Update canonical and archived OpenSpec requirements for the clarified failure contract.
-- [ ] Run focused tests and strict OpenSpec validation.
-- [ ] Commit the storage-boundary fix.
+- [x] Add receipt regressions for installation and webhook-credential lookup outages; expect `:receipt_unavailable` and no receipt effects.
+- [x] Add outbound-command regression for installation lookup outage; expect `:integration_storage_unavailable` and no action or job.
+- [x] Add reconciler regressions for installation and app-private-key binding lookup outages; expect retryable storage classification and a persisted retryable sync outcome.
+- [x] Add health regression for installation lookup outage; expect a safe storage-unavailable result rather than `:forbidden`.
+- [x] Route these lookups through `RecordLoader`, preserve non-enumerating missing/cross-scope behavior, and normalize loader errors to the public retryable error for each boundary.
+- [x] Update canonical and archived OpenSpec requirements for the clarified failure contract.
+- [x] Run focused tests and strict OpenSpec validation.
+- [x] Commit the storage-boundary fix.
 
 ## Task 3: Keep health totals complete while reads stay bounded
 
