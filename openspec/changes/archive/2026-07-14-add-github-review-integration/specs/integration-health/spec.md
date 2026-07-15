@@ -12,6 +12,13 @@ tokens, or internal exception text.
 - **THEN** Office Graph MUST return installation lifecycle, permission posture,
   last successful sync, bounded retry/terminal counts, and safe remediation codes
 
+#### Scenario: Required GitHub permissions are incomplete
+
+- **WHEN** an installation permission snapshot lacks write access to checks or
+  pull requests
+- **THEN** health MUST report an insufficient permission posture and safe
+  installation-reauthorization remediation
+
 #### Scenario: Retryable reconciliation later succeeds
 
 - **WHEN** a retryable reconciliation outcome is updated to successful

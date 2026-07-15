@@ -106,7 +106,36 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
     assert health.remediation_code == "rotate_credentials"
   end
 
-  defp health_context(label) do
+  test "health reports incomplete required permission grants as insufficient" do
+    incomplete_permissions = [
+      {"unrelated-read", [%{name: "issues", access_level: "read"}]},
+      {"pull-requests-only", [%{name: "pull_requests", access_level: "write"}]},
+      {"checks-only", [%{name: "checks", access_level: "write"}]},
+      {"pull-requests-read",
+       [
+         %{name: "checks", access_level: "write"},
+         %{name: "pull_requests", access_level: "read"}
+       ]}
+    ]
+
+    Enum.each(incomplete_permissions, fn {label, permissions} ->
+      context = health_context("permissions-#{label}", permissions)
+
+      assert {:ok, health} =
+               Projections.integration_health(
+                 context.bootstrap.session,
+                 context.installation.id
+               )
+
+      assert health.permission_posture == "insufficient"
+      assert health.remediation_code == "reauthorize_installation"
+    end)
+  end
+
+  defp health_context(label, permissions \\ [
+         %{name: "checks", access_level: "write"},
+         %{name: "pull_requests", access_level: "write"}
+       ]) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     private_key_reference = "test-secret://github/health/#{label}/private-key"
 
@@ -122,10 +151,7 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
         webhook_principal_email: "github-webhook-health-#{label}@office-graph.local",
         webhook_secret_reference: "test-secret://github/health/#{label}/webhook",
         app_private_key_reference: private_key_reference,
-        permissions: [
-          %{name: "checks", access_level: "write"},
-          %{name: "pull_requests", access_level: "write"}
-        ]
+        permissions: permissions
       })
 
     credential = Enum.find(bound.credentials, &(&1.purpose == "app_private_key"))
