@@ -206,8 +206,15 @@ defmodule OfficeGraph.Operations do
         idempotency_scope == ^request.idempotency_scope and
         idempotency_key == ^request.idempotency_key
     )
+    |> scope_system_operation_workspace(request.workspace_id)
     |> Ash.read_one(authorize?: false)
   end
+
+  defp scope_system_operation_workspace(query, nil),
+    do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp scope_system_operation_workspace(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
   defp create_system_operation(request) do
     attrs = %{

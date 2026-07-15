@@ -41,6 +41,53 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert system_operation_count() == 1
   end
 
+  test "system operation idempotency is scoped to the exact governing workspace" do
+    owner_attrs = [owner_email: "workspace-system-owner@example.test"]
+
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        owner_attrs ++
+          [
+            workspace_name: "System Workspace One",
+            workspace_slug: "system-workspace-one",
+            initiative_name: "System Initiative One",
+            initiative_slug: "system-initiative-one"
+          ]
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        owner_attrs ++
+          [
+            workspace_name: "System Workspace Two",
+            workspace_slug: "system-workspace-two",
+            initiative_name: "System Initiative Two",
+            initiative_slug: "system-initiative-two"
+          ]
+      )
+
+    principal = system_principal!(first_scope, "system.conformance")
+
+    first_attrs =
+      first_scope
+      |> system_operation_attrs(principal)
+      |> Map.put(:workspace_id, first_scope.workspace.id)
+
+    second_attrs = %{first_attrs | workspace_id: second_scope.workspace.id}
+
+    assert {:ok, first_request} = Operations.new_system_operation_request(first_attrs)
+    assert {:ok, second_request} = Operations.new_system_operation_request(second_attrs)
+    assert {:ok, first} = Operations.start_system_operation(first_request)
+    assert {:ok, second} = Operations.start_system_operation(second_request)
+    assert {:ok, first_replay} = Operations.start_system_operation(first_request)
+
+    assert first.id != second.id
+    assert first.workspace_id == first_scope.workspace.id
+    assert second.workspace_id == second_scope.workspace.id
+    assert first_replay.id == first.id
+    assert system_operation_count() == 2
+  end
+
   test "system operations fail closed for human principals, missing authority, and missing grants" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     ungranted = system_principal!(bootstrap, nil)

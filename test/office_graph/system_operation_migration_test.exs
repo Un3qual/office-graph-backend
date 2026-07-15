@@ -18,7 +18,19 @@ defmodule OfficeGraph.SystemOperationMigrationTest do
     assert constraint_exists?("operation_correlations_human_context_required")
     assert constraint_exists?("operation_correlations_system_context_required")
     assert constraint_exists?("operation_correlations_subject_complete")
-    assert index_exists?("operation_correlations_system_idempotency_index")
+    refute index_exists?("operation_correlations_system_idempotency_index")
+
+    assert %{columns: columns, nulls_not_distinct?: true} =
+             index_definition("operation_correlations_system_scoped_idempotency_index")
+
+    assert columns == [
+             "organization_id",
+             "workspace_id",
+             "principal_id",
+             "action",
+             "idempotency_scope",
+             "idempotency_key"
+           ]
 
     assert column_nullable?("domain_events", "workspace_id")
     assert column_nullable?("domain_events", "subject_kind")
@@ -28,6 +40,26 @@ defmodule OfficeGraph.SystemOperationMigrationTest do
     assert constraint_exists?("domain_events_scope_valid")
     assert constraint_exists?("domain_events_workspace_context_required")
     assert constraint_exists?("domain_events_subject_complete")
+  end
+
+  test "workspace-scoped system idempotency migrates online and is irreversible" do
+    migration = OfficeGraph.Repo.Migrations.ScopeSystemOperationIdempotency
+
+    unless Code.ensure_loaded?(migration) do
+      Code.require_file(
+        "priv/repo/migrations/20260715143000_scope_system_operation_idempotency.exs"
+      )
+    end
+
+    migration_config = Function.capture(migration, :__migration__, 0)
+    down = Function.capture(migration, :down, 0)
+
+    assert migration_config.()[:disable_ddl_transaction]
+    assert migration_config.()[:disable_migration_lock]
+
+    assert_raise Ecto.MigrationError, ~r/irreversible.*workspaces/i, fn ->
+      down.()
+    end
   end
 
   defp column_exists?(table, column) do
@@ -95,5 +127,34 @@ defmodule OfficeGraph.SystemOperationMigrationTest do
       )
 
     exists?
+  end
+
+  defp index_definition(name) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT
+          ARRAY(
+            SELECT pg_get_indexdef(index_row.indexrelid, position, true)
+            FROM generate_series(1, index_row.indnkeyatts) AS position
+            ORDER BY position
+          ),
+          index_row.indnullsnotdistinct
+        FROM pg_index AS index_row
+        JOIN pg_class AS index_class ON index_class.oid = index_row.indexrelid
+        JOIN pg_namespace AS namespace ON namespace.oid = index_class.relnamespace
+        WHERE namespace.nspname = current_schema()
+          AND index_class.relname = $1
+        """,
+        [name]
+      )
+
+    case rows do
+      [[columns, nulls_not_distinct?]] ->
+        %{columns: columns, nulls_not_distinct?: nulls_not_distinct?}
+
+      [] ->
+        nil
+    end
   end
 end

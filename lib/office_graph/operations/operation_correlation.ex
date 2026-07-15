@@ -13,7 +13,7 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
 
     identity_index_names unique_idempotency_key: "operation_correlations_idempotency_key_index",
                          unique_system_idempotency:
-                           "operation_correlations_system_idempotency_index"
+                           "operation_correlations_system_scoped_idempotency_index"
   end
 
   attributes do
@@ -90,11 +90,13 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
     identity :unique_system_idempotency,
              [
                :organization_id,
+               :workspace_id,
                :principal_id,
                :action,
                :idempotency_scope,
                :idempotency_key
              ],
-             where: expr(operation_kind == "system")
+             where: expr(operation_kind == "system"),
+             nils_distinct?: false
   end
 end
