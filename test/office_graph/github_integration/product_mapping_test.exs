@@ -171,6 +171,66 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 1
   end
 
+  test "resolved review threads do not create or retain open signals" do
+    context = context("resolved-thread-signal-lifecycle")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-resolved-thread-signal-lifecycle"
+      })
+
+    open = %{mapping_snapshot() | check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, open}})
+
+    assert {:ok, open_outcome} =
+             Reconciler.reconcile(operation!(context, request, "open-thread"), request)
+
+    assert [signal_id] = open_outcome.signal_ids
+    [thread] = open.review_threads
+
+    resolved = %{
+      open
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_threads: [
+          %{thread | state: "resolved", resolved_at: ~U[2026-07-14 13:01:00Z]}
+        ]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, resolved}})
+
+    assert {:ok, resolved_outcome} =
+             Reconciler.reconcile(operation!(context, request, "resolved-thread"), request)
+
+    assert resolved_outcome.signal_ids == []
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    first_seen_context = context("first-seen-resolved-thread")
+
+    first_seen_request =
+      ReconciliationRequest.new!(%{
+        installation_id: first_seen_context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-first-seen-resolved-thread"
+      })
+
+    signal_count = Repo.aggregate(Signal, :count)
+
+    assert {:ok, first_seen_outcome} =
+             Reconciler.reconcile(
+               operation!(first_seen_context, first_seen_request, "first-seen-resolved"),
+               first_seen_request
+             )
+
+    assert first_seen_outcome.signal_ids == []
+    assert Repo.aggregate(Signal, :count) == signal_count
+  end
+
   test "actionable provider edits refresh the canonical signal content" do
     context = context("signal-content-refresh")
 

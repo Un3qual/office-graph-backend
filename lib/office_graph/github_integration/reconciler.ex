@@ -365,7 +365,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       checks =
         reconcile_checks!(operation, source, repository.record, pull_request.record, snapshot)
 
-      signal_ids = map_product_work!(operation, source, comments, checks)
+      signal_ids =
+        map_product_work!(operation, comments, checks, snapshot.review_threads)
       record_invalidation!(operation, pull_request.record, snapshot)
 
       create_outcome!(
@@ -704,16 +705,18 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end)
   end
 
-  defp map_product_work!(operation, _source, comments, checks) do
+  defp map_product_work!(operation, comments, checks, review_threads) do
     if is_nil(operation.workspace_id),
       do: [],
-      else: map_workspace_product_work!(operation, comments, checks)
+      else: map_workspace_product_work!(operation, comments, checks, review_threads)
   end
 
-  defp map_workspace_product_work!(operation, comments, checks) do
+  defp map_workspace_product_work!(operation, comments, checks, review_threads) do
+    thread_states = Map.new(review_threads, &{&1.node_id, &1.state})
+
     comment_signals =
       Enum.flat_map(comments, fn item ->
-        actionable? = item.record.state == "published"
+        actionable? = review_comment_actionable?(item, thread_states)
 
         result =
           WorkGraph.sync_integration_signal(
@@ -751,6 +754,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       end)
 
     comment_signals ++ check_signals
+  end
+
+  defp review_comment_actionable?(item, thread_states) do
+    item.record.state == "published" and
+      Map.get(thread_states, item.snapshot.review_thread_node_id, "open") == "open"
   end
 
   defp failing_check?(%{status: "completed", conclusion: conclusion}),

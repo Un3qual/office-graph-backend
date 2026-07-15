@@ -142,7 +142,8 @@ extension records.
 #### Scenario: Provider review work becomes non-actionable
 
 - **WHEN** a newer reconciliation marks a review comment pending, minimized, or
-  deleted, or marks a previously failing check non-failing
+  deleted, marks its containing review thread resolved or outdated, or marks a
+  previously failing check non-failing
 - **THEN** Office Graph MUST close the existing mapped signal without deleting
   its provenance, MUST NOT create an open signal for first-seen non-actionable
   state, and MUST reopen the same signal identity if the provider item later
