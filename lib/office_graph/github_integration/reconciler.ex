@@ -93,14 +93,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         retry_at: nil
       }
 
-      Repo.transaction(fn ->
-        lock!("github:sync-outcome:#{operation.id}")
-        outcome = persist_outcome!(operation.id, attrs)
-
-        if pre_operation_outcome?(outcome, installation_id, delivery_id, failure_code),
-          do: outcome,
-          else: Repo.rollback(:forbidden)
-      end)
+      persist_pre_operation(operation, attrs)
     end
   end
 
@@ -1124,11 +1117,22 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       outcome.delivery_id == request.delivery_id
   end
 
-  defp pre_operation_outcome?(outcome, installation_id, delivery_id, failure_code) do
-    outcome.installation_id == installation_id and outcome.object_type == "provider_delivery" and
-      outcome.object_id == delivery_id and outcome.delivery_id == delivery_id and
-      outcome.state == "terminal" and outcome.failure_class == "terminal" and
-      outcome.failure_code == Atom.to_string(failure_code)
+  defp persist_pre_operation(operation, attrs) do
+    Repo.transaction(fn ->
+      lock!("github:sync-outcome:#{operation.id}")
+      outcome = persist_outcome!(operation.id, attrs)
+
+      if pre_operation_outcome?(outcome, attrs),
+        do: outcome,
+        else: Repo.rollback(:forbidden)
+    end)
+  end
+
+  defp pre_operation_outcome?(outcome, attrs) do
+    outcome.installation_id == attrs.installation_id and
+      outcome.object_type == attrs.object_type and outcome.object_id == attrs.object_id and
+      outcome.delivery_id == attrs.delivery_id and outcome.state == attrs.state and
+      outcome.failure_class == attrs.failure_class and outcome.failure_code == attrs.failure_code
   end
 
   defp lock!(key), do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
