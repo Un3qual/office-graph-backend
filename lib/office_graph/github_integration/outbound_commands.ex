@@ -203,20 +203,22 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp review_comment_extension(id) do
     ReviewCommentExtension
     |> Ash.Query.filter(review_comment_id == ^id)
-    |> Ash.read_one(authorize?: false)
+    |> then(&RecordLoader.read_one(ReviewCommentExtension, &1, authorize?: false))
     |> case do
       {:ok, nil} -> {:error, :forbidden}
-      result -> result
+      {:ok, extension} -> {:ok, extension}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
   defp check_run_extension(id) do
     CheckRunExtension
     |> Ash.Query.filter(check_run_id == ^id)
-    |> Ash.read_one(authorize?: false)
+    |> then(&RecordLoader.read_one(CheckRunExtension, &1, authorize?: false))
     |> case do
       {:ok, nil} -> {:error, :forbidden}
-      result -> result
+      {:ok, extension} -> {:ok, extension}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -230,10 +232,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
         installation_id == ^installation.id and resource_type == "pull_request" and
           resource_id == ^pull_request_id and state in ["reconciled", "skipped_stale"]
       )
-      |> Ash.exists?(authorize?: false)
+      |> Ash.Query.limit(1)
+      |> then(&RecordLoader.read_one(SyncOutcome, &1, authorize?: false))
       |> case do
-        true -> :ok
-        _missing_or_unavailable -> {:error, :forbidden}
+        {:ok, %SyncOutcome{}} -> :ok
+        {:ok, nil} -> {:error, :forbidden}
+        {:error, _storage_error} -> {:error, :integration_storage_unavailable}
       end
     else
       {:error, :forbidden}

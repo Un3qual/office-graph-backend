@@ -29,31 +29,31 @@
 - Consumes: `RecordLoader.read_one/3`, `ReviewCommentExtension`, `CheckRunExtension`, and `SyncOutcome`.
 - Produces: `{:error, :integration_storage_unavailable}` for failed extension or provenance reads; `{:error, :forbidden}` only for missing extension or missing provenance.
 
-- [ ] **Step 1: Add failing extension-read regressions**
+- [x] **Step 1: Add failing extension-read regressions**
 
   Add one table-driven test that configures `RecordLoaderTestAdapter` to fail `ReviewCommentExtension` during `reply_to_review/3` and `CheckRunExtension` during `update_check/3`, then asserts `{:error, :integration_storage_unavailable}`, zero `OutboundAction` rows, and zero outbound jobs.
 
-- [ ] **Step 2: Run the extension regressions and verify RED**
+- [x] **Step 2: Run the extension regressions and verify RED**
 
   Run `mix test test/office_graph/github_integration/outbound_commands_test.exs` in Nix and confirm both extension cases return raw storage errors rather than the safe atom.
 
-- [ ] **Step 3: Add a failing provenance-read regression**
+- [x] **Step 3: Add a failing provenance-read regression**
 
   Configure `SyncOutcome => {:error, :database_unavailable}` for an otherwise valid reconciled reply target and assert the command returns `{:error, :integration_storage_unavailable}` without creating an action or job.
 
-- [ ] **Step 4: Run the provenance regression and verify RED**
+- [x] **Step 4: Run the provenance regression and verify RED**
 
   Run the same focused test module and confirm the command currently returns `{:error, :forbidden}`.
 
-- [ ] **Step 5: Route all three reads through `RecordLoader`**
+- [x] **Step 5: Route all three reads through `RecordLoader`**
 
   Replace direct extension `Ash.read_one/2` calls with `RecordLoader.read_one/3`, mapping `{:ok, nil}` to forbidden and `{:error, _}` to storage unavailable. Replace `Ash.exists?/2` provenance probing with a bounded `RecordLoader.read_one/3` query and the same three-way result handling.
 
-- [ ] **Step 6: Run the outbound command module and verify GREEN**
+- [x] **Step 6: Run the outbound command module and verify GREEN**
 
   Run `mix test test/office_graph/github_integration/outbound_commands_test.exs` and confirm every test passes.
 
-- [ ] **Step 7: Commit the outbound storage-boundary fix**
+- [x] **Step 7: Commit the outbound storage-boundary fix**
 
   Stage the outbound command module and test, then commit `fix: preserve outbound storage outages`.
 

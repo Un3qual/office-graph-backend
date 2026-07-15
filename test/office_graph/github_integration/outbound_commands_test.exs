@@ -23,12 +23,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest,
-    SecretStore.TestAdapter
+    SecretStore.TestAdapter,
+    SyncOutcome
   }
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.Integrations.IntegrationCredential
   alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
+  alias OfficeGraph.SoftwareProving.GitHub.{CheckRunExtension, ReviewCommentExtension}
 
   require Ash.Query
 
@@ -205,6 +207,51 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:target-outage", attrs)
 
     RecordLoaderTestAdapter.configure!(%{ReviewComment => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
+  test "command extension lookup outages do not masquerade as forbidden targets", context do
+    RecordLoaderTestAdapter.configure!(%{})
+
+    check_attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "completed",
+      conclusion: "success",
+      details_url: "https://example.test/checks/storage-recovers",
+      expected_provider_version: context.check.provider_version
+    }
+
+    cases = [
+      {ReviewCommentExtension, :github_review_reply, "reply:extension-outage",
+       reply_attrs(context, "Retry extension validation after storage recovers."),
+       &OutboundCommands.reply_to_review/3},
+      {CheckRunExtension, :github_check_update, "check:extension-outage", check_attrs,
+       &OutboundCommands.update_check/3}
+    ]
+
+    for {resource, action, key, attrs, command} <- cases do
+      RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})
+      operation = command_operation!(context, action, key, attrs)
+
+      assert {:error, :integration_storage_unavailable} =
+               command.(context.session, operation, attrs)
+
+      assert Repo.aggregate(OutboundAction, :count) == 0
+      assert count_jobs_for_worker() == 0
+    end
+  end
+
+  test "command provenance lookup outages do not masquerade as missing provenance", context do
+    attrs = reply_attrs(context, "Retry provenance validation after storage recovers.")
+    operation = command_operation!(context, :github_review_reply, "reply:provenance-outage", attrs)
+
+    RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
 
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
