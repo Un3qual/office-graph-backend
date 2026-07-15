@@ -239,8 +239,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 #### Scenario: Installation is revoked
 
 - **WHEN** GitHub reports a revoked installation or invalid credential
-- **THEN** new provider work MUST fail closed, active retries MUST become
-  configuration or terminal state, and historical provenance MUST remain
+- **THEN** a reported installation revocation MUST atomically persist the
+  installation's revoked lifecycle with its terminal outcome, new provider work
+  MUST fail closed, and historical provenance MUST remain
 
 #### Scenario: Stored outbound secret is missing
 

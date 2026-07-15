@@ -17,6 +17,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    Installation,
     Reconciler,
     ReconciliationRequest,
     SecretStore.TestAdapter,
@@ -122,6 +123,9 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert {:error, {:terminal, :installation_revoked}} =
              Reconciler.reconcile(revoked_operation, request)
+
+    installation = Ash.get!(Installation, context.installation.id, authorize?: false)
+    assert installation.lifecycle_state == "revoked"
   end
 
   test "transient private-key resolution failures are persisted as retryable outcomes" do

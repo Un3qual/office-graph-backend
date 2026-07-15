@@ -85,13 +85,18 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: replay_outcome(outcome, request)
 
   defp reconcile_provider(operation, request) do
-    with {:ok, installation} <- authorized_installation(operation, request),
-         {:ok, credential} <- resolve_credential(operation, installation),
+    with {:ok, installation} <- authorized_installation(operation, request) do
+      reconcile_provider(operation, request, installation)
+    end
+  end
+
+  defp reconcile_provider(operation, request, installation) do
+    with {:ok, credential} <- resolve_credential(operation, installation),
          {:ok, source} <- Integrations.ensure_provider_source("github", "GitHub"),
          {:ok, snapshot} <- fetch_snapshot(request, installation, credential) do
       reconcile_snapshot(operation, request, installation, source, snapshot)
     else
-      {:error, {:provider, reason}} -> record_failure(operation, request, reason)
+      {:error, {:provider, reason}} -> record_failure(operation, request, installation, reason)
       {:error, _error} = error -> error
     end
   end
@@ -865,37 +870,40 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> unwrap!()
   end
 
-  defp record_failure(operation, request, reason) do
+  defp record_failure(operation, request, installation, reason) do
     {failure_class, failure_code, retry_at} = classify_failure(reason)
 
-    case authorized_installation(operation, request) do
-      {:ok, installation} ->
-        attrs = %{
-          id: Ecto.UUID.generate(),
-          installation_id: installation.id,
-          operation_id: operation.id,
-          object_type: request.object_type,
-          object_id: request.object_id,
-          delivery_id: request.delivery_id,
-          state: Atom.to_string(failure_class),
-          signal_ids: [],
-          failure_class: Atom.to_string(failure_class),
-          failure_code: Atom.to_string(failure_code),
-          retry_at: retry_at
-        }
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      installation_id: installation.id,
+      operation_id: operation.id,
+      object_type: request.object_type,
+      object_id: request.object_id,
+      delivery_id: request.delivery_id,
+      state: Atom.to_string(failure_class),
+      signal_ids: [],
+      failure_class: Atom.to_string(failure_class),
+      failure_code: Atom.to_string(failure_code),
+      retry_at: retry_at
+    }
 
-        case Repo.transaction(fn ->
-               lock!("github:sync-outcome:#{operation.id}")
-               persist_outcome!(operation.id, attrs)
-             end) do
-          {:ok, outcome} -> replay_outcome(outcome, request)
-          {:error, error} -> {:error, error}
-        end
-
-      {:error, _error} ->
-        {:error, {failure_class, failure_code}}
+    case Repo.transaction(fn ->
+           lock!("github:sync-outcome:#{operation.id}")
+           persist_installation_failure!(installation, failure_code)
+           persist_outcome!(operation.id, attrs)
+         end) do
+      {:ok, outcome} -> replay_outcome(outcome, request)
+      {:error, error} -> {:error, error}
     end
   end
+
+  defp persist_installation_failure!(installation, :installation_revoked) do
+    installation
+    |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
+    |> Repo.ash_update!()
+  end
+
+  defp persist_installation_failure!(_installation, _failure_code), do: :ok
 
   defp classify_failure({:rate_limited, %DateTime{} = reset_at}),
     do: {:retryable, :provider_rate_limited, reset_at}
