@@ -30,6 +30,21 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
             "action_id" => action_id,
             "organization_id" => organization_id,
             "workspace_id" => workspace_id
+          },
+          meta: %{"terminal_action_id" => terminal_action_id}
+        } = job
+      )
+      when is_binary(action_id) and is_binary(organization_id) and is_binary(workspace_id) and
+             terminal_action_id == action_id do
+    persist_staged_terminal_action(job, action_id, organization_id, workspace_id)
+  end
+
+  def perform(
+        %Oban.Job{
+          args: %{
+            "action_id" => action_id,
+            "organization_id" => organization_id,
+            "workspace_id" => workspace_id
           }
         } = job
       )
@@ -38,10 +53,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       perform_action(action, job)
     else
       {:error, :integration_storage_unavailable} ->
-        DurableDelivery.normalize_worker_result(
-          {:error, {:retryable, :integration_storage_unavailable}},
-          retry_budget(job)
-        )
+        normalize_action_lookup_failure(job, action_id)
 
       {:error, code} ->
         finish_terminal_job(job, code, {:cancel, safe_code(code)})
@@ -293,6 +305,69 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
 
+  defp normalize_action_lookup_failure(job, action_id) do
+    result =
+      DurableDelivery.normalize_worker_result(
+        {:error, {:retryable, :integration_storage_unavailable}},
+        retry_budget(job)
+      )
+
+    case result do
+      {:cancel, "attempts_exhausted"} -> stage_terminal_action(job, action_id)
+      other -> other
+    end
+  end
+
+  defp stage_terminal_action(job, action_id) do
+    metadata = %{
+      "terminal_action_id" => action_id,
+      "terminal_failure_code" => "integration_storage_unavailable"
+    }
+
+    case stage_job_metadata(job, metadata) do
+      :ok -> {:snooze, @terminal_retry_delay_seconds}
+      {:error, _error} -> {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp persist_staged_terminal_action(job, action_id, organization_id, workspace_id) do
+    case action(action_id, organization_id, workspace_id) do
+      {:ok, %OutboundAction{state: "succeeded"}} ->
+        :ok
+
+      {:ok, %OutboundAction{state: "terminal", failure_code: code}} ->
+        finish_terminal_job(
+          job,
+          code || "integration_storage_unavailable",
+          {:cancel, "attempts_exhausted"}
+        )
+
+      {:ok, action} ->
+        updated =
+          update_action!(action, %{
+            state: "terminal",
+            failure_class: "terminal",
+            failure_code: "integration_storage_unavailable",
+            attempted_at: DateTime.utc_now(),
+            completed_at: DateTime.utc_now()
+          })
+
+        trace!(updated, "terminal")
+
+        finish_terminal_job(
+          job,
+          "integration_storage_unavailable",
+          {:cancel, "attempts_exhausted"}
+        )
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
+
+      {:error, code} ->
+        finish_terminal_job(job, code, {:cancel, safe_code(code)})
+    end
+  end
+
   defp finish_terminal_job(%Oban.Job{} = job, failure_code, result) do
     case stage_terminal_failure(job, failure_code) do
       :ok -> result
@@ -301,7 +376,11 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp stage_terminal_failure(job, failure_code) do
-    meta = Map.put(job.meta || %{}, "terminal_failure_code", safe_code(failure_code))
+    stage_job_metadata(job, %{"terminal_failure_code" => safe_code(failure_code)})
+  end
+
+  defp stage_job_metadata(job, metadata) do
+    meta = Map.merge(job.meta || %{}, metadata)
 
     case Oban.update_job(job, %{meta: meta}) do
       {:ok, _updated_job} -> :ok

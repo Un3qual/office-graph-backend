@@ -82,6 +82,13 @@ without exposing internal exceptions as product data.
 - **THEN** the scoped operator read MUST remain available and MUST expose the
   worker's persisted safe terminal reason without interpreting raw job errors
 
+#### Scenario: Terminal job and event differ by governing scope
+
+- **WHEN** a terminal job references an existing event ID but its organization
+  or workspace does not exactly match that event
+- **THEN** terminal history MUST NOT trust the event's failure state and MUST
+  use the job's persisted safe terminal reason
+
 #### Scenario: Terminal history authorization changes
 
 - **WHEN** a principal's durable-delivery read grant is revoked while its

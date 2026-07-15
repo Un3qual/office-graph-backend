@@ -287,3 +287,11 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **WHEN** an outbound job reaches a classified terminal action outcome
 - **THEN** its durable job history MUST retain the same safe failure code so
   operators can diagnose the terminal reason without reading raw job errors
+
+#### Scenario: Outbound action storage is unavailable at retry exhaustion
+
+- **WHEN** the final outbound attempt cannot read its action record because
+  integration storage is temporarily unavailable
+- **THEN** the worker MUST persist a terminalization phase, retry the action
+  state transition after storage recovers, and MUST NOT cancel while the action
+  remains pending

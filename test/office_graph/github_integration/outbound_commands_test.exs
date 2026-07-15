@@ -200,6 +200,35 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
   end
 
+  test "exhausted action lookup retries terminalization until the action can be persisted",
+       context do
+    attrs = reply_attrs(context, "Persist terminal state after storage recovers.")
+    operation = command_operation!(context, :github_review_reply, "reply:lookup-exhausted", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    RecordLoaderTestAdapter.configure!(%{
+      OutboundAction => {:error, :database_unavailable}
+    })
+
+    assert {:snooze, 5} = OutboundWorker.perform(%{job | attempt: job.max_attempts})
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert staged_job.meta["terminal_action_id"] == action.id
+    assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert {:cancel, "attempts_exhausted"} = OutboundWorker.perform(staged_job)
+
+    terminal_action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert terminal_action.state == "terminal"
+    assert terminal_action.failure_class == "terminal"
+    assert terminal_action.failure_code == "integration_storage_unavailable"
+    assert %DateTime{} = terminal_action.completed_at
+  end
+
   test "transient loaded-action dependency lookups remain retryable", context do
     RecordLoaderTestAdapter.configure!(%{})
 

@@ -35,13 +35,13 @@ Resolve the fresh PR #25 bot findings at their shared boundaries: preserve retry
 
 ## Task 4: Make terminal delivery state durable and scope-exact
 
-- [ ] Add an outbound-worker regression for final-attempt action-load storage failure: stage terminalization, then persist a terminal action once storage recovers before cancelling the job.
-- [ ] Add a terminal-history regression where an organization-scoped job references a workspace-scoped event; require metadata fallback instead of trusting the mismatched event.
-- [ ] Implement an explicit terminalization phase for exhausted outbound action-load failures.
-- [ ] Key terminal event failure codes by event identity plus exact organization/workspace scope.
-- [ ] Update canonical durable-delivery/GitHub integration specs and archived copies.
-- [ ] Run focused worker and durable-delivery tests plus strict OpenSpec validation.
-- [ ] Commit the durable terminalization fix.
+- [x] Add an outbound-worker regression for final-attempt action-load storage failure: stage terminalization, then persist a terminal action once storage recovers before cancelling the job.
+- [x] Add a terminal-history regression where an organization-scoped job references a workspace-scoped event; require metadata fallback instead of trusting the mismatched event.
+- [x] Implement an explicit terminalization phase for exhausted outbound action-load failures.
+- [x] Key terminal event failure codes by event identity plus exact organization/workspace scope.
+- [x] Update canonical durable-delivery/GitHub integration specs and archived copies.
+- [x] Run focused worker and durable-delivery tests plus strict OpenSpec validation.
+- [x] Commit the durable terminalization fix.
 
 ## Task 5: Reconcile documentation, migration safety, and false-positive evidence
 

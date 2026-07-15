@@ -86,7 +86,7 @@ defmodule OfficeGraph.DurableDelivery do
       {:ok,
        Enum.map(jobs, fn job ->
          failure_code =
-           Map.get(failure_codes, normalized_event_id(job.args["event_id"])) ||
+           Map.get(failure_codes, terminal_event_scope(job)) ||
              terminal_failure_code(job)
 
          %TerminalJob{
@@ -340,7 +340,7 @@ defmodule OfficeGraph.DurableDelivery do
           (workspace_id == ^session_context.workspace_id or is_nil(workspace_id))
       )
       |> Ash.read!()
-      |> Map.new(&{&1.id, &1.failure_code})
+      |> Map.new(&{{&1.id, &1.organization_id, &1.workspace_id}, &1.failure_code})
     end
   end
 
@@ -354,6 +354,23 @@ defmodule OfficeGraph.DurableDelivery do
     case Ecto.UUID.cast(event_id) do
       {:ok, normalized} -> normalized
       :error -> nil
+    end
+  end
+
+  defp terminal_event_scope(%Oban.Job{args: args}) do
+    {
+      normalized_event_id(args["event_id"]),
+      normalized_scope_id(args["organization_id"]),
+      normalized_scope_id(args["workspace_id"])
+    }
+  end
+
+  defp normalized_scope_id(nil), do: nil
+
+  defp normalized_scope_id(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, normalized} -> normalized
+      :error -> :invalid_scope
     end
   end
 

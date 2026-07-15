@@ -120,6 +120,27 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
              Enum.find(summaries, &(&1.id == job.id))
   end
 
+  test "does not trust a workspace event for an organization-scoped job" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    assert {:ok, event} =
+             DurableDelivery.record_and_enqueue(bootstrap.session, operation, %{
+               event_key: "test:workspace-event-organization-job",
+               event_kind: "manual_intake.accepted",
+               subject_kind: "normalized_intake_event",
+               subject_id: Ecto.UUID.generate()
+             })
+
+    :ok = DurableDelivery.mark_failed(event.id, "workspace_event_failure")
+    job = insert_terminal_job(bootstrap, event.id, "organization_job_failure", nil)
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+
+    assert %{failure_code: "organization_job_failure"} =
+             Enum.find(summaries, &(&1.id == job.id))
+  end
+
   test "ignores malformed event ids when assembling terminal summaries" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
