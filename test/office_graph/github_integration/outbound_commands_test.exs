@@ -65,6 +65,39 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.provider_response_version == "reply-v1"
   end
 
+  test "review replies reject non-published targets before enqueue", context do
+    Enum.reduce(Enum.with_index(~w(pending minimized deleted), 2), context.comment, fn
+      {state, sequence}, comment ->
+        updated =
+          comment
+          |> Ash.Changeset.for_update(:reconcile, %{
+            state: state,
+            provider_version: "v#{sequence}",
+            provider_sequence: sequence,
+            operation_id: comment.operation_id
+          })
+          |> Repo.ash_update!()
+
+        attrs = %{
+          installation_id: context.installation.id,
+          review_comment_id: updated.id,
+          body: "Do not reply to a #{state} comment.",
+          expected_provider_version: updated.provider_version
+        }
+
+        operation =
+          command_operation!(context, :github_review_reply, "reply:#{state}", attrs)
+
+        assert {:error, :forbidden} =
+                 OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+        updated
+    end)
+
+    assert count_jobs_for_worker() == 0
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+  end
+
   test "check updates are version-guarded and use only the check adapter action", context do
     attrs = %{
       installation_id: context.installation.id,

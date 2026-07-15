@@ -184,6 +184,13 @@ the first GitHub integration.
   response identity and classified outcome, and the adapter request MUST carry
   the selected external installation identity
 
+#### Scenario: Reply target is no longer published
+
+- **WHEN** an actor requests a reply to a pending, minimized, or deleted review
+  comment
+- **THEN** Office Graph MUST reject the command before action enqueue,
+  credential resolution, or provider access
+
 #### Scenario: Review-reply success is ambiguous
 
 - **WHEN** GitHub may have created a reply before Office Graph persisted the

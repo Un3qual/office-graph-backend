@@ -156,10 +156,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp review_target(session_context, normalized) do
     with {:ok, record} <-
            scoped_target(ReviewComment, normalized.review_comment_id, session_context),
+         :ok <- require_replyable_review_comment(record),
          {:ok, extension} <- review_comment_extension(record.id) do
       {:ok, %{record: record, node_id: extension.node_id}}
     end
   end
+
+  defp require_replyable_review_comment(%ReviewComment{state: "published"}), do: :ok
+  defp require_replyable_review_comment(_record), do: {:error, :forbidden}
 
   defp check_target(session_context, normalized) do
     with {:ok, record} <- scoped_target(CheckRun, normalized.check_run_id, session_context),
