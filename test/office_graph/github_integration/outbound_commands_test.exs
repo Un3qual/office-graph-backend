@@ -249,7 +249,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   test "command provenance lookup outages do not masquerade as missing provenance", context do
     attrs = reply_attrs(context, "Retry provenance validation after storage recovers.")
-    operation = command_operation!(context, :github_review_reply, "reply:provenance-outage", attrs)
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:provenance-outage", attrs)
 
     RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
 
