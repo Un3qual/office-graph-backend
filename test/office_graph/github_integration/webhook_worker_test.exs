@@ -9,6 +9,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    Installation,
+    InstallationCredential,
+    RecordLoaderTestAdapter,
     SecretStore.TestAdapter,
     SyncOutcome,
     WebhookReceipt,
@@ -120,6 +123,62 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert outcome.object_type == "pull_request"
     assert outcome.object_id == "PR_worker_review"
+  end
+
+  test "transient installation lookup failures retry without terminal metadata" do
+    context = worker_context("installation-lookup-unavailable")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_lookup_unavailable", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-lookup-unavailable",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    job = webhook_job("delivery-worker-lookup-unavailable")
+
+    configure_record_loader(%{Installation => {:error, :database_unavailable}})
+
+    assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
+
+    refute Map.has_key?(
+             Repo.get!(Oban.Job, job.id).meta,
+             "terminal_failure_code"
+           )
+  end
+
+  test "transient credential binding lookup failures remain retryable" do
+    context = worker_context("credential-lookup-unavailable")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-credential-lookup-unavailable",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    Provider.put(%{{"pull_request", "PR_worker"} => {:ok, snapshot()}})
+    job = webhook_job("delivery-worker-credential-lookup-unavailable")
+
+    configure_record_loader(%{InstallationCredential => {:error, :database_unavailable}})
+
+    assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
+
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
   end
 
   test "rate-limited reconciliation snoozes until the bounded provider reset" do
@@ -398,6 +457,20 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
           job.worker == ^worker_name and
             fragment("?->>'delivery_id'", job.args) == ^delivery_id
     )
+  end
+
+  defp configure_record_loader(responses) do
+    configured = Application.get_env(:office_graph, :github_record_loader)
+    RecordLoaderTestAdapter.put(responses)
+    Application.put_env(:office_graph, :github_record_loader, RecordLoaderTestAdapter)
+
+    on_exit(fn ->
+      if configured,
+        do: Application.put_env(:office_graph, :github_record_loader, configured),
+        else: Application.delete_env(:office_graph, :github_record_loader)
+
+      RecordLoaderTestAdapter.put(%{})
+    end)
   end
 
   defp snapshot do

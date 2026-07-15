@@ -237,6 +237,14 @@ the first GitHub integration.
 Office Graph SHALL classify provider failures as retryable, terminal,
 authorization, configuration, rate-limit, or stale-version outcomes.
 
+#### Scenario: Integration record lookup is temporarily unavailable
+
+- **WHEN** a valid webhook or outbound job cannot read its installation,
+  outbound action, target, or credential record because storage is temporarily
+  unavailable
+- **THEN** the job MUST retry within its fixed attempt budget without
+  misclassifying the record as revoked, invalid, cross-scope, or terminal
+
 #### Scenario: GitHub rate limit is returned
 
 - **WHEN** an adapter call returns a valid rate-limit reset

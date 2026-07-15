@@ -14,6 +14,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   alias OfficeGraph.GitHubIntegration.{
     Installation,
     InstallationCredential,
+    RecordLoader,
     Reconciler,
     ReconciliationRequest
   }
@@ -79,7 +80,14 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       |> Reconciler.reconcile(request)
       |> normalize_result(job, operation, request)
     else
-      {:error, code} -> normalize_result({:error, {:terminal, safe_code(code)}}, job)
+      {:error, :integration_storage_unavailable} ->
+        DurableDelivery.normalize_worker_result(
+          {:error, {:retryable, :integration_storage_unavailable}},
+          retry_budget(job)
+        )
+
+      {:error, code} ->
+        normalize_result({:error, {:terminal, safe_code(code)}}, job)
     end
   end
 
@@ -102,7 +110,10 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   defp load_installation(installation_id, organization_id, workspace_id) do
-    case Ash.get(Installation, installation_id, authorize?: false, not_found_error?: false) do
+    case RecordLoader.get(Installation, installation_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok,
        %Installation{
          lifecycle_state: "active",
@@ -111,18 +122,25 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
        } = installation} ->
         {:ok, installation}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :installation_revoked}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
   defp private_key_credential(installation_id) do
-    InstallationCredential
-    |> Ash.Query.filter(installation_id == ^installation_id and purpose == "app_private_key")
-    |> Ash.read_one(authorize?: false)
-    |> case do
+    query =
+      Ash.Query.filter(
+        InstallationCredential,
+        installation_id == ^installation_id and purpose == "app_private_key"
+      )
+
+    case RecordLoader.read_one(InstallationCredential, query, authorize?: false) do
       {:ok, %InstallationCredential{credential_id: credential_id}} -> {:ok, credential_id}
-      _missing -> {:error, :invalid_credential}
+      {:ok, _missing} -> {:error, :invalid_credential}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 

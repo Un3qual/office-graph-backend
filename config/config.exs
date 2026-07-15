@@ -39,6 +39,10 @@ config :office_graph,
        :github_adapter,
        OfficeGraph.GitHubIntegration.Adapter.Unavailable
 
+config :office_graph,
+       :github_record_loader,
+       OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

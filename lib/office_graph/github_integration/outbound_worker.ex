@@ -15,6 +15,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     Installation,
     InstallationCredential,
     OutboundAction,
+    RecordLoader,
     SecretStore
   }
 
@@ -36,7 +37,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     with {:ok, action} <- action(action_id, organization_id, workspace_id) do
       perform_action(action, job)
     else
-      {:error, code} -> finish_terminal_job(job, code, {:cancel, safe_code(code)})
+      {:error, :integration_storage_unavailable} ->
+        DurableDelivery.normalize_worker_result(
+          {:error, {:retryable, :integration_storage_unavailable}},
+          retry_budget(job)
+        )
+
+      {:error, code} ->
+        finish_terminal_job(job, code, {:cancel, safe_code(code)})
     end
   end
 
@@ -73,18 +81,24 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp action(action_id, organization_id, workspace_id) do
-    case Ash.get(OutboundAction, action_id, authorize?: false, not_found_error?: false) do
+    case RecordLoader.get(OutboundAction, action_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok,
        %OutboundAction{organization_id: ^organization_id, workspace_id: ^workspace_id} = action} ->
         {:ok, action}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :invalid_github_outbound_job}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
   defp active_installation(action) do
-    case Ash.get(Installation, action.installation_id,
+    case RecordLoader.get(Installation, action.installation_id,
            authorize?: false,
            not_found_error?: false
          ) do
@@ -97,18 +111,25 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       when organization_id == action.organization_id and workspace_id == action.workspace_id ->
         {:ok, installation}
 
-      _missing_or_revoked ->
+      {:ok, _missing_or_revoked} ->
         {:error, :installation_revoked}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
   defp credential_binding(installation_id) do
-    InstallationCredential
-    |> Ash.Query.filter(installation_id == ^installation_id and purpose == "app_private_key")
-    |> Ash.read_one(authorize?: false)
-    |> case do
+    query =
+      Ash.Query.filter(
+        InstallationCredential,
+        installation_id == ^installation_id and purpose == "app_private_key"
+      )
+
+    case RecordLoader.read_one(InstallationCredential, query, authorize?: false) do
       {:ok, %InstallationCredential{credential_id: credential_id}} -> {:ok, credential_id}
-      _missing -> {:error, :invalid_credential}
+      {:ok, _missing} -> {:error, :invalid_credential}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -121,7 +142,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp require_current_target_version(_action), do: {:error, :invalid_provider_response}
 
   defp require_current_target_version(resource, action) do
-    case Ash.get(resource, action.target_id, authorize?: false, not_found_error?: false) do
+    case RecordLoader.get(resource, action.target_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok,
        %{
          organization_id: organization_id,
@@ -133,8 +157,11 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
           do: :ok,
           else: {:error, :stale_provider_version}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :invalid_provider_response}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -234,6 +261,16 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       )
 
     {:retryable, :provider_unavailable, result}
+  end
+
+  defp classify(:integration_storage_unavailable, job) do
+    result =
+      DurableDelivery.normalize_worker_result(
+        {:error, {:retryable, :integration_storage_unavailable}},
+        retry_budget(job)
+      )
+
+    {:retryable, :integration_storage_unavailable, result}
   end
 
   defp classify(:adapter_unavailable, _job),

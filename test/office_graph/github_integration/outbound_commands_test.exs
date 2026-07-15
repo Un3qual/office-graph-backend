@@ -14,9 +14,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    Installation,
+    InstallationCredential,
     OutboundAction,
     OutboundCommands,
     OutboundWorker,
+    RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest,
     SecretStore.TestAdapter
@@ -166,6 +169,51 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     action = Ash.get!(OutboundAction, action.id, authorize?: false)
     assert action.state == "terminal"
     assert action.failure_code == "stale_provider_version"
+  end
+
+  test "transient outbound action lookup failures retry without terminalizing", context do
+    attrs = reply_attrs(context, "Retry after the action record can be read.")
+    operation = command_operation!(context, :github_review_reply, "reply:lookup-retry", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    configure_record_loader(%{OutboundAction => {:error, :database_unavailable}})
+
+    assert {:error, "integration_storage_unavailable"} = OutboundWorker.perform(job)
+
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+  end
+
+  test "transient loaded-action dependency lookups remain retryable", context do
+    configure_record_loader(%{})
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} => {:ok, %{id: "reply-after-lookup", version: "v1"}}
+    })
+
+    for {resource, label} <- [
+          {Installation, "installation"},
+          {InstallationCredential, "credential"},
+          {ReviewComment, "target"}
+        ] do
+      attrs = reply_attrs(context, "Retry after the #{label} record can be read.")
+
+      operation =
+        command_operation!(context, :github_review_reply, "reply:#{label}-lookup", attrs)
+
+      assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+      RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})
+
+      assert {:error, "integration_storage_unavailable"} =
+               OutboundWorker.perform(job_for(action.id))
+
+      action = Ash.get!(OutboundAction, action.id, authorize?: false)
+      assert action.state == "retryable"
+      assert action.failure_class == "retryable"
+      assert action.failure_code == "integration_storage_unavailable"
+    end
   end
 
   test "queued and in-progress check updates do not require a conclusion", context do
@@ -649,6 +697,20 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
           job.worker == ^inspect(OutboundWorker) and
             fragment("?->>'action_id'", job.args) == ^action_id
     )
+  end
+
+  defp configure_record_loader(responses) do
+    configured = Application.get_env(:office_graph, :github_record_loader)
+    RecordLoaderTestAdapter.put(responses)
+    Application.put_env(:office_graph, :github_record_loader, RecordLoaderTestAdapter)
+
+    on_exit(fn ->
+      if configured,
+        do: Application.put_env(:office_graph, :github_record_loader, configured),
+        else: Application.delete_env(:office_graph, :github_record_loader)
+
+      RecordLoaderTestAdapter.put(%{})
+    end)
   end
 
   defp snapshot do
