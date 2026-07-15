@@ -52,6 +52,29 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert scoped_archive.id == archive.id
   end
 
+  test "replayed deliveries do not recreate webhook jobs after pruning" do
+    context = installation_context("pruned-job-replay")
+    delivery_id = "delivery-#{Ecto.UUID.generate()}"
+    body = payload(context.external_installation_id)
+    headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    WebhookWorker
+    |> inspect()
+    |> then(fn worker ->
+      from(job in Oban.Job,
+        where: job.worker == ^worker and fragment("?->>'delivery_id'", job.args) == ^delivery_id
+      )
+    end)
+    |> Repo.one!()
+    |> Repo.delete!()
+
+    assert count_webhook_jobs(delivery_id) == 0
+    assert {:ok, :duplicate} = WebhookReceipt.accept(headers, body)
+    assert count_webhook_jobs(delivery_id) == 0
+  end
+
   test "invalid signatures, unknown installations, and unsupported events have no receipt effects" do
     context = installation_context("rejected")
 

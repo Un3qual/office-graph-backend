@@ -105,6 +105,13 @@ extension records.
 - **THEN** Office Graph MUST reject the write before changing provider-neutral
   truth or creating graph state
 
+#### Scenario: Sparse provider reference omits its URL
+
+- **WHEN** a later provider snapshot omits the optional URL for an existing
+  external reference
+- **THEN** Office Graph MUST preserve the last known URL until a non-empty
+  replacement is available
+
 #### Scenario: Review signal becomes product work
 
 - **WHEN** a reconciled review comment or failing check matches the proving
@@ -206,6 +213,20 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   secret reference
 - **THEN** the action MUST fail terminally as an invalid credential before
   provider access and health MUST expose credential-rotation remediation
+
+#### Scenario: GitHub denies an outbound action
+
+- **WHEN** GitHub rejects an outbound action because the installation no longer
+  has permission
+- **THEN** Office Graph MUST retain an authorization failure classification and
+  MUST stop retrying the action
+
+#### Scenario: Webhook reconciliation terminates
+
+- **WHEN** an inbound reconciliation job reaches a classified non-retryable
+  failure
+- **THEN** its durable job history MUST retain the same safe failure code even
+  when the receipt event does not carry that terminal state
 
 #### Scenario: Outbound action terminates
 

@@ -157,6 +157,33 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert outcome.retry_at == reset_at
   end
 
+  test "terminal reconciliation failures persist their durable job reason" do
+    context = worker_context("terminal-history")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_terminal_history", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-terminal-history",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{{"pull_request", "PR_worker_terminal_history"} => {:ok, %{}}})
+    job = webhook_job("delivery-worker-terminal-history")
+
+    assert {:cancel, "invalid_provider_response"} = WebhookWorker.perform(job)
+
+    assert %{"terminal_failure_code" => "invalid_provider_response"} =
+             Repo.get!(Oban.Job, job.id).meta
+  end
+
   test "rate-limit snoozes cannot extend the fixed inbound attempt budget" do
     context = worker_context("rate-limit-exhausted")
 

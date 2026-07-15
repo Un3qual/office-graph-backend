@@ -246,7 +246,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     do: {:terminal, :invalid_credential, {:cancel, "invalid_credential"}}
 
   defp classify(:permission_denied, _job),
-    do: {:terminal, :permission_denied, {:cancel, "permission_denied"}}
+    do: {:authorization, :permission_denied, {:cancel, "permission_denied"}}
 
   defp classify(:stale_provider_version, _job),
     do: {:terminal, :stale_provider_version, {:cancel, "stale_provider_version"}}

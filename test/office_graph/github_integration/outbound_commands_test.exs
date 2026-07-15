@@ -281,6 +281,24 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Enum.map(health.recent_failures, & &1.code) == ["provider_rate_limited"]
   end
 
+  test "provider permission denials retain authorization classification", context do
+    attrs = reply_attrs(context, "Classify the provider permission denial.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:permission-denied", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :permission_denied}})
+
+    assert {:cancel, "permission_denied"} = OutboundWorker.perform(job_for(action.id))
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_class == "authorization"
+    assert action.failure_code == "permission_denied"
+  end
+
   test "rate-limit snoozes cannot extend the fixed outbound attempt budget", context do
     attrs = reply_attrs(context, "The provider remains rate limited.")
 

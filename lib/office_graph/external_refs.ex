@@ -89,7 +89,7 @@ defmodule OfficeGraph.ExternalRefs do
       reference =
         existing
         |> Ash.Changeset.for_update(:reconcile, %{
-          url: Map.get(attrs, :url, existing.url),
+          url: Map.get(attrs, :url) || existing.url,
           sync_state: "synced",
           operation_id: operation.id
         })

@@ -86,20 +86,16 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
                       "installation_id" => installation.external_installation_id
                     }
                   }),
-                {:ok, event} <-
-                  DurableDelivery.record_system_and_enqueue(operation, %{
-                    event_key: "github-delivery:#{delivery_id}",
-                    event_kind: "provider_delivery.received"
-                  }),
-                {:ok, _job} <-
-                  enqueue_webhook(
+                {:ok, receipt_state} <-
+                  record_delivery_effects(
+                    archive_state,
                     installation,
+                    operation,
                     delivery_id,
                     event_name,
-                    archive.id,
-                    event.id
+                    archive.id
                   ) do
-             archive_state
+             receipt_state
            else
              {:error, reason} -> Repo.rollback(reason)
            end
@@ -109,6 +105,35 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
       {:error, reason} -> {:error, normalize_receipt_error(reason)}
     end
   end
+
+  defp record_delivery_effects(
+         :created,
+         installation,
+         operation,
+         delivery_id,
+         event_name,
+         archive_id
+       ) do
+    with {:ok, event} <-
+           DurableDelivery.record_system_and_enqueue(operation, %{
+             event_key: "github-delivery:#{delivery_id}",
+             event_kind: "provider_delivery.received"
+           }),
+         {:ok, _job} <-
+           enqueue_webhook(installation, delivery_id, event_name, archive_id, event.id) do
+      {:ok, :created}
+    end
+  end
+
+  defp record_delivery_effects(
+         :replayed,
+         _installation,
+         _operation,
+         _delivery_id,
+         _event_name,
+         _archive_id
+       ),
+       do: {:ok, :replayed}
 
   defp enqueue_webhook(installation, delivery_id, event_name, archive_id, event_id) do
     %{

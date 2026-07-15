@@ -184,8 +184,11 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   defp normalize_result({:error, {class, code}}, job)
-       when class in [:authorization, :configuration] do
-    DurableDelivery.normalize_worker_result({:error, {:terminal, code}}, job)
+       when class in [:terminal, :authorization, :configuration] do
+    case DurableDelivery.normalize_worker_result({:error, {:terminal, code}}, job) do
+      {:cancel, failure_code} = result -> finish_terminal_job(job, failure_code, result)
+      other -> other
+    end
   end
 
   defp normalize_result(result, job),
@@ -234,15 +237,25 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   defp stage_terminal_failure(job, operation, request, failure_code) do
-    meta =
-      Map.merge(job.meta || %{}, %{
-        "terminal_failure_code" => Atom.to_string(failure_code),
-        "terminal_operation_id" => operation.id,
-        "terminal_installation_id" => request.installation_id,
-        "terminal_object_type" => request.object_type,
-        "terminal_object_id" => request.object_id,
-        "terminal_delivery_id" => request.delivery_id
-      })
+    stage_terminal_metadata(job, %{
+      "terminal_failure_code" => Atom.to_string(failure_code),
+      "terminal_operation_id" => operation.id,
+      "terminal_installation_id" => request.installation_id,
+      "terminal_object_type" => request.object_type,
+      "terminal_object_id" => request.object_id,
+      "terminal_delivery_id" => request.delivery_id
+    })
+  end
+
+  defp finish_terminal_job(job, failure_code, result) do
+    case stage_terminal_metadata(job, %{"terminal_failure_code" => failure_code}) do
+      :ok -> result
+      {:error, _error} -> retry_terminal_failure()
+    end
+  end
+
+  defp stage_terminal_metadata(job, metadata) do
+    meta = Map.merge(job.meta || %{}, metadata)
 
     case Oban.update_job(job, %{meta: meta}) do
       {:ok, _updated_job} -> :ok

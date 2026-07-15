@@ -253,6 +253,51 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Ash.get!(ExternalReference, reference.id, authorize?: false).provider == "github"
   end
 
+  test "sparse reference updates preserve a known provider URL" do
+    context = reconciliation_context("sparse-reference-url")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_sparse_reference_url",
+        "delivery-sparse-reference-url"
+      )
+
+    operation = reconciliation_operation!(context, request, "initial")
+
+    Provider.put(%{
+      {"pull_request", "PR_sparse_reference_url"} =>
+        {:ok,
+         snapshot(
+           1,
+           "open",
+           "PR_sparse_reference_url",
+           "R_sparse_reference_url"
+         )}
+    })
+
+    assert {:ok, outcome} = Reconciler.reconcile(operation, request)
+    {:ok, github_source} = Integrations.ensure_provider_source("github", "GitHub")
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "pull_request:PR_sparse_reference_url")
+      |> Ash.read_one!(authorize?: false)
+
+    assert {:ok, updated} =
+             ExternalRefs.upsert_provider_reference(operation, github_source, %{
+               provider: reference.provider,
+               object_type: reference.object_type,
+               external_id: reference.external_id,
+               url: nil,
+               resource_type: reference.resource_type,
+               resource_id: outcome.resource_id
+             })
+
+    assert updated.url == "https://github.com/Un3qual/office-graph-backend/pull/24"
+  end
+
   test "check snapshots enforce status and conclusion invariants before writes" do
     invalid_checks = [
       {"completed-without-conclusion",
