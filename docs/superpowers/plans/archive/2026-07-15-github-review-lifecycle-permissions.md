@@ -162,11 +162,16 @@ end
 
 defp review_comment_actionable?(item, thread_states) do
   item.record.state == "published" and
-    Map.get(thread_states, item.snapshot.review_thread_node_id, "open") == "open"
+    case item.snapshot.review_thread_node_id do
+      nil -> true
+      thread_node_id -> Map.get(thread_states, thread_node_id) == "open"
+    end
 end
 ```
 
-This keeps threadless published comments actionable, closes resolved or outdated threaded comments, and does not add query fanout.
+This keeps threadless published comments actionable, treats a missing referenced
+thread as non-actionable, closes resolved or outdated threaded comments, and
+does not add query fanout.
 
 - [x] **Step 4: Update the OpenSpec lifecycle scenario**
 

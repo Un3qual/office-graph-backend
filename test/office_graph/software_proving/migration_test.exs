@@ -87,6 +87,22 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     end
   end
 
+  test "external source identity indexes migrate concurrently and remain irreversible" do
+    migration = OfficeGraph.Repo.Migrations.ScopeExternalSourceIdentities
+
+    unless Code.ensure_loaded?(migration) do
+      Code.require_file(
+        "priv/repo/migrations/20260714111000_scope_external_source_identities.exs"
+      )
+    end
+
+    assert apply(migration, :__migration__, [])[:disable_ddl_transaction]
+
+    assert_raise Ecto.MigrationError, ~r/irreversible.*source kinds/i, fn ->
+      apply(migration, :down, [])
+    end
+  end
+
   defp table_exists?(table) do
     %{rows: [[exists?]]} =
       Repo.query!(

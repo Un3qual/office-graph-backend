@@ -784,7 +784,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp review_comment_actionable?(item, thread_states) do
     item.record.state == "published" and
-      Map.get(thread_states, item.snapshot.review_thread_node_id, "open") == "open"
+      case item.snapshot.review_thread_node_id do
+        nil -> true
+        thread_node_id -> Map.get(thread_states, thread_node_id) == "open"
+      end
   end
 
   defp failing_check?(%{status: "completed", conclusion: conclusion}),

@@ -262,10 +262,17 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 
 #### Scenario: Installation is revoked
 
-- **WHEN** GitHub reports a revoked installation or invalid credential
-- **THEN** a reported installation revocation MUST atomically persist the
-  installation's revoked lifecycle with its terminal outcome, new provider work
-  MUST fail closed, and historical provenance MUST remain
+- **WHEN** GitHub reports that an installation is revoked
+- **THEN** Office Graph MUST atomically persist the installation's revoked
+  lifecycle with its terminal outcome, new provider work MUST fail closed, and
+  historical provenance MUST remain
+
+#### Scenario: Installation credential is invalid
+
+- **WHEN** a bound installation credential is invalid but GitHub has not
+  reported the installation as revoked
+- **THEN** Office Graph MUST retain the installation lifecycle, record the
+  terminal invalid-credential outcome, and direct operators to rotate credentials
 
 #### Scenario: Stored outbound secret is missing
 

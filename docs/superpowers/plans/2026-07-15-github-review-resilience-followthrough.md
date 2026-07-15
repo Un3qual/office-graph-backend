@@ -45,13 +45,13 @@ Resolve the fresh PR #25 bot findings at their shared boundaries: preserve retry
 
 ## Task 5: Reconcile documentation, migration safety, and false-positive evidence
 
-- [ ] Make missing review-thread state explicitly non-actionable in runtime and the archived implementation-plan snippet; retain the existing missing-thread regression.
-- [ ] Split installation revocation from invalid credential handling in canonical and archived GitHub integration specs.
-- [ ] Make the external-source identity index migration non-transactional and concurrent, using the original indexed columns when dropping the old index; retain irreversible rollback semantics.
-- [ ] Add migration metadata coverage for disabled DDL transactions.
-- [ ] Add a targeted nested-transaction rollback regression proving enqueue failure aborts the enclosing transaction with no partial event or job; do not change the correct `Repo.rollback/1` implementation.
-- [ ] Run focused product-mapping, migration, and durable-event tests plus strict OpenSpec validation.
-- [ ] Commit the hardening/documentation batch.
+- [x] Make missing review-thread state explicitly non-actionable in runtime and the archived implementation-plan snippet; retain the existing missing-thread regression.
+- [x] Split installation revocation from invalid credential handling in canonical and archived GitHub integration specs.
+- [x] Make the external-source identity index migration non-transactional and concurrent, using the original indexed columns when dropping the old index; retain irreversible rollback semantics.
+- [x] Add migration metadata coverage for disabled DDL transactions.
+- [x] Add a targeted nested-transaction rollback regression proving durable-delivery failure aborts the enclosing transaction with no partial event or job; do not change the correct `Repo.rollback/1` implementation.
+- [x] Run focused product-mapping, migration, and durable-event tests plus strict OpenSpec validation.
+- [x] Commit the hardening/documentation batch.
 
 ## Task 6: Verify, publish, and respond
 

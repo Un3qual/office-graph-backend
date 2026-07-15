@@ -120,6 +120,34 @@ defmodule OfficeGraph.DurableDelivery.EventTest do
     assert Repo.aggregate(Oban.Job, :count) == 0
   end
 
+  test "a nested durable-delivery failure aborts the enclosing transaction" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
+
+    attrs = %{
+      event_key: "test:nested-delivery-failure",
+      event_kind: "manual_intake.accepted",
+      subject_kind: "normalized_intake_event",
+      subject_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, event} = DurableDelivery.record_and_enqueue(bootstrap.session, operation, attrs)
+
+    assert {:error, :event_identity_conflict} =
+             Repo.transaction(fn ->
+               DurableDelivery.record_and_enqueue(
+                 bootstrap.session,
+                 operation,
+                 %{attrs | subject_id: Ecto.UUID.generate()}
+               )
+
+               flunk("the nested rollback must abort before the transaction can continue")
+             end)
+
+    assert Repo.aggregate(DomainEvent, :count) == 1
+    assert length(jobs_for_event(event.id)) == 1
+  end
+
   defp jobs_for_event(event_id) do
     event_id |> jobs_query() |> Repo.all()
   end
