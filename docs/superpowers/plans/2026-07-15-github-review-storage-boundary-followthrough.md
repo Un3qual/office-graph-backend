@@ -70,27 +70,27 @@
 - Consumes: `Errors.classify/1`, GraphQL `extensions.code`, and JSON command error rendering.
 - Produces: category `:availability`, code `integration_storage_unavailable`, detail `Integration storage is temporarily unavailable.`, empty metadata, and HTTP 503 for JSON.
 
-- [ ] **Step 1: Add a failing transport parity case**
+- [x] **Step 1: Add a failing transport parity case**
 
   Extend the table-driven public error semantics test with `:integration_storage_unavailable`, expected category `:availability`, stable code and detail, empty metadata, and JSON status 503.
 
-- [ ] **Step 2: Run the semantics test and verify RED**
+- [x] **Step 2: Run the semantics test and verify RED**
 
   Run `mix test test/office_graph_web/operator_command_semantics_test.exs` in Nix and confirm the current fallback reports `validation_failed` with HTTP 422.
 
-- [ ] **Step 3: Implement the explicit sanitized classification**
+- [x] **Step 3: Implement the explicit sanitized classification**
 
   Add `:availability` to the classification type, add an exact `classify(:integration_storage_unavailable)` clause before the catch-all, and map `:availability` to `:service_unavailable` in the JSON renderer.
 
-- [ ] **Step 4: Tighten canonical and archived OpenSpec text**
+- [x] **Step 4: Tighten canonical and archived OpenSpec text**
 
   Extend the existing integration-record outage scenario so public JSON commands and health reads return HTTP 503 while GraphQL returns the same safe `integration_storage_unavailable` code, without internal storage details.
 
-- [ ] **Step 5: Run transport tests and strict OpenSpec validation**
+- [x] **Step 5: Run transport tests and strict OpenSpec validation**
 
   Run `mix test test/office_graph_web/operator_command_semantics_test.exs test/office_graph_web/github_actions_api_test.exs` and `openspec validate --all --strict` in Nix and confirm both pass.
 
-- [ ] **Step 6: Commit the public availability contract**
+- [x] **Step 6: Commit the public availability contract**
 
   Stage the classifier, renderer, tests, and synchronized specs, then commit `fix: classify integration storage outages`.
 

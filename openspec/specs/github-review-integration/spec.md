@@ -254,6 +254,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   MUST NOT misclassify the record as revoked, invalid, cross-scope, forbidden,
   or terminal, and durable work MUST retain that classification within its fixed
   attempt budget
+- **AND** public JSON command and health responses MUST use HTTP 503 while JSON
+  and GraphQL expose only the safe `integration_storage_unavailable` code and
+  no internal storage detail
 
 #### Scenario: GitHub rate limit is returned
 
