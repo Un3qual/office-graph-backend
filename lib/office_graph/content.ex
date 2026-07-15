@@ -42,6 +42,22 @@ defmodule OfficeGraph.Content do
   def create_system_plain_document(_operation, _plain_text), do: {:error, :forbidden}
 
   def plain_text_for_document(session_context, document_id) do
+    plain_text_for_scope(session_context, document_id)
+  end
+
+  def system_plain_text_for_document(operation, document_id)
+      when is_map(operation) and is_binary(document_id) do
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+         true <- is_binary(operation.workspace_id) do
+      plain_text_for_scope(operation, document_id)
+    else
+      _invalid -> {:error, :forbidden}
+    end
+  end
+
+  def system_plain_text_for_document(_operation, _document_id), do: {:error, :forbidden}
+
+  defp plain_text_for_scope(scope, document_id) do
     Document
     |> Ash.Query.filter(id == ^document_id)
     |> Ash.read_one(authorize?: false)
@@ -52,8 +68,7 @@ defmodule OfficeGraph.Content do
          workspace_id: workspace_id,
          plain_text: plain_text
        }}
-      when organization_id == session_context.organization_id and
-             workspace_id == session_context.workspace_id ->
+      when organization_id == scope.organization_id and workspace_id == scope.workspace_id ->
         {:ok, plain_text}
 
       {:ok, _missing_or_cross_scope} ->

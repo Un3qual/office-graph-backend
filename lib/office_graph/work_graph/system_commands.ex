@@ -52,7 +52,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
 
     case signal_for_reference(reference_item.id) do
       {:ok, nil} -> create_signal!(operation, reference_item, title, body)
-      {:ok, signal} -> transition_signal!(operation, signal, "open")
+      {:ok, signal} -> sync_existing_signal!(operation, signal, title, body)
       {:error, error} -> Repo.rollback(error)
     end
   end
@@ -223,6 +223,68 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     %{signal: signal, relationship: relationship, created?: true}
   end
 
+  defp sync_existing_signal!(operation, signal, title, body) do
+    signal = Signal |> Support.ash_get_for_update(signal.id) |> Support.unwrap_ash()
+
+    graph_item =
+      GraphItem
+      |> Support.ash_get_for_update(signal.graph_item_id)
+      |> Support.unwrap_ash()
+
+    current_body =
+      operation
+      |> Content.system_plain_text_for_document(signal.body_document_id)
+      |> Support.unwrap_content()
+
+    state_changed? = signal.state != "open"
+    signal_title_changed? = signal.title != title
+    graph_title_changed? = graph_item.title != title
+    body_changed? = current_body != body
+    content_changed? = signal_title_changed? or graph_title_changed? or body_changed?
+
+    attrs =
+      %{}
+      |> maybe_put(:state, "open", state_changed?)
+      |> maybe_put(:title, title, signal_title_changed?)
+
+    attrs =
+      if body_changed? do
+        document =
+          operation
+          |> Content.create_system_plain_document(body)
+          |> Support.unwrap_content()
+
+        Map.put(attrs, :body_document_id, document.id)
+      else
+        attrs
+      end
+
+    updated_signal =
+      if attrs == %{} do
+        signal
+      else
+        signal
+        |> Support.ash_update_internal(:sync_integration, attrs)
+        |> Support.unwrap_ash()
+      end
+
+    if graph_title_changed? do
+      graph_item
+      |> Support.ash_update_internal(:set_title, %{title: title})
+      |> Support.unwrap_ash()
+    end
+
+    if content_changed?, do: Support.trace!(operation, "signal.refresh", "signal", signal.id)
+    if state_changed?, do: Support.trace!(operation, "signal.open", "signal", signal.id)
+
+    %{
+      signal: updated_signal,
+      created?: false,
+      state_changed?: state_changed?,
+      content_changed?: content_changed?
+    }
+  end
+
   defp transition_signal!(_operation, %{state: state} = signal, state),
     do: %{signal: signal, created?: false, state_changed?: false}
 
@@ -250,6 +312,9 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
   end
 
   defp signal_content(_attrs, false), do: {:ok, {nil, nil}}
+
+  defp maybe_put(attrs, _key, _value, false), do: attrs
+  defp maybe_put(attrs, key, value, true), do: Map.put(attrs, key, value)
 
   defp transact(fun), do: Repo.transaction(fun)
 end

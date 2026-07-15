@@ -43,6 +43,11 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
     create :create do
       accept [:id, :organization_id, :workspace_id, :resource_type, :resource_id, :title]
     end
+
+    update :set_title do
+      accept [:title]
+      require_atomic? false
+    end
   end
 
   identities do

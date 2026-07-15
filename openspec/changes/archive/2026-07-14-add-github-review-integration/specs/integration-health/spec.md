@@ -12,6 +12,19 @@ tokens, or internal exception text.
 - **THEN** Office Graph MUST return installation lifecycle, permission posture,
   last successful sync, bounded retry/terminal counts, and safe remediation codes
 
+#### Scenario: Retryable reconciliation later succeeds
+
+- **WHEN** a retryable reconciliation outcome is updated to successful
+- **THEN** health MUST report the successful transition time rather than the
+  original failed-attempt insertion time
+
+#### Scenario: Successful outcomes outnumber the health limit
+
+- **WHEN** newer successful outcomes exceed the requested display limit while an
+  older classified failure remains
+- **THEN** health MUST filter classified failures before applying the bounded
+  display limit so the failure and its safe remediation remain visible
+
 #### Scenario: Other tenant health is requested
 
 - **WHEN** an actor requests an installation outside authorized organization or

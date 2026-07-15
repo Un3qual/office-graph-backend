@@ -2,6 +2,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   @moduledoc false
 
   @max_attempts 10
+  @terminal_retry_delay_seconds 5
 
   use Oban.Worker,
     queue: :integrations,
@@ -16,6 +17,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     OutboundAction,
     SecretStore
   }
+
+  alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
 
   require Ash.Query
 
@@ -33,7 +36,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     with {:ok, action} <- action(action_id, organization_id, workspace_id) do
       perform_action(action, job)
     else
-      {:error, code} -> {:cancel, safe_code(code)}
+      {:error, code} -> finish_terminal_job(job, code, {:cancel, safe_code(code)})
     end
   end
 
@@ -41,8 +44,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   defp perform_action(%OutboundAction{state: "succeeded"}, _job), do: :ok
 
-  defp perform_action(%OutboundAction{state: "terminal", failure_code: code}, _job),
-    do: {:cancel, code || "terminal_failure"}
+  defp perform_action(%OutboundAction{state: "terminal", failure_code: code}, job),
+    do:
+      finish_terminal_job(job, code || "terminal_failure", {:cancel, code || "terminal_failure"})
 
   defp perform_action(action, job) do
     with {:ok, installation} <- active_installation(action),
@@ -51,7 +55,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
            SecretStore.resolve(credential_id, %{
              organization_id: action.organization_id,
              workspace_id: action.workspace_id
-           }) do
+           }),
+         :ok <- require_current_target_version(action) do
       action
       |> call_adapter(installation, credential)
       |> record_adapter_result(action, job)
@@ -107,11 +112,40 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
+  defp require_current_target_version(%OutboundAction{target_type: "review_comment"} = action),
+    do: require_current_target_version(ReviewComment, action)
+
+  defp require_current_target_version(%OutboundAction{target_type: "check_run"} = action),
+    do: require_current_target_version(CheckRun, action)
+
+  defp require_current_target_version(_action), do: {:error, :invalid_provider_response}
+
+  defp require_current_target_version(resource, action) do
+    case Ash.get(resource, action.target_id, authorize?: false, not_found_error?: false) do
+      {:ok,
+       %{
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         provider_version: provider_version
+       }}
+      when organization_id == action.organization_id and workspace_id == action.workspace_id ->
+        if provider_version == action.expected_provider_version,
+          do: :ok,
+          else: {:error, :stale_provider_version}
+
+      _missing_or_cross_scope ->
+        {:error, :invalid_provider_response}
+    end
+  end
+
   defp call_adapter(action, installation, credential) do
     adapter = Application.fetch_env!(:office_graph, :github_adapter)
 
     with {:ok, request} <- normalize_input(action.input) do
-      request = Map.put(request, :external_installation_id, installation.external_installation_id)
+      request =
+        request
+        |> Map.put(:expected_provider_version, action.expected_provider_version)
+        |> Map.put(:external_installation_id, installation.external_installation_id)
 
       case action.action_kind do
         "review_reply" -> adapter.reply_to_review(request, credential)
@@ -121,7 +155,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
-  defp record_adapter_result({:ok, response}, action, _job) do
+  defp record_adapter_result({:ok, response}, action, job) do
     with {:ok, response_id} <- response_value(response, :id),
          {:ok, response_version} <- optional_response_value(response, :version) do
       updated =
@@ -138,7 +172,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       trace!(updated, "succeeded")
       :ok
     else
-      _invalid -> record_adapter_result({:error, :invalid_provider_response}, action, nil)
+      _invalid -> record_adapter_result({:error, :invalid_provider_response}, action, job)
     end
   end
 
@@ -159,8 +193,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
         completed_at: if(persisted_state == :terminal, do: DateTime.utc_now())
       })
 
-    if persisted_state == :terminal, do: trace!(updated, "terminal")
-    result
+    if persisted_state == :terminal do
+      trace!(updated, "terminal")
+      finish_terminal_job(job, failure_code, result)
+    else
+      result
+    end
   end
 
   defp classify({:rate_limited, %DateTime{} = reset_at}, %Oban.Job{} = job) do
@@ -200,10 +238,39 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp classify(:permission_denied, _job),
     do: {:terminal, :permission_denied, {:cancel, "permission_denied"}}
 
+  defp classify(:stale_provider_version, _job),
+    do: {:terminal, :stale_provider_version, {:cancel, "stale_provider_version"}}
+
   defp classify(_reason, _job),
     do: {:terminal, :invalid_provider_response, {:cancel, "invalid_provider_response"}}
 
   defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
+
+  defp finish_terminal_job(%Oban.Job{} = job, failure_code, result) do
+    case stage_terminal_failure(job, failure_code) do
+      :ok -> result
+      {:error, _error} -> {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp stage_terminal_failure(job, failure_code) do
+    meta = Map.put(job.meta || %{}, "terminal_failure_code", safe_code(failure_code))
+
+    case Oban.update_job(job, %{meta: meta}) do
+      {:ok, _updated_job} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  rescue
+    error in [
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error
+    ] ->
+      {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
 
   defp update_action!(action, attrs) do
     action
@@ -254,4 +321,5 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp normalize_input(_input), do: {:error, :invalid_provider_response}
 
   defp safe_code(code) when is_atom(code), do: Atom.to_string(code)
+  defp safe_code(code) when is_binary(code), do: code
 end

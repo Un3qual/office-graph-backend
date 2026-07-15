@@ -191,10 +191,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         optional_datetime?(snapshot.provider_updated_at) and
         valid_repository?(snapshot.repository) and
         valid_pull_request?(snapshot.pull_request) and
-        matching_root_object?(snapshot, request) and
         valid_collection?(snapshot.review_threads, &valid_review_thread?/1) and
         valid_collection?(snapshot.review_comments, &valid_review_comment?/1) and
         valid_collection?(snapshot.check_runs, &valid_check_run?/1) and
+        matching_root_object?(snapshot, request) and
         unique_node_ids?(snapshot.review_threads) and
         unique_node_ids?(snapshot.review_comments) and
         unique_node_ids?(snapshot.check_runs) and

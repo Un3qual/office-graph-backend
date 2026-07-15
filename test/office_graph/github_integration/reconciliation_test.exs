@@ -155,6 +155,42 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 0
   end
 
+  test "malformed requested-object collections are classified before root matching" do
+    cases = [
+      {"review-comment-nil", "review_comment", :review_comments, nil},
+      {"review-comment-map", "review_comment", :review_comments, [%{}]},
+      {"check-run-nil", "check_run", :check_runs, nil},
+      {"check-run-map", "check_run", :check_runs, [%{}]}
+    ]
+
+    for {case_label, object_type, field, malformed_collection} <- cases do
+      label = "malformed-#{case_label}"
+      context = reconciliation_context(label)
+      object_id = "#{object_type}_requested"
+      request = request(context, object_type, object_id, "delivery-#{label}")
+      operation = reconciliation_operation!(context, request, label)
+
+      invalid_snapshot =
+        snapshot(1, "open", "PR_#{label}", "R_#{label}")
+        |> Map.put(field, malformed_collection)
+
+      Provider.put(%{{object_type, object_id} => {:ok, invalid_snapshot}})
+
+      assert {:error, {:terminal, :invalid_provider_response}} =
+               Reconciler.reconcile(operation, request)
+
+      outcome =
+        SyncOutcome
+        |> Ash.Query.filter(operation_id == ^operation.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert outcome.state == "terminal"
+      assert outcome.failure_code == "invalid_provider_response"
+    end
+
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
   test "check snapshots enforce status and conclusion invariants before writes" do
     invalid_checks = [
       {"completed-without-conclusion",

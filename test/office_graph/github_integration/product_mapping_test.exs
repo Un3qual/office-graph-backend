@@ -1,7 +1,7 @@
 defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo, WorkGraph}
+  alias OfficeGraph.{Content, Foundation, GitHubIntegration, Operations, Repo, WorkGraph}
   alias OfficeGraph.ExternalRefs.ExternalReference
 
   alias OfficeGraph.GitHubIntegration.{
@@ -13,7 +13,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
   alias OfficeGraph.SoftwareProving.ReviewComment
-  alias OfficeGraph.WorkGraph.{GraphRelationship, Signal}
+  alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, Signal}
 
   require Ash.Query
 
@@ -167,6 +167,69 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert pending_outcome.signal_ids == []
     assert Repo.aggregate(Signal, :count) == 1
+  end
+
+  test "actionable provider edits refresh the canonical signal content" do
+    context = context("signal-content-refresh")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-signal-content-refresh"
+      })
+
+    original = %{mapping_snapshot() | check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, original}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "original"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+    original_signal = Ash.get!(Signal, signal_id, authorize?: false)
+
+    assert {:ok, "Please handle the stale provider version."} =
+             Content.plain_text_for_document(
+               context.bootstrap.session,
+               original_signal.body_document_id
+             )
+
+    [original_comment] = original.review_comments
+
+    edited = %{
+      original
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_comments: [
+          %{
+            original_comment
+            | body: "Use the refreshed provider version instead.",
+              author_label: "updated-review-bot"
+          }
+        ]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, edited}})
+
+    assert {:ok, edited_outcome} =
+             Reconciler.reconcile(operation!(context, request, "edited"), request)
+
+    assert edited_outcome.signal_ids == [signal_id]
+
+    refreshed_signal = Ash.get!(Signal, signal_id, authorize?: false)
+    refreshed_item = Ash.get!(GraphItem, refreshed_signal.graph_item_id, authorize?: false)
+
+    assert refreshed_signal.title == "Review comment from updated-review-bot"
+    assert refreshed_item.title == refreshed_signal.title
+    assert refreshed_signal.body_document_id != original_signal.body_document_id
+
+    assert {:ok, "Use the refreshed provider version instead."} =
+             Content.plain_text_for_document(
+               context.bootstrap.session,
+               refreshed_signal.body_document_id
+             )
   end
 
   test "organization-scoped reconciliation skips workspace-only signal creation" do

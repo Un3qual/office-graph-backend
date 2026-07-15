@@ -75,6 +75,16 @@ defmodule OfficeGraph.WorkGraph.Signal do
       validate one_of(:state, ~w(open closed))
       require_atomic? false
     end
+
+    update :sync_integration do
+      accept [:body_document_id, :state, :title]
+      validate one_of(:state, ~w(open closed))
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [body_document_id: OfficeGraph.Content.Document]}
+
+      require_atomic? false
+    end
   end
 
   policies do

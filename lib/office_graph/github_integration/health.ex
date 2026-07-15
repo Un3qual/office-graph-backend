@@ -27,8 +27,8 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          {:ok, installation} <- authorized_installation(session_context, installation_id) do
       permissions = permissions(installation)
       credentials = credentials(installation)
-      outcomes = recent_outcomes(installation.id, limit)
-      actions = recent_actions(installation.id, limit)
+      outcomes = recent_failure_outcomes(installation.id, limit)
+      actions = recent_failure_actions(installation.id, limit)
       last_success = last_success(installation.id)
 
       {:ok,
@@ -93,18 +93,23 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     end)
   end
 
-  defp recent_outcomes(installation_id, limit) do
+  defp recent_failure_outcomes(installation_id, limit) do
     SyncOutcome
-    |> Ash.Query.filter(installation_id == ^installation_id)
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.filter(
+      installation_id == ^installation_id and
+        state in ["retryable", "terminal", "authorization", "configuration"]
+    )
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.read!(authorize?: false)
   end
 
-  defp recent_actions(installation_id, limit) do
+  defp recent_failure_actions(installation_id, limit) do
     OutboundAction
-    |> Ash.Query.filter(installation_id == ^installation_id)
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.filter(
+      installation_id == ^installation_id and state in ["retryable", "terminal"]
+    )
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.read!(authorize?: false)
   end
@@ -112,7 +117,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
   defp last_success(installation_id) do
     SyncOutcome
     |> Ash.Query.filter(installation_id == ^installation_id and state == "reconciled")
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(1)
     |> Ash.read_one!(authorize?: false)
   end
@@ -128,7 +133,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
       permissions: Enum.map(permissions, &%{name: &1.name, access_level: &1.access_level}),
       credential_posture: credential_posture(credentials),
       credentials: credentials,
-      last_success_at: last_success && last_success.inserted_at,
+      last_success_at: last_success && last_success.updated_at,
       retryable_count: Enum.count(failures, &(&1.class == "retryable")),
       terminal_count: Enum.count(failures, &(&1.class == "terminal")),
       remediation_code: remediation_code(installation, credentials, failures),
@@ -145,7 +150,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
           kind: "reconciliation",
           class: outcome.failure_class || outcome.state,
           code: outcome.failure_code || "integration_failure",
-          occurred_at: outcome.inserted_at
+          occurred_at: outcome.updated_at
         }
       end)
 

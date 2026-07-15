@@ -71,6 +71,12 @@ extension records.
 - **THEN** the returned snapshot MUST contain the requested object, while a review
   submission SHALL reconcile through its containing pull request identity
 
+#### Scenario: Requested-object collection is malformed
+- **WHEN** an adapter returns a missing or malformed review-comment or check-run
+  collection for a requested-object delivery
+- **THEN** reconciliation MUST record a classified invalid-provider-response
+  outcome without crashing or writing partial provider-neutral state
+
 #### Scenario: Review signal becomes product work
 - **WHEN** a reconciled review comment or failing check matches the proving
   workflow
@@ -84,6 +90,12 @@ extension records.
   its provenance, MUST NOT create an open signal for first-seen non-actionable
   state, and MUST reopen the same signal identity if the provider item later
   becomes actionable again
+
+#### Scenario: Actionable provider review work changes
+- **WHEN** a newer reconciliation changes the title or body of an actionable
+  review comment or failing check
+- **THEN** Office Graph MUST refresh the existing canonical signal and graph-item
+  content without replacing its identity or losing the prior content provenance
 
 #### Scenario: GitHub returns provider-only check states
 - **WHEN** GitHub returns a check in requested, waiting, or pending state, or a
@@ -107,6 +119,12 @@ the first GitHub integration.
 - **WHEN** an outbound action selects an installation that has not reconciled the
   target pull request
 - **THEN** Office Graph MUST reject the action before credential or provider access
+
+#### Scenario: Outbound target changes after enqueue
+- **WHEN** a reconciled review comment or check run has a different provider
+  version when its queued or retried outbound action is ready to call GitHub
+- **THEN** the worker MUST reject the stale action before provider access and
+  persist a classified stale-provider-version outcome
 
 #### Scenario: Check progress is updated
 - **WHEN** an authorized caller updates a check to queued or in-progress
@@ -138,3 +156,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   secret reference
 - **THEN** the action MUST fail terminally as an invalid credential before
   provider access and health MUST expose credential-rotation remediation
+
+#### Scenario: Outbound action terminates
+- **WHEN** an outbound job reaches a classified terminal action outcome
+- **THEN** its durable job history MUST retain the same safe failure code so
+  operators can diagnose the terminal reason without reading raw job errors

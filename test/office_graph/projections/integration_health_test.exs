@@ -1,7 +1,8 @@
 defmodule OfficeGraph.Projections.IntegrationHealthTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Projections, QueryCounter}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter, Repo}
+  alias OfficeGraph.GitHubIntegration.SyncOutcome
 
   test "health is bounded, safe, and contains no credential references or payloads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -54,5 +55,120 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
 
     assert {:error, :forbidden} =
              Projections.integration_health(bootstrap.session, Ecto.UUID.generate())
+  end
+
+  test "last success uses the successful transition time of a recovered outcome" do
+    context = health_context("success-transition")
+
+    outcome = create_outcome!(context, "recovered", "retryable", "provider_unavailable")
+    Process.sleep(1)
+
+    recovered =
+      outcome
+      |> Ash.Changeset.for_update(:record_result, %{
+        state: "reconciled",
+        failure_class: nil,
+        failure_code: nil
+      })
+      |> Repo.ash_update!()
+
+    assert DateTime.compare(recovered.updated_at, recovered.inserted_at) == :gt
+
+    assert {:ok, health} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id
+             )
+
+    assert health.last_success_at == recovered.updated_at
+  end
+
+  test "failure summaries apply the display limit after filtering successful outcomes" do
+    context = health_context("failure-filtering")
+
+    _failure = create_outcome!(context, "failure", "terminal", "invalid_credential")
+
+    for sequence <- 1..3 do
+      Process.sleep(1)
+      create_outcome!(context, "success-#{sequence}", "reconciled", nil)
+    end
+
+    assert {:ok, health} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id,
+               limit: 2
+             )
+
+    assert health.retryable_count == 0
+    assert health.terminal_count == 1
+    assert Enum.map(health.recent_failures, & &1.code) == ["invalid_credential"]
+    assert health.remediation_code == "rotate_credentials"
+  end
+
+  defp health_context(label) do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    private_key_reference = "test-secret://github/health/#{label}/private-key"
+
+    {:ok, bound} =
+      GitHubIntegration.bind_installation(bootstrap.session, %{
+        idempotency_key: "bind-health-#{label}",
+        external_installation_id: System.unique_integer([:positive]),
+        workspace_id: bootstrap.workspace.id,
+        app_slug: "office-graph",
+        account_login: "Un3qual",
+        account_type: "organization",
+        service_principal_email: "github-service-health-#{label}@office-graph.local",
+        webhook_principal_email: "github-webhook-health-#{label}@office-graph.local",
+        webhook_secret_reference: "test-secret://github/health/#{label}/webhook",
+        app_private_key_reference: private_key_reference,
+        permissions: [
+          %{name: "checks", access_level: "write"},
+          %{name: "pull_requests", access_level: "write"}
+        ]
+      })
+
+    credential = Enum.find(bound.credentials, &(&1.purpose == "app_private_key"))
+
+    %{
+      bootstrap: bootstrap,
+      installation: bound.installation,
+      credential_id: credential.credential_id
+    }
+  end
+
+  defp create_outcome!(context, label, state, failure_code) do
+    operation = sync_operation!(context, label)
+
+    Repo.ash_create!(SyncOutcome, %{
+      id: Ecto.UUID.generate(),
+      installation_id: context.installation.id,
+      operation_id: operation.id,
+      object_type: "pull_request",
+      object_id: "PR_health_#{label}",
+      delivery_id: "delivery-health-#{label}",
+      state: state,
+      signal_ids: [],
+      failure_class: if(failure_code, do: state),
+      failure_code: failure_code
+    })
+  end
+
+  defp sync_operation!(context, label) do
+    {:ok, request} =
+      Operations.new_system_operation_request(%{
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id,
+        principal_id: context.installation.service_principal_id,
+        action: :integration_reconcile,
+        authority_basis: "github_installation:#{context.installation.id}",
+        causation_key: "github_delivery:health-#{label}",
+        idempotency_scope: "github:object",
+        idempotency_key: "health:#{label}",
+        credential_id: context.credential_id
+      })
+
+    {:ok, operation} = Operations.start_system_operation(request)
+    operation
   end
 end

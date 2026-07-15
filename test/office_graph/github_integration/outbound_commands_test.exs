@@ -10,7 +10,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   import Ecto.Query
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo}
+  alias OfficeGraph.{DurableDelivery, Foundation, GitHubIntegration, Operations, Repo}
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
@@ -92,6 +92,31 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:error, {:stale_version, :provider_version}} =
              OutboundCommands.update_check(context.session, stale_operation, stale_attrs)
+  end
+
+  test "workers reject targets whose provider version changed after enqueue", context do
+    attrs = reply_attrs(context, "Do not send this after the target changes.")
+    operation = command_operation!(context, :github_review_reply, "reply:delayed-stale", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    context.comment
+    |> Ash.Changeset.for_update(:reconcile, %{
+      provider_version: "v2",
+      provider_sequence: 2,
+      operation_id: context.comment.operation_id
+    })
+    |> Repo.ash_update!()
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} => {:ok, %{id: "must-not-send", version: "v2"}}
+    })
+
+    assert {:cancel, "stale_provider_version"} = OutboundWorker.perform(job_for(action.id))
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_code == "stale_provider_version"
   end
 
   test "queued and in-progress check updates do not require a conclusion", context do
@@ -338,6 +363,32 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
              GitHubIntegration.integration_health(context.session, context.installation.id)
 
     assert health.remediation_code == "rotate_credentials"
+  end
+
+  test "terminal outbound failures remain classified in durable job history", context do
+    TestAdapter.put(%{})
+
+    attrs = reply_attrs(context, "Preserve the terminal reason.")
+    operation = command_operation!(context, :github_review_reply, "reply:job-history", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    assert {:cancel, "invalid_credential"} = OutboundWorker.perform(job)
+
+    terminal_job =
+      job.id
+      |> then(&Repo.get!(Oban.Job, &1))
+      |> Ecto.Changeset.change(%{
+        state: "cancelled",
+        cancelled_at: DateTime.utc_now()
+      })
+      |> Repo.update!()
+
+    assert terminal_job.meta["terminal_failure_code"] == "invalid_credential"
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(context.session)
+
+    assert %{failure_code: "invalid_credential"} =
+             Enum.find(summaries, &(&1.id == terminal_job.id))
   end
 
   test "revoked credentials fail terminally with a rotate-credential remediation", context do
