@@ -351,6 +351,44 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == signal_count + 1
   end
 
+  test "signal mapping rejects malformed and cross-workspace reference maps" do
+    context = context("signal-reference-scope")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-signal-reference-scope"
+      })
+
+    snapshot = %{mapping_snapshot() | review_comments: [], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(operation!(context, request, "seed-reference-scope"), request)
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(object_type == "repository")
+      |> Ash.read_one!(authorize?: false)
+
+    operation = operation!(context, request, "map-reference-scope")
+    attrs = %{title: "Scoped provider signal", body: "Only the governing workspace may map it."}
+
+    assert {:error, :forbidden} =
+             WorkGraph.ensure_integration_signal(
+               operation,
+               %{reference | workspace_id: Ecto.UUID.generate()},
+               attrs
+             )
+
+    assert {:error, :forbidden} =
+             WorkGraph.ensure_integration_signal(operation, %{id: reference.id}, attrs)
+
+    assert Repo.aggregate(Signal, :count) == 0
+  end
+
   defp context(label, workspace_id \\ :session_workspace) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 

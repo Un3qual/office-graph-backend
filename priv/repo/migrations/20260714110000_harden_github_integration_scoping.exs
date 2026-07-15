@@ -110,57 +110,7 @@ defmodule OfficeGraph.Repo.Migrations.HardenGitHubIntegrationScoping do
   end
 
   def down do
-    drop_if_exists index(:integration_credentials, [],
-                     name: :integration_credentials_organization_reference_index
-                   )
-
-    drop_if_exists index(:integration_credentials, [],
-                     name: :integration_credentials_workspace_reference_index
-                   )
-
-    create unique_index(:integration_credentials, [:organization_id, :kind, :secret_reference],
-             name: :integration_credentials_scope_reference_index
-           )
-
-    drop constraint(:external_references, :external_references_provider_scope_required)
-
-    drop_if_exists index(:external_references, [],
-                     name: :external_references_source_id_external_id_index
-                   )
-
-    drop_if_exists index(:external_references, [],
-                     name: :external_references_organization_source_external_id_index
-                   )
-
-    drop_if_exists index(:external_references, [],
-                     name: :external_references_workspace_source_external_id_index
-                   )
-
-    create unique_index(:external_references, [:source_id, :external_id],
-             name: :external_references_source_id_external_id_index
-           )
-
-    alter table(:external_references) do
-      remove :workspace_id
-    end
-
-    for {extension, _base, _base_id} <- Enum.reverse(@github_extensions) do
-      drop_if_exists index(extension, [],
-                       name: String.to_atom("#{extension}_organization_node_id_index")
-                     )
-
-      drop_if_exists index(extension, [],
-                       name: String.to_atom("#{extension}_workspace_node_id_index")
-                     )
-
-      create unique_index(extension, [:node_id],
-               name: String.to_atom("#{extension}_node_id_index")
-             )
-
-      alter table(extension) do
-        remove :workspace_id
-        remove :organization_id
-      end
-    end
+    raise Ecto.MigrationError,
+          "irreversible migration: scoped identities can diverge after GitHub integration hardening"
   end
 end

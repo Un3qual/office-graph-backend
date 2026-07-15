@@ -72,13 +72,9 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
 
     update :reconcile do
       accept [
-        :provider,
-        :object_type,
         :url,
         :sync_state,
-        :operation_id,
-        :resource_type,
-        :resource_id
+        :operation_id
       ]
 
       validate one_of(:sync_state, ~w(pending synced stale failed))

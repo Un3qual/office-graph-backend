@@ -41,6 +41,16 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
                "organization_id",
                "node_id"
              ]
+
+      assert %{unique?: true, predicate: workspace_predicate} =
+               index_definition("#{table}_workspace_node_id_index")
+
+      assert workspace_predicate =~ "workspace_id IS NOT NULL"
+
+      assert %{unique?: true, predicate: organization_predicate} =
+               index_definition("#{table}_organization_node_id_index")
+
+      assert organization_predicate =~ "workspace_id IS NULL"
     end
 
     refute column_exists?("repositories", "github_node_id")
@@ -56,6 +66,22 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     assert index_exists?("external_references_organization_source_external_id_index")
     assert index_exists?("integration_credentials_workspace_reference_index")
     assert index_exists?("integration_credentials_organization_reference_index")
+  end
+
+  test "scoping hardening is explicitly irreversible after scoped identities diverge" do
+    migration = OfficeGraph.Repo.Migrations.HardenGitHubIntegrationScoping
+
+    unless Code.ensure_loaded?(migration) do
+      Code.require_file(
+        "priv/repo/migrations/20260714110000_harden_github_integration_scoping.exs"
+      )
+    end
+
+    down = Function.capture(migration, :down, 0)
+
+    assert_raise Ecto.MigrationError, ~r/irreversible.*scoped identities/i, fn ->
+      down.()
+    end
   end
 
   defp table_exists?(table) do
@@ -122,5 +148,21 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
       )
 
     Enum.map(rows, fn [column] -> column end)
+  end
+
+  defp index_definition(name) do
+    %{rows: [[unique?, predicate]]} =
+      Repo.query!(
+        """
+        SELECT index_definition.indisunique,
+               pg_get_expr(index_definition.indpred, index_definition.indrelid)
+        FROM pg_class index_relation
+        JOIN pg_index index_definition ON index_definition.indexrelid = index_relation.oid
+        WHERE index_relation.relname = $1
+        """,
+        [name]
+      )
+
+    %{unique?: unique?, predicate: predicate}
   end
 end

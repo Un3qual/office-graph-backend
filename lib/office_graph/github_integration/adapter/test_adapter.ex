@@ -22,6 +22,11 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.TestAdapter do
   end
 
   @impl true
+  def find_review_reply(%{idempotency_key: idempotency_key} = request, _credential) do
+    fetch_outbound("review_reply_lookup", idempotency_key, request, {:ok, nil})
+  end
+
+  @impl true
   def reply_to_review(%{target_node_id: node_id} = request, _credential) do
     fetch_outbound("review_reply", node_id, request)
   end
@@ -49,14 +54,14 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.TestAdapter do
     end
   end
 
-  defp fetch_outbound(kind, node_id, request) do
+  defp fetch_outbound(kind, node_id, request, default \\ {:error, :fixture_not_found}) do
     ensure_table!()
     :ets.insert(@table, {{:request, kind, node_id}, request})
     :ets.update_counter(@table, {:calls, kind, node_id}, {2, 1}, {{:calls, kind, node_id}, 0})
 
     case :ets.lookup(@table, {kind, node_id}) do
       [{{^kind, ^node_id}, response}] -> response
-      [] -> {:error, :fixture_not_found}
+      [] -> default
     end
   end
 

@@ -135,6 +135,53 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.input["conclusion"] == nil
   end
 
+  test "outbound check updates reject provider-only startup failures", context do
+    attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "completed",
+      conclusion: "startup_failure",
+      details_url: "https://example.test/checks/startup-failure",
+      expected_provider_version: context.check.provider_version
+    }
+
+    operation =
+      command_operation!(context, :github_check_update, "check:update:startup-failure", attrs)
+
+    assert {:error, {:invalid_field, :conclusion}} =
+             OutboundCommands.update_check(context.session, operation, attrs)
+
+    assert count_jobs_for_worker() == 0
+  end
+
+  test "review reply retries reconcile the durable action before creating again", context do
+    attrs = reply_attrs(context, "Do not duplicate an ambiguously successful reply.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:ambiguous-success", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{
+      {"review_reply_lookup", action.id} =>
+        {:ok, %{id: "PRRC_existing_reply", version: "reply-existing-v1"}},
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "PRRC_duplicate_reply", version: "reply-duplicate-v1"}}
+    })
+
+    assert :ok = OutboundWorker.perform(job_for(action.id))
+    assert Provider.calls("review_reply_lookup", action.id) == 1
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    request = Provider.request("review_reply_lookup", action.id)
+    assert request.idempotency_key == action.id
+    assert request.target_node_id == "PRRC_outbound"
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "succeeded"
+    assert action.provider_response_id == "PRRC_existing_reply"
+  end
+
   test "outbound targets must have reconciliation provenance for the selected installation",
        context do
     unique = System.unique_integer([:positive])

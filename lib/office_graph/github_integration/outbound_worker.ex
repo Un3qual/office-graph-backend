@@ -144,14 +144,24 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     with {:ok, request} <- normalize_input(action.input) do
       request =
         request
+        |> Map.put(:idempotency_key, action.id)
         |> Map.put(:expected_provider_version, action.expected_provider_version)
         |> Map.put(:external_installation_id, installation.external_installation_id)
 
       case action.action_kind do
-        "review_reply" -> adapter.reply_to_review(request, credential)
+        "review_reply" -> find_or_create_review_reply(adapter, request, credential)
         "check_update" -> adapter.update_check(request, credential)
         _unsupported -> {:error, :invalid_provider_response}
       end
+    end
+  end
+
+  defp find_or_create_review_reply(adapter, request, credential) do
+    case adapter.find_review_reply(request, credential) do
+      {:ok, nil} -> adapter.reply_to_review(request, credential)
+      {:ok, response} when is_map(response) -> {:ok, response}
+      {:ok, _invalid} -> {:error, :invalid_provider_response}
+      {:error, _reason} = error -> error
     end
   end
 

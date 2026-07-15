@@ -26,7 +26,8 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
          true <- is_binary(operation.workspace_id),
          true <- is_binary(Map.get(reference, :id)),
-         true <- reference.organization_id == operation.organization_id,
+         true <- Map.get(reference, :organization_id) == operation.organization_id,
+         true <- Map.get(reference, :workspace_id) == operation.workspace_id,
          true <- is_boolean(actionable?),
          {:ok, {title, body}} <- signal_content(attrs, actionable?) do
       transact(fn -> sync_signal!(operation, reference, title, body, actionable?) end)

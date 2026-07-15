@@ -25,12 +25,14 @@ defmodule OfficeGraph.ExternalRefs do
          {:ok, external_id} <- required_string(attrs, :external_id),
          {:ok, resource_type} <- required_string(attrs, :resource_type),
          {:ok, resource_id} <- required_uuid(attrs, :resource_id),
-         {:ok, object_type} <- required_string(attrs, :object_type) do
+         {:ok, object_type} <- required_string(attrs, :object_type),
+         {:ok, provider} <- required_string(attrs, :provider) do
       persist_reference(operation, source, attrs, %{
         external_id: external_id,
         resource_type: resource_type,
         resource_id: resource_id,
-        object_type: object_type
+        object_type: object_type,
+        provider: provider
       })
     end
   end
@@ -38,56 +40,58 @@ defmodule OfficeGraph.ExternalRefs do
   def upsert_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
   defp persist_reference(operation, source, attrs, identity) do
-    case reference_by_external_id(
-           operation.organization_id,
-           operation.workspace_id,
-           source.id,
-           identity.external_id
-         ) do
-      {:ok, nil} ->
-        reference =
-          Repo.ash_create!(ExternalReference, %{
-            id: Ecto.UUID.generate(),
-            organization_id: operation.organization_id,
-            workspace_id: operation.workspace_id,
-            source_id: source.id,
-            provider: Map.get(attrs, :provider),
-            object_type: identity.object_type,
-            external_id: identity.external_id,
-            url: Map.get(attrs, :url),
-            sync_state: "synced",
-            operation_id: operation.id,
-            resource_type: identity.resource_type,
-            resource_id: identity.resource_id
-          })
+    reference_id = Ecto.UUID.generate()
 
-        trace!(operation, reference.id, "create")
-        {:ok, reference}
+    lookup = [
+      organization_id: operation.organization_id,
+      workspace_id: operation.workspace_id,
+      source_id: source.id,
+      external_id: identity.external_id
+    ]
 
-      {:ok, existing} ->
-        reconcile_reference(operation, existing, attrs, identity)
+    reference =
+      Repo.get_or_insert!(
+        ExternalReference,
+        lookup,
+        %{
+          id: reference_id,
+          organization_id: operation.organization_id,
+          workspace_id: operation.workspace_id,
+          source_id: source.id,
+          provider: identity.provider,
+          object_type: identity.object_type,
+          external_id: identity.external_id,
+          url: Map.get(attrs, :url),
+          sync_state: "synced",
+          operation_id: operation.id,
+          resource_type: identity.resource_type,
+          resource_id: identity.resource_id
+        },
+        &reference_insert_contract/2,
+        &reference_by_lookup/2
+      )
 
-      {:error, error} ->
-        {:error, error}
+    if reference.id == reference_id do
+      trace!(operation, reference.id, "create")
+      {:ok, reference}
+    else
+      reconcile_reference(operation, reference, attrs, identity)
     end
   end
 
   defp reconcile_reference(operation, existing, attrs, identity) do
     if existing.organization_id == operation.organization_id and
          existing.workspace_id == operation.workspace_id and
+         existing.provider == identity.provider and
          existing.resource_type == identity.resource_type and
          existing.resource_id == identity.resource_id and
          existing.object_type == identity.object_type do
       reference =
         existing
         |> Ash.Changeset.for_update(:reconcile, %{
-          provider: Map.get(attrs, :provider, existing.provider),
-          object_type: identity.object_type,
           url: Map.get(attrs, :url, existing.url),
           sync_state: "synced",
-          operation_id: operation.id,
-          resource_type: identity.resource_type,
-          resource_id: identity.resource_id
+          operation_id: operation.id
         })
         |> Repo.ash_update!()
 
@@ -98,7 +102,12 @@ defmodule OfficeGraph.ExternalRefs do
     end
   end
 
-  defp reference_by_external_id(organization_id, workspace_id, source_id, external_id) do
+  defp reference_by_lookup(ExternalReference, lookup) do
+    organization_id = Keyword.fetch!(lookup, :organization_id)
+    workspace_id = Keyword.fetch!(lookup, :workspace_id)
+    source_id = Keyword.fetch!(lookup, :source_id)
+    external_id = Keyword.fetch!(lookup, :external_id)
+
     query =
       ExternalReference
       |> Ash.Query.filter(
@@ -112,6 +121,24 @@ defmodule OfficeGraph.ExternalRefs do
         else: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
     Ash.read_one(query, authorize?: false)
+  end
+
+  defp reference_insert_contract(ExternalReference, %{workspace_id: nil}) do
+    {
+      "external_references",
+      {:unsafe_fragment,
+       "(organization_id, source_id, external_id) WHERE organization_id IS NOT NULL AND workspace_id IS NULL"},
+      [:id, :organization_id, :source_id, :operation_id, :resource_id]
+    }
+  end
+
+  defp reference_insert_contract(ExternalReference, _attrs) do
+    {
+      "external_references",
+      {:unsafe_fragment,
+       "(organization_id, workspace_id, source_id, external_id) WHERE workspace_id IS NOT NULL"},
+      [:id, :organization_id, :workspace_id, :source_id, :operation_id, :resource_id]
+    }
   end
 
   defp validate_source(%{id: id, kind: "provider"}) when is_binary(id), do: :ok

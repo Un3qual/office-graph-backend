@@ -112,7 +112,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     one_of_string(
       attrs,
       :conclusion,
-      ~w(success failure neutral cancelled skipped timed_out action_required startup_failure)
+      ~w(success failure neutral cancelled skipped timed_out action_required)
     )
   end
 

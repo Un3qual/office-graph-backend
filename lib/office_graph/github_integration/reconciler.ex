@@ -322,6 +322,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_snapshot(operation, request, installation, source, snapshot) do
     case Repo.transaction(fn ->
+           lock!("github:sync-outcome:#{operation.id}")
            lock!("github:#{installation.id}:#{request.object_type}:#{request.object_id}")
 
            case outcome_by_operation(operation.id) do
@@ -874,9 +875,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           retry_at: retry_at
         }
 
-        outcome = persist_outcome!(operation.id, attrs)
-
-        replay_outcome(outcome, request)
+        case Repo.transaction(fn ->
+               lock!("github:sync-outcome:#{operation.id}")
+               persist_outcome!(operation.id, attrs)
+             end) do
+          {:ok, outcome} -> replay_outcome(outcome, request)
+          {:error, error} -> {:error, error}
+        end
 
       {:error, _error} ->
         {:error, {failure_class, failure_code}}

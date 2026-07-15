@@ -1,9 +1,15 @@
 defmodule OfficeGraph.GitHubIntegration.Adapter do
   @moduledoc """
   Provider boundary used by reconciliation and the two explicitly supported outbound actions.
+
+  Review-reply adapters use the durable outbound action ID in `:idempotency_key` as a provider
+  marker. `find_review_reply/2` must reconcile that marker before `reply_to_review/2` performs
+  the non-idempotent create.
   """
 
   @callback fetch(request :: struct()) :: {:ok, struct()} | {:error, term()}
+  @callback find_review_reply(request :: map(), credential :: String.t()) ::
+              {:ok, map() | nil} | {:error, term()}
   @callback reply_to_review(request :: map(), credential :: String.t()) ::
               {:ok, map()} | {:error, term()}
   @callback update_check(request :: map(), credential :: String.t()) ::

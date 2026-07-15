@@ -3,7 +3,16 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
   require Ash.Query
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Repo}
+  alias OfficeGraph.{
+    ExternalRefs,
+    Foundation,
+    GitHubIntegration,
+    Integrations,
+    Operations,
+    Repo,
+    SoftwareProving
+  }
+
   alias OfficeGraph.ExternalRefs.ExternalReference
 
   alias OfficeGraph.GitHubIntegration.{
@@ -189,6 +198,59 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     end
 
     assert Repo.aggregate(Repository, :count) == 0
+  end
+
+  test "provider resources and references cannot be reconciled by another provider source" do
+    context = reconciliation_context("provider-ownership")
+    request = request(context, "pull_request", "PR_provider_owner", "delivery-provider-owner")
+    operation = reconciliation_operation!(context, request, "provider-owner")
+
+    Provider.put(%{
+      {"pull_request", "PR_provider_owner"} =>
+        {:ok, snapshot(1, "open", "PR_provider_owner", "R_provider_owner")}
+    })
+
+    assert {:ok, outcome} = Reconciler.reconcile(operation, request)
+    pull_request = Ash.get!(PullRequest, outcome.resource_id, authorize?: false)
+
+    {:ok, other_source} =
+      Integrations.ensure_provider_source("other-provider-#{Ecto.UUID.generate()}", "Other")
+
+    assert {:error, :forbidden} =
+             SoftwareProving.upsert_provider_resource(
+               operation,
+               other_source,
+               PullRequest,
+               pull_request,
+               %{
+                 title: "Cross-provider overwrite",
+                 provider_version: "v2",
+                 provider_sequence: 2,
+                 provider_updated_at: ~U[2026-07-14 12:02:00Z]
+               }
+             )
+
+    unchanged = Ash.get!(PullRequest, pull_request.id, authorize?: false)
+    assert unchanged.title == "Typed GitHub reconciliation"
+
+    {:ok, github_source} = Integrations.ensure_provider_source("github", "GitHub")
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "pull_request:PR_provider_owner")
+      |> Ash.read_one!(authorize?: false)
+
+    assert {:error, :forbidden} =
+             ExternalRefs.upsert_provider_reference(operation, github_source, %{
+               provider: "gitlab",
+               object_type: reference.object_type,
+               external_id: reference.external_id,
+               url: reference.url,
+               resource_type: reference.resource_type,
+               resource_id: reference.resource_id
+             })
+
+    assert Ash.get!(ExternalReference, reference.id, authorize?: false).provider == "github"
   end
 
   test "check snapshots enforce status and conclusion invariants before writes" do
