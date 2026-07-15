@@ -8,7 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   alias OfficeGraph.{Foundation, GitHubIntegration, Integrations, Repo}
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.GitHubIntegration.{SecretStore.TestAdapter, WebhookReceipt, WebhookWorker}
-  alias OfficeGraph.Integrations.RawArchive
+  alias OfficeGraph.Integrations.{ExternalSource, RawArchive}
   alias OfficeGraph.Operations.OperationCorrelation
 
   defmodule UnavailableSecretStore do
@@ -138,6 +138,34 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert no_receipt_effects?(delivery_id)
   end
 
+  test "manual source keys cannot block provider webhook intake" do
+    context = installation_context("manual-source-key-collision")
+    source_key = "github_app:#{context.app_slug}"
+
+    assert {:ok, manual_source} =
+             Ash.create(
+               ExternalSource,
+               %{key: source_key, name: "Manual Intake", kind: "manual"},
+               action: :create,
+               authorize?: false
+             )
+
+    delivery_id = "delivery-source-key-collision-#{Ecto.UUID.generate()}"
+    body = payload(context.external_installation_id)
+    headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    provider_source =
+      ExternalSource
+      |> Ash.Query.filter(key == ^source_key and kind == "provider")
+      |> Ash.read_one!(authorize?: false)
+
+    assert provider_source.id != manual_source.id
+    assert count_archives(delivery_id) == 1
+    assert count_webhook_jobs(delivery_id) == 1
+  end
+
   test "secret-store outages return a retryable service failure without receipt effects" do
     context = installation_context("secret-unavailable")
     delivery_id = "delivery-secret-unavailable-#{Ecto.UUID.generate()}"
@@ -155,6 +183,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   defp installation_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     external_installation_id = System.unique_integer([:positive])
+    app_slug = "office-graph"
     webhook_reference = "test-secret://github/#{label}/webhook"
     webhook_secret = "webhook-secret-#{label}"
 
@@ -163,7 +192,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
                idempotency_key: "bind-webhook-#{label}",
                external_installation_id: external_installation_id,
                workspace_id: nil,
-               app_slug: "office-graph",
+               app_slug: app_slug,
                account_login: "Un3qual",
                account_type: "organization",
                service_principal_email: "github-service-webhook-#{label}@office-graph.local",
@@ -177,6 +206,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     %{
       external_installation_id: external_installation_id,
+      app_slug: app_slug,
       organization_id: bootstrap.organization.id,
       installation_id: bound.installation.id,
       webhook_secret: webhook_secret

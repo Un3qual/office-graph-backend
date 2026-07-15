@@ -30,7 +30,7 @@ defmodule OfficeGraph.Integrations do
     source =
       Repo.get_or_insert!(
         ExternalSource,
-        [key: key],
+        [kind: "provider", key: key],
         %{key: key, name: name, kind: "provider"},
         &provider_source_insert_contract/2
       )
@@ -340,7 +340,7 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp provider_source_insert_contract(ExternalSource, _attrs) do
-    {"external_sources", [:key], [:id]}
+    {"external_sources", [:kind, :key], [:id]}
   end
 
   defp provider_archive_insert_contract(RawArchive, _attrs) do
@@ -361,7 +361,7 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp get_or_create_source(source_identity) do
-    case Ash.get(ExternalSource, %{key: source_identity},
+    case Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
            authorize?: false,
            not_found_error?: false
          ) do
@@ -392,7 +392,7 @@ defmodule OfficeGraph.Integrations do
         }
       ],
       on_conflict: :nothing,
-      conflict_target: [:key]
+      conflict_target: [:kind, :key]
     )
 
     case fetch_source(source_identity) do
@@ -402,7 +402,7 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp fetch_source(source_identity) do
-    Ash.get(ExternalSource, %{key: source_identity},
+    Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
       authorize?: false,
       not_found_error?: false
     )

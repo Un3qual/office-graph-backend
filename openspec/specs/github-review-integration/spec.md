@@ -52,6 +52,12 @@ archiving a payload or creating product work.
 - **THEN** Office Graph MUST return the prior receipt outcome without duplicate
   resource, signal, event, or job effects
 
+#### Scenario: Manual intake has reused a provider source key
+
+- **WHEN** a manual external source and a GitHub provider source use the same key
+- **THEN** Office Graph MUST keep their source-kind identities independent so
+  manual intake cannot block authenticated webhook archival or job creation
+
 #### Scenario: Webhook secret store is temporarily unavailable
 
 - **WHEN** signature verification cannot resolve the bound webhook secret due to
@@ -112,10 +118,10 @@ extension records.
 - **THEN** Office Graph MUST reject the write before changing provider-neutral
   truth or creating graph state
 
-#### Scenario: Sparse provider reference omits its URL
+#### Scenario: Sparse provider reference omits or blanks its URL
 
-- **WHEN** a later provider snapshot omits the optional URL for an existing
-  external reference
+- **WHEN** a later provider snapshot omits the optional URL or supplies a blank
+  value for an existing external reference
 - **THEN** Office Graph MUST preserve the last known URL until a non-empty
   replacement is available
 

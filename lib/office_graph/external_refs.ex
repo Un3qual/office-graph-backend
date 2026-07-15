@@ -26,20 +26,22 @@ defmodule OfficeGraph.ExternalRefs do
          {:ok, resource_type} <- required_string(attrs, :resource_type),
          {:ok, resource_id} <- required_uuid(attrs, :resource_id),
          {:ok, object_type} <- required_string(attrs, :object_type),
-         {:ok, provider} <- required_string(attrs, :provider) do
-      persist_reference(operation, source, attrs, %{
+         {:ok, provider} <- required_string(attrs, :provider),
+         {:ok, url} <- optional_string(attrs, :url) do
+      persist_reference(operation, source, %{
         external_id: external_id,
         resource_type: resource_type,
         resource_id: resource_id,
         object_type: object_type,
-        provider: provider
+        provider: provider,
+        url: url
       })
     end
   end
 
   def upsert_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
-  defp persist_reference(operation, source, attrs, identity) do
+  defp persist_reference(operation, source, identity) do
     reference_id = Ecto.UUID.generate()
 
     lookup = [
@@ -61,7 +63,7 @@ defmodule OfficeGraph.ExternalRefs do
           provider: identity.provider,
           object_type: identity.object_type,
           external_id: identity.external_id,
-          url: Map.get(attrs, :url),
+          url: identity.url,
           sync_state: "synced",
           operation_id: operation.id,
           resource_type: identity.resource_type,
@@ -75,11 +77,11 @@ defmodule OfficeGraph.ExternalRefs do
       trace!(operation, reference.id, "create")
       {:ok, reference}
     else
-      reconcile_reference(operation, reference, attrs, identity)
+      reconcile_reference(operation, reference, identity)
     end
   end
 
-  defp reconcile_reference(operation, existing, attrs, identity) do
+  defp reconcile_reference(operation, existing, identity) do
     if existing.organization_id == operation.organization_id and
          existing.workspace_id == operation.workspace_id and
          existing.provider == identity.provider and
@@ -89,7 +91,7 @@ defmodule OfficeGraph.ExternalRefs do
       reference =
         existing
         |> Ash.Changeset.for_update(:reconcile, %{
-          url: Map.get(attrs, :url) || existing.url,
+          url: identity.url || existing.url,
           sync_state: "synced",
           operation_id: operation.id
         })
@@ -157,6 +159,21 @@ defmodule OfficeGraph.ExternalRefs do
         if match?({:ok, _}, Ecto.UUID.cast(value)),
           do: {:ok, value},
           else: {:error, {:invalid_external_reference, key}}
+
+      _invalid ->
+        {:error, {:invalid_external_reference, key}}
+    end
+  end
+
+  defp optional_string(attrs, key) do
+    case Map.get(attrs, key) do
+      nil ->
+        {:ok, nil}
+
+      value when is_binary(value) ->
+        if String.trim(value) == "",
+          do: {:ok, nil},
+          else: {:ok, value}
 
       _invalid ->
         {:error, {:invalid_external_reference, key}}

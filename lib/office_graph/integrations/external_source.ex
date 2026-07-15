@@ -11,7 +11,7 @@ defmodule OfficeGraph.Integrations.ExternalSource do
     repo OfficeGraph.Repo
     migrate? false
 
-    identity_index_names unique_key: "external_sources_key_index"
+    identity_index_names unique_kind_key: "external_sources_kind_key_index"
   end
 
   attributes do
@@ -36,6 +36,6 @@ defmodule OfficeGraph.Integrations.ExternalSource do
   end
 
   identities do
-    identity :unique_key, [:key]
+    identity :unique_kind_key, [:kind, :key]
   end
 end

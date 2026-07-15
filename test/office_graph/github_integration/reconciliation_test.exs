@@ -253,7 +253,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Ash.get!(ExternalReference, reference.id, authorize?: false).provider == "github"
   end
 
-  test "sparse reference updates preserve a known provider URL" do
+  test "sparse reference updates preserve a known provider URL for nil or blank values" do
     context = reconciliation_context("sparse-reference-url")
 
     request =
@@ -285,17 +285,19 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
       |> Ash.Query.filter(external_id == "pull_request:PR_sparse_reference_url")
       |> Ash.read_one!(authorize?: false)
 
-    assert {:ok, updated} =
-             ExternalRefs.upsert_provider_reference(operation, github_source, %{
-               provider: reference.provider,
-               object_type: reference.object_type,
-               external_id: reference.external_id,
-               url: nil,
-               resource_type: reference.resource_type,
-               resource_id: outcome.resource_id
-             })
+    for sparse_url <- [nil, "", " \t"] do
+      assert {:ok, updated} =
+               ExternalRefs.upsert_provider_reference(operation, github_source, %{
+                 provider: reference.provider,
+                 object_type: reference.object_type,
+                 external_id: reference.external_id,
+                 url: sparse_url,
+                 resource_type: reference.resource_type,
+                 resource_id: outcome.resource_id
+               })
 
-    assert updated.url == "https://github.com/Un3qual/office-graph-backend/pull/24"
+      assert updated.url == "https://github.com/Un3qual/office-graph-backend/pull/24"
+    end
   end
 
   test "check snapshots enforce status and conclusion invariants before writes" do
