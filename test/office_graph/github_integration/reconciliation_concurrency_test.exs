@@ -12,6 +12,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    Installation,
     Reconciler,
     ReconciliationRequest,
     SyncOutcome
@@ -175,6 +176,46 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
       |> Ash.read_one!(authorize?: false)
 
     assert outcome.state == "reconciled"
+  end
+
+  test "installation revocation applies only when its terminal outcome wins" do
+    context = integration_context("revocation-race")
+    configured = Application.fetch_env!(:office_graph, :github_adapter)
+    Application.put_env(:office_graph, :github_adapter, CoordinatedAdapter)
+    Application.put_env(:office_graph, :github_coordinated_adapter_owner, self())
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :github_adapter, configured)
+      Application.delete_env(:office_graph, :github_coordinated_adapter_owner)
+    end)
+
+    request = request(context, "pull_request", "PR_revocation_race", "delivery-revocation-race")
+    operation = operation!(context, request, "revocation-race")
+
+    success_task = Task.async(fn -> Reconciler.reconcile(operation, request) end)
+    revocation_task = Task.async(fn -> Reconciler.reconcile(operation, request) end)
+
+    fetchers = receive_fetchers(2)
+    assert success_task.pid in fetchers
+    assert revocation_task.pid in fetchers
+
+    send(
+      success_task.pid,
+      {:github_adapter_result,
+       {:ok,
+        snapshot("PR_revocation_race", "R_revocation_race", "PRRC_revocation", "CR_revocation")}}
+    )
+
+    assert {:ok, successful_outcome} = Task.await(success_task, 10_000)
+    assert successful_outcome.state == "reconciled"
+
+    send(revocation_task.pid, {:github_adapter_result, {:error, :installation_revoked}})
+
+    assert {:ok, replayed_outcome} = Task.await(revocation_task, 10_000)
+    assert replayed_outcome.id == successful_outcome.id
+
+    installation = Ash.get!(Installation, context.bound.installation.id, authorize?: false)
+    assert installation.lifecycle_state == "active"
   end
 
   test "provider reference creation is concurrency-safe for one scoped identity" do

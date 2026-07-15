@@ -454,7 +454,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       result.record,
       "repository",
       snapshot.repository.node_id,
-      snapshot.repository.url
+      snapshot.repository.url,
+      result.status
     )
 
     result
@@ -505,7 +506,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       result.record,
       "pull_request",
       snapshot.pull_request.node_id,
-      snapshot.pull_request.url
+      snapshot.pull_request.url,
+      result.status
     )
 
     result
@@ -810,6 +812,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> unwrap!()
   end
 
+  defp maybe_reference!(_operation, _source, _record, _object_type, _node_id, _url, :stale),
+    do: :ok
+
+  defp maybe_reference!(operation, source, record, object_type, node_id, url, _status),
+    do: maybe_reference!(operation, source, record, object_type, node_id, url)
+
   defp base_by_extension(operation, extension, base_key, base_resource, node_id) do
     operation
     |> extension_by_node_query(extension, node_id)
@@ -916,8 +924,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
     case Repo.transaction(fn ->
            lock!("github:sync-outcome:#{operation.id}")
-           persist_installation_failure!(installation, failure_code)
-           persist_outcome!(operation.id, attrs)
+
+           outcome = persist_outcome!(operation.id, attrs)
+           persist_installation_failure!(installation, failure_code, outcome)
+           outcome
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, error} -> {:error, error}
@@ -948,13 +958,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end
   end
 
-  defp persist_installation_failure!(installation, :installation_revoked) do
+  defp persist_installation_failure!(
+         installation,
+         :installation_revoked,
+         %SyncOutcome{state: "terminal", failure_code: "installation_revoked"}
+       ) do
     installation
     |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
     |> Repo.ash_update!()
   end
 
-  defp persist_installation_failure!(_installation, _failure_code), do: :ok
+  defp persist_installation_failure!(_installation, _failure_code, _outcome), do: :ok
 
   defp classify_failure({:rate_limited, %DateTime{} = reset_at}),
     do: {:retryable, :provider_rate_limited, reset_at}

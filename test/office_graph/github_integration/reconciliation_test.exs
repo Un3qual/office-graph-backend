@@ -41,13 +41,45 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     context = reconciliation_context("ordering")
     request = request(context, "pull_request", "PR_node_44", "delivery-ordering")
 
-    Provider.put(%{{"pull_request", "PR_node_44"} => {:ok, snapshot(2, "merged")}})
+    newer_snapshot =
+      snapshot(2, "merged")
+      |> then(fn value ->
+        %{
+          value
+          | repository: %{
+              value.repository
+              | url: "https://github.com/Un3qual/office-graph-backend-new"
+            },
+            pull_request: %{
+              value.pull_request
+              | url: "https://github.com/Un3qual/office-graph-backend/pull/24-new"
+            }
+        }
+      end)
+
+    Provider.put(%{{"pull_request", "PR_node_44"} => {:ok, newer_snapshot}})
     operation_v2 = reconciliation_operation!(context, request, "v2")
 
     assert {:ok, reconciled} = Reconciler.reconcile(operation_v2, request)
     assert reconciled.state == "reconciled"
 
-    Provider.put(%{{"pull_request", "PR_node_44"} => {:ok, snapshot(1, "open")}})
+    older_snapshot =
+      snapshot(1, "open")
+      |> then(fn value ->
+        %{
+          value
+          | repository: %{
+              value.repository
+              | url: "https://github.com/Un3qual/office-graph-backend-old"
+            },
+            pull_request: %{
+              value.pull_request
+              | url: "https://github.com/Un3qual/office-graph-backend/pull/24-old"
+            }
+        }
+      end)
+
+    Provider.put(%{{"pull_request", "PR_node_44"} => {:ok, older_snapshot}})
     operation_v1 = reconciliation_operation!(context, request, "v1")
 
     assert {:ok, stale} = Reconciler.reconcile(operation_v1, request)
@@ -63,6 +95,21 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     repository = Ash.get!(Repository, pull_request.repository_id, authorize?: false)
     assert repository.full_name == "Un3qual/office-graph-backend"
+
+    repository_reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "repository:R_node_office_graph")
+      |> Ash.read_one!(authorize?: false)
+
+    pull_request_reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == "pull_request:PR_node_44")
+      |> Ash.read_one!(authorize?: false)
+
+    assert repository_reference.url == "https://github.com/Un3qual/office-graph-backend-new"
+
+    assert pull_request_reference.url ==
+             "https://github.com/Un3qual/office-graph-backend/pull/24-new"
 
     assert Repo.aggregate(SyncOutcome, :count) == 2
   end
