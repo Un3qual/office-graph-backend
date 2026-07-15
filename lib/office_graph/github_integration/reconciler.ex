@@ -367,6 +367,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
       signal_ids =
         map_product_work!(operation, comments, checks, snapshot.review_threads)
+
       record_invalidation!(operation, pull_request.record, snapshot)
 
       create_outcome!(

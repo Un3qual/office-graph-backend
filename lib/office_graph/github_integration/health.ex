@@ -182,8 +182,8 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          @required_write_permissions,
          &(Map.get(access_by_name, &1) in ~w(write admin))
        ),
-      do: "configured",
-      else: "insufficient"
+       do: "configured",
+       else: "insufficient"
   end
 
   defp credential_posture(credentials) do
@@ -203,7 +203,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          _credentials,
          _failures
        ),
-    do: "reauthorize_installation"
+       do: "reauthorize_installation"
 
   defp remediation_code(_installation, _permissions, credentials, _failures)
        when credentials == [],

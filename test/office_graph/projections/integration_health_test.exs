@@ -132,10 +132,13 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
     end)
   end
 
-  defp health_context(label, permissions \\ [
-         %{name: "checks", access_level: "write"},
-         %{name: "pull_requests", access_level: "write"}
-       ]) do
+  defp health_context(
+         label,
+         permissions \\ [
+           %{name: "checks", access_level: "write"},
+           %{name: "pull_requests", access_level: "write"}
+         ]
+       ) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     private_key_reference = "test-secret://github/health/#{label}/private-key"
 
