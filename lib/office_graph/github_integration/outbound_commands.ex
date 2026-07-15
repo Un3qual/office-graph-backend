@@ -153,10 +153,16 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
       permission_snapshot_id == ^installation.current_permission_snapshot_id and
         name == ^permission_name
     )
-    |> Ash.read_one(authorize?: false)
+    |> then(&RecordLoader.read_one(PermissionEntry, &1, authorize?: false))
     |> case do
-      {:ok, %{access_level: access_level}} when access_level in ~w(write admin) -> :ok
-      _missing_or_insufficient -> {:error, {:authorization, :installation_permission_missing}}
+      {:ok, %{access_level: access_level}} when access_level in ~w(write admin) ->
+        :ok
+
+      {:ok, _missing_or_insufficient} ->
+        {:error, {:authorization, :installation_permission_missing}}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -180,14 +186,17 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   end
 
   defp scoped_target(resource, id, session_context) do
-    case Ash.get(resource, id, authorize?: false, not_found_error?: false) do
+    case RecordLoader.get(resource, id, authorize?: false, not_found_error?: false) do
       {:ok, %{organization_id: organization_id, workspace_id: workspace_id} = record}
       when organization_id == session_context.organization_id and
              workspace_id == session_context.workspace_id ->
         {:ok, record}
 
-      _missing_or_cross_scope ->
+      {:ok, _missing_or_cross_scope} ->
         {:error, :forbidden}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 

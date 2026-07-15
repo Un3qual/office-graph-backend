@@ -87,32 +87,57 @@ defmodule OfficeGraph.Integrations do
   def archive_system_delivery(_operation, _source, _attrs),
     do: {:error, :invalid_provider_delivery}
 
-  def provider_delivery_archive(organization_id, workspace_id, archive_id, delivery_id)
+  def provider_delivery_archive(
+        organization_id,
+        workspace_id,
+        archive_id,
+        delivery_id,
+        opts \\ []
+      )
+
+  def provider_delivery_archive(
+        organization_id,
+        workspace_id,
+        archive_id,
+        delivery_id,
+        opts
+      )
       when is_binary(organization_id) and (is_binary(workspace_id) or is_nil(workspace_id)) and
-             is_binary(archive_id) and is_binary(delivery_id) do
+             is_binary(archive_id) and is_binary(delivery_id) and is_list(opts) do
     RawArchive
     |> Ash.Query.filter(
       id == ^archive_id and organization_id == ^organization_id and
         archive_kind == "provider_delivery" and external_delivery_id == ^delivery_id
     )
     |> scope_archive_query(workspace_id)
-    |> read_provider_delivery_archive()
+    |> read_provider_delivery_archive(opts)
     |> case do
       {:ok, nil} -> {:error, :invalid_delivery_archive}
       {:ok, archive} -> {:ok, archive}
-      {:error, _error} -> {:error, :invalid_delivery_archive}
+      {:error, _error} -> {:error, :integration_storage_unavailable}
     end
   end
 
-  def provider_delivery_archive(_organization_id, _workspace_id, _archive_id, _delivery_id),
-    do: {:error, :invalid_delivery_archive}
+  def provider_delivery_archive(
+        _organization_id,
+        _workspace_id,
+        _archive_id,
+        _delivery_id,
+        _opts
+      ),
+      do: {:error, :invalid_delivery_archive}
 
   defp scope_archive_query(query, nil), do: Ash.Query.filter(query, is_nil(workspace_id))
 
   defp scope_archive_query(query, workspace_id),
     do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
-  defp read_provider_delivery_archive(query), do: Ash.read_one(query, authorize?: false)
+  defp read_provider_delivery_archive(query, opts) do
+    case Keyword.get(opts, :record_loader) do
+      nil -> Ash.read_one(query, authorize?: false)
+      loader -> loader.read_one(RawArchive, query, authorize?: false)
+    end
+  end
 
   def submit_manual_intake(session_context, operation, attrs) do
     with :ok <- validate_manual_intake_attrs(attrs),

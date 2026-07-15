@@ -98,11 +98,15 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
            installation.organization_id,
            installation.workspace_id,
            archive_id,
-           delivery_id
+           delivery_id,
+           record_loader: RecordLoader
          ) do
       {:ok, %{metadata: %{"installation_id" => external_installation_id}} = archive}
       when external_installation_id == installation.external_installation_id ->
         {:ok, archive}
+
+      {:error, :integration_storage_unavailable} = error ->
+        error
 
       _missing_or_mismatch ->
         {:error, :invalid_delivery_archive}

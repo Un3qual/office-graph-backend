@@ -19,6 +19,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     OutboundAction,
     OutboundCommands,
     OutboundWorker,
+    PermissionEntry,
     RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest,
@@ -176,6 +177,34 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:lookup-outage", attrs)
 
     RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
+  test "command permission lookup outages do not masquerade as missing grants", context do
+    attrs = reply_attrs(context, "Retry permission validation after storage recovers.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:permission-outage", attrs)
+
+    RecordLoaderTestAdapter.configure!(%{PermissionEntry => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
+  test "command target lookup outages do not masquerade as forbidden targets", context do
+    attrs = reply_attrs(context, "Retry target validation after storage recovers.")
+    operation = command_operation!(context, :github_review_reply, "reply:target-outage", attrs)
+
+    RecordLoaderTestAdapter.configure!(%{ReviewComment => {:error, :database_unavailable}})
 
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)

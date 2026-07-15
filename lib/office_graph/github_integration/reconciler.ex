@@ -168,6 +168,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp classify_credential_resolution({:ok, credential}), do: {:ok, credential}
 
+  defp classify_credential_resolution({:error, :integration_storage_unavailable}),
+    do: {:error, :integration_storage_unavailable}
+
   defp classify_credential_resolution({:error, :unavailable}),
     do: {:error, {:provider, :provider_unavailable}}
 

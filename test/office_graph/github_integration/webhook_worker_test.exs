@@ -6,6 +6,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
   alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
 
   alias OfficeGraph.DurableDelivery.DomainEvent
+  alias OfficeGraph.Integrations.RawArchive
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
@@ -180,6 +181,31 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
 
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+  end
+
+  test "transient archive lookup failures remain retryable" do
+    context = worker_context("archive-lookup-unavailable")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_archive_unavailable", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-archive-unavailable",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    job = webhook_job("delivery-worker-archive-unavailable")
+
+    RecordLoaderTestAdapter.configure!(%{RawArchive => {:error, :database_unavailable}})
+
+    assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
     refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
   end
 

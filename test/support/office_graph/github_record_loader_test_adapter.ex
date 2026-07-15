@@ -50,6 +50,26 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
     end
   end
 
+  @impl true
+  def read(resource, query, opts) do
+    ensure_table!()
+
+    case :ets.lookup(@table, resource) do
+      [{^resource, response}] -> response
+      [] -> Ash.read(query, opts)
+    end
+  end
+
+  @impl true
+  def aggregate(resource, query, aggregates, opts) do
+    ensure_table!()
+
+    case :ets.lookup(@table, resource) do
+      [{^resource, response}] -> response
+      [] -> Ash.aggregate(query, aggregates, opts)
+    end
+  end
+
   defp ensure_table! do
     case :ets.whereis(@table) do
       :undefined ->

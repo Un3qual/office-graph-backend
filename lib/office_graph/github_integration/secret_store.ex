@@ -3,6 +3,7 @@ defmodule OfficeGraph.GitHubIntegration.SecretStore do
   Resolves opaque integration credential references without exposing them through products APIs.
   """
 
+  alias OfficeGraph.GitHubIntegration.RecordLoader
   alias OfficeGraph.Integrations.IntegrationCredential
 
   @callback fetch(reference :: String.t(), scope :: map()) ::
@@ -24,6 +25,9 @@ defmodule OfficeGraph.GitHubIntegration.SecretStore do
         {:error, :secret_not_found}
 
       {:error, :forbidden} = error ->
+        error
+
+      {:error, :integration_storage_unavailable} = error ->
         error
 
       {:error, reason}
@@ -52,10 +56,13 @@ defmodule OfficeGraph.GitHubIntegration.SecretStore do
   defp require_active(_credential), do: {:error, :forbidden}
 
   defp load_credential(credential_id) do
-    Ash.get(IntegrationCredential, credential_id,
-      authorize?: false,
-      not_found_error?: false
-    )
+    case RecordLoader.get(IntegrationCredential, credential_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+      result -> result
+    end
   end
 
   defp configured_adapter do

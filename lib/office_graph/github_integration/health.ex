@@ -28,15 +28,14 @@ defmodule OfficeGraph.GitHubIntegration.Health do
            Authorization.authorize_projection(session_context, :skeleton_read,
              organization_id: installation.organization_id,
              workspace_id: installation.workspace_id
-           ) do
-      permissions = permissions(installation)
-      credentials = credentials(installation)
-      outcomes = recent_failure_outcomes(installation.id, limit)
-      actions = recent_failure_actions(installation.id, limit)
-      outcome_counts = failure_counts(SyncOutcome, installation.id)
-      action_counts = failure_counts(OutboundAction, installation.id)
-      last_success = last_success(installation.id)
-
+           ),
+         {:ok, permissions} <- permissions(installation),
+         {:ok, credentials} <- credentials(installation),
+         {:ok, outcomes} <- recent_failure_outcomes(installation.id, limit),
+         {:ok, actions} <- recent_failure_actions(installation.id, limit),
+         {:ok, outcome_counts} <- failure_counts(SyncOutcome, installation.id),
+         {:ok, action_counts} <- failure_counts(OutboundAction, installation.id),
+         {:ok, last_success} <- last_success(installation.id) do
       {:ok,
        view(
          installation,
@@ -48,6 +47,9 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          last_success,
          limit
        )}
+    else
+      {:error, :forbidden} = error -> error
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -72,38 +74,39 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     end
   end
 
-  defp permissions(%{current_permission_snapshot_id: nil}), do: []
+  defp permissions(%{current_permission_snapshot_id: nil}), do: {:ok, []}
 
   defp permissions(installation) do
     PermissionEntry
     |> Ash.Query.filter(permission_snapshot_id == ^installation.current_permission_snapshot_id)
     |> Ash.Query.sort(name: :asc)
-    |> Ash.read!(authorize?: false)
+    |> then(&RecordLoader.read(PermissionEntry, &1, authorize?: false))
   end
 
   defp credentials(installation) do
-    bindings =
-      InstallationCredential
-      |> Ash.Query.filter(installation_id == ^installation.id)
-      |> Ash.read!(authorize?: false)
+    with {:ok, bindings} <-
+           InstallationCredential
+           |> Ash.Query.filter(installation_id == ^installation.id)
+           |> then(&RecordLoader.read(InstallationCredential, &1, authorize?: false)),
+         {:ok, credentials} <- credential_records(bindings) do
+      by_id = Map.new(credentials, &{&1.id, &1})
 
+      {:ok,
+       Enum.map(bindings, fn binding ->
+         credential = Map.get(by_id, binding.credential_id)
+         %{purpose: binding.purpose, status: credential && credential.status}
+       end)}
+    end
+  end
+
+  defp credential_records([]), do: {:ok, []}
+
+  defp credential_records(bindings) do
     credential_ids = Enum.map(bindings, & &1.credential_id)
 
-    credentials =
-      if credential_ids == [] do
-        []
-      else
-        IntegrationCredential
-        |> Ash.Query.filter(id in ^credential_ids)
-        |> Ash.read!(authorize?: false)
-      end
-
-    by_id = Map.new(credentials, &{&1.id, &1})
-
-    Enum.map(bindings, fn binding ->
-      credential = Map.get(by_id, binding.credential_id)
-      %{purpose: binding.purpose, status: credential && credential.status}
-    end)
+    IntegrationCredential
+    |> Ash.Query.filter(id in ^credential_ids)
+    |> then(&RecordLoader.read(IntegrationCredential, &1, authorize?: false))
   end
 
   defp recent_failure_outcomes(installation_id, limit) do
@@ -114,7 +117,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     )
     |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(limit)
-    |> Ash.read!(authorize?: false)
+    |> then(&RecordLoader.read(SyncOutcome, &1, authorize?: false))
   end
 
   defp recent_failure_actions(installation_id, limit) do
@@ -124,7 +127,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     )
     |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(limit)
-    |> Ash.read!(authorize?: false)
+    |> then(&RecordLoader.read(OutboundAction, &1, authorize?: false))
   end
 
   defp last_success(installation_id) do
@@ -132,18 +135,22 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     |> Ash.Query.filter(installation_id == ^installation_id and state == "reconciled")
     |> Ash.Query.sort(updated_at: :desc, id: :desc)
     |> Ash.Query.limit(1)
-    |> Ash.read_one!(authorize?: false)
+    |> then(&RecordLoader.read_one(SyncOutcome, &1, authorize?: false))
   end
 
   defp failure_counts(resource, installation_id) do
     resource
     |> Ash.Query.filter(installation_id == ^installation_id)
-    |> Ash.aggregate!(
-      [
-        {:retryable, :count, query: [filter: [state: "retryable"]]},
-        {:terminal, :count, query: [filter: [state: "terminal"]]}
-      ],
-      authorize?: false
+    |> then(
+      &RecordLoader.aggregate(
+        resource,
+        &1,
+        [
+          {:retryable, :count, query: [filter: [state: "retryable"]]},
+          {:terminal, :count, query: [filter: [state: "terminal"]]}
+        ],
+        authorize?: false
+      )
     )
   end
 

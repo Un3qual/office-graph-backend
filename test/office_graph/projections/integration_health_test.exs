@@ -7,10 +7,14 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Installation,
+    InstallationCredential,
     OutboundAction,
+    PermissionEntry,
     RecordLoaderTestAdapter,
     SyncOutcome
   }
+
+  alias OfficeGraph.Integrations.IntegrationCredential
 
   test "health is bounded, safe, and contains no credential references or payloads" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -75,6 +79,27 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
                context.bootstrap.session,
                context.installation.id
              )
+  end
+
+  test "dependent health lookup outages return the safe storage classification" do
+    context = health_context("dependency-lookup-unavailable")
+    RecordLoaderTestAdapter.configure!(%{})
+
+    for resource <- [
+          PermissionEntry,
+          InstallationCredential,
+          IntegrationCredential,
+          SyncOutcome,
+          OutboundAction
+        ] do
+      RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})
+
+      assert {:error, :integration_storage_unavailable} =
+               Projections.integration_health(
+                 context.bootstrap.session,
+                 context.installation.id
+               )
+    end
   end
 
   test "organization-scoped health requires organization-scoped read authority" do

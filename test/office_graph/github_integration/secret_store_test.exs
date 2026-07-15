@@ -2,8 +2,9 @@ defmodule OfficeGraph.GitHubIntegration.SecretStoreTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Foundation, GitHubIntegration}
-  alias OfficeGraph.GitHubIntegration.SecretStore
+  alias OfficeGraph.GitHubIntegration.{RecordLoaderTestAdapter, SecretStore}
   alias OfficeGraph.GitHubIntegration.SecretStore.{Environment, TestAdapter}
+  alias OfficeGraph.Integrations.IntegrationCredential
 
   test "resolves opaque credential references only within the bound tenant" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -55,6 +56,29 @@ defmodule OfficeGraph.GitHubIntegration.SecretStoreTest do
     assert {:ok, "environment-secret"} = Environment.fetch("env:#{variable}", %{})
     assert {:error, :invalid_secret_reference} = Environment.fetch(variable, %{})
     assert {:error, :invalid_secret_reference} = Environment.fetch("env:../unsafe", %{})
+  end
+
+  test "credential metadata lookup outages remain distinguishable from secret-store outages" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    attrs = binding_attrs(bootstrap)
+    assert {:ok, bound} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
+
+    credential = Enum.find(bound.credentials, &(&1.purpose == "app_private_key"))
+    TestAdapter.put(%{attrs.app_private_key_reference => "private-key"})
+
+    RecordLoaderTestAdapter.configure!(%{
+      IntegrationCredential => {:error, :database_unavailable}
+    })
+
+    assert {:error, :integration_storage_unavailable} =
+             SecretStore.resolve(
+               credential.credential_id,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id
+               },
+               TestAdapter
+             )
   end
 
   defp binding_attrs(bootstrap) do
