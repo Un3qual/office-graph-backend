@@ -5,6 +5,24 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
 
   @table __MODULE__
 
+  def configure!(responses) when is_map(responses) do
+    configured = Application.fetch_env(:office_graph, :github_record_loader)
+
+    put(responses)
+    Application.put_env(:office_graph, :github_record_loader, __MODULE__)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      case configured do
+        {:ok, loader} -> Application.put_env(:office_graph, :github_record_loader, loader)
+        :error -> Application.delete_env(:office_graph, :github_record_loader)
+      end
+
+      put(%{})
+    end)
+
+    :ok
+  end
+
   def put(responses) when is_map(responses) do
     ensure_table!()
     :ets.delete_all_objects(@table)

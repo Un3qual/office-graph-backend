@@ -144,7 +144,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
     job = webhook_job("delivery-worker-lookup-unavailable")
 
-    configure_record_loader(%{Installation => {:error, :database_unavailable}})
+    RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
 
@@ -174,7 +174,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     Provider.put(%{{"pull_request", "PR_worker"} => {:ok, snapshot()}})
     job = webhook_job("delivery-worker-credential-lookup-unavailable")
 
-    configure_record_loader(%{InstallationCredential => {:error, :database_unavailable}})
+    RecordLoaderTestAdapter.configure!(%{
+      InstallationCredential => {:error, :database_unavailable}
+    })
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
 
@@ -457,20 +459,6 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
           job.worker == ^worker_name and
             fragment("?->>'delivery_id'", job.args) == ^delivery_id
     )
-  end
-
-  defp configure_record_loader(responses) do
-    configured = Application.get_env(:office_graph, :github_record_loader)
-    RecordLoaderTestAdapter.put(responses)
-    Application.put_env(:office_graph, :github_record_loader, RecordLoaderTestAdapter)
-
-    on_exit(fn ->
-      if configured,
-        do: Application.put_env(:office_graph, :github_record_loader, configured),
-        else: Application.delete_env(:office_graph, :github_record_loader)
-
-      RecordLoaderTestAdapter.put(%{})
-    end)
   end
 
   defp snapshot do
