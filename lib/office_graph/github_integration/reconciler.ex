@@ -75,6 +75,38 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def exhaust_retry(_operation, _request, _failure_code), do: {:error, :forbidden}
 
+  def exhaust_pre_operation(operation, installation_id, delivery_id, failure_code)
+      when is_binary(installation_id) and is_binary(delivery_id) and
+             failure_code in @retryable_failure_codes do
+    with :ok <- Operations.validate_system_operation(operation, :provider_webhook_receive) do
+      attrs = %{
+        id: Ecto.UUID.generate(),
+        installation_id: installation_id,
+        operation_id: operation.id,
+        object_type: "provider_delivery",
+        object_id: delivery_id,
+        delivery_id: delivery_id,
+        state: "terminal",
+        signal_ids: [],
+        failure_class: "terminal",
+        failure_code: Atom.to_string(failure_code),
+        retry_at: nil
+      }
+
+      Repo.transaction(fn ->
+        lock!("github:sync-outcome:#{operation.id}")
+        outcome = persist_outcome!(operation.id, attrs)
+
+        if pre_operation_outcome?(outcome, installation_id, delivery_id, failure_code),
+          do: outcome,
+          else: Repo.rollback(:forbidden)
+      end)
+    end
+  end
+
+  def exhaust_pre_operation(_operation, _installation_id, _delivery_id, _failure_code),
+    do: {:error, :forbidden}
+
   defp continue_or_replay(operation, request, nil),
     do: reconcile_provider(operation, request)
 
@@ -1090,6 +1122,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp outcome_matches_request?(outcome, request) do
     outcome.object_type == request.object_type and outcome.object_id == request.object_id and
       outcome.delivery_id == request.delivery_id
+  end
+
+  defp pre_operation_outcome?(outcome, installation_id, delivery_id, failure_code) do
+    outcome.installation_id == installation_id and outcome.object_type == "provider_delivery" and
+      outcome.object_id == delivery_id and outcome.delivery_id == delivery_id and
+      outcome.state == "terminal" and outcome.failure_class == "terminal" and
+      outcome.failure_code == Atom.to_string(failure_code)
   end
 
   defp lock!(key), do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])

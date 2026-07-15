@@ -155,6 +155,76 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
            )
   end
 
+  test "exhausted pre-operation storage failures terminalize durably before cancellation" do
+    context = worker_context("pre-operation-storage-exhausted")
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_pre_operation_exhausted", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-pre-operation-exhausted",
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    job = webhook_job("delivery-worker-pre-operation-exhausted")
+
+    RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
+
+    Repo.query!("""
+    ALTER TABLE github_sync_outcomes
+    ADD CONSTRAINT test_github_pre_operation_terminalization_retry
+    CHECK (state <> 'terminal')
+    """)
+
+    try do
+      assert {:snooze, 5} = WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
+
+      staged_job = Repo.get!(Oban.Job, job.id)
+
+      assert staged_job.meta["terminal_phase"] == "pre_operation"
+      assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
+      assert staged_job.meta["terminal_installation_id"] == context.installation.id
+      assert staged_job.meta["terminal_delivery_id"] == "delivery-worker-pre-operation-exhausted"
+    after
+      Repo.query!(
+        "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_pre_operation_terminalization_retry"
+      )
+    end
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(staged_job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(
+        installation_id == ^context.installation.id and object_type == "provider_delivery"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.object_id == "delivery-worker-pre-operation-exhausted"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "integration_storage_unavailable"
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert {:ok, health} =
+             GitHubIntegration.integration_health(context.session, context.installation.id)
+
+    assert health.terminal_count == 1
+    assert Enum.any?(health.recent_failures, &(&1.code == "integration_storage_unavailable"))
+
+    event = Ash.get!(DomainEvent, job.args["event_id"], authorize?: false)
+    assert event.delivery_state == "failed"
+    assert event.failure_code == "integration_storage_unavailable"
+  end
+
   test "transient credential binding lookup failures remain retryable" do
     context = worker_context("credential-lookup-unavailable")
 
@@ -470,6 +540,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     })
 
     %{
+      session: bootstrap.session,
       installation: bound.installation,
       external_installation_id: external_installation_id,
       webhook_secret: webhook_secret

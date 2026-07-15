@@ -10,6 +10,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
   alias OfficeGraph.{DurableDelivery, Integrations, Operations}
+  alias OfficeGraph.DurableDelivery.DomainEvent
 
   alias OfficeGraph.GitHubIntegration.{
     Installation,
@@ -20,6 +21,40 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   }
 
   require Ash.Query
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{
+        args: %{
+          "delivery_id" => delivery_id,
+          "installation_id" => installation_id,
+          "event_id" => event_id,
+          "organization_id" => organization_id,
+          "workspace_id" => workspace_id
+        },
+        meta: %{
+          "terminal_phase" => "pre_operation",
+          "terminal_failure_code" => failure_code,
+          "terminal_installation_id" => installation_id,
+          "terminal_delivery_id" => delivery_id
+        }
+      })
+      when is_binary(failure_code) and is_binary(delivery_id) and is_binary(installation_id) and
+             is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
+    with {:ok, failure_code} <- retry_failure_code(failure_code) do
+      persist_pre_operation_terminal_failure(
+        event_id,
+        organization_id,
+        workspace_id,
+        installation_id,
+        delivery_id,
+        failure_code
+      )
+    else
+      {:error, :invalid_retry_failure_code} ->
+        {:cancel, "invalid_github_webhook_terminalization"}
+    end
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -81,10 +116,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       |> normalize_result(job, operation, request)
     else
       {:error, :integration_storage_unavailable} ->
-        DurableDelivery.normalize_worker_result(
-          {:error, {:retryable, :integration_storage_unavailable}},
-          retry_budget(job)
-        )
+        normalize_pre_operation_storage_failure(job)
 
       {:error, code} ->
         normalize_result({:error, {:terminal, safe_code(code)}}, job)
@@ -302,10 +334,117 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     end
   end
 
+  defp normalize_pre_operation_storage_failure(job) do
+    case DurableDelivery.normalize_worker_result(
+           {:error, {:retryable, :integration_storage_unavailable}},
+           retry_budget(job)
+         ) do
+      {:cancel, "attempts_exhausted"} ->
+        stage_and_persist_pre_operation_terminal_failure(
+          job,
+          :integration_storage_unavailable
+        )
+
+      other ->
+        other
+    end
+  end
+
+  defp stage_and_persist_pre_operation_terminal_failure(
+         %Oban.Job{
+           args: %{
+             "delivery_id" => delivery_id,
+             "installation_id" => installation_id,
+             "event_id" => event_id,
+             "organization_id" => organization_id,
+             "workspace_id" => workspace_id
+           }
+         } = job,
+         failure_code
+       ) do
+    metadata = %{
+      "terminal_phase" => "pre_operation",
+      "terminal_failure_code" => Atom.to_string(failure_code),
+      "terminal_installation_id" => installation_id,
+      "terminal_delivery_id" => delivery_id
+    }
+
+    case stage_terminal_metadata(job, metadata) do
+      :ok ->
+        persist_pre_operation_terminal_failure(
+          event_id,
+          organization_id,
+          workspace_id,
+          installation_id,
+          delivery_id,
+          failure_code
+        )
+
+      {:error, _error} ->
+        retry_terminal_failure()
+    end
+  end
+
+  defp persist_pre_operation_terminal_failure(
+         event_id,
+         organization_id,
+         workspace_id,
+         installation_id,
+         delivery_id,
+         failure_code
+       ) do
+    scope = %{organization_id: organization_id, workspace_id: workspace_id}
+
+    with {:ok, operation} <- receipt_operation(event_id, scope),
+         {:ok, _outcome} <-
+           Reconciler.exhaust_pre_operation(
+             operation,
+             installation_id,
+             delivery_id,
+             failure_code
+           ),
+         :ok <-
+           DurableDelivery.mark_failed(event_id, scope, Atom.to_string(failure_code)) do
+      {:cancel, "attempts_exhausted"}
+    else
+      {:error, _error} -> retry_terminal_failure()
+    end
+  end
+
+  defp receipt_operation(
+         event_id,
+         %{organization_id: organization_id, workspace_id: workspace_id}
+       ) do
+    case RecordLoader.get(DomainEvent, event_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok,
+       %DomainEvent{
+         organization_id: ^organization_id,
+         workspace_id: ^workspace_id,
+         operation_kind: "system",
+         event_kind: "provider_delivery.received",
+         operation_id: operation_id
+       }} ->
+        Operations.lock_operation(operation_id)
+
+      {:ok, _missing_or_cross_scope} ->
+        {:error, :forbidden}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
   defp retry_terminal_failure, do: {:snooze, @terminal_retry_delay_seconds}
 
   defp retry_failure_code("provider_rate_limited"), do: {:ok, :provider_rate_limited}
   defp retry_failure_code("provider_unavailable"), do: {:ok, :provider_unavailable}
+
+  defp retry_failure_code("integration_storage_unavailable"),
+    do: {:ok, :integration_storage_unavailable}
+
   defp retry_failure_code(_code), do: {:error, :invalid_retry_failure_code}
 
   defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
