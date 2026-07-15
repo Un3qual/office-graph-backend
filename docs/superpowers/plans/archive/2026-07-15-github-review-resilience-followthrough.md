@@ -55,9 +55,9 @@ Resolve the fresh PR #25 bot findings at their shared boundaries: preserve retry
 
 ## Task 6: Verify, publish, and respond
 
-- [ ] Run all affected tests in one Nix-shell command.
-- [ ] Run `mix format --check-formatted`, `openspec validate --all --strict`, `mix verify`, and `git diff --check` in the Nix shell where applicable.
-- [ ] Mark this plan complete, move it to `docs/superpowers/plans/archive/`, and commit the closeout.
-- [ ] Push `codex/github-review-integration` once.
-- [ ] Reply to each fresh inline bot thread with the root-cause fix or evidence-backed non-actionable explanation, and leave one consolidated PR comment for outside-diff findings.
-- [ ] Stop without a post-push refresh.
+- [x] Run all affected tests in one Nix-shell command.
+- [x] Run `mix format --check-formatted`, `openspec validate --all --strict`, `mix verify`, and `git diff --check` in the Nix shell where applicable.
+- [x] Mark this plan complete, move it to `docs/superpowers/plans/archive/`, and commit the closeout.
+- [x] Push `codex/github-review-integration` once.
+- [x] Reply to each fresh inline bot thread with the root-cause fix or evidence-backed non-actionable explanation, and leave one consolidated PR comment for outside-diff findings.
+- [x] Stop without a post-push refresh.

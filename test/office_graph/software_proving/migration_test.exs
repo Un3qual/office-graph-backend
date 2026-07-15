@@ -96,10 +96,13 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
       )
     end
 
-    assert apply(migration, :__migration__, [])[:disable_ddl_transaction]
+    migration_config = Function.capture(migration, :__migration__, 0)
+    down = Function.capture(migration, :down, 0)
+
+    assert migration_config.()[:disable_ddl_transaction]
 
     assert_raise Ecto.MigrationError, ~r/irreversible.*source kinds/i, fn ->
-      apply(migration, :down, [])
+      down.()
     end
   end
 
