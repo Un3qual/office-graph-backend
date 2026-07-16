@@ -156,18 +156,18 @@ git diff --check
 
 Expected: every gate passes and the diff is clean.
 
-- [ ] **Step 3: Commit the implementation**
+- [x] **Step 3: Commit the implementation**
 
 ```bash
 git add lib test openspec/specs/github-review-integration/spec.md
 git commit -m "fix: preserve github retry and reply replay semantics"
 ```
 
-- [ ] **Step 4: Archive the completed plan and commit**
+- [x] **Step 4: Archive the completed plan and commit**
 
 Move this file under `docs/superpowers/plans/archive/`, update the plan index so internal-agent-runtime is again the only active plan, and commit the archive state.
 
-- [ ] **Step 5: Push once, then reply and resolve cached threads**
+- [x] **Step 5: Push once, then reply and resolve cached threads**
 
 ```bash
 git push origin codex/github-review-integration
