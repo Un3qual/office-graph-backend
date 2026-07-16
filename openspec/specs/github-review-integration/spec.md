@@ -356,3 +356,10 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST persist a terminalization phase, durably record the
   terminal provider-delivery outcome and failed receipt after storage recovers,
   expose the classified failure through health, and MUST NOT cancel first
+
+#### Scenario: Webhook retry classification changes at exhaustion
+
+- **WHEN** an inbound operation already has a retryable outcome and its final
+  attempt reaches exhaustion with a different retryable failure code
+- **THEN** terminalization MUST match the durable operation and request identity,
+  persist the latest staged failure code, and MUST NOT leave the outcome retryable

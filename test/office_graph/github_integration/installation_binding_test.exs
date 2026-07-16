@@ -8,7 +8,8 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     Installation,
     InstallationCredential,
     PermissionEntry,
-    PermissionSnapshot
+    PermissionSnapshot,
+    RecordLoaderTestAdapter
   }
 
   alias OfficeGraph.Identity.Principal
@@ -86,6 +87,18 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert {:ok, bound} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
     assert bound.installation.workspace_id == nil
     assert Repo.aggregate(Installation, :count) == 1
+  end
+
+  test "installation lookup storage failures remain retryable during binding" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    attrs = binding_attrs(bootstrap, "lookup-unavailable")
+
+    RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             GitHubIntegration.bind_installation(bootstrap.session, attrs)
+
+    assert Repo.aggregate(Installation, :count) == 0
   end
 
   test "binding rejects changed replay input, missing capability, and cross-tenant scope" do

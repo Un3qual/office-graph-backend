@@ -612,6 +612,61 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert outcome.failure_code == "provider_unavailable"
   end
 
+  test "exhausted reconciliation terminalizes the latest retry classification" do
+    context = worker_context("retry-classification-change")
+    delivery_id = "delivery-worker-retry-classification-change"
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{
+          "node_id" => "PR_worker_retry_classification_change",
+          "number" => 25
+        }
+      })
+
+    headers = %{
+      "x-github-delivery" => delivery_id,
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    Provider.put(%{
+      {"pull_request", "PR_worker_retry_classification_change"} => {:error, :network_error}
+    })
+
+    job = webhook_job(delivery_id)
+    assert {:error, "provider_unavailable"} = WebhookWorker.perform(job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "retryable"
+    assert outcome.failure_code == "provider_unavailable"
+
+    RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
+
+    assert {:snooze, 5} =
+             WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(staged_job)
+
+    outcome = Ash.get!(SyncOutcome, outcome.id, authorize?: false)
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "integration_storage_unavailable"
+  end
+
   test "numeric webhook object ids match authoritative snapshot database ids" do
     context = worker_context("database-id")
 

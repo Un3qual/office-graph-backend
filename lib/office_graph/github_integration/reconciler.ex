@@ -1151,8 +1151,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp terminalize_retry!(operation, request, failure_code) do
     case outcome_by_operation(operation.id) do
       {:ok, %SyncOutcome{} = outcome} ->
-        if outcome_matches_request?(outcome, request) and
-             known_code(outcome.failure_code) == failure_code do
+        if outcome_matches_request?(outcome, request) do
           terminalize_retry_outcome!(outcome, failure_code)
         else
           Repo.rollback(:forbidden)

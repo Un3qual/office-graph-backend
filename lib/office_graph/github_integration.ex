@@ -30,6 +30,7 @@ defmodule OfficeGraph.GitHubIntegration do
     OutboundCommands,
     PermissionEntry,
     PermissionSnapshot,
+    RecordLoader,
     Reconciler,
     ReconciliationRequest,
     WebhookReceipt
@@ -169,6 +170,9 @@ defmodule OfficeGraph.GitHubIntegration do
       {:ok, %Installation{organization_id: organization_id, operation_id: operation_id}}
       when organization_id == session_context.organization_id and operation_id == operation.id ->
         :ok
+
+      {:error, :integration_storage_unavailable} = error ->
+        error
 
       _other ->
         {:error, :forbidden}
@@ -381,13 +385,20 @@ defmodule OfficeGraph.GitHubIntegration do
   defp installation_by_external_id(external_installation_id) do
     Installation
     |> Ash.Query.filter(external_installation_id == ^external_installation_id)
-    |> Ash.read_one(authorize?: false)
+    |> read_installation()
   end
 
   defp installation_by_operation(operation_id) do
     Installation
     |> Ash.Query.filter(operation_id == ^operation_id)
-    |> Ash.read_one(authorize?: false)
+    |> read_installation()
+  end
+
+  defp read_installation(query) do
+    case RecordLoader.read_one(Installation, query, authorize?: false) do
+      {:ok, installation} -> {:ok, installation}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
   end
 
   defp credential_by_reference(IntegrationCredential, lookup) do
