@@ -350,13 +350,49 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp valid_comment_parents?(comments) when is_list(comments) do
-    node_ids = MapSet.new(comments, & &1.node_id)
+    parent_by_node = Map.new(comments, &{&1.node_id, &1.parent_comment_node_id})
 
     Enum.all?(comments, fn comment ->
       is_nil(comment.parent_comment_node_id) or
         (comment.parent_comment_node_id != comment.node_id and
-           MapSet.member?(node_ids, comment.parent_comment_node_id))
-    end)
+           Map.has_key?(parent_by_node, comment.parent_comment_node_id))
+    end) and acyclic_comment_parents?(parent_by_node)
+  end
+
+  defp acyclic_comment_parents?(parent_by_node) do
+    case Enum.reduce_while(Map.keys(parent_by_node), %{}, fn node_id, states ->
+           case visit_comment_parent(node_id, parent_by_node, states) do
+             {:ok, states} -> {:cont, states}
+             :cycle -> {:halt, :cycle}
+           end
+         end) do
+      :cycle -> false
+      _states -> true
+    end
+  end
+
+  defp visit_comment_parent(node_id, parent_by_node, states) do
+    case Map.get(states, node_id) do
+      :visited ->
+        {:ok, states}
+
+      :visiting ->
+        :cycle
+
+      nil ->
+        states = Map.put(states, node_id, :visiting)
+
+        case Map.fetch!(parent_by_node, node_id) do
+          nil ->
+            {:ok, Map.put(states, node_id, :visited)}
+
+          parent_node_id ->
+            case visit_comment_parent(parent_node_id, parent_by_node, states) do
+              {:ok, states} -> {:ok, Map.put(states, node_id, :visited)}
+              :cycle -> :cycle
+            end
+        end
+    end
   end
 
   defp valid_comment_threads?(comments, threads) when is_list(comments) and is_list(threads) do

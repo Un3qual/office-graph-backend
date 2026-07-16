@@ -385,6 +385,45 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 0
   end
 
+  test "cyclic review comment parents are classified before provider-neutral writes" do
+    context = reconciliation_context("cyclic-comment-parents")
+    request = request(context, "pull_request", "PR_cyclic_comments", "delivery-cyclic-comments")
+    operation = reconciliation_operation!(context, request, "cyclic-comments")
+
+    comments = [
+      %Adapter.ReviewCommentSnapshot{
+        node_id: "PRRC_cycle_a",
+        parent_comment_node_id: "PRRC_cycle_b",
+        body: "Cycle A",
+        state: "published"
+      },
+      %Adapter.ReviewCommentSnapshot{
+        node_id: "PRRC_cycle_b",
+        parent_comment_node_id: "PRRC_cycle_a",
+        body: "Cycle B",
+        state: "published"
+      }
+    ]
+
+    invalid_snapshot =
+      snapshot(1, "open", "PR_cyclic_comments", "R_cyclic_comments")
+      |> Map.put(:review_comments, comments)
+
+    Provider.put(%{{"pull_request", "PR_cyclic_comments"} => {:ok, invalid_snapshot}})
+
+    assert {:error, {:terminal, :invalid_provider_response}} =
+             Reconciler.reconcile(operation, request)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_code == "invalid_provider_response"
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
   test "malformed requested-object collections are classified before root matching" do
     cases = [
       {"review-comment-nil", "review_comment", :review_comments, nil},

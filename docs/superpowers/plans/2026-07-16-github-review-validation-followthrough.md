@@ -29,11 +29,11 @@
 - Consumes: `Adapter.ReconciliationSnapshot.review_comments` and `Reconciler.reconcile/2`.
 - Produces: `valid_comment_parents?/1` accepts only in-batch parent references that form a directed acyclic graph; malformed cycles reach `record_failure/4` as `:invalid_provider_response` before provider-neutral writes.
 
-- [ ] **Step 1: Write the failing regression**
+- [x] **Step 1: Write the failing regression**
 
 Add a reconciliation test with two otherwise-valid `Adapter.ReviewCommentSnapshot` values whose `parent_comment_node_id` fields point to one another. Assert `Reconciler.reconcile/2` returns `{:error, {:terminal, :invalid_provider_response}}`, writes one terminal `SyncOutcome` with `failure_code == "invalid_provider_response"`, and leaves `Repository` count at zero.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -43,11 +43,11 @@ nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc 'mix t
 
 Expected: FAIL because the current direct-parent validation accepts the cycle and persistence rolls back with the raw `:invalid_provider_response` error instead of recording the classified outcome.
 
-- [ ] **Step 3: Implement cycle-aware validation**
+- [x] **Step 3: Implement cycle-aware validation**
 
 Build a `node_id => parent_comment_node_id` map after the existing uniqueness check. Keep the current missing-parent and self-parent rejection, then walk each parent chain with `:visiting` and `:visited` states so back-edges fail validation while roots and already-completed chains remain valid.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the same command. Expected: all reconciliation tests pass.
 
