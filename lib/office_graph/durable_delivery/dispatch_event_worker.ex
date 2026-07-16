@@ -62,24 +62,20 @@ defmodule OfficeGraph.DurableDelivery.DispatchEventWorker do
         job
       )
 
-    case stage_terminal_failure(job, failure_code) do
+    case OfficeGraph.DurableDelivery.stage_terminal_failure(job, failure_code) do
       :ok -> {:cancel, failure_code}
       {:error, _error} -> retry_terminal_failure_staging()
     end
   end
 
   defp stage_and_persist_terminal_failure(job, event_id, scope, failure_code) do
-    case stage_terminal_failure(job, failure_code) do
+    case OfficeGraph.DurableDelivery.stage_terminal_failure(job, failure_code) do
       :ok -> persist_terminal_failure(event_id, scope, failure_code)
       {:error, _error} -> retry_terminal_failure_staging()
     end
   end
 
   defp retry_terminal_failure_staging, do: {:snooze, @terminal_retry_delay_seconds}
-
-  defp stage_terminal_failure(job, failure_code) do
-    OfficeGraph.DurableDelivery.stage_terminal_failure(job, failure_code)
-  end
 
   defp persist_terminal_failure(event_id, scope, failure_code) do
     case OfficeGraph.DurableDelivery.mark_failed(event_id, scope, failure_code) do

@@ -159,7 +159,7 @@
 
   Move the existing safe `Oban.update_job` metadata persistence/rescue logic behind `DurableDelivery.stage_terminal_failure/2`, use it in DispatchEventWorker, and have SystemConformanceWorker stage the safe code before cancelling or snooze for five seconds if staging fails.
 
-- [ ] **Step 5: Verify durable worker behavior and commit**
+- [x] **Step 5: Verify durable worker behavior and commit**
 
   Run `mix test test/office_graph/system_operations_test.exs test/office_graph/durable_delivery/terminal_jobs_test.exs test/office_graph/durable_delivery/projection_invalidation_test.exs test/office_graph/github_integration/webhook_worker_test.exs`, then commit as `fix: persist recovery terminal reasons`.
 
@@ -173,11 +173,11 @@
 - Consumes: cached PR snapshot `/tmp/office_graph_pr25_review_snapshot_20260715_6.json` and all six bot-last thread IDs plus CodeRabbit's cached outside-diff review body.
 - Produces: a verified pushed head and evidence-backed replies/resolution without a post-push GitHub refresh.
 
-- [ ] **Step 1: Run focused and repository-wide verification**
+- [x] **Step 1: Run focused and repository-wide verification**
 
   Run the combined affected modules, `mix format --check-formatted`, `openspec validate --all --strict`, `./bin/verify`, and `git diff --check` inside Nix. Record exact test/spec counts and inspect every exit code.
 
-- [ ] **Step 2: Record the Oban false-positive evidence**
+- [x] **Step 2: Record the Oban false-positive evidence**
 
   Cite the pinned Oban worker documentation and Basic engine implementation: execution increments `attempt`, snooze increments `max_attempts`, and `retry_budget/1` clamps the effective maximum back to ten. Make no retry-counter code change.
 
