@@ -448,6 +448,141 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 1
   end
 
+  test "provider-neutral create failures remain retryable and recover atomically" do
+    context = reconciliation_context("provider-resource-create-unavailable")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_provider_resource_create_unavailable",
+        "delivery-provider-resource-create-unavailable"
+      )
+
+    operation =
+      reconciliation_operation!(context, request, "provider-resource-create-unavailable")
+
+    provider_snapshot =
+      snapshot(
+        1,
+        "open",
+        "PR_provider_resource_create_unavailable",
+        "R_provider_resource_create_unavailable"
+      )
+      |> then(fn value ->
+        %{value | repository: %{value.repository | name: "create-storage-blocked"}}
+      end)
+
+    Provider.put(%{{"pull_request", request.object_id} => {:ok, provider_snapshot}})
+    repository_count = Repo.aggregate(Repository, :count)
+
+    Repo.query!("""
+    ALTER TABLE repositories
+    ADD CONSTRAINT test_github_provider_resource_create_storage
+    CHECK (name <> 'create-storage-blocked')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!(
+          "ALTER TABLE repositories DROP CONSTRAINT test_github_provider_resource_create_storage"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == repository_count
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+
+    pull_request = Ash.get!(PullRequest, recovered.resource_id, authorize?: false)
+    repository = Ash.get!(Repository, pull_request.repository_id, authorize?: false)
+    assert repository.name == "create-storage-blocked"
+    assert repository.provider_sequence == 1
+  end
+
+  test "provider-neutral update failures remain retryable and preserve canonical state" do
+    context = reconciliation_context("provider-resource-update-unavailable")
+    pull_request_node_id = "PR_provider_resource_update_unavailable"
+    repository_node_id = "R_provider_resource_update_unavailable"
+
+    initial_request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-provider-resource-update-initial"
+      )
+
+    initial_snapshot =
+      snapshot(1, "open", pull_request_node_id, repository_node_id)
+      |> then(fn value ->
+        %{value | repository: %{value.repository | name: "update-storage-initial"}}
+      end)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, initial_snapshot}})
+
+    assert {:ok, initial_outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, initial_request, "provider-resource-update-v1"),
+               initial_request
+             )
+
+    pull_request = Ash.get!(PullRequest, initial_outcome.resource_id, authorize?: false)
+    repository = Ash.get!(Repository, pull_request.repository_id, authorize?: false)
+    assert repository.name == "update-storage-initial"
+    assert repository.provider_sequence == 1
+
+    update_request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-provider-resource-update-v2"
+      )
+
+    update_operation =
+      reconciliation_operation!(context, update_request, "provider-resource-update-v2")
+
+    updated_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> then(fn value ->
+        %{value | repository: %{value.repository | name: "update-storage-blocked"}}
+      end)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, updated_snapshot}})
+
+    Repo.query!("""
+    ALTER TABLE repositories
+    ADD CONSTRAINT test_github_provider_resource_update_storage
+    CHECK (name <> 'update-storage-blocked')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(update_operation, update_request)
+      after
+        Repo.query!(
+          "ALTER TABLE repositories DROP CONSTRAINT test_github_provider_resource_update_storage"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+
+    unchanged = Ash.get!(Repository, repository.id, authorize?: false)
+    assert unchanged.name == "update-storage-initial"
+    assert unchanged.provider_sequence == 1
+
+    assert {:ok, recovered} = Reconciler.reconcile(update_operation, update_request)
+    assert recovered.state == "reconciled"
+
+    updated = Ash.get!(Repository, repository.id, authorize?: false)
+    assert updated.name == "update-storage-blocked"
+    assert updated.provider_sequence == 2
+  end
+
   test "malformed nested snapshots fail as invalid provider responses before writes" do
     context = reconciliation_context("invalid-nested-snapshot")
     request = request(context, "pull_request", "PR_invalid_nested", "delivery-invalid-nested")

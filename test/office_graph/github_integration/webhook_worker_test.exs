@@ -362,6 +362,55 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert Repo.aggregate(SyncOutcome, :count) == 1
   end
 
+  test "exhausted sync-outcome lookup failures terminalize after storage recovers" do
+    context = worker_context("outcome-lookup-exhausted")
+    delivery_id = "delivery-worker-outcome-lookup-exhausted"
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_outcome_lookup_exhausted", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => delivery_id,
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    job = webhook_job(delivery_id)
+
+    RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
+
+    assert {:snooze, 5} =
+             WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+
+    assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
+    assert is_binary(staged_job.meta["terminal_operation_id"])
+    assert Repo.aggregate(SyncOutcome, :count) == 0
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(staged_job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(
+        installation_id == ^context.installation.id and delivery_id == ^delivery_id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "integration_storage_unavailable"
+    assert outcome.object_type == "pull_request"
+    assert outcome.object_id == "PR_worker_outcome_lookup_exhausted"
+  end
+
   test "rate-limited reconciliation snoozes until the bounded provider reset" do
     context = worker_context("rate-limit")
 

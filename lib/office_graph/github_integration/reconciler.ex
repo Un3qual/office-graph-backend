@@ -64,10 +64,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def exhaust_retry(operation, %ReconciliationRequest{} = request, failure_code) do
     if failure_code in @retryable_failure_codes do
-      with :ok <- Operations.validate_system_operation(operation, :integration_reconcile) do
+      with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+           :ok <- validate_retry_request_authority(operation, request) do
         Repo.transaction(fn ->
           lock!("github:sync-outcome:#{operation.id}")
-          terminalize_retry!(operation.id, request, failure_code)
+          terminalize_retry!(operation, request, failure_code)
         end)
       end
     else
@@ -77,23 +78,25 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def exhaust_retry(_operation, _request, _failure_code), do: {:error, :forbidden}
 
+  defp validate_retry_request_authority(operation, request) do
+    if operation.authority_basis == "github_installation:#{request.installation_id}",
+      do: :ok,
+      else: {:error, :forbidden}
+  end
+
   def exhaust_pre_operation(operation, installation_id, delivery_id, failure_code)
       when is_binary(installation_id) and is_binary(delivery_id) and
              failure_code in @retryable_failure_codes do
     with :ok <- Operations.validate_system_operation(operation, :provider_webhook_receive) do
-      attrs = %{
-        id: Ecto.UUID.generate(),
-        installation_id: installation_id,
-        operation_id: operation.id,
-        object_type: "provider_delivery",
-        object_id: delivery_id,
-        delivery_id: delivery_id,
-        state: "terminal",
-        signal_ids: [],
-        failure_class: "terminal",
-        failure_code: Atom.to_string(failure_code),
-        retry_at: nil
-      }
+      attrs =
+        terminal_outcome_attrs(
+          operation,
+          installation_id,
+          "provider_delivery",
+          delivery_id,
+          delivery_id,
+          failure_code
+        )
 
       persist_pre_operation(operation, attrs)
     end
@@ -432,6 +435,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
+      {:error, error} when is_struct(error) -> retryable_storage_error()
       {:error, error} -> {:error, error}
     end
   end
@@ -1144,8 +1148,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end
   end
 
-  defp terminalize_retry!(operation_id, request, failure_code) do
-    case outcome_by_operation(operation_id) do
+  defp terminalize_retry!(operation, request, failure_code) do
+    case outcome_by_operation(operation.id) do
       {:ok, %SyncOutcome{} = outcome} ->
         if outcome_matches_request?(outcome, request) and
              known_code(outcome.failure_code) == failure_code do
@@ -1155,11 +1159,44 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         end
 
       {:ok, nil} ->
-        Repo.rollback(:sync_outcome_not_found)
+        attrs =
+          terminal_outcome_attrs(
+            operation,
+            request.installation_id,
+            request.object_type,
+            request.object_id,
+            request.delivery_id,
+            failure_code
+          )
+
+        persist_outcome!(operation.id, attrs)
 
       {:error, error} ->
         Repo.rollback(error)
     end
+  end
+
+  defp terminal_outcome_attrs(
+         operation,
+         installation_id,
+         object_type,
+         object_id,
+         delivery_id,
+         failure_code
+       ) do
+    %{
+      id: Ecto.UUID.generate(),
+      installation_id: installation_id,
+      operation_id: operation.id,
+      object_type: object_type,
+      object_id: object_id,
+      delivery_id: delivery_id,
+      state: "terminal",
+      signal_ids: [],
+      failure_class: "terminal",
+      failure_code: Atom.to_string(failure_code),
+      retry_at: nil
+    }
   end
 
   defp terminalize_retry_outcome!(%SyncOutcome{state: "retryable"} = outcome, failure_code) do
