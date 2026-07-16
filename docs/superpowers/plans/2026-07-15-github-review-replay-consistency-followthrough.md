@@ -90,7 +90,7 @@
 
   After operation context/action, input digest, live authorization, and input normalization, call a shared replay helper. It must read the action by operation through `RecordLoader`, validate action kind/principal/organization/workspace against the current command, return `{:ok, action}` when present, and execute installation/permission/target/version/provenance validation only when absent. Keep the transactional operation lock and second action lookup for the creation race.
 
-- [ ] **Step 4: Verify outbound commands and commit**
+- [x] **Step 4: Verify outbound commands and commit**
 
   Run `mix test test/office_graph/github_integration/outbound_commands_test.exs`, then commit as `fix: preserve outbound command replay`.
 
@@ -105,23 +105,23 @@
 - Consumes: `SoftwareProving.upsert_provider_resource/5` status and `RecordLoader.read_one/3`.
 - Produces: no external-reference or product-signal refresh for `:stale` comment/check results; retryable `integration_storage_unavailable` for failed sync-outcome reads.
 
-- [ ] **Step 1: Write stale nested-reference regression**
+- [x] **Step 1: Write stale nested-reference regression**
 
   Reconcile a snapshot with comment/check references, advance the nested records and references to a higher sequence/URL, then reconcile an intermediate root snapshot. Assert both nested URLs and product mapping remain unchanged and reconciliation does not crash.
 
-- [ ] **Step 2: Write sync-outcome read outage regression**
+- [x] **Step 2: Write sync-outcome read outage regression**
 
   Configure `SyncOutcome => {:error, :database_unavailable}` for an otherwise valid webhook job. Assert the worker returns `{:error, "integration_storage_unavailable"}`, does not stage terminal metadata, and succeeds after the loader is restored.
 
-- [ ] **Step 3: Run both regressions and verify RED**
+- [x] **Step 3: Run both regressions and verify RED**
 
   Confirm stale nested URLs are overwritten or signal mapping receives an invalid reference, and confirm a sync-outcome read outage is currently cancelled as an invalid worker result.
 
-- [ ] **Step 4: Carry resource status through reconciliation**
+- [x] **Step 4: Carry resource status through reconciliation**
 
   Pass `result.status` to comment/check `maybe_reference!/7`, return no reference for `:stale`, retain the status on each mapped item, and skip stale items before `WorkGraph.sync_integration_signal/4`.
 
-- [ ] **Step 5: Normalize sync-outcome reads and transaction exits**
+- [x] **Step 5: Normalize sync-outcome reads and transaction exits**
 
   Route `outcome_by_operation/1` through `RecordLoader.read_one/3`, map read failures to `:integration_storage_unavailable`, and normalize that internal error to `{:error, {:retryable, :integration_storage_unavailable}}` on public reconciliation paths that cannot durably record an outcome during the outage.
 

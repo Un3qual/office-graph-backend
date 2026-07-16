@@ -52,9 +52,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   require Ash.Query
 
   def reconcile(operation, %ReconciliationRequest{} = request) do
-    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
-         {:ok, outcome} <- outcome_by_operation(operation.id) do
-      continue_or_replay(operation, request, outcome)
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile) do
+      case outcome_by_operation(operation.id) do
+        {:ok, outcome} -> continue_or_replay(operation, request, outcome)
+        {:error, :integration_storage_unavailable} -> retryable_storage_error()
+      end
     end
   end
 
@@ -393,6 +395,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
            end
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
+      {:error, :integration_storage_unavailable} -> retryable_storage_error()
       {:error, error} -> {:error, error}
     end
   end
@@ -702,10 +705,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         result.record,
         "review_comment",
         comment.node_id,
-        comment.url
+        comment.url,
+        result.status
       )
 
-    %{record: result.record, snapshot: comment, reference: reference}
+    %{record: result.record, snapshot: comment, reference: reference, status: result.status}
   end
 
   defp reconcile_checks!(operation, source, repository, pull_request, snapshot) do
@@ -754,10 +758,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           result.record,
           "check_run",
           check.node_id,
-          check.details_url
+          check.details_url,
+          result.status
         )
 
-      %{record: result.record, snapshot: check, reference: reference}
+      %{record: result.record, snapshot: check, reference: reference, status: result.status}
     end)
   end
 
@@ -772,41 +777,49 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
     comment_signals =
       Enum.flat_map(comments, fn item ->
-        actionable? = review_comment_actionable?(item, thread_states)
+        if item.status == :stale do
+          []
+        else
+          actionable? = review_comment_actionable?(item, thread_states)
 
-        result =
-          WorkGraph.sync_integration_signal(
-            operation,
-            item.reference,
-            %{
-              title: "Review comment from #{item.record.author_label || "GitHub"}",
-              body: item.record.body
-            },
-            actionable?
-          )
-          |> unwrap!()
+          result =
+            WorkGraph.sync_integration_signal(
+              operation,
+              item.reference,
+              %{
+                title: "Review comment from #{item.record.author_label || "GitHub"}",
+                body: item.record.body
+              },
+              actionable?
+            )
+            |> unwrap!()
 
-        if actionable?, do: [result.signal.id], else: []
+          if actionable?, do: [result.signal.id], else: []
+        end
       end)
 
     check_signals =
       checks
       |> Enum.flat_map(fn item ->
-        actionable? = failing_check?(item.record)
+        if item.status == :stale do
+          []
+        else
+          actionable? = failing_check?(item.record)
 
-        result =
-          WorkGraph.sync_integration_signal(
-            operation,
-            item.reference,
-            %{
-              title: "Failing check: #{item.record.name}",
-              body: "#{item.record.name} concluded with #{item.record.conclusion}."
-            },
-            actionable?
-          )
-          |> unwrap!()
+          result =
+            WorkGraph.sync_integration_signal(
+              operation,
+              item.reference,
+              %{
+                title: "Failing check: #{item.record.name}",
+                body: "#{item.record.name} concluded with #{item.record.conclusion}."
+              },
+              actionable?
+            )
+            |> unwrap!()
 
-        if actionable?, do: [result.signal.id], else: []
+          if actionable?, do: [result.signal.id], else: []
+        end
       end)
 
     comment_signals ++ check_signals
@@ -838,7 +851,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp maybe_reference!(_operation, _source, _record, _object_type, _node_id, _url, :stale),
-    do: :ok
+    do: nil
 
   defp maybe_reference!(operation, source, record, object_type, node_id, url, _status),
     do: maybe_reference!(operation, source, record, object_type, node_id, url)
@@ -955,6 +968,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
            outcome
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
+      {:error, :integration_storage_unavailable} -> retryable_storage_error()
       {:error, error} -> {:error, error}
     end
   end
@@ -979,6 +993,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
            persist_outcome!(operation.id, attrs)
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
+      {:error, :integration_storage_unavailable} -> retryable_storage_error()
       {:error, error} -> {:error, error}
     end
   end
@@ -1046,8 +1061,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp outcome_by_operation(operation_id) do
     SyncOutcome
     |> Ash.Query.filter(operation_id == ^operation_id)
-    |> Ash.read_one(authorize?: false)
+    |> then(&RecordLoader.read_one(SyncOutcome, &1, authorize?: false))
+    |> case do
+      {:ok, outcome} -> {:ok, outcome}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
   end
+
+  defp retryable_storage_error,
+    do: {:error, {:retryable, :integration_storage_unavailable}}
 
   defp persist_outcome!(operation_id, attrs) do
     case outcome_by_operation(operation_id) do

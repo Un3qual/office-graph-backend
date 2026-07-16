@@ -27,7 +27,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   }
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
-  alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, Repository}
+  alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, Repository, ReviewComment}
   alias OfficeGraph.SoftwareProving.GitHub.RepositoryExtension
 
   defmodule UnavailableSecretStore do
@@ -112,6 +112,141 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              "https://github.com/Un3qual/office-graph-backend/pull/24-new"
 
     assert Repo.aggregate(SyncOutcome, :count) == 2
+  end
+
+  test "stale nested resources do not refresh references or product work" do
+    context = reconciliation_context("nested-ordering")
+    pull_request_node_id = "PR_nested_ordering"
+    repository_node_id = "R_nested_ordering"
+    comment_node_id = "PRRC_nested_ordering"
+    check_node_id = "CR_nested_ordering"
+    request = request(context, "pull_request", pull_request_node_id, "delivery-nested-v1")
+    operation_v1 = reconciliation_operation!(context, request, "nested-v1")
+
+    initial_snapshot =
+      snapshot(1, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:review_comments, [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: comment_node_id,
+          database_id: 701,
+          body: "Initial nested comment",
+          author_label: "review-bot",
+          state: "published",
+          url: "https://example.test/comments/initial"
+        }
+      ])
+      |> Map.put(:check_runs, [
+        %Adapter.CheckRunSnapshot{
+          node_id: check_node_id,
+          database_id: 702,
+          name: "Initial nested check",
+          status: "completed",
+          conclusion: "failure",
+          details_url: "https://example.test/checks/initial"
+        }
+      ])
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, initial_snapshot}})
+    assert {:ok, _outcome} = Reconciler.reconcile(operation_v1, request)
+
+    comment =
+      ReviewComment
+      |> Ash.Query.filter(body == "Initial nested comment")
+      |> Ash.read_one!(authorize?: false)
+
+    check =
+      CheckRun
+      |> Ash.Query.filter(name == "Initial nested check")
+      |> Ash.read_one!(authorize?: false)
+
+    comment =
+      comment
+      |> Ash.Changeset.for_update(:reconcile, %{
+        body: "Authoritative nested comment",
+        provider_version: "v3",
+        provider_sequence: 3,
+        operation_id: operation_v1.id
+      })
+      |> Repo.ash_update!()
+
+    check =
+      check
+      |> Ash.Changeset.for_update(:reconcile, %{
+        name: "Authoritative nested check",
+        details_url: "https://example.test/checks/authoritative",
+        provider_version: "v3",
+        provider_sequence: 3,
+        operation_id: operation_v1.id
+      })
+      |> Repo.ash_update!()
+
+    {:ok, github_source} = Integrations.ensure_provider_source("github", "GitHub")
+
+    assert {:ok, _reference} =
+             ExternalRefs.upsert_provider_reference(operation_v1, github_source, %{
+               provider: "github",
+               object_type: "review_comment",
+               external_id: "review_comment:#{comment_node_id}",
+               url: "https://example.test/comments/authoritative",
+               resource_type: "review_comment",
+               resource_id: comment.id
+             })
+
+    assert {:ok, _reference} =
+             ExternalRefs.upsert_provider_reference(operation_v1, github_source, %{
+               provider: "github",
+               object_type: "check_run",
+               external_id: "check_run:#{check_node_id}",
+               url: "https://example.test/checks/authoritative",
+               resource_type: "check_run",
+               resource_id: check.id
+             })
+
+    intermediate_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:review_comments, [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: comment_node_id,
+          database_id: 701,
+          body: "Stale nested comment",
+          author_label: "review-bot",
+          state: "published",
+          url: "https://example.test/comments/stale"
+        }
+      ])
+      |> Map.put(:check_runs, [
+        %Adapter.CheckRunSnapshot{
+          node_id: check_node_id,
+          database_id: 702,
+          name: "Stale nested check",
+          status: "completed",
+          conclusion: "failure",
+          details_url: "https://example.test/checks/stale"
+        }
+      ])
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, intermediate_snapshot}})
+    operation_v2 = reconciliation_operation!(context, request, "nested-v2")
+
+    assert {:ok, _outcome} = Reconciler.reconcile(operation_v2, request)
+
+    comment_external_id = "review_comment:#{comment_node_id}"
+    check_external_id = "check_run:#{check_node_id}"
+
+    comment_reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == ^comment_external_id)
+      |> Ash.read_one!(authorize?: false)
+
+    check_reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == ^check_external_id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert comment_reference.url == "https://example.test/comments/authoritative"
+    assert check_reference.url == "https://example.test/checks/authoritative"
+    assert Ash.get!(ReviewComment, comment.id, authorize?: false).body == comment.body
+    assert Ash.get!(CheckRun, check.id, authorize?: false).name == check.name
   end
 
   test "rate limits and provider failures use stable retry or terminal classifications" do

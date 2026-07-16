@@ -279,6 +279,47 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
   end
 
+  test "transient sync-outcome lookup failures remain retryable" do
+    context = worker_context("outcome-lookup-unavailable")
+    delivery_id = "delivery-worker-outcome-lookup-unavailable"
+    pull_request_node_id = "PR_worker_outcome_lookup_unavailable"
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => pull_request_node_id, "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => delivery_id,
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    provider_snapshot =
+      snapshot()
+      |> then(fn value ->
+        %{value | pull_request: %{value.pull_request | node_id: pull_request_node_id}}
+      end)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, provider_snapshot}})
+    job = webhook_job(delivery_id)
+
+    RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
+
+    assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    assert Repo.aggregate(SyncOutcome, :count) == 0
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert :ok = WebhookWorker.perform(job)
+    assert Repo.aggregate(SyncOutcome, :count) == 1
+  end
+
   test "rate-limited reconciliation snoozes until the bounded provider reset" do
     context = worker_context("rate-limit")
 
