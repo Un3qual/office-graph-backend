@@ -360,15 +360,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp acyclic_comment_parents?(parent_by_node) do
-    case Enum.reduce_while(Map.keys(parent_by_node), %{}, fn node_id, states ->
-           case visit_comment_parent(node_id, parent_by_node, states) do
-             {:ok, states} -> {:cont, states}
-             :cycle -> {:halt, :cycle}
-           end
-         end) do
-      :cycle -> false
-      _states -> true
-    end
+    not match?(
+      :cycle,
+      Enum.reduce_while(Map.keys(parent_by_node), %{}, fn node_id, states ->
+        case visit_comment_parent(node_id, parent_by_node, states) do
+          {:ok, states} -> {:cont, states}
+          :cycle -> {:halt, :cycle}
+        end
+      end)
+    )
   end
 
   defp visit_comment_parent(node_id, parent_by_node, states) do
