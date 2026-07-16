@@ -996,6 +996,42 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 0
   end
 
+  test "review replies cannot declare a different thread than their parent" do
+    context = reconciliation_context("mismatched-reply-thread")
+    object_id = "PRRC_mismatched_reply_thread"
+    request = request(context, "review_comment", object_id, "delivery-mismatched-reply-thread")
+    operation = reconciliation_operation!(context, request, "mismatched-reply-thread")
+
+    invalid_snapshot =
+      snapshot(1, "open", "PR_mismatched_reply_thread", "R_mismatched_reply_thread")
+      |> Map.put(:review_threads, [
+        %Adapter.ReviewThreadSnapshot{node_id: "PRRT_parent", state: "resolved"},
+        %Adapter.ReviewThreadSnapshot{node_id: "PRRT_reply", state: "open"}
+      ])
+      |> Map.put(:review_comments, [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: "PRRC_parent_thread",
+          review_thread_node_id: "PRRT_parent",
+          body: "Parent comment in the resolved thread.",
+          state: "published"
+        },
+        %Adapter.ReviewCommentSnapshot{
+          node_id: object_id,
+          review_thread_node_id: "PRRT_reply",
+          parent_comment_node_id: "PRRC_parent_thread",
+          body: "Reply incorrectly attached to the open thread.",
+          state: "published"
+        }
+      ])
+
+    Provider.put(%{{"review_comment", object_id} => {:ok, invalid_snapshot}})
+
+    assert {:error, {:terminal, :invalid_provider_response}} =
+             Reconciler.reconcile(operation, request)
+
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
   test "non-pull-request deliveries require the requested object in the snapshot" do
     context = reconciliation_context("requested-object")
 

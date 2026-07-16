@@ -125,6 +125,13 @@ extension records.
 - **THEN** reconciliation MUST record a classified invalid-provider-response
   outcome without crashing or writing partial provider-neutral state
 
+#### Scenario: Review reply conflicts with its parent thread
+
+- **WHEN** an adapter returns a review reply whose declared review thread differs
+  from its parent comment's effective review thread
+- **THEN** reconciliation MUST record a classified invalid-provider-response
+  outcome before writing provider-neutral state or creating product work
+
 #### Scenario: Concurrent reconciliation writers overlap
 
 - **WHEN** concurrent handlers write failure and success for one reconciliation

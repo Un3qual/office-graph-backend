@@ -400,11 +400,45 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp valid_comment_threads?(comments, threads) when is_list(comments) and is_list(threads) do
     thread_node_ids = MapSet.new(threads, & &1.node_id)
+    comments_by_node = Map.new(comments, &{&1.node_id, &1})
 
-    Enum.all?(comments, fn comment ->
+    Enum.all?(comments, &valid_comment_thread?(&1, thread_node_ids, comments_by_node))
+  end
+
+  defp valid_comment_thread?(comment, thread_node_ids, comments_by_node) do
+    valid_declared_thread? =
       is_nil(comment.review_thread_node_id) or
         MapSet.member?(thread_node_ids, comment.review_thread_node_id)
-    end)
+
+    valid_parent_thread? =
+      case comment.parent_comment_node_id do
+        nil ->
+          true
+
+        parent_node_id ->
+          parent_thread =
+            effective_comment_thread(
+              Map.fetch!(comments_by_node, parent_node_id),
+              comments_by_node
+            )
+
+          is_nil(comment.review_thread_node_id) or
+            comment.review_thread_node_id == parent_thread
+      end
+
+    valid_declared_thread? and valid_parent_thread?
+  end
+
+  defp effective_comment_thread(%{review_thread_node_id: thread_node_id}, _comments_by_node)
+       when not is_nil(thread_node_id),
+       do: thread_node_id
+
+  defp effective_comment_thread(%{parent_comment_node_id: nil}, _comments_by_node), do: nil
+
+  defp effective_comment_thread(comment, comments_by_node) do
+    comment.parent_comment_node_id
+    |> then(&Map.fetch!(comments_by_node, &1))
+    |> effective_comment_thread(comments_by_node)
   end
 
   defp nonblank_string?(value), do: is_binary(value) and String.trim(value) != ""
