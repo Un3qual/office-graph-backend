@@ -33,6 +33,7 @@ defmodule OfficeGraph.GitHubIntegration do
     RecordLoader,
     Reconciler,
     ReconciliationRequest,
+    StorageResult,
     WebhookReceipt
   }
 
@@ -180,22 +181,24 @@ defmodule OfficeGraph.GitHubIntegration do
   end
 
   defp persist_binding(session_context, operation, normalized) do
-    Repo.transaction(fn ->
-      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
-        lock_installation!(normalized.external_installation_id)
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
+          lock_installation!(normalized.external_installation_id)
 
-        with :ok <- installation_available?(session_context, operation, normalized),
-             {:ok, existing} <- installation_by_operation(operation.id) do
-          case existing do
-            nil -> create_binding!(session_context, operation, normalized)
-            installation -> binding_result(operation, installation)
+          with :ok <- installation_available?(session_context, operation, normalized),
+               {:ok, existing} <- installation_by_operation(operation.id) do
+            case existing do
+              nil -> create_binding!(session_context, operation, normalized)
+              installation -> binding_result(operation, installation)
+            end
+          else
+            {:error, reason} -> Repo.rollback(reason)
           end
         else
           {:error, reason} -> Repo.rollback(reason)
         end
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
+      end)
     end)
   end
 

@@ -244,12 +244,13 @@ the first GitHub integration.
 Office Graph SHALL classify provider failures as retryable, terminal,
 authorization, configuration, rate-limit, or stale-version outcomes.
 
-#### Scenario: Integration record lookup is temporarily unavailable
+#### Scenario: Integration command storage is temporarily unavailable
 
 - **WHEN** a valid webhook, reconciliation, outbound command, outbound job, or
-  health read cannot read its installation, archived delivery, permission
-  snapshot, outbound action, target, credential metadata, or dependent health
-  record because storage is temporarily unavailable
+  health read cannot start its operation, read its installation, archived
+  delivery, permission snapshot, system principal, outbound action, target,
+  credential metadata, or dependent health record, or commit its binding or
+  outbound-action transaction because storage is temporarily unavailable
 - **THEN** Office Graph MUST preserve a retryable storage-unavailable result,
   MUST NOT misclassify the record as revoked, invalid, cross-scope, forbidden,
   or terminal, and durable work MUST retain that classification within its fixed

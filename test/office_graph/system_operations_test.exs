@@ -155,6 +155,30 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert {:ok, _operation} = Operations.start_system_operation(request)
   end
 
+  test "system operation validation preserves authorization-store outages" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    principal = system_principal!(bootstrap, "system.conformance")
+
+    assert {:ok, request} =
+             bootstrap
+             |> system_operation_attrs(principal)
+             |> Operations.new_system_operation_request()
+
+    assert {:ok, operation} = Operations.start_system_operation(request)
+
+    Repo.query!("SET LOCAL search_path TO pg_catalog")
+
+    result =
+      try do
+        Operations.validate_system_operation(operation, :system_conformance)
+      after
+        Repo.query!("SET LOCAL search_path TO public")
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+    assert :ok = Operations.validate_system_operation(operation, :system_conformance)
+  end
+
   test "system-operation resource validation rejects missing authenticated envelope fields" do
     attrs = %{
       id: Ecto.UUID.generate(),

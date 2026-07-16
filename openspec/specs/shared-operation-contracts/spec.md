@@ -150,8 +150,9 @@ human operation validation.
   idempotency scope
 - **THEN** it MUST fail closed with a safe terminal classification
 
-#### Scenario: Worker cannot start a valid system operation during a storage outage
+#### Scenario: Worker cannot start or revalidate a valid system operation during a storage outage
 - **WHEN** a valid system worker request cannot read authorization or operation
-  state because storage is temporarily unavailable
+  state while starting or revalidating its operation because storage is
+  temporarily unavailable
 - **THEN** it MUST retain a retryable storage classification and MUST NOT
   misclassify the request as malformed, forbidden, or terminal

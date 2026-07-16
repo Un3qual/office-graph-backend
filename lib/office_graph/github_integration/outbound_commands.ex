@@ -9,6 +9,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     OutboundWorker,
     PermissionEntry,
     RecordLoader,
+    StorageResult,
     SyncOutcome
   }
 
@@ -317,29 +318,31 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp require_installation_provenance(_installation, _target), do: {:error, :forbidden}
 
   defp persist_and_enqueue(session_context, operation, installation, target, action_kind, attrs) do
-    Repo.transaction(fn ->
-      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
-           {:ok, existing} <- action_by_operation(operation.id) do
-        case existing do
-          nil ->
-            create_action!(
-              session_context,
-              operation,
-              installation,
-              target,
-              action_kind,
-              attrs
-            )
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
+             {:ok, existing} <- action_by_operation(operation.id) do
+          case existing do
+            nil ->
+              create_action!(
+                session_context,
+                operation,
+                installation,
+                target,
+                action_kind,
+                attrs
+              )
 
-          action ->
-            case validate_existing_action(action, session_context, action_kind) do
-              {:ok, action} -> action
-              {:error, error} -> Repo.rollback(error)
-            end
+            action ->
+              case validate_existing_action(action, session_context, action_kind) do
+                {:ok, action} -> action
+                {:error, error} -> Repo.rollback(error)
+              end
+          end
+        else
+          {:error, error} -> Repo.rollback(error)
         end
-      else
-        {:error, error} -> Repo.rollback(error)
-      end
+      end)
     end)
   end
 

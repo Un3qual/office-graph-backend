@@ -101,6 +101,30 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert Repo.aggregate(Installation, :count) == 0
   end
 
+  test "binding transaction storage failures expose only the retryable availability result" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    attrs = binding_attrs(bootstrap, "transaction-unavailable")
+
+    Repo.query!("""
+    ALTER TABLE github_installations
+    ADD CONSTRAINT test_github_binding_transaction_storage
+    CHECK (external_installation_id < 0)
+    """)
+
+    result =
+      try do
+        GitHubIntegration.bind_installation(bootstrap.session, attrs)
+      after
+        Repo.query!("""
+        ALTER TABLE github_installations
+        DROP CONSTRAINT test_github_binding_transaction_storage
+        """)
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+    assert Repo.aggregate(Installation, :count) == 0
+  end
+
   test "binding rejects changed replay input, missing capability, and cross-tenant scope" do
     {:ok, first} = Foundation.bootstrap_local_owner([])
 

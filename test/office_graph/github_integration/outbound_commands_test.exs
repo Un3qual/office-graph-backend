@@ -338,6 +338,34 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert count_jobs_for_worker() == 0
   end
 
+  test "outbound transaction storage failures expose only the retryable availability result",
+       context do
+    attrs = reply_attrs(context, "Retry after the command transaction storage recovers.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:transaction-outage", attrs)
+
+    Repo.query!("""
+    ALTER TABLE github_outbound_actions
+    ADD CONSTRAINT test_github_outbound_transaction_storage
+    CHECK (action_kind <> 'review_reply')
+    """)
+
+    result =
+      try do
+        OutboundCommands.reply_to_review(context.session, operation, attrs)
+      after
+        Repo.query!("""
+        ALTER TABLE github_outbound_actions
+        DROP CONSTRAINT test_github_outbound_transaction_storage
+        """)
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
   test "transient outbound action lookup failures retry without terminalizing", context do
     attrs = reply_attrs(context, "Retry after the action record can be read.")
     operation = command_operation!(context, :github_review_reply, "reply:lookup-retry", attrs)

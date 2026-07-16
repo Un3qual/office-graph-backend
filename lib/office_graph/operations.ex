@@ -10,6 +10,18 @@ defmodule OfficeGraph.Operations do
   alias OfficeGraph.Identity
   alias OfficeGraph.Operations.{OperationCorrelation, SystemOperationRequest}
 
+  @storage_exceptions [
+    Ash.Error.Forbidden,
+    Ash.Error.Framework,
+    Ash.Error.Invalid,
+    Ash.Error.Unknown,
+    DBConnection.ConnectionError,
+    Ecto.ConstraintError,
+    Ecto.StaleEntryError,
+    Postgrex.Error,
+    RuntimeError
+  ]
+
   @human_actions %{
     manual_intake_submit: "manual_intake.submit",
     proposed_change_apply: "proposed_change.apply",
@@ -45,17 +57,19 @@ defmodule OfficeGraph.Operations do
   end
 
   def start_system_operation(%SystemOperationRequest{} = request) do
-    with :ok <-
-           OfficeGraph.Authorization.authorize_system_principal(
-             request.principal_id,
-             request.organization_id,
-             request.workspace_id,
-             request.action
-           ),
-         {:ok, operation} <- find_or_create_system_operation(request),
-         :ok <- validate_system_replay(operation, request) do
-      {:ok, operation}
-    end
+    with_operation_storage_boundary(fn ->
+      with :ok <-
+             OfficeGraph.Authorization.authorize_system_principal(
+               request.principal_id,
+               request.organization_id,
+               request.workspace_id,
+               request.action
+             ),
+           {:ok, operation} <- find_or_create_system_operation(request),
+           :ok <- validate_system_replay(operation, request) do
+        {:ok, operation}
+      end
+    end)
   end
 
   def start_system_operation(_request), do: {:error, :invalid_system_operation_request}
@@ -78,6 +92,7 @@ defmodule OfficeGraph.Operations do
            ) do
       :ok
     else
+      {:error, :integration_storage_unavailable} = error -> error
       _invalid -> {:error, :forbidden}
     end
   end
@@ -88,14 +103,16 @@ defmodule OfficeGraph.Operations do
       when is_binary(idempotency_key) and idempotency_key != "" do
     digest = command_input_digest(input)
 
-    with {:ok, operation} <-
-           start_operation(session_context, action,
-             idempotency_key: idempotency_key,
-             metadata: %{"command_input_digest" => digest}
-           ),
-         :ok <- validate_command_replay(operation, input) do
-      {:ok, operation}
-    end
+    with_operation_storage_boundary(fn ->
+      with {:ok, operation} <-
+             start_operation(session_context, action,
+               idempotency_key: idempotency_key,
+               metadata: %{"command_input_digest" => digest}
+             ),
+           :ok <- validate_command_replay(operation, input) do
+        {:ok, operation}
+      end
+    end)
   end
 
   def validate_command_replay(operation, input) when is_map(operation) do
@@ -404,4 +421,35 @@ defmodule OfficeGraph.Operations do
   defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
 
   defp command_digest_from_metadata(_metadata), do: nil
+
+  defp with_operation_storage_boundary(fun) do
+    fun.()
+    |> normalize_operation_storage_result()
+  rescue
+    _error in @storage_exceptions -> unavailable()
+  catch
+    :exit, _reason -> unavailable()
+  end
+
+  defp normalize_operation_storage_result({:ok, operation}), do: {:ok, operation}
+
+  defp normalize_operation_storage_result({:error, reason} = error)
+       when reason in [:forbidden, :integration_storage_unavailable],
+       do: error
+
+  defp normalize_operation_storage_result(
+         {:error, {:system_idempotency_conflict, operation_id}} = error
+       )
+       when is_binary(operation_id),
+       do: error
+
+  defp normalize_operation_storage_result(
+         {:error, {:command_idempotency_conflict, operation_id}} = error
+       )
+       when is_binary(operation_id),
+       do: error
+
+  defp normalize_operation_storage_result({:error, _storage_error}), do: unavailable()
+
+  defp unavailable, do: {:error, :integration_storage_unavailable}
 end

@@ -1,7 +1,7 @@
 defmodule OfficeGraphWeb.GitHubActionsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
   alias OfficeGraphWeb.OperatorCommands.Input
 
   setup do
@@ -125,6 +125,37 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
              })
 
     refute Map.has_key?(parsed, :conclusion)
+  end
+
+  test "JSON command start storage outages return only the safe availability response" do
+    Repo.query!("""
+    ALTER TABLE operation_correlations
+    ADD CONSTRAINT test_github_command_start_storage
+    CHECK (action <> 'github.review.reply')
+    """)
+
+    response =
+      try do
+        build_conn()
+        |> post("/api/v1/commands/reply-to-github-review", %{
+          idempotency_key: "reply-api-operation-storage",
+          installation_id: Ecto.UUID.generate(),
+          review_comment_id: Ecto.UUID.generate(),
+          body: "Retry after operation storage recovers.",
+          expected_provider_version: "v1"
+        })
+        |> json_response(503)
+      after
+        Repo.query!("""
+        ALTER TABLE operation_correlations
+        DROP CONSTRAINT test_github_command_start_storage
+        """)
+      end
+
+    assert response["command"] == "reply_to_github_review"
+    assert response["error"]["code"] == "integration_storage_unavailable"
+    refute inspect(response) =~ "Ash.Error"
+    refute inspect(response) =~ "Postgrex"
   end
 
   defp graphql(conn, query, variables) do
