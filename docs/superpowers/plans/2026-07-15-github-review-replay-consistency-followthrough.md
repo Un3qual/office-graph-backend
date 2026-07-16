@@ -64,7 +64,7 @@
 
   Expected: every selected test passes with no duplicated cleanup registration.
 
-- [ ] **Step 5: Commit the test-support cleanup**
+- [x] **Step 5: Commit the test-support cleanup**
 
   Commit as `test: consolidate postgres catalog probes`.
 
@@ -78,15 +78,15 @@
 - Consumes: validated operation context/action, exact `Operations.validate_command_replay/2`, current authorization, normalized command attributes, and `RecordLoader.read_one/3`.
 - Produces: the existing scoped `OutboundAction` for a compatible replay even after the target version/state changes, and `:integration_storage_unavailable` when the action-result read fails.
 
-- [ ] **Step 1: Write replay and action-read outage regressions**
+- [x] **Step 1: Write replay and action-read outage regressions**
 
   Extend the outbound command test so it creates a review-reply action, changes the target to a newer non-actionable provider state, replays the exact operation/input, and asserts the same action ID plus one job. Add a separate case configuring `OutboundAction => {:error, :database_unavailable}` before first action creation and assert the safe storage-unavailable result with zero actions/jobs.
 
-- [ ] **Step 2: Run the outbound regressions and verify RED**
+- [x] **Step 2: Run the outbound regressions and verify RED**
 
   Run the two new tests. Confirm the replay currently fails on mutable target state and the action-read mock is bypassed.
 
-- [ ] **Step 3: Split immutable replay validation from first-execution validation**
+- [x] **Step 3: Split immutable replay validation from first-execution validation**
 
   After operation context/action, input digest, live authorization, and input normalization, call a shared replay helper. It must read the action by operation through `RecordLoader`, validate action kind/principal/organization/workspace against the current command, return `{:ok, action}` when present, and execute installation/permission/target/version/provenance validation only when absent. Keep the transactional operation lock and second action lookup for the creation race.
 

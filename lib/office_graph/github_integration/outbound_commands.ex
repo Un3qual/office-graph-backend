@@ -26,8 +26,17 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          :ok <- Operations.validate_operation_action(operation, "github.review.reply"),
          :ok <- Operations.validate_command_replay(operation, attrs),
          :ok <- authorize(session_context, operation, :github_review_reply),
-         {:ok, normalized} <- normalize_reply(attrs),
-         {:ok, installation} <- active_installation(session_context, normalized.installation_id),
+         {:ok, normalized} <- normalize_reply(attrs) do
+      replay_or_execute(session_context, operation, "review_reply", fn ->
+        execute_review_reply(session_context, operation, normalized)
+      end)
+    end
+  end
+
+  def reply_to_review(_session_context, _operation, _attrs), do: {:error, :forbidden}
+
+  defp execute_review_reply(session_context, operation, normalized) do
+    with {:ok, installation} <- active_installation(session_context, normalized.installation_id),
          :ok <- require_permission(installation, "pull_requests"),
          {:ok, target} <- review_target(session_context, normalized),
          :ok <- require_version(target.record, normalized.expected_provider_version),
@@ -43,15 +52,22 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     end
   end
 
-  def reply_to_review(_session_context, _operation, _attrs), do: {:error, :forbidden}
-
   def update_check(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, "github.check.update"),
          :ok <- Operations.validate_command_replay(operation, attrs),
          :ok <- authorize(session_context, operation, :github_check_update),
-         {:ok, normalized} <- normalize_check(attrs),
-         {:ok, installation} <- active_installation(session_context, normalized.installation_id),
+         {:ok, normalized} <- normalize_check(attrs) do
+      replay_or_execute(session_context, operation, "check_update", fn ->
+        execute_check_update(session_context, operation, normalized)
+      end)
+    end
+  end
+
+  def update_check(_session_context, _operation, _attrs), do: {:error, :forbidden}
+
+  defp execute_check_update(session_context, operation, normalized) do
+    with {:ok, installation} <- active_installation(session_context, normalized.installation_id),
          :ok <- require_permission(installation, "checks"),
          {:ok, target} <- check_target(session_context, normalized),
          :ok <- require_version(target.record, normalized.expected_provider_version),
@@ -67,7 +83,31 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     end
   end
 
-  def update_check(_session_context, _operation, _attrs), do: {:error, :forbidden}
+  defp replay_or_execute(session_context, operation, action_kind, execute) do
+    case action_by_operation(operation.id) do
+      {:ok, nil} -> execute.()
+      {:ok, action} -> validate_existing_action(action, session_context, action_kind)
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_existing_action(
+         %OutboundAction{
+           action_kind: action_kind,
+           principal_id: principal_id,
+           organization_id: organization_id,
+           workspace_id: workspace_id
+         } = action,
+         session_context,
+         action_kind
+       )
+       when principal_id == session_context.principal_id and
+              organization_id == session_context.organization_id and
+              workspace_id == session_context.workspace_id,
+       do: {:ok, action}
+
+  defp validate_existing_action(_action, _session_context, _action_kind),
+    do: {:error, :forbidden}
 
   defp authorize(session_context, operation, capability) do
     Authorization.authorize_operation(session_context, operation, capability,
@@ -262,7 +302,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
             )
 
           action ->
-            action
+            case validate_existing_action(action, session_context, action_kind) do
+              {:ok, action} -> action
+              {:error, error} -> Repo.rollback(error)
+            end
         end
       else
         {:error, error} -> Repo.rollback(error)
@@ -330,7 +373,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp action_by_operation(operation_id) do
     OutboundAction
     |> Ash.Query.filter(operation_id == ^operation_id)
-    |> Ash.read_one(authorize?: false)
+    |> then(&RecordLoader.read_one(OutboundAction, &1, authorize?: false))
   end
 
   defp required_uuid(attrs, key) do

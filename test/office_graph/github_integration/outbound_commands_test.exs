@@ -71,6 +71,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.provider_response_version == "reply-v1"
   end
 
+  test "compatible replays return the durable action after provider state changes", context do
+    attrs = reply_attrs(context, "Return the accepted durable command result.")
+    operation = command_operation!(context, :github_review_reply, "reply:state-changed", attrs)
+
+    assert {:ok, first} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    context.comment
+    |> Ash.Changeset.for_update(:reconcile, %{
+      state: "minimized",
+      provider_version: "v2",
+      provider_sequence: 2,
+      operation_id: context.comment.operation_id
+    })
+    |> Repo.ash_update!()
+
+    assert {:ok, replay} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    assert replay.id == first.id
+    assert count_jobs(first.id) == 1
+  end
+
   test "review replies preserve intentional body whitespace", context do
     body = "\n    indented code\n"
     attrs = reply_attrs(context, body)
@@ -207,6 +227,19 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:target-outage", attrs)
 
     RecordLoaderTestAdapter.configure!(%{ReviewComment => {:error, :database_unavailable}})
+
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
+  test "command result lookup outages do not create a second action", context do
+    attrs = reply_attrs(context, "Retry after the durable command result can be read.")
+    operation = command_operation!(context, :github_review_reply, "reply:result-outage", attrs)
+
+    RecordLoaderTestAdapter.configure!(%{OutboundAction => {:error, :database_unavailable}})
 
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
