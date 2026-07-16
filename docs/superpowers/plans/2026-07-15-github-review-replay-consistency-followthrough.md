@@ -125,7 +125,7 @@
 
   Route `outcome_by_operation/1` through `RecordLoader.read_one/3`, map read failures to `:integration_storage_unavailable`, and normalize that internal error to `{:error, {:retryable, :integration_storage_unavailable}}` on public reconciliation paths that cannot durably record an outcome during the outage.
 
-- [ ] **Step 6: Verify reconciliation/worker modules and commit**
+- [x] **Step 6: Verify reconciliation/worker modules and commit**
 
   Run both affected modules and commit as `fix: preserve reconciliation ordering outages`.
 
@@ -143,19 +143,19 @@
 - Produces: `Operations.read_operation/1` without `FOR UPDATE`; `DurableDelivery.stage_terminal_failure/2` as the shared safe metadata boundary.
 - Preserves: transaction-scoped callers continue to use `Operations.lock_operation/1` and GitHub terminalization continues to acquire its advisory transaction lock in `Reconciler`.
 
-- [ ] **Step 1: Write operation-read and conformance-history regressions**
+- [x] **Step 1: Write operation-read and conformance-history regressions**
 
   Add tests for `Operations.read_operation/1` returning an existing operation/not-found result. Insert a SystemConformanceWorker job for an ungranted service principal, run it, mark it cancelled as Oban would, and assert `DurableDelivery.list_terminal_jobs/2` exposes `system_conformance_forbidden` from job metadata.
 
-- [ ] **Step 2: Run the regressions and verify RED**
+- [x] **Step 2: Run the regressions and verify RED**
 
   Confirm the read API is absent and the cancelled conformance job has no terminal reason.
 
-- [ ] **Step 3: Add the non-locking read API and use it in webhook recovery**
+- [x] **Step 3: Add the non-locking read API and use it in webhook recovery**
 
   Implement the same scoped operation lookup result shape as `lock_operation/1` without `Ash.Query.lock(:for_update)`. Replace the two WebhookWorker recovery reads with `read_operation/1`; do not change transactional command paths.
 
-- [ ] **Step 4: Centralize terminal metadata staging**
+- [x] **Step 4: Centralize terminal metadata staging**
 
   Move the existing safe `Oban.update_job` metadata persistence/rescue logic behind `DurableDelivery.stage_terminal_failure/2`, use it in DispatchEventWorker, and have SystemConformanceWorker stage the safe code before cancelling or snooze for five seconds if staging fails.
 

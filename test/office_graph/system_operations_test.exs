@@ -41,6 +41,25 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert system_operation_count() == 1
   end
 
+  test "operation reads return existing records without requiring a transaction lock" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    principal = system_principal!(bootstrap, "system.conformance")
+
+    assert {:ok, request} =
+             bootstrap
+             |> system_operation_attrs(principal)
+             |> Operations.new_system_operation_request()
+
+    assert {:ok, operation} = Operations.start_system_operation(request)
+    assert {:ok, read_operation} = Operations.read_operation(operation.id)
+    assert read_operation.id == operation.id
+
+    missing_id = Ecto.UUID.generate()
+
+    assert {:error, {:not_found, OperationCorrelation, ^missing_id}} =
+             Operations.read_operation(missing_id)
+  end
+
   test "system operation idempotency is scoped to the exact governing workspace" do
     owner_attrs = [owner_email: "workspace-system-owner@example.test"]
 
@@ -196,6 +215,45 @@ defmodule OfficeGraph.SystemOperationsTest do
 
     [event] = Repo.all(from(event in DomainEvent, where: event.operation_kind == "system"))
     assert length(jobs_for_event(event.id)) == 1
+  end
+
+  test "system conformance terminal jobs retain safe failure reasons" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    ungranted = system_principal!(bootstrap, nil)
+
+    cases = [
+      {%{
+         "organization_id" => bootstrap.organization.id,
+         "workspace_id" => nil,
+         "principal_id" => ungranted.id,
+         "authority_basis" => "test:durable-delivery",
+         "causation_key" => "test:forbidden-conformance",
+         "idempotency_key" => "forbidden-conformance"
+       }, "system_conformance_forbidden"},
+      {%{
+         "organization_id" => bootstrap.organization.id,
+         "workspace_id" => nil
+       }, "invalid_system_conformance_job"}
+    ]
+
+    jobs =
+      Enum.map(cases, fn {args, failure_code} ->
+        assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
+        assert {:cancel, ^failure_code} = SystemConformanceWorker.perform(job)
+
+        job =
+          job
+          |> Ecto.Changeset.change(state: "cancelled", cancelled_at: DateTime.utc_now())
+          |> Repo.update!()
+
+        {job, failure_code}
+      end)
+
+    assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(bootstrap.session)
+
+    for {job, failure_code} <- jobs do
+      assert %{failure_code: ^failure_code} = Enum.find(summaries, &(&1.id == job.id))
+    end
   end
 
   test "human operation and event invariants remain session and workspace scoped" do

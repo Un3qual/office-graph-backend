@@ -77,7 +77,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
              object_id: object_id,
              delivery_id: delivery_id
            }),
-         {:ok, operation} <- Operations.lock_operation(operation_id) do
+         {:ok, operation} <- Operations.read_operation(operation_id) do
       persist_terminal_failure(operation, request, failure_code)
     else
       {:error, :invalid_retry_failure_code} ->
@@ -426,7 +426,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
          event_kind: "provider_delivery.received",
          operation_id: operation_id
        }} ->
-        Operations.lock_operation(operation_id)
+        Operations.read_operation(operation_id)
 
       {:ok, _missing_or_cross_scope} ->
         {:error, :forbidden}

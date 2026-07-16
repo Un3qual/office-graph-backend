@@ -78,22 +78,7 @@ defmodule OfficeGraph.DurableDelivery.DispatchEventWorker do
   defp retry_terminal_failure_staging, do: {:snooze, @terminal_retry_delay_seconds}
 
   defp stage_terminal_failure(job, failure_code) do
-    meta = Map.put(job.meta || %{}, "terminal_failure_code", failure_code)
-
-    case Oban.update_job(job, %{meta: meta}) do
-      {:ok, _updated_job} -> :ok
-      {:error, error} -> {:error, error}
-    end
-  rescue
-    error in [
-      DBConnection.ConnectionError,
-      Ecto.ConstraintError,
-      Ecto.StaleEntryError,
-      Postgrex.Error
-    ] ->
-      {:error, error}
-  catch
-    kind, reason -> {:error, {kind, reason}}
+    OfficeGraph.DurableDelivery.stage_terminal_failure(job, failure_code)
   end
 
   defp persist_terminal_failure(event_id, scope, failure_code) do

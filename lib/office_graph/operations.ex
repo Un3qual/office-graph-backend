@@ -158,10 +158,26 @@ defmodule OfficeGraph.Operations do
   end
 
   def lock_operation(operation_id) do
-    OperationCorrelation
-    |> Ash.Query.filter(id == ^operation_id)
+    operation_id
+    |> operation_query()
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
+    |> operation_read_result(operation_id)
+  end
+
+  def read_operation(operation_id) do
+    operation_id
+    |> operation_query()
+    |> Ash.read_one(authorize?: false)
+    |> operation_read_result(operation_id)
+  end
+
+  defp operation_query(operation_id) do
+    Ash.Query.filter(OperationCorrelation, id == ^operation_id)
+  end
+
+  defp operation_read_result(result, operation_id) do
+    result
     |> case do
       {:ok, nil} -> {:error, {:not_found, OperationCorrelation, operation_id}}
       {:ok, operation} -> {:ok, operation}

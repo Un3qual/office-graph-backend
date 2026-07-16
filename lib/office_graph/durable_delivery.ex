@@ -127,6 +127,27 @@ defmodule OfficeGraph.DurableDelivery do
 
   def normalize_worker_result(result, job), do: WorkerResult.normalize(result, job)
 
+  @doc false
+  def stage_terminal_failure(%Oban.Job{} = job, failure_code) do
+    failure_code = WorkerResult.safe_code(failure_code, "terminal_failure")
+    meta = Map.put(job.meta || %{}, "terminal_failure_code", failure_code)
+
+    case Oban.update_job(job, %{meta: meta}) do
+      {:ok, _updated_job} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  rescue
+    error in [
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error
+    ] ->
+      {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
   defp dispatch_validated(event_id, expected_scope, broadcaster) do
     if valid_event_id?(event_id) do
       dispatch_safely(event_id, expected_scope, broadcaster)

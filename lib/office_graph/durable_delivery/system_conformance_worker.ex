@@ -8,10 +8,12 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
     max_attempts: 3,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
+  @terminal_retry_delay_seconds 5
+
   alias OfficeGraph.{DurableDelivery, Operations}
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def perform(%Oban.Job{args: args} = job) do
     attrs = %{
       organization_id: args["organization_id"],
       workspace_id: args["workspace_id"],
@@ -32,8 +34,15 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
            }) do
       :ok
     else
-      {:error, :forbidden} -> {:cancel, "system_conformance_forbidden"}
-      {:error, _error} -> {:cancel, "invalid_system_conformance_job"}
+      {:error, :forbidden} -> finish_terminal_job(job, "system_conformance_forbidden")
+      {:error, _error} -> finish_terminal_job(job, "invalid_system_conformance_job")
+    end
+  end
+
+  defp finish_terminal_job(job, failure_code) do
+    case DurableDelivery.stage_terminal_failure(job, failure_code) do
+      :ok -> {:cancel, failure_code}
+      {:error, _error} -> {:snooze, @terminal_retry_delay_seconds}
     end
   end
 
