@@ -366,6 +366,42 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     end
   end
 
+  test "extension lookup outages remain retryable and recover without partial writes" do
+    context = reconciliation_context("extension-lookup-unavailable")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_extension_lookup_unavailable",
+        "delivery-extension-lookup-unavailable"
+      )
+
+    operation = reconciliation_operation!(context, request, "extension-lookup-unavailable")
+
+    provider_snapshot =
+      snapshot(
+        1,
+        "open",
+        "PR_extension_lookup_unavailable",
+        "R_extension_lookup_unavailable"
+      )
+
+    Provider.put(%{{"pull_request", request.object_id} => {:ok, provider_snapshot}})
+    RecordLoaderTestAdapter.configure!(%{RepositoryExtension => {:error, :database_unavailable}})
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
+
+    assert Repo.aggregate(Repository, :count) == 0
+
+    RecordLoaderTestAdapter.put(%{})
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+    assert Repo.aggregate(Repository, :count) == 1
+  end
+
   test "malformed nested snapshots fail as invalid provider responses before writes" do
     context = reconciliation_context("invalid-nested-snapshot")
     request = request(context, "pull_request", "PR_invalid_nested", "delivery-invalid-nested")

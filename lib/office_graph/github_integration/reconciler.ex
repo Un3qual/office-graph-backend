@@ -893,30 +893,25 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: maybe_reference!(operation, source, record, object_type, node_id, url)
 
   defp base_by_extension(operation, extension, base_key, base_resource, node_id) do
-    operation
-    |> extension_by_node_query(extension, node_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
+    case extension_by_node!(operation, extension, node_id) do
+      nil ->
         nil
 
-      {:ok, record} ->
-        Ash.get!(base_resource, Map.fetch!(record, base_key),
-          action: :read_with_deleted,
-          authorize?: false
-        )
-
-      {:error, error} ->
-        Repo.rollback(error)
+      record ->
+        case RecordLoader.get(base_resource, Map.fetch!(record, base_key),
+               action: :read_with_deleted,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, base_record} -> base_record
+          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+        end
     end
   end
 
   defp ensure_extension!(operation, extension, base_key, base_id, attrs) do
-    operation
-    |> extension_by_node_query(extension, attrs.node_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
+    case extension_by_node!(operation, extension, attrs.node_id) do
+      nil ->
         attrs =
           attrs
           |> Map.put(:organization_id, operation.organization_id)
@@ -925,13 +920,20 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
         Repo.ash_create!(extension, attrs)
 
-      {:ok, existing} ->
+      existing ->
         if Map.fetch!(existing, base_key) == base_id,
           do: existing,
           else: Repo.rollback(:provider_identity_conflict)
+    end
+  end
 
-      {:error, error} ->
-        Repo.rollback(error)
+  defp extension_by_node!(operation, extension, node_id) do
+    operation
+    |> extension_by_node_query(extension, node_id)
+    |> then(&RecordLoader.read_one(extension, &1, authorize?: false))
+    |> case do
+      {:ok, record} -> record
+      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
     end
   end
 

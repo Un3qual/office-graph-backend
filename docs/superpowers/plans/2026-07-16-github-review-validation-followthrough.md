@@ -51,7 +51,7 @@ Build a `node_id => parent_comment_node_id` map after the existing uniqueness ch
 
 Run the same command. Expected: all reconciliation tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/office_graph/github_integration/reconciler.ex test/office_graph/github_integration/reconciliation_test.exs
@@ -68,19 +68,19 @@ git commit -m "fix: reject cyclic review comment parents"
 - Consumes: `RecordLoader.read_one/3`, `RecordLoader.get/3`, scoped GitHub extension queries, and the transaction rollback classification consumed by `reconcile_snapshot/5`.
 - Produces: extension and extension-target read failures roll back as `:integration_storage_unavailable`, which `Reconciler.reconcile/2` exposes as `{:error, {:retryable, :integration_storage_unavailable}}`.
 
-- [ ] **Step 1: Write the failing regression**
+- [x] **Step 1: Write the failing regression**
 
 Configure `RecordLoaderTestAdapter` so `RepositoryExtension` returns `{:error, :database_unavailable}` for a valid pull-request snapshot. Assert reconciliation returns the safe retryable storage classification, persists no provider-neutral repository, and can succeed when the adapter response is cleared and the same retryable operation is replayed.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run the reconciliation test file. Expected: FAIL because `base_by_extension/5` calls `Ash.read_one/2` directly and the raw storage reason escapes the transaction.
 
-- [ ] **Step 3: Implement the shared extension-read boundary**
+- [x] **Step 3: Implement the shared extension-read boundary**
 
 Add a private `extension_by_node!/3` helper that evaluates `extension_by_node_query/3` through `RecordLoader.read_one/3`, returns the record or `nil`, and rolls back as `:integration_storage_unavailable` for any read error. Use it from both `base_by_extension/5` and `ensure_extension!/5`. Load the referenced base record through `RecordLoader.get/3` with `action: :read_with_deleted`, preserve `nil`, and normalize read errors through the same rollback code.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the reconciliation test file. Expected: all tests pass, including outage recovery.
 
