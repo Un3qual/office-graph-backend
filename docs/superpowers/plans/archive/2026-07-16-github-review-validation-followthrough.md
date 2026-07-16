@@ -123,7 +123,7 @@ Change the shared failure-count aggregates to count `failure_class == "retryable
 
 Run the integration-health test file. Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/office_graph/github_integration/health.ex test/office_graph/projections/integration_health_test.exs
@@ -142,7 +142,7 @@ git commit -m "fix: count classified terminal integration failures"
 - Consumes: `Repo.query!("SELECT pg_advisory_xact_lock...")`, repository-scoped lock identity, and the distinct webhook-object concurrency regression.
 - Produces: concrete evidence that same-repository pull-request/comment/check snapshots serialize before nested extension reads, without adding a second locking scheme.
 
-- [ ] **Step 1: Run the concurrency proof**
+- [x] **Step 1: Run the concurrency proof**
 
 Run:
 
@@ -152,7 +152,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc 'mix t
 
 Expected: all tests pass; the distinct-object regression produces one canonical pull request, while source inspection confirms every snapshot transaction reaches the same repository lock before pull-request, thread, comment, or check extension access.
 
-- [ ] **Step 2: Run the affected batch**
+- [x] **Step 2: Run the affected batch**
 
 Run:
 
@@ -162,7 +162,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc 'mix t
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Run the full repository gate and diff checks**
+- [x] **Step 3: Run the full repository gate and diff checks**
 
 Run:
 
@@ -173,7 +173,7 @@ git diff --check
 
 Expected: both commands exit zero, including strict OpenSpec validation.
 
-- [ ] **Step 4: Archive the plan and commit**
+- [x] **Step 4: Archive the plan and commit**
 
 Move the plan into `docs/superpowers/plans/archive/`, restore the README so the internal-agent-runtime plan remains the only active plan, and commit:
 
@@ -182,6 +182,6 @@ git add docs/superpowers/plans/README.md docs/superpowers/plans/2026-07-16-githu
 git commit -m "docs: archive github review validation plan"
 ```
 
-- [ ] **Step 5: Push and reply without refreshing**
+- [x] **Step 5: Push and reply without refreshing**
 
 Push `codex/github-review-integration` once. Reply in each of the four cached threads with the fix or no-change evidence and verification results, resolve those threads, and stop without any GitHub read after the push.
