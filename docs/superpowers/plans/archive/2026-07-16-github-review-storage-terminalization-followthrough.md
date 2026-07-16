@@ -28,11 +28,11 @@
 - Consumes: `WebhookWorker.perform/1`, `Reconciler.exhaust_retry/3`, `ReconciliationRequest`.
 - Produces: one terminal `SyncOutcome` with the request installation, object, and delivery identity when the operation has no prior outcome.
 
-- [ ] **Step 1: Write the failing worker regression**
+- [x] **Step 1: Write the failing worker regression**
 
 Add a test that makes every `SyncOutcome` lookup unavailable on the exhausted normal attempt, proves the worker stages terminal metadata with no outcome, restores storage, and invokes the staged job again.
 
-- [ ] **Step 2: Run the regression and verify RED**
+- [x] **Step 2: Run the regression and verify RED**
 
 Run:
 
@@ -42,15 +42,15 @@ nix --extra-experimental-features 'nix-command flakes' develop -c mix test test/
 
 Expected: the recovered terminalization assertion fails because the call returns `{:snooze, 5}` instead of `{:cancel, "attempts_exhausted"}`; `terminalize_retry!/3` currently rolls back on `{:ok, nil}`.
 
-- [ ] **Step 3: Create the missing terminal outcome under the existing lock**
+- [x] **Step 3: Create the missing terminal outcome under the existing lock**
 
 Change `terminalize_retry!` to accept the operation, validate that the request installation matches its GitHub installation authority basis, and persist terminal attributes when `outcome_by_operation/1` returns `nil`. Retain the existing request-identity checks for an existing outcome.
 
-- [ ] **Step 4: Run the regression and verify GREEN**
+- [x] **Step 4: Run the regression and verify GREEN**
 
 Expected: the staged job cancels, exactly one terminal outcome exists, and its `failure_class` and `failure_code` are both terminal storage-failure values.
 
-- [ ] **Step 5: Commit the terminalization fix**
+- [x] **Step 5: Commit the terminalization fix**
 
 ```bash
 git add test/office_graph/github_integration/webhook_worker_test.exs lib/office_graph/github_integration/reconciler.ex
@@ -67,11 +67,11 @@ git commit -m "fix: terminalize missing github sync outcomes"
 - Consumes: `SoftwareProving.upsert_provider_resource/5` inside `Reconciler.reconcile_snapshot/5`.
 - Produces: `{:error, {:retryable, :integration_storage_unavailable}}` for structured create or update failures, with the complete snapshot transaction rolled back.
 
-- [ ] **Step 1: Write failing create and update regressions**
+- [x] **Step 1: Write failing create and update regressions**
 
 Use temporary PostgreSQL check constraints on `repositories` to force a valid provider snapshot's create write and newer update write to fail. Assert the retryable storage result, no partial provider-neutral state for create, unchanged canonical state for update, and successful replay after each constraint is removed.
 
-- [ ] **Step 2: Run both regressions and verify RED**
+- [x] **Step 2: Run both regressions and verify RED**
 
 Run:
 
@@ -81,7 +81,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c mix test test/
 
 Expected: each assertion receives a structured Ash persistence error instead of the safe retry tuple.
 
-- [ ] **Step 3: Normalize structured snapshot transaction failures**
+- [x] **Step 3: Normalize structured snapshot transaction failures**
 
 Extend the `Repo.transaction/1` result handling in `reconcile_snapshot/5`:
 
@@ -91,11 +91,11 @@ Extend the `Repo.transaction/1` result handling in `reconcile_snapshot/5`:
 
 Keep atom and tuple domain rollback reasons on their existing paths.
 
-- [ ] **Step 4: Run both regressions and the affected integration tests**
+- [x] **Step 4: Run both regressions and the affected integration tests**
 
 Expected: both regressions pass, recovery converges, and the existing reconciliation, product mapping, and worker storage tests stay green.
 
-- [ ] **Step 5: Commit the persistence classification fix**
+- [x] **Step 5: Commit the persistence classification fix**
 
 ```bash
 git add test/office_graph/github_integration/reconciliation_test.exs lib/office_graph/github_integration/reconciler.ex
@@ -112,7 +112,7 @@ git commit -m "fix: preserve github storage retry classification"
 - Consumes: the two cached GitHub review thread IDs from the pre-push snapshot.
 - Produces: a verified branch head and evidence-backed replies on both threads, without a post-push review refresh.
 
-- [ ] **Step 1: Run the full repository gate and diff hygiene**
+- [x] **Step 1: Run the full repository gate and diff hygiene**
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop -c ./bin/verify
@@ -121,16 +121,16 @@ git diff --check
 
 Expected: all checks pass and diff hygiene is clean.
 
-- [ ] **Step 2: Archive this completed plan and commit**
+- [x] **Step 2: Archive this completed plan and commit**
 
 Move the plan to `archive/`, restore the README so the internal-agent-runtime plan remains the only active plan, and commit the archive state.
 
-- [ ] **Step 3: Push once**
+- [x] **Step 3: Push once**
 
 ```bash
 git push origin codex/github-review-integration
 ```
 
-- [ ] **Step 4: Reply and resolve from the cached snapshot**
+- [x] **Step 4: Reply and resolve from the cached snapshot**
 
 Reply to the two cached actionable review threads with the root fix and exact verification evidence, then resolve them. Do not refresh PR state after the push.
