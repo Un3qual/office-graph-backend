@@ -134,9 +134,9 @@ defmodule OfficeGraph.Authorization do
   def authorize_system_principal(principal_id, organization_id, workspace_id, action)
       when is_binary(principal_id) and is_binary(organization_id) do
     with {:ok, required} <- Map.fetch(@recognized_capabilities, action),
-         true <- Identity.active_system_principal?(principal_id),
-         true <-
-           granted_capability_for_principal?(
+         {:ok, true} <- Identity.active_system_principal(principal_id),
+         {:ok, true} <-
+           granted_capability_for_principal(
              principal_id,
              organization_id,
              workspace_id,
@@ -144,6 +144,7 @@ defmodule OfficeGraph.Authorization do
            ) do
       :ok
     else
+      {:error, :integration_storage_unavailable} = error -> error
       _other -> {:error, :forbidden}
     end
   end
@@ -157,7 +158,7 @@ defmodule OfficeGraph.Authorization do
         actions
       )
       when is_binary(principal_id) and is_binary(organization_id) and is_list(actions) do
-    with true <- Identity.active_system_principal?(principal_id),
+    with {:ok, true} <- Identity.active_system_principal(principal_id),
          {:ok, capability_keys} <- system_capability_keys(actions) do
       persist_system_role(principal_id, organization_id, workspace_id, capability_keys)
     else
@@ -352,27 +353,39 @@ defmodule OfficeGraph.Authorization do
   defp recorded_action_name(action), do: inspect(action)
 
   defp granted_capability?(session_context, requested_workspace_id, required) do
-    granted_capability_for_principal?(
-      session_context.principal_id,
-      session_context.organization_id,
-      requested_workspace_id,
-      required
-    )
+    case granted_capability_for_principal(
+           session_context.principal_id,
+           session_context.organization_id,
+           requested_workspace_id,
+           required
+         ) do
+      {:ok, granted?} -> granted?
+      {:error, :integration_storage_unavailable} -> false
+    end
   end
 
-  defp granted_capability_for_principal?(
+  defp granted_capability_for_principal(
          principal_id,
          organization_id,
          workspace_id,
          required
        ) do
-    with {:ok, %Capability{id: capability_id}} <-
-           Ash.get(Capability, %{key: required}, authorize?: false),
-         role_ids when role_ids != [] <-
-           role_ids_for_capability(capability_id, organization_id) do
-      role_assignment_exists?(principal_id, organization_id, workspace_id, role_ids)
-    else
-      _ -> false
+    case Ash.get(Capability, %{key: required},
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok, %Capability{id: capability_id}} ->
+        with {:ok, role_ids} <- role_ids_for_capability(capability_id, organization_id),
+             {:ok, granted?} <-
+               role_assignment_exists(principal_id, organization_id, workspace_id, role_ids) do
+          {:ok, granted?}
+        end
+
+      {:ok, nil} ->
+        {:ok, false}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -387,25 +400,34 @@ defmodule OfficeGraph.Authorization do
   defp trusted_capability?(_session_context, _required), do: false
 
   defp role_ids_for_capability(capability_id, organization_id) do
-    role_ids =
-      RoleCapability
-      |> Ash.Query.filter(capability_id == ^capability_id)
-      |> Ash.read!(authorize?: false)
-      |> Enum.map(& &1.role_id)
+    case RoleCapability
+         |> Ash.Query.filter(capability_id == ^capability_id)
+         |> Ash.read(authorize?: false) do
+      {:ok, role_capabilities} ->
+        role_capabilities
+        |> Enum.map(& &1.role_id)
+        |> role_ids_in_organization(organization_id)
 
-    case role_ids do
-      [] ->
-        []
-
-      role_ids ->
-        Role
-        |> Ash.Query.filter(id in ^role_ids and organization_id == ^organization_id)
-        |> Ash.read!(authorize?: false)
-        |> Enum.map(& &1.id)
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
-  defp role_assignment_exists?(principal_id, organization_id, nil, role_ids) do
+  defp role_ids_in_organization([], _organization_id), do: {:ok, []}
+
+  defp role_ids_in_organization(role_ids, organization_id) do
+    case Role
+         |> Ash.Query.filter(id in ^role_ids and organization_id == ^organization_id)
+         |> Ash.read(authorize?: false) do
+      {:ok, roles} -> {:ok, Enum.map(roles, & &1.id)}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp role_assignment_exists(_principal_id, _organization_id, _workspace_id, []),
+    do: {:ok, false}
+
+  defp role_assignment_exists(principal_id, organization_id, nil, role_ids) do
     RoleAssignment
     |> Ash.Query.filter(
       principal_id == ^principal_id and
@@ -413,10 +435,11 @@ defmodule OfficeGraph.Authorization do
         role_id in ^role_ids and
         is_nil(workspace_id)
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.exists(authorize?: false)
+    |> normalize_exists_result()
   end
 
-  defp role_assignment_exists?(
+  defp role_assignment_exists(
          principal_id,
          organization_id,
          requested_workspace_id,
@@ -430,11 +453,17 @@ defmodule OfficeGraph.Authorization do
         role_id in ^role_ids and
         (is_nil(workspace_id) or workspace_id == ^requested_workspace_id)
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.exists(authorize?: false)
+    |> normalize_exists_result()
   end
 
-  defp role_assignment_exists?(_principal_id, _organization_id, _workspace_id, _role_ids),
-    do: false
+  defp role_assignment_exists(_principal_id, _organization_id, _workspace_id, _role_ids),
+    do: {:ok, false}
+
+  defp normalize_exists_result({:ok, exists?}), do: {:ok, exists?}
+
+  defp normalize_exists_result({:error, _storage_error}),
+    do: {:error, :integration_storage_unavailable}
 
   defp ensure_capability!(key) do
     get_or_create!(

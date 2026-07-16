@@ -51,33 +51,36 @@ defmodule OfficeGraph.ExternalRefs do
       external_id: identity.external_id
     ]
 
-    reference =
-      Repo.get_or_insert!(
-        ExternalReference,
-        lookup,
-        %{
-          id: reference_id,
-          organization_id: operation.organization_id,
-          workspace_id: operation.workspace_id,
-          source_id: source.id,
-          provider: identity.provider,
-          object_type: identity.object_type,
-          external_id: identity.external_id,
-          url: identity.url,
-          sync_state: "synced",
-          operation_id: operation.id,
-          resource_type: identity.resource_type,
-          resource_id: identity.resource_id
-        },
-        &reference_insert_contract/2,
-        &reference_by_lookup/2
-      )
+    case Repo.get_or_insert(
+           ExternalReference,
+           lookup,
+           %{
+             id: reference_id,
+             organization_id: operation.organization_id,
+             workspace_id: operation.workspace_id,
+             source_id: source.id,
+             provider: identity.provider,
+             object_type: identity.object_type,
+             external_id: identity.external_id,
+             url: identity.url,
+             sync_state: "synced",
+             operation_id: operation.id,
+             resource_type: identity.resource_type,
+             resource_id: identity.resource_id
+           },
+           &reference_insert_contract/2,
+           &reference_by_lookup/2
+         ) do
+      {:ok, reference} ->
+        if reference.id == reference_id do
+          trace!(operation, reference.id, "create")
+          {:ok, reference}
+        else
+          reconcile_reference(operation, reference, identity)
+        end
 
-    if reference.id == reference_id do
-      trace!(operation, reference.id, "create")
-      {:ok, reference}
-    else
-      reconcile_reference(operation, reference, identity)
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 

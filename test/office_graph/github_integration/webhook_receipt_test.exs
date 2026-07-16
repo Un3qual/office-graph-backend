@@ -209,6 +209,62 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     end
   end
 
+  test "provider source write outages return a retryable service failure without receipt effects" do
+    context = installation_context("provider-source-write-unavailable")
+    delivery_id = "delivery-provider-source-write-unavailable"
+    body = payload(context.external_installation_id)
+    headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+    Repo.query!("""
+    ALTER TABLE external_sources
+    ADD CONSTRAINT test_github_receipt_provider_source_storage
+    CHECK (NOT (kind = 'provider' AND key = 'github_app:office-graph'))
+    """)
+
+    result =
+      try do
+        WebhookReceipt.accept(headers, body)
+      after
+        Repo.query!(
+          "ALTER TABLE external_sources DROP CONSTRAINT test_github_receipt_provider_source_storage"
+        )
+      end
+
+    assert {:error, :receipt_unavailable} = result
+    assert no_receipt_effects?(delivery_id)
+  end
+
+  test "raw archive write outages return a retryable service failure without receipt effects" do
+    context = installation_context("raw-archive-write-unavailable")
+    delivery_id = "delivery-raw-archive-write-unavailable"
+    body = payload(context.external_installation_id)
+    headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
+
+    assert {:ok, _source} =
+             Integrations.ensure_provider_source(
+               "github_app:#{context.app_slug}",
+               "GitHub App #{context.app_slug}"
+             )
+
+    Repo.query!("""
+    ALTER TABLE raw_archives
+    ADD CONSTRAINT test_github_receipt_raw_archive_storage
+    CHECK (external_delivery_id <> 'delivery-raw-archive-write-unavailable')
+    """)
+
+    result =
+      try do
+        WebhookReceipt.accept(headers, body)
+      after
+        Repo.query!(
+          "ALTER TABLE raw_archives DROP CONSTRAINT test_github_receipt_raw_archive_storage"
+        )
+      end
+
+    assert {:error, :receipt_unavailable} = result
+    assert no_receipt_effects?(delivery_id)
+  end
+
   defp installation_context(label) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     grant_organization_role_assignment!(bootstrap)

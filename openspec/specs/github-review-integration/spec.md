@@ -212,6 +212,15 @@ the first GitHub integration.
 - **THEN** the adapter request MUST carry the durable action identity and the
   worker MUST reconcile that identity before attempting another reply create
 
+#### Scenario: Ambiguous review-reply success precedes a target version change
+
+- **WHEN** GitHub created a review reply, Office Graph did not persist the
+  successful action result, and reconciliation later advances the target
+  comment's provider version
+- **THEN** the worker MUST reconcile the durable action identity before
+  rejecting the stale target, MUST accept the matching existing provider reply,
+  and MUST NOT create a duplicate reply
+
 #### Scenario: Selected installation does not own target provenance
 
 - **WHEN** an outbound action selects an installation that has not reconciled the
@@ -248,8 +257,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 
 - **WHEN** a valid webhook, reconciliation, outbound command, outbound job, or
   health read cannot read its installation, archived delivery, permission
-  snapshot, outbound action, target, credential metadata, or dependent health
-  record because storage is temporarily unavailable
+  snapshot, system principal, outbound action, target, credential metadata, or
+  dependent health record because storage is temporarily unavailable
 - **THEN** Office Graph MUST preserve a retryable storage-unavailable result,
   MUST NOT misclassify the record as revoked, invalid, cross-scope, forbidden,
   or terminal, and durable work MUST retain that classification within its fixed

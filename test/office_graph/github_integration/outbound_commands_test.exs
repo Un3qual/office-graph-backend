@@ -435,6 +435,44 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.provider_response_id == "PRRC_existing_reply"
   end
 
+  test "review reply retries reconcile provider success after the target version advances",
+       context do
+    attrs = reply_attrs(context, "Reconcile provider success after local persistence failed.")
+
+    operation =
+      command_operation!(
+        context,
+        :github_review_reply,
+        "reply:success-before-version-change",
+        attrs
+      )
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    context.comment
+    |> Ash.Changeset.for_update(:reconcile, %{
+      provider_version: "v2",
+      provider_sequence: 2,
+      operation_id: context.comment.operation_id
+    })
+    |> Repo.ash_update!()
+
+    Provider.put(%{
+      {"review_reply_lookup", action.id} =>
+        {:ok, %{id: "PRRC_existing_after_version_change", version: "reply-existing-v2"}},
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "PRRC_duplicate_after_version_change", version: "reply-duplicate-v2"}}
+    })
+
+    assert :ok = OutboundWorker.perform(job_for(action.id))
+    assert Provider.calls("review_reply_lookup", action.id) == 1
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "succeeded"
+    assert action.provider_response_id == "PRRC_existing_after_version_change"
+  end
+
   test "outbound targets must have reconciliation provenance for the selected installation",
        context do
     unique = System.unique_integer([:positive])

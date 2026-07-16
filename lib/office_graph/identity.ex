@@ -98,18 +98,24 @@ defmodule OfficeGraph.Identity do
 
   def validate_session_context(_session_context), do: {:error, :forbidden}
 
-  def active_system_principal?(principal_id) when is_binary(principal_id) do
-    match?(
+  def active_system_principal(principal_id) when is_binary(principal_id) do
+    case Ash.get(Principal, principal_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok, %Principal{kind: kind, status: "active"}}
-      when kind in ["integration", "service", "webhook"],
-      Ash.get(Principal, principal_id,
-        authorize?: false,
-        not_found_error?: false
-      )
-    )
+      when kind in ["integration", "service", "webhook"] ->
+        {:ok, true}
+
+      {:ok, _missing_or_inactive} ->
+        {:ok, false}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
   end
 
-  def active_system_principal?(_principal_id), do: false
+  def active_system_principal(_principal_id), do: {:ok, false}
 
   def ensure_system_principal(email, kind)
       when is_binary(email) and kind in ["service", "webhook"] do

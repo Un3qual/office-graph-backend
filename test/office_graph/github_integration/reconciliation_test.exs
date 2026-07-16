@@ -503,6 +503,96 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert repository.provider_sequence == 1
   end
 
+  test "provider source write failures remain retryable and recover" do
+    context = reconciliation_context("provider-source-write-unavailable")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_provider_source_write_unavailable",
+        "delivery-provider-source-write-unavailable"
+      )
+
+    operation = reconciliation_operation!(context, request, "provider-source-write-unavailable")
+
+    Provider.put(%{
+      {"pull_request", request.object_id} =>
+        {:ok,
+         snapshot(
+           1,
+           "open",
+           "PR_provider_source_write_unavailable",
+           "R_provider_source_write_unavailable"
+         )}
+    })
+
+    Repo.query!("""
+    ALTER TABLE external_sources
+    ADD CONSTRAINT test_github_reconciliation_provider_source_storage
+    CHECK (NOT (kind = 'provider' AND key = 'github'))
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!(
+          "ALTER TABLE external_sources DROP CONSTRAINT test_github_reconciliation_provider_source_storage"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == 0
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+  end
+
+  test "external-reference write failures remain retryable and recover atomically" do
+    context = reconciliation_context("external-reference-write-unavailable")
+    pull_request_node_id = "PR_external_reference_write_unavailable"
+    repository_node_id = "R_external_reference_write_unavailable"
+
+    request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-external-reference-write-unavailable"
+      )
+
+    operation =
+      reconciliation_operation!(context, request, "external-reference-write-unavailable")
+
+    Provider.put(%{
+      {"pull_request", pull_request_node_id} =>
+        {:ok, snapshot(1, "open", pull_request_node_id, repository_node_id)}
+    })
+
+    Repo.query!("""
+    ALTER TABLE external_references
+    ADD CONSTRAINT test_github_external_reference_storage
+    CHECK (external_id <> 'repository:R_external_reference_write_unavailable')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!(
+          "ALTER TABLE external_references DROP CONSTRAINT test_github_external_reference_storage"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == 0
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+    assert Repo.aggregate(Repository, :count) == 1
+  end
+
   test "provider-neutral update failures remain retryable and preserve canonical state" do
     context = reconciliation_context("provider-resource-update-unavailable")
     pull_request_node_id = "PR_provider_resource_update_unavailable"

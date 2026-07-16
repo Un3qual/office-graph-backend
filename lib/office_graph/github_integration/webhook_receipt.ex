@@ -224,6 +224,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
   defp normalize_receipt_error({:system_idempotency_conflict, _operation_id}),
     do: :delivery_identity_conflict
 
+  defp normalize_receipt_error(:integration_storage_unavailable),
+    do: :receipt_unavailable
+
   defp normalize_receipt_error(reason)
        when reason in [
               :delivery_identity_conflict,

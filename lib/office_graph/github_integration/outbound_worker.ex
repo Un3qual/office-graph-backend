@@ -75,8 +75,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
            SecretStore.resolve(credential_id, %{
              organization_id: action.organization_id,
              workspace_id: action.workspace_id
-           }),
-         :ok <- require_current_target_version(action) do
+           }) do
       action
       |> call_adapter(installation, credential)
       |> record_adapter_result(action, job)
@@ -187,22 +186,46 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
         |> Map.put(:expected_provider_version, action.expected_provider_version)
         |> Map.put(:external_installation_id, installation.external_installation_id)
 
-      case action.action_kind do
-        "review_reply" -> find_or_create_review_reply(adapter, request, credential)
-        "check_update" -> adapter.update_check(request, credential)
-        _unsupported -> {:error, :invalid_provider_response}
-      end
+      call_adapter(action, adapter, request, credential)
     end
   end
 
-  defp find_or_create_review_reply(adapter, request, credential) do
+  defp call_adapter(
+         %OutboundAction{action_kind: "review_reply"} = action,
+         adapter,
+         request,
+         credential
+       ) do
     case adapter.find_review_reply(request, credential) do
-      {:ok, nil} -> adapter.reply_to_review(request, credential)
-      {:ok, response} when is_map(response) -> {:ok, response}
-      {:ok, _invalid} -> {:error, :invalid_provider_response}
-      {:error, _reason} = error -> error
+      {:ok, nil} ->
+        with :ok <- require_current_target_version(action) do
+          adapter.reply_to_review(request, credential)
+        end
+
+      {:ok, response} when is_map(response) ->
+        {:ok, response}
+
+      {:ok, _invalid} ->
+        {:error, :invalid_provider_response}
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  defp call_adapter(
+         %OutboundAction{action_kind: "check_update"} = action,
+         adapter,
+         request,
+         credential
+       ) do
+    with :ok <- require_current_target_version(action) do
+      adapter.update_check(request, credential)
+    end
+  end
+
+  defp call_adapter(_action, _adapter, _request, _credential),
+    do: {:error, :invalid_provider_response}
 
   defp record_adapter_result({:ok, response}, action, job) do
     with {:ok, response_id} <- response_value(response, :id),

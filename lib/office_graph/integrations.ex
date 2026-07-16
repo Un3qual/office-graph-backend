@@ -27,15 +27,20 @@ defmodule OfficeGraph.Integrations do
   def ensure_provider_source(key, name)
       when is_binary(key) and byte_size(key) in 1..255 and is_binary(name) and
              byte_size(name) in 1..255 do
-    source =
-      Repo.get_or_insert!(
-        ExternalSource,
-        [kind: "provider", key: key],
-        %{key: key, name: name, kind: "provider"},
-        &provider_source_insert_contract/2
-      )
+    case Repo.get_or_insert(
+           ExternalSource,
+           [kind: "provider", key: key],
+           %{key: key, name: name, kind: "provider"},
+           &provider_source_insert_contract/2
+         ) do
+      {:ok, source} ->
+        if source.kind == "provider",
+          do: {:ok, source},
+          else: {:error, :source_identity_conflict}
 
-    if source.kind == "provider", do: {:ok, source}, else: {:error, :source_identity_conflict}
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
   end
 
   def ensure_provider_source(_key, _name), do: {:error, :invalid_provider_source}
@@ -61,25 +66,28 @@ defmodule OfficeGraph.Integrations do
         metadata: Map.get(attrs, :metadata, %{})
       }
 
-      archive =
-        Repo.get_or_insert!(
-          RawArchive,
-          [
-            source_id: source.id,
-            external_delivery_id: archive_attrs.external_delivery_id
-          ],
-          archive_attrs,
-          &provider_archive_insert_contract/2,
-          &fetch_provider_archive/2
-        )
+      case Repo.get_or_insert(
+             RawArchive,
+             [
+               source_id: source.id,
+               external_delivery_id: archive_attrs.external_delivery_id
+             ],
+             archive_attrs,
+             &provider_archive_insert_contract/2,
+             &fetch_provider_archive/2
+           ) do
+        {:ok, archive} ->
+          if archive.content_hash == archive_attrs.content_hash and
+               archive.operation_id == operation.id and
+               archive.organization_id == operation.organization_id and
+               archive.workspace_id == operation.workspace_id do
+            {:ok, archive, if(archive.id == archive_id, do: :created, else: :replayed)}
+          else
+            {:error, :delivery_identity_conflict}
+          end
 
-      if archive.content_hash == archive_attrs.content_hash and
-           archive.operation_id == operation.id and
-           archive.organization_id == operation.organization_id and
-           archive.workspace_id == operation.workspace_id do
-        {:ok, archive, if(archive.id == archive_id, do: :created, else: :replayed)}
-      else
-        {:error, :delivery_identity_conflict}
+        {:error, _storage_error} ->
+          {:error, :integration_storage_unavailable}
       end
     end
   end

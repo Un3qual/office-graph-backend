@@ -68,6 +68,25 @@ defmodule OfficeGraph.Repo do
     end
   end
 
+  def get_or_insert(resource, lookup, attrs, insert_contract, fetch \\ &fetch_by_lookup/2) do
+    {:ok, get_or_insert!(resource, lookup, attrs, insert_contract, fetch)}
+  rescue
+    error in [
+      Ash.Error.Forbidden,
+      Ash.Error.Framework,
+      Ash.Error.Invalid,
+      Ash.Error.Unknown,
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error,
+      RuntimeError
+    ] ->
+      {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
   defp insert_then_fetch!(resource, lookup, attrs, insert_contract, fetch) do
     {table, conflict_target, uuid_fields} = insert_contract.(resource, attrs)
     now = DateTime.utc_now()
