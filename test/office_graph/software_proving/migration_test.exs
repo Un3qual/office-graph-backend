@@ -1,7 +1,7 @@
 defmodule OfficeGraph.SoftwareProving.MigrationTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Repo
+  import OfficeGraph.TestSupport.PostgresCatalog
 
   @base_tables ~w(repositories repository_refs commits pull_requests review_threads review_comments check_runs)
   @github_extension_tables ~w(github_repositories github_pull_requests github_review_threads github_review_comments github_check_runs)
@@ -105,87 +105,5 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     assert_raise Ecto.MigrationError, ~r/irreversible.*source kinds/i, fn ->
       down.()
     end
-  end
-
-  defp table_exists?(table) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        "SELECT to_regclass(current_schema() || '.' || $1) IS NOT NULL",
-        [table]
-      )
-
-    exists?
-  end
-
-  defp column_exists?(table, column) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = $1
-            AND column_name = $2
-        )
-        """,
-        [table, column]
-      )
-
-    exists?
-  end
-
-  defp constraint_exists?(name) do
-    %{rows: [[exists?]]} =
-      Repo.query!("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = $1)", [name])
-
-    exists?
-  end
-
-  defp index_exists?(name) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = $1)",
-        [name]
-      )
-
-    exists?
-  end
-
-  defp index_columns(name) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT attribute.attname
-        FROM pg_class index_relation
-        JOIN pg_index index_definition ON index_definition.indexrelid = index_relation.oid
-        JOIN pg_class table_relation ON table_relation.oid = index_definition.indrelid
-        JOIN LATERAL unnest(index_definition.indkey) WITH ORDINALITY AS keys(attnum, position)
-          ON true
-        JOIN pg_attribute attribute
-          ON attribute.attrelid = table_relation.oid AND attribute.attnum = keys.attnum
-        WHERE index_relation.relname = $1
-        ORDER BY keys.position
-        """,
-        [name]
-      )
-
-    Enum.map(rows, fn [column] -> column end)
-  end
-
-  defp index_definition(name) do
-    %{rows: [[unique?, predicate]]} =
-      Repo.query!(
-        """
-        SELECT index_definition.indisunique,
-               pg_get_expr(index_definition.indpred, index_definition.indrelid)
-        FROM pg_class index_relation
-        JOIN pg_index index_definition ON index_definition.indexrelid = index_relation.oid
-        WHERE index_relation.relname = $1
-        """,
-        [name]
-      )
-
-    %{unique?: unique?, predicate: predicate}
   end
 end

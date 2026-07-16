@@ -36,19 +36,19 @@
 - Produces: `OfficeGraph.TestSupport.PostgresCatalog` functions `table_exists?/1`, `column_exists?/2`, `column_nullable?/2`, `constraint_exists?/1`, `index_exists?/1`, `index_columns/1`, `index_definition/1`, and `columns/1`.
 - Preserves: migration assertions may match the complete index map `%{columns: list, unique?: boolean, predicate: binary | nil, nulls_not_distinct?: boolean}`.
 
-- [ ] **Step 1: Add the shared PostgreSQL catalog support module**
+- [x] **Step 1: Add the shared PostgreSQL catalog support module**
 
   Implement catalog queries through `OfficeGraph.Repo` using `current_schema()`. `index_definition/1` must select ordered key expressions, uniqueness, predicate, and `indnullsnotdistinct` in one query and return `nil` when absent.
 
-- [ ] **Step 2: Replace local catalog helpers with imported shared functions**
+- [x] **Step 2: Replace local catalog helpers with imported shared functions**
 
   Add `import OfficeGraph.TestSupport.PostgresCatalog` in the five catalog-oriented test modules, replace `domain_event_columns/0` with `columns("domain_events")`, and delete only the now-duplicated private query helpers.
 
-- [ ] **Step 3: Avoid repeated mock cleanup registration**
+- [x] **Step 3: Avoid repeated mock cleanup registration**
 
   Call `RecordLoaderTestAdapter.configure!(%{})` once before each resource loop in reconciliation and webhook-receipt tests, then use `RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})` inside the loop.
 
-- [ ] **Step 4: Verify the test-infrastructure batch**
+- [x] **Step 4: Verify the test-infrastructure batch**
 
   Run:
 

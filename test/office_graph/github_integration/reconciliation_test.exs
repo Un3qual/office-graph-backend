@@ -200,6 +200,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
   test "transient installation and credential lookup failures persist retryable outcomes" do
     context = reconciliation_context("record-lookup-unavailable")
+    RecordLoaderTestAdapter.configure!(%{})
 
     for {resource, label} <- [
           {Installation, "installation"},
@@ -215,7 +216,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
       operation = reconciliation_operation!(context, request, "#{label}-lookup-unavailable")
 
-      RecordLoaderTestAdapter.configure!(%{resource => {:error, :database_unavailable}})
+      RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})
 
       assert {:error, {:retryable, :integration_storage_unavailable}} =
                Reconciler.reconcile(operation, request)

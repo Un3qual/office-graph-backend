@@ -1,7 +1,7 @@
 defmodule OfficeGraph.SystemOperationMigrationTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Repo
+  import OfficeGraph.TestSupport.PostgresCatalog
 
   test "system operation migration keeps human rows strict and permits declared system nullability" do
     assert column_nullable?("operation_correlations", "session_id")
@@ -59,102 +59,6 @@ defmodule OfficeGraph.SystemOperationMigrationTest do
 
     assert_raise Ecto.MigrationError, ~r/irreversible.*workspaces/i, fn ->
       down.()
-    end
-  end
-
-  defp column_exists?(table, column) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = $1
-            AND column_name = $2
-        )
-        """,
-        [table, column]
-      )
-
-    exists?
-  end
-
-  defp column_nullable?(table, column) do
-    %{rows: [["YES"]]} =
-      Repo.query!(
-        """
-        SELECT is_nullable
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = $1
-          AND column_name = $2
-        """,
-        [table, column]
-      )
-
-    true
-  end
-
-  defp constraint_exists?(name) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM pg_constraint
-          WHERE conname = $1
-        )
-        """,
-        [name]
-      )
-
-    exists?
-  end
-
-  defp index_exists?(name) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM pg_indexes
-          WHERE schemaname = current_schema()
-            AND indexname = $1
-        )
-        """,
-        [name]
-      )
-
-    exists?
-  end
-
-  defp index_definition(name) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT
-          ARRAY(
-            SELECT pg_get_indexdef(index_row.indexrelid, position, true)
-            FROM generate_series(1, index_row.indnkeyatts) AS position
-            ORDER BY position
-          ),
-          index_row.indnullsnotdistinct
-        FROM pg_index AS index_row
-        JOIN pg_class AS index_class ON index_class.oid = index_row.indexrelid
-        JOIN pg_namespace AS namespace ON namespace.oid = index_class.relnamespace
-        WHERE namespace.nspname = current_schema()
-          AND index_class.relname = $1
-        """,
-        [name]
-      )
-
-    case rows do
-      [[columns, nulls_not_distinct?]] ->
-        %{columns: columns, nulls_not_distinct?: nulls_not_distinct?}
-
-      [] ->
-        nil
     end
   end
 end

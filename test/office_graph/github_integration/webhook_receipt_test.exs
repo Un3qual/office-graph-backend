@@ -192,6 +192,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
   test "installation and credential lookup outages return a retryable service failure" do
     context = installation_context("record-lookup-unavailable")
+    RecordLoaderTestAdapter.configure!(%{})
 
     for {resource, label} <- [
           {Installation, "installation-lookup-unavailable"},
@@ -201,7 +202,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
       body = payload(context.external_installation_id)
       headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
 
-      RecordLoaderTestAdapter.configure!(%{resource => {:error, :database_unavailable}})
+      RecordLoaderTestAdapter.put(%{resource => {:error, :database_unavailable}})
 
       assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
       assert no_receipt_effects?(delivery_id)
