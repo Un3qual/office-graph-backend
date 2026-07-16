@@ -181,14 +181,14 @@
 
   Cite the pinned Oban worker documentation and Basic engine implementation: execution increments `attempt`, snooze increments `max_attempts`, and `retry_budget/1` clamps the effective maximum back to ten. Make no retry-counter code change.
 
-- [ ] **Step 3: Archive the plan and commit**
+- [x] **Step 3: Archive the plan and commit**
 
   Mark every checkbox complete, move this file under `archive/`, restore README to the internal-agent-runtime plan as the only active plan, and commit `docs: archive github replay review plan`.
 
-- [ ] **Step 4: Push once**
+- [x] **Step 4: Push once**
 
   Push `codex/github-review-integration` and record the pushed SHA.
 
-- [ ] **Step 5: Reply and resolve from the cached snapshot**
+- [x] **Step 5: Reply and resolve from the cached snapshot**
 
   Reply to the six bot-last threads with the root fix or no-change evidence, reply once to CodeRabbit's top-level review for the outside-diff-only findings, resolve warranted cached threads, and stop without fetching PR state again.
