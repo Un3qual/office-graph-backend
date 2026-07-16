@@ -29,11 +29,11 @@
 - Consumes: parent-before-child review-comment reconciliation, persisted `ReviewComment.review_thread_id`, and the node-id map of persisted `ReviewThread` records.
 - Produces: a reply with no direct `review_thread_node_id` inherits its parent's persisted thread id; comment signal actionability reads that persisted id and therefore follows resolved or outdated thread truth.
 
-- [ ] **Step 1: Write the failing reply regression**
+- [x] **Step 1: Write the failing reply regression**
 
 Extend the parent-relationship product-mapping test with a resolved thread and a published reply whose `parent_comment_node_id` points to a parent in that thread while `review_thread_node_id` is nil. Assert the reply persists the parent's `review_thread_id`, no signal is opened for either comment, and the reconciliation outcome has no signal ids.
 
-- [ ] **Step 2: Run the product-mapping test and verify RED**
+- [x] **Step 2: Run the product-mapping test and verify RED**
 
 Run:
 
@@ -43,11 +43,11 @@ nix --extra-experimental-features 'nix-command flakes' develop -c mix test test/
 
 Expected: the reply has a nil thread id and reconciliation creates an open reply signal.
 
-- [ ] **Step 3: Carry parent records and use persisted thread ids**
+- [x] **Step 3: Carry parent records and use persisted thread ids**
 
 Change the comment batch accumulator from node id to persisted comment record. For every ready comment, derive `parent_comment_id` from the parent record and derive the effective thread id from the explicit reconciled thread or, when omitted, the parent record. Persist that effective id. Build actionability state by persisted `ReviewThread.id` and look up `item.record.review_thread_id`; only a nil persisted thread remains independently actionable.
 
-- [ ] **Step 4: Run the product-mapping test and verify GREEN**
+- [x] **Step 4: Run the product-mapping test and verify GREEN**
 
 Confirm the new reply regression and the existing open, resolved, stale-thread, and parent-link behaviors pass.
 
@@ -61,11 +61,11 @@ Confirm the new reply regression and the existing open, resolved, stale-thread, 
 - Consumes: `Authorization.authorize/3` with the installation's exact `organization_id` and nullable `workspace_id`.
 - Produces: both ordinary and trusted workspace-only sessions receive `{:error, :forbidden}` for organization-scoped installation health, while principals with an organization-scoped role assignment remain authorized.
 
-- [ ] **Step 1: Write the failing trusted-session regression**
+- [x] **Step 1: Write the failing trusted-session regression**
 
 In the existing organization-health scope test, create a second workspace-only reader with `trusted?: true` and the cached `skeleton.read` capability. Assert the same non-enumerating forbidden result as the ordinary workspace reader.
 
-- [ ] **Step 2: Run the health test and verify RED**
+- [x] **Step 2: Run the health test and verify RED**
 
 Run:
 
@@ -75,11 +75,11 @@ nix --extra-experimental-features 'nix-command flakes' develop -c mix test test/
 
 Expected: the trusted workspace reader currently receives the organization health view.
 
-- [ ] **Step 3: Authorize the exact installation scope from live assignments**
+- [x] **Step 3: Authorize the exact installation scope from live assignments**
 
 At the health boundary, call `Authorization.authorize/3` rather than the trusted projection shortcut, passing the installation's exact organization and workspace scope. This projection is selected by an arbitrary installation id, so a capability cache without scope provenance cannot safely authorize it.
 
-- [ ] **Step 4: Run the health test and verify GREEN**
+- [x] **Step 4: Run the health test and verify GREEN**
 
 Confirm both workspace-only readers are forbidden and all bounded, safe health tests still pass.
 
@@ -93,19 +93,19 @@ Confirm both workspace-only readers are forbidden and all bounded, safe health t
 - Consumes: the typed `references_external` relationship definition, its `source_item` relationship, and `Signal.graph_item_id`.
 - Produces: signal refresh and close operations ignore unrelated active task, finding, check, artifact, and evidence links to the same external-reference graph item.
 
-- [ ] **Step 1: Write the failing relationship-ownership regression**
+- [x] **Step 1: Write the failing relationship-ownership regression**
 
 Reconcile a failing check to create one signal and its provider reference. Create a valid task graph item and a second active `references_external` relationship to the same reference. Reconcile the healthy check and assert the canonical signal closes while the unrelated relationship remains active.
 
-- [ ] **Step 2: Run the product-mapping test and verify RED**
+- [x] **Step 2: Run the product-mapping test and verify RED**
 
 Expected: the unscoped `Ash.read_one/2` reports multiple active relationships and reconciliation returns a retryable storage classification instead of closing the signal.
 
-- [ ] **Step 3: Filter the relationship lookup by signal source kind**
+- [x] **Step 3: Filter the relationship lookup by signal source kind**
 
 Add a source-item relationship predicate to `active_reference_relationship/2` so only an active `references_external` edge whose source graph item has `resource_type == "signal"` can identify the integration signal. Keep the existing definition, target, and lifecycle filters.
 
-- [ ] **Step 4: Run the product-mapping test and verify GREEN**
+- [x] **Step 4: Run the product-mapping test and verify GREEN**
 
 Confirm the canonical signal closes and reopens normally even while another valid product edge references the same provider object.
 
@@ -115,11 +115,11 @@ Confirm the canonical signal closes and reopens normally even while another vali
 - Modify: `docs/superpowers/plans/README.md`
 - Move: `docs/superpowers/plans/2026-07-16-github-review-thread-scope-followthrough.md` to `docs/superpowers/plans/archive/2026-07-16-github-review-thread-scope-followthrough.md`
 
-- [ ] **Step 1: Run focused and affected verification**
+- [x] **Step 1: Run focused and affected verification**
 
 Run the two affected test files, then the full GitHub integration, integration-health, and WorkGraph system-command coverage needed by the changed boundaries.
 
-- [ ] **Step 2: Run the repository gate**
+- [x] **Step 2: Run the repository gate**
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop -c ./bin/verify
@@ -128,10 +128,10 @@ git diff --check
 
 Expected: all backend, frontend, static, architecture, security, strict OpenSpec, and production build stages pass, and the diff is whitespace-clean.
 
-- [ ] **Step 3: Archive and commit the plan**
+- [x] **Step 3: Archive and commit the plan**
 
 Move this plan to `docs/superpowers/plans/archive/`, restore the README so the internal-agent-runtime plan remains the only active plan, and commit the documentation closeout.
 
-- [ ] **Step 4: Push and reply without refreshing**
+- [x] **Step 4: Push and reply without refreshing**
 
 Push `codex/github-review-integration` once. Reply to and resolve cached threads `PRRT_kwDOS7ymi86Ri6hp`, `PRRT_kwDOS7ymi86Ri6hw`, and `PRRT_kwDOS7ymi86Ri6h2` with the exact fix and verification evidence. Do not perform any GitHub read after the push.
