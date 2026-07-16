@@ -15,7 +15,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
   alias OfficeGraph.SoftwareProving.{Repository, ReviewComment, ReviewThread}
-  alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, Signal}
+  alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest, Signal}
 
   require Ash.Query
 
@@ -71,7 +71,49 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              Reconciler.reconcile(operation!(context, request, "failing"), request)
 
     assert [signal_id] = first_outcome.signal_ids
-    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+    signal = Ash.get!(Signal, signal_id, authorize?: false)
+    assert signal.state == "open"
+
+    {:ok, task_operation} =
+      Operations.start_operation(context.bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, %{task: task}} =
+             WorkGraph.create_task(
+               context.bootstrap.session,
+               task_operation,
+               signal,
+               %{
+                 title: "Investigate the provider check",
+                 body: "Keep this user-owned reference independent from signal lifecycle."
+               }
+             )
+
+    check_reference =
+      ExternalReference
+      |> Ash.Query.filter(object_type == "check_run")
+      |> Ash.read_one!(authorize?: false)
+
+    reference_item =
+      GraphItem
+      |> Ash.Query.filter(
+        resource_type == "external_reference" and resource_id == ^check_reference.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    {:ok, relationship_operation} =
+      Operations.start_operation(context.bootstrap.session, :graph_relationship_create)
+
+    assert {:ok, unrelated_reference_relationship} =
+             WorkGraph.create_relationship(
+               context.bootstrap.session,
+               relationship_operation,
+               RelationshipRequest.new!(%{
+                 definition_key: "references_external",
+                 source_item_id: task.graph_item_id,
+                 target_item_id: reference_item.id,
+                 workspace_id: context.bootstrap.workspace.id
+               })
+             )
 
     [failed_check] = failing.check_runs
 
@@ -90,6 +132,9 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert healthy_outcome.signal_ids == []
     assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    assert Ash.get!(GraphRelationship, unrelated_reference_relationship.id, authorize?: false).lifecycle ==
+             "active"
 
     failing_again = %{
       failing
@@ -429,7 +474,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == signal_count
   end
 
-  test "reconciliation preserves review comment parent relationships" do
+  test "review replies inherit their parent thread and its non-actionable state" do
     context = context("comment-parent")
 
     request =
@@ -453,7 +498,6 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     reply = %Adapter.ReviewCommentSnapshot{
       node_id: "PRRC_reply",
       database_id: 502,
-      review_thread_node_id: "PRRT_mapping",
       parent_comment_node_id: "PRRC_parent",
       body: "Reply review comment",
       author_label: "author",
@@ -461,10 +505,22 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       published_at: ~U[2026-07-14 12:58:00Z]
     }
 
-    snapshot = %{mapping_snapshot() | review_comments: [reply, parent], check_runs: []}
+    base_snapshot = mapping_snapshot()
+    [thread] = base_snapshot.review_threads
+
+    snapshot = %{
+      base_snapshot
+      | review_threads: [
+          %{thread | state: "resolved", resolved_at: ~U[2026-07-14 12:59:00Z]}
+        ],
+        review_comments: [reply, parent],
+        check_runs: []
+    }
+
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
 
-    assert {:ok, _outcome} = Reconciler.reconcile(operation!(context, request), request)
+    assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
+    assert outcome.signal_ids == []
 
     persisted_parent =
       ReviewComment
@@ -477,6 +533,8 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       |> Ash.read_one!(authorize?: false)
 
     assert persisted_reply.parent_comment_id == persisted_parent.id
+    assert persisted_reply.review_thread_id == persisted_parent.review_thread_id
+    assert Repo.aggregate(Signal, :count) == 0
   end
 
   test "concurrent signal mapping reuses the persisted graph item and signal" do

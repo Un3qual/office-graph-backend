@@ -172,7 +172,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     GraphRelationship
     |> Ash.Query.filter(
       definition_id == ^definition_id and target_item_id == ^reference_item_id and
-        lifecycle == "active"
+        lifecycle == "active" and source_item.resource_type == "signal"
     )
     |> Ash.read_one(authorize?: false)
   end

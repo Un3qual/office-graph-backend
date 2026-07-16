@@ -124,13 +124,25 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
         ]
       })
 
+    assert {:ok, _health} =
+             Projections.integration_health(bootstrap.session, bound.installation.id)
+
     workspace_reader =
       create_session_with_capabilities!(bootstrap, ["skeleton.read"],
         prefix: "github-health-workspace-reader"
       )
 
+    trusted_workspace_reader =
+      create_session_with_capabilities!(bootstrap, ["skeleton.read"],
+        prefix: "github-health-trusted-workspace-reader",
+        trusted?: true
+      )
+
     assert {:error, :forbidden} =
              Projections.integration_health(workspace_reader, bound.installation.id)
+
+    assert {:error, :forbidden} =
+             Projections.integration_health(trusted_workspace_reader, bound.installation.id)
   end
 
   test "last success uses the successful transition time of a recovered outcome" do

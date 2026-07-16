@@ -635,7 +635,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          _pull_request,
          _thread_ids,
          _snapshot,
-         _comment_ids,
+         _comment_records,
          reconciled
        ),
        do: Enum.reverse(reconciled)
@@ -647,34 +647,39 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          pull_request,
          thread_ids,
          snapshot,
-         comment_ids,
+         comment_records,
          reconciled
        ) do
     {ready, blocked} =
       Enum.split_with(pending, fn comment ->
         is_nil(comment.parent_comment_node_id) or
-          Map.has_key?(comment_ids, comment.parent_comment_node_id)
+          Map.has_key?(comment_records, comment.parent_comment_node_id)
       end)
 
     if ready == [] do
       Repo.rollback(:invalid_provider_response)
     else
-      {comment_ids, reconciled} =
-        Enum.reduce(ready, {comment_ids, reconciled}, fn comment, {ids, items} ->
-          parent_comment_id = Map.get(ids, comment.parent_comment_node_id)
+      {comment_records, reconciled} =
+        Enum.reduce(ready, {comment_records, reconciled}, fn comment, {records, items} ->
+          parent_comment = Map.get(records, comment.parent_comment_node_id)
+          parent_comment_id = parent_comment && parent_comment.id
+
+          review_thread_id =
+            Map.get(thread_ids, comment.review_thread_node_id) ||
+              (parent_comment && parent_comment.review_thread_id)
 
           item =
             reconcile_comment!(
               operation,
               source,
               pull_request,
-              thread_ids,
               snapshot,
               comment,
-              parent_comment_id
+              parent_comment_id,
+              review_thread_id
             )
 
-          {Map.put(ids, comment.node_id, item.record.id), [item | items]}
+          {Map.put(records, comment.node_id, item.record), [item | items]}
         end)
 
       reconcile_comment_batch!(
@@ -684,7 +689,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         pull_request,
         thread_ids,
         snapshot,
-        comment_ids,
+        comment_records,
         reconciled
       )
     end
@@ -694,10 +699,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          operation,
          source,
          pull_request,
-         thread_ids,
          snapshot,
          comment,
-         parent_comment_id
+         parent_comment_id,
+         review_thread_id
        ) do
     existing =
       base_by_extension(
@@ -711,7 +716,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     result =
       SoftwareProving.upsert_provider_resource(operation, source, ReviewComment, existing, %{
         pull_request_id: pull_request.id,
-        review_thread_id: Map.get(thread_ids, comment.review_thread_node_id),
+        review_thread_id: review_thread_id,
         parent_comment_id: parent_comment_id,
         body: comment.body,
         author_label: comment.author_label,
@@ -810,7 +815,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp map_workspace_product_work!(operation, comments, checks, thread_records) do
-    thread_states = Map.new(thread_records, fn {node_id, record} -> {node_id, record.state} end)
+    thread_states =
+      Map.new(thread_records, fn {_node_id, record} -> {record.id, record.state} end)
 
     comment_signals =
       Enum.flat_map(comments, fn item ->
@@ -864,9 +870,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp review_comment_actionable?(item, thread_states) do
     item.record.state == "published" and
-      case item.snapshot.review_thread_node_id do
+      case item.record.review_thread_id do
         nil -> true
-        thread_node_id -> Map.get(thread_states, thread_node_id) == "open"
+        thread_id -> Map.get(thread_states, thread_id) == "open"
       end
   end
 

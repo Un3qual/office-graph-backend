@@ -25,7 +25,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
 
     with {:ok, installation} <- scoped_installation(session_context, installation_id),
          :ok <-
-           Authorization.authorize_projection(session_context, :skeleton_read,
+           Authorization.authorize(session_context, :skeleton_read,
              organization_id: installation.organization_id,
              workspace_id: installation.workspace_id
            ),
