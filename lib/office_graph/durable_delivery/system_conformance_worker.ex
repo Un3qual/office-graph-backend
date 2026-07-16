@@ -29,12 +29,13 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
          {:ok, operation} <- Operations.start_system_operation(request),
          {:ok, _event} <-
            DurableDelivery.record_system_and_enqueue(operation, %{
-             event_key: event_key(operation, args["idempotency_key"]),
+             event_key: event_key(operation),
              event_kind: "system_conformance.completed"
            }) do
       :ok
     else
       {:error, :forbidden} -> finish_terminal_job(job, "system_conformance_forbidden")
+      {:error, error} when is_struct(error) -> {:error, "system_conformance_storage_unavailable"}
       {:error, _error} -> finish_terminal_job(job, "invalid_system_conformance_job")
     end
   end
@@ -46,7 +47,5 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
     end
   end
 
-  defp event_key(operation, idempotency_key) do
-    "system-conformance:#{operation.organization_id}:#{operation.principal_id}:#{idempotency_key}"
-  end
+  defp event_key(operation), do: "system-conformance:#{operation.id}"
 end

@@ -217,6 +217,90 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert length(jobs_for_event(event.id)) == 1
   end
 
+  test "system conformance retries structured persistence failures" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    principal = system_principal!(bootstrap, "system.conformance")
+
+    args = %{
+      "organization_id" => bootstrap.organization.id,
+      "workspace_id" => nil,
+      "principal_id" => principal.id,
+      "authority_basis" => "test:durable-delivery",
+      "causation_key" => "test:conformance-storage-unavailable",
+      "idempotency_key" => "conformance-storage-unavailable"
+    }
+
+    assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
+
+    Repo.query!("""
+    ALTER TABLE operation_correlations
+    ADD CONSTRAINT test_system_conformance_storage_unavailable
+    CHECK (action <> 'system.conformance')
+    """)
+
+    result =
+      try do
+        SystemConformanceWorker.perform(job)
+      after
+        Repo.query!(
+          "ALTER TABLE operation_correlations DROP CONSTRAINT test_system_conformance_storage_unavailable"
+        )
+      end
+
+    assert {:error, "system_conformance_storage_unavailable"} = result
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    assert :ok = SystemConformanceWorker.perform(job)
+  end
+
+  test "system conformance event identity is independent across governing workspaces" do
+    owner_attrs = [owner_email: "conformance-scope-owner@example.test"]
+
+    {:ok, first_scope} =
+      Foundation.bootstrap_local_owner(
+        owner_attrs ++
+          [
+            workspace_name: "Conformance Workspace One",
+            workspace_slug: "conformance-workspace-one",
+            initiative_name: "Conformance Initiative One",
+            initiative_slug: "conformance-initiative-one"
+          ]
+      )
+
+    {:ok, second_scope} =
+      Foundation.bootstrap_local_owner(
+        owner_attrs ++
+          [
+            workspace_name: "Conformance Workspace Two",
+            workspace_slug: "conformance-workspace-two",
+            initiative_name: "Conformance Initiative Two",
+            initiative_slug: "conformance-initiative-two"
+          ]
+      )
+
+    principal = system_principal!(first_scope, "system.conformance")
+
+    base_args = %{
+      "organization_id" => first_scope.organization.id,
+      "principal_id" => principal.id,
+      "authority_basis" => "test:durable-delivery",
+      "causation_key" => "test:cross-workspace-conformance",
+      "idempotency_key" => "shared-conformance-key"
+    }
+
+    first_job = %Oban.Job{args: Map.put(base_args, "workspace_id", first_scope.workspace.id)}
+    second_job = %Oban.Job{args: Map.put(base_args, "workspace_id", second_scope.workspace.id)}
+
+    assert :ok = SystemConformanceWorker.perform(first_job)
+    assert :ok = SystemConformanceWorker.perform(second_job)
+
+    events = Repo.all(from(event in DomainEvent, where: event.operation_kind == "system"))
+
+    assert Enum.sort(Enum.map(events, & &1.workspace_id)) ==
+             Enum.sort([first_scope.workspace.id, second_scope.workspace.id])
+
+    assert events |> Enum.map(& &1.operation_id) |> Enum.uniq() |> length() == 2
+  end
+
   test "system conformance terminal jobs retain safe failure reasons" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     ungranted = system_principal!(bootstrap, nil)

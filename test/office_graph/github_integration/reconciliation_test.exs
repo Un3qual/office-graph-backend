@@ -249,6 +249,52 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Ash.get!(CheckRun, check.id, authorize?: false).name == check.name
   end
 
+  test "newer provider reconciliation clears soft-delete tombstones" do
+    context = reconciliation_context("resource-reactivation")
+    pull_request_node_id = "PR_resource_reactivation"
+    repository_node_id = "R_resource_reactivation"
+    request = request(context, "pull_request", pull_request_node_id, "delivery-reactivation")
+    operation_v1 = reconciliation_operation!(context, request, "reactivation-v1")
+    first_snapshot = snapshot(1, "open", pull_request_node_id, repository_node_id)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, first_snapshot}})
+    assert {:ok, _outcome} = Reconciler.reconcile(operation_v1, request)
+
+    repository =
+      Repository
+      |> Ash.Query.filter(full_name == "Un3qual/office-graph-backend")
+      |> Ash.read_one!(authorize?: false)
+
+    deleted_at = ~U[2026-07-16 17:00:00Z]
+
+    repository =
+      repository
+      |> Ash.Changeset.for_update(:reconcile, %{
+        lifecycle_state: "deleted",
+        deleted_at: deleted_at,
+        operation_id: operation_v1.id
+      })
+      |> Repo.ash_update!()
+
+    assert %DateTime{} = repository.deleted_at
+
+    assert {:ok, nil} =
+             Ash.get(Repository, repository.id, authorize?: false, not_found_error?: false)
+
+    second_snapshot = snapshot(2, "open", pull_request_node_id, repository_node_id)
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, second_snapshot}})
+
+    assert {:ok, _outcome} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "reactivation-v2"),
+               request
+             )
+
+    reactivated = Ash.get!(Repository, repository.id, authorize?: false)
+    assert reactivated.lifecycle_state == "active"
+    assert is_nil(reactivated.deleted_at)
+  end
+
   test "rate limits and provider failures use stable retry or terminal classifications" do
     context = reconciliation_context("failures")
     request = request(context, "pull_request", "PR_node_failure", "delivery-failure")

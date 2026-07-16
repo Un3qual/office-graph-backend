@@ -33,6 +33,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
       transact(fn -> sync_signal!(operation, reference, title, body, actionable?) end)
       |> case do
         {:ok, result} -> {:ok, result}
+        {:error, error} when is_struct(error) -> {:error, :integration_storage_unavailable}
         {:error, error} -> {:error, error}
       end
     else

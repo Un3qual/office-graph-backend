@@ -451,14 +451,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         "skipped_stale"
       )
     else
-      thread_ids = reconcile_threads!(operation, source, pull_request.record, snapshot)
+      thread_records = reconcile_threads!(operation, source, pull_request.record, snapshot)
+      thread_ids = Map.new(thread_records, fn {node_id, record} -> {node_id, record.id} end)
       comments = reconcile_comments!(operation, source, pull_request.record, thread_ids, snapshot)
 
       checks =
         reconcile_checks!(operation, source, repository.record, pull_request.record, snapshot)
 
       signal_ids =
-        map_product_work!(operation, comments, checks, snapshot.review_threads)
+        map_product_work!(operation, comments, checks, thread_records)
 
       record_invalidation!(operation, pull_request.record, snapshot)
 
@@ -610,7 +611,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         %{node_id: thread.node_id}
       )
 
-      {thread.node_id, result.record.id}
+      {thread.node_id, result.record}
     end)
   end
 
@@ -802,14 +803,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end)
   end
 
-  defp map_product_work!(operation, comments, checks, review_threads) do
+  defp map_product_work!(operation, comments, checks, thread_records) do
     if is_nil(operation.workspace_id),
       do: [],
-      else: map_workspace_product_work!(operation, comments, checks, review_threads)
+      else: map_workspace_product_work!(operation, comments, checks, thread_records)
   end
 
-  defp map_workspace_product_work!(operation, comments, checks, review_threads) do
-    thread_states = Map.new(review_threads, &{&1.node_id, &1.state})
+  defp map_workspace_product_work!(operation, comments, checks, thread_records) do
+    thread_states = Map.new(thread_records, fn {node_id, record} -> {node_id, record.state} end)
 
     comment_signals =
       Enum.flat_map(comments, fn item ->

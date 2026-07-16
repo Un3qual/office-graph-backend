@@ -14,7 +14,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
-  alias OfficeGraph.SoftwareProving.ReviewComment
+  alias OfficeGraph.SoftwareProving.{Repository, ReviewComment, ReviewThread}
   alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, Signal}
 
   require Ash.Query
@@ -229,6 +229,120 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert first_seen_outcome.signal_ids == []
     assert Repo.aggregate(Signal, :count) == signal_count
+  end
+
+  test "stale open thread snapshots cannot reopen signals closed by newer thread state" do
+    context = context("stale-thread-actionability")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-stale-thread-actionability"
+      })
+
+    open = %{mapping_snapshot() | check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, open}})
+    open_operation = operation!(context, request, "open-thread")
+
+    assert {:ok, open_outcome} = Reconciler.reconcile(open_operation, request)
+    assert [signal_id] = open_outcome.signal_ids
+
+    thread =
+      ReviewThread
+      |> Ash.Query.filter(state == "open")
+      |> Ash.read_one!(authorize?: false)
+
+    thread =
+      thread
+      |> Ash.Changeset.for_update(:reconcile, %{
+        state: "resolved",
+        resolved_at: ~U[2026-07-14 13:02:00Z],
+        provider_version: "v5",
+        provider_sequence: 5,
+        provider_updated_at: ~U[2026-07-14 13:02:00Z],
+        operation_id: open_operation.id
+      })
+      |> Repo.ash_update!()
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(object_type == "review_comment")
+      |> Ash.read_one!(authorize?: false)
+
+    assert {:ok, closed} =
+             WorkGraph.sync_integration_signal(
+               operation!(context, request, "authoritative-thread-close"),
+               reference,
+               %{
+                 title: "Review comment from review-bot",
+                 body: "Please handle the stale provider version."
+               },
+               false
+             )
+
+    assert closed.signal.id == signal_id
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    [thread_snapshot] = open.review_threads
+
+    stale_open = %{
+      open
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_threads: [%{thread_snapshot | state: "open", resolved_at: nil}]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, stale_open}})
+
+    assert {:ok, stale_outcome} =
+             Reconciler.reconcile(operation!(context, request, "stale-open-thread"), request)
+
+    assert stale_outcome.signal_ids == []
+    assert Ash.get!(ReviewThread, thread.id, authorize?: false).state == "resolved"
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+  end
+
+  test "product-signal storage failures remain retryable without partial writes" do
+    context = context("signal-storage-unavailable")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-signal-storage-unavailable"
+      })
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
+    operation = operation!(context, request, "signal-storage-unavailable")
+    repository_count = Repo.aggregate(Repository, :count)
+    signal_count = Repo.aggregate(Signal, :count)
+
+    Repo.query!("""
+    ALTER TABLE graph_items
+    ADD CONSTRAINT test_integration_signal_storage_unavailable
+    CHECK (resource_type <> 'external_reference')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!(
+          "ALTER TABLE graph_items DROP CONSTRAINT test_integration_signal_storage_unavailable"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == repository_count
+    assert Repo.aggregate(Signal, :count) == signal_count
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+    assert length(recovered.signal_ids) == 2
   end
 
   test "actionable provider edits refresh the canonical signal content" do

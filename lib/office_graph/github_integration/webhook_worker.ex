@@ -118,6 +118,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       {:error, :integration_storage_unavailable} ->
         normalize_pre_operation_storage_failure(job)
 
+      {:error, error} when is_struct(error) ->
+        normalize_pre_operation_storage_failure(job)
+
       {:error, code} ->
         normalize_result({:error, {:terminal, safe_code(code)}}, job)
     end

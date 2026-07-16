@@ -69,6 +69,7 @@ defmodule OfficeGraph.SoftwareProving do
           |> Map.merge(%{
             sync_state: "synced",
             lifecycle_state: "active",
+            deleted_at: nil,
             operation_id: operation.id
           })
         )
