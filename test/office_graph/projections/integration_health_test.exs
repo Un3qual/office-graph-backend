@@ -210,6 +210,26 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
     assert length(health.recent_failures) == 2
   end
 
+  test "authorization and configuration outcomes count as terminal health failures" do
+    context = health_context("classified-terminal-counts")
+
+    create_outcome!(context, "authorization", "authorization", "permission_denied")
+    create_outcome!(context, "configuration", "configuration", "adapter_unavailable")
+
+    assert {:ok, health} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id
+             )
+
+    assert health.retryable_count == 0
+    assert health.terminal_count == 2
+
+    assert health.recent_failures
+           |> Enum.map(& &1.code)
+           |> Enum.sort() == ["adapter_unavailable", "permission_denied"]
+  end
+
   test "health reports incomplete required permission grants as insufficient" do
     incomplete_permissions = [
       {"unrelated-read", [%{name: "issues", access_level: "read"}]},

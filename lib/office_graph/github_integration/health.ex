@@ -146,8 +146,11 @@ defmodule OfficeGraph.GitHubIntegration.Health do
         resource,
         &1,
         [
-          {:retryable, :count, query: [filter: [state: "retryable"]]},
-          {:terminal, :count, query: [filter: [state: "terminal"]]}
+          {:retryable, :count, query: [filter: [failure_class: "retryable"]]},
+          {:terminal, :count,
+           query: [
+             filter: [failure_class: [in: ["terminal", "authorization", "configuration"]]]
+           ]}
         ],
         authorize?: false
       )

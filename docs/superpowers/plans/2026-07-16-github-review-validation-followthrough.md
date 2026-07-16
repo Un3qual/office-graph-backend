@@ -84,7 +84,7 @@ Add a private `extension_by_node!/3` helper that evaluates `extension_by_node_qu
 
 Run the reconciliation test file. Expected: all tests pass, including outage recovery.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/office_graph/github_integration/reconciler.ex test/office_graph/github_integration/reconciliation_test.exs
@@ -101,11 +101,11 @@ git commit -m "fix: normalize reconciliation extension outages"
 - Consumes: `SyncOutcome.failure_class`, `OutboundAction.failure_class`, and `RecordLoader.aggregate/4`.
 - Produces: `terminal_count` includes `terminal`, `authorization`, and `configuration` failure classes while `retryable_count` includes only `retryable`.
 
-- [ ] **Step 1: Write the failing regression**
+- [x] **Step 1: Write the failing regression**
 
 Create authorization and configuration sync outcomes for one installation, read the health projection, and assert `terminal_count == 2`, `retryable_count == 0`, and both classified failures remain in `recent_failures`.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -115,11 +115,11 @@ nix --extra-experimental-features 'nix-command flakes' develop -c zsh -lc 'mix t
 
 Expected: FAIL with `terminal_count == 0` because the aggregate currently filters only the literal `state == "terminal"`.
 
-- [ ] **Step 3: Aggregate by failure class**
+- [x] **Step 3: Aggregate by failure class**
 
 Change the shared failure-count aggregates to count `failure_class == "retryable"` for retryable work and `failure_class in ["terminal", "authorization", "configuration"]` for terminal work. This produces the same semantics for sync outcomes and outbound actions even though they encode lifecycle state differently.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the integration-health test file. Expected: all tests pass.
 
