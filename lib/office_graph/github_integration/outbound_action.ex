@@ -19,7 +19,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :principal_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, public?: true
     attribute :action_kind, :string, allow_nil?: false, public?: true
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true

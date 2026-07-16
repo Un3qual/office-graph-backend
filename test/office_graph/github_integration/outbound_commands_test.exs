@@ -1,6 +1,8 @@
 defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
   use OfficeGraph.DataCase, async: false
 
+  import OfficeGraph.SessionCaseHelpers, only: [grant_organization_role_assignment!: 1]
+
   defmodule UnavailableSecretStore do
     @behaviour OfficeGraph.GitHubIntegration.SecretStore
 
@@ -34,8 +36,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   require Ash.Query
 
-  setup do
-    context = integrated_context()
+  setup tags do
+    context = integrated_context(tags[:installation_scope] || :workspace)
     {:ok, context}
   end
 
@@ -69,6 +71,47 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.state == "succeeded"
     assert action.provider_response_id == "PRRC_reply_1"
     assert action.provider_response_version == "reply-v1"
+  end
+
+  @tag installation_scope: :organization
+  test "organization-scoped installations enqueue outbound actions from authorized workspace sessions",
+       context do
+    reply_attrs = reply_attrs(context, "Reply through the organization-scoped installation.")
+
+    reply_operation =
+      command_operation!(context, :github_review_reply, "reply:organization-scope", reply_attrs)
+
+    assert {:ok, reply_action} =
+             OutboundCommands.reply_to_review(context.session, reply_operation, reply_attrs)
+
+    check_attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "completed",
+      conclusion: "success",
+      details_url: "https://example.test/checks/organization-scope",
+      expected_provider_version: context.check.provider_version
+    }
+
+    check_operation =
+      command_operation!(context, :github_check_update, "check:organization-scope", check_attrs)
+
+    assert {:ok, check_action} =
+             OutboundCommands.update_check(context.session, check_operation, check_attrs)
+
+    assert is_nil(reply_action.workspace_id)
+    assert is_nil(check_action.workspace_id)
+    assert is_nil(job_for(reply_action.id).args["workspace_id"])
+    assert is_nil(job_for(check_action.id).args["workspace_id"])
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "PRRC_organization_reply", version: "reply-v1"}},
+      {"check_update", "CR_outbound"} => {:ok, %{id: "CR_outbound", version: "check-v2"}}
+    })
+
+    assert :ok = OutboundWorker.perform(job_for(reply_action.id))
+    assert :ok = OutboundWorker.perform(job_for(check_action.id))
   end
 
   test "compatible replays return the durable action after provider state changes", context do
@@ -340,6 +383,58 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert %DateTime{} = terminal_action.completed_at
   end
 
+  test "terminal action writes stage intent before retrying persistence", context do
+    attrs = reply_attrs(context, "Persist the terminal result after storage recovers.")
+    operation = command_operation!(context, :github_review_reply, "reply:terminal-write", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :permission_denied}})
+
+    Repo.query!("""
+    ALTER TABLE github_outbound_actions
+    ADD CONSTRAINT test_github_outbound_terminal_write
+    CHECK (state <> 'terminal')
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job)
+      rescue
+        error -> {:raised, error}
+      after
+        Repo.query!("""
+        ALTER TABLE github_outbound_actions
+        DROP CONSTRAINT test_github_outbound_terminal_write
+        """)
+      end
+
+    assert {:snooze, 5} = result
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert staged_job.meta["terminal_action_id"] == action.id
+    assert staged_job.meta["terminal_failure_class"] == "authorization"
+    assert staged_job.meta["terminal_failure_code"] == "permission_denied"
+    assert staged_job.meta["terminal_result_code"] == "permission_denied"
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+
+    assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
+
+    terminal_action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert terminal_action.state == "terminal"
+    assert terminal_action.failure_class == "authorization"
+    assert terminal_action.failure_code == "permission_denied"
+    assert trace_counts(action, "github.review_reply.terminal") == {1, 1}
+
+    Repo.query!(
+      "DELETE FROM revisions WHERE operation_id = $1 AND revision_type = $2",
+      [Ecto.UUID.dump!(action.operation_id), "github.review_reply.terminal"]
+    )
+
+    assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
+    assert trace_counts(action, "github.review_reply.terminal") == {1, 1}
+  end
+
   test "transient loaded-action dependency lookups remain retryable", context do
     RecordLoaderTestAdapter.configure!(%{})
 
@@ -433,6 +528,45 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     action = Ash.get!(OutboundAction, action.id, authorize?: false)
     assert action.state == "succeeded"
     assert action.provider_response_id == "PRRC_existing_reply"
+  end
+
+  test "completed action replays restore an atomically missing trace", context do
+    attrs = reply_attrs(context, "Restore traces without repeating the provider side effect.")
+    operation = command_operation!(context, :github_review_reply, "reply:trace-recovery", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "PRRC_trace_recovery", version: "reply-v1"}}
+    })
+
+    Repo.query!("""
+    ALTER TABLE revisions
+    ADD CONSTRAINT test_github_outbound_trace_write
+    CHECK (revision_type <> 'github.review_reply.succeeded')
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job)
+      rescue
+        error -> {:raised, error}
+      after
+        Repo.query!("""
+        ALTER TABLE revisions
+        DROP CONSTRAINT test_github_outbound_trace_write
+        """)
+      end
+
+    assert {:snooze, 5} = result
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "succeeded"
+    assert trace_counts(action, "github.review_reply.succeeded") == {0, 0}
+    assert Provider.calls("review_reply", "PRRC_outbound") == 1
+
+    assert :ok = OutboundWorker.perform(job)
+    assert trace_counts(action, "github.review_reply.succeeded") == {1, 1}
+    assert Provider.calls("review_reply", "PRRC_outbound") == 1
   end
 
   test "review reply retries reconcile provider success after the target version advances",
@@ -790,15 +924,22 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert health.remediation_code == "reauthorize_installation"
   end
 
-  defp integrated_context do
+  defp integrated_context(installation_scope) do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     private_key_reference = "test-secret://github/outbound/private-key"
+
+    workspace_id =
+      if installation_scope == :organization, do: nil, else: bootstrap.workspace.id
+
+    if installation_scope == :organization do
+      grant_organization_role_assignment!(bootstrap)
+    end
 
     {:ok, bound} =
       GitHubIntegration.bind_installation(bootstrap.session, %{
         idempotency_key: "bind-outbound",
         external_installation_id: System.unique_integer([:positive]),
-        workspace_id: bootstrap.workspace.id,
+        workspace_id: workspace_id,
         app_slug: "office-graph",
         account_login: "Un3qual",
         account_type: "organization",
@@ -829,7 +970,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     {:ok, system_request} =
       Operations.new_system_operation_request(%{
         organization_id: bootstrap.organization.id,
-        workspace_id: bootstrap.workspace.id,
+        workspace_id: workspace_id,
         principal_id: bound.installation.service_principal_id,
         action: :integration_reconcile,
         authority_basis: "github_installation:#{bound.installation.id}",
@@ -882,6 +1023,24 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   defp count_jobs_for_worker do
     Repo.aggregate(from(job in Oban.Job, where: job.worker == ^inspect(OutboundWorker)), :count)
+  end
+
+  defp trace_counts(action, event) do
+    %{rows: [[audit_count, revision_count]]} =
+      Repo.query!(
+        """
+        SELECT
+          (SELECT count(*) FROM audit_records
+           WHERE operation_id = $1 AND action = $2
+             AND resource_type = 'github_outbound_action' AND resource_id = $3),
+          (SELECT count(*) FROM revisions
+           WHERE operation_id = $1 AND revision_type = $2
+             AND resource_type = 'github_outbound_action' AND resource_id = $3)
+        """,
+        [Ecto.UUID.dump!(action.operation_id), event, Ecto.UUID.dump!(action.id)]
+      )
+
+    {audit_count, revision_count}
   end
 
   defp job_for(action_id) do

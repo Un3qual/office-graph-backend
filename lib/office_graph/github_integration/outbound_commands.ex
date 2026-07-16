@@ -25,11 +25,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, "github.review.reply"),
          :ok <- Operations.validate_command_replay(operation, attrs),
-         :ok <- authorize(session_context, operation, :github_review_reply),
          {:ok, normalized} <- normalize_reply(attrs) do
-      replay_or_execute(session_context, operation, "review_reply", fn ->
-        execute_review_reply(session_context, operation, normalized)
-      end)
+      replay_or_execute(
+        session_context,
+        operation,
+        "review_reply",
+        :github_review_reply,
+        fn -> execute_review_reply(session_context, operation, normalized) end
+      )
     end
   end
 
@@ -37,8 +40,15 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
 
   defp execute_review_reply(session_context, operation, normalized) do
     with {:ok, installation} <- active_installation(session_context, normalized.installation_id),
+         :ok <-
+           authorize(
+             session_context,
+             operation,
+             :github_review_reply,
+             installation.workspace_id
+           ),
          :ok <- require_permission(installation, "pull_requests"),
-         {:ok, target} <- review_target(session_context, normalized),
+         {:ok, target} <- review_target(installation, normalized),
          :ok <- require_version(target.record, normalized.expected_provider_version),
          :ok <- require_installation_provenance(installation, target.record) do
       persist_and_enqueue(
@@ -56,11 +66,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, "github.check.update"),
          :ok <- Operations.validate_command_replay(operation, attrs),
-         :ok <- authorize(session_context, operation, :github_check_update),
          {:ok, normalized} <- normalize_check(attrs) do
-      replay_or_execute(session_context, operation, "check_update", fn ->
-        execute_check_update(session_context, operation, normalized)
-      end)
+      replay_or_execute(
+        session_context,
+        operation,
+        "check_update",
+        :github_check_update,
+        fn -> execute_check_update(session_context, operation, normalized) end
+      )
     end
   end
 
@@ -68,8 +81,15 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
 
   defp execute_check_update(session_context, operation, normalized) do
     with {:ok, installation} <- active_installation(session_context, normalized.installation_id),
+         :ok <-
+           authorize(
+             session_context,
+             operation,
+             :github_check_update,
+             installation.workspace_id
+           ),
          :ok <- require_permission(installation, "checks"),
-         {:ok, target} <- check_target(session_context, normalized),
+         {:ok, target} <- check_target(installation, normalized),
          :ok <- require_version(target.record, normalized.expected_provider_version),
          :ok <- require_installation_provenance(installation, target.record) do
       persist_and_enqueue(
@@ -83,11 +103,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     end
   end
 
-  defp replay_or_execute(session_context, operation, action_kind, execute) do
+  defp replay_or_execute(session_context, operation, action_kind, capability, execute) do
     case action_by_operation(operation.id) do
-      {:ok, nil} -> execute.()
-      {:ok, action} -> validate_existing_action(action, session_context, action_kind)
-      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+      {:ok, nil} ->
+        execute.()
+
+      {:ok, action} ->
+        with :ok <- authorize(session_context, operation, capability, action.workspace_id) do
+          validate_existing_action(action, session_context, action_kind)
+        end
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -102,16 +129,19 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          action_kind
        )
        when principal_id == session_context.principal_id and
-              organization_id == session_context.organization_id and
-              workspace_id == session_context.workspace_id,
-       do: {:ok, action}
+              organization_id == session_context.organization_id do
+    if workspace_id in [nil, session_context.workspace_id],
+      do: {:ok, action},
+      else: {:error, :forbidden}
+  end
 
   defp validate_existing_action(_action, _session_context, _action_kind),
     do: {:error, :forbidden}
 
-  defp authorize(session_context, operation, capability) do
+  defp authorize(session_context, operation, capability, workspace_id) do
     Authorization.authorize_operation(session_context, operation, capability,
-      organization_id: session_context.organization_id
+      organization_id: session_context.organization_id,
+      workspace_id: workspace_id
     )
   end
 
@@ -176,7 +206,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
          workspace_id: workspace_id
        } = installation}
       when organization_id == session_context.organization_id and
-             workspace_id == session_context.workspace_id ->
+             workspace_id in [nil, session_context.workspace_id] ->
         {:ok, installation}
 
       {:ok, _missing_or_cross_scope} ->
@@ -206,9 +236,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     end
   end
 
-  defp review_target(session_context, normalized) do
+  defp review_target(installation, normalized) do
     with {:ok, record} <-
-           scoped_target(ReviewComment, normalized.review_comment_id, session_context),
+           scoped_target(ReviewComment, normalized.review_comment_id, installation),
          :ok <- require_replyable_review_comment(record),
          {:ok, extension} <- review_comment_extension(record.id) do
       {:ok, %{record: record, node_id: extension.node_id}}
@@ -218,18 +248,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp require_replyable_review_comment(%ReviewComment{state: "published"}), do: :ok
   defp require_replyable_review_comment(_record), do: {:error, :forbidden}
 
-  defp check_target(session_context, normalized) do
-    with {:ok, record} <- scoped_target(CheckRun, normalized.check_run_id, session_context),
+  defp check_target(installation, normalized) do
+    with {:ok, record} <- scoped_target(CheckRun, normalized.check_run_id, installation),
          {:ok, extension} <- check_run_extension(record.id) do
       {:ok, %{record: record, node_id: extension.node_id}}
     end
   end
 
-  defp scoped_target(resource, id, session_context) do
+  defp scoped_target(resource, id, installation) do
     case RecordLoader.get(resource, id, authorize?: false, not_found_error?: false) do
       {:ok, %{organization_id: organization_id, workspace_id: workspace_id} = record}
-      when organization_id == session_context.organization_id and
-             workspace_id == session_context.workspace_id ->
+      when organization_id == installation.organization_id and
+             workspace_id == installation.workspace_id ->
         {:ok, record}
 
       {:ok, _missing_or_cross_scope} ->
@@ -328,7 +358,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
         operation_id: operation.id,
         principal_id: session_context.principal_id,
         organization_id: session_context.organization_id,
-        workspace_id: session_context.workspace_id,
+        workspace_id: installation.workspace_id,
         action_kind: action_kind,
         target_type: target_type,
         target_id: target.record.id,

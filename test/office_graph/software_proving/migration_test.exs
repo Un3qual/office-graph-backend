@@ -66,6 +66,7 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
     assert index_exists?("external_references_organization_source_external_id_index")
     assert index_exists?("integration_credentials_workspace_reference_index")
     assert index_exists?("integration_credentials_organization_reference_index")
+    assert column_nullable?("github_outbound_actions", "workspace_id")
 
     assert index_columns("external_sources_kind_key_index") == ["kind", "key"]
     refute index_exists?("external_sources_key_index")

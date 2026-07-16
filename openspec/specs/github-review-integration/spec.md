@@ -191,6 +191,15 @@ the first GitHub integration.
   response identity and classified outcome, and the adapter request MUST carry
   the selected external installation identity
 
+#### Scenario: Organization-scoped installation serves an authorized workspace session
+
+- **WHEN** a workspace session with the required organization-scoped capability
+  requests a supported outbound action through an organization-scoped
+  installation
+- **THEN** Office Graph MUST authorize the installation's exact organization
+  scope, persist and deliver the action with no governing workspace, and require
+  the target, credential, and reconciliation provenance to match that same scope
+
 #### Scenario: Reply target is no longer published
 
 - **WHEN** an actor requests a reply to a pending, minimized, or deleted review
@@ -233,6 +242,14 @@ the first GitHub integration.
   version when its queued or retried outbound action is ready to call GitHub
 - **THEN** the worker MUST reject the stale action before provider access and
   persist a classified stale-provider-version outcome
+
+#### Scenario: Completed outbound action trace persistence is temporarily unavailable
+
+- **WHEN** an outbound action result is durably succeeded or terminal but its
+  audit or revision trace cannot be persisted
+- **THEN** the worker MUST retry only the serialized idempotent trace write,
+  MUST NOT repeat the provider action, and MUST converge to exactly one audit
+  record and one revision record for the completed outcome
 
 #### Scenario: Check progress is updated
 
@@ -322,6 +339,15 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST persist a terminalization phase, retry the action
   state transition after storage recovers, and MUST NOT cancel while the action
   remains pending
+
+#### Scenario: Outbound terminal result persistence is temporarily unavailable
+
+- **WHEN** an outbound action reaches a classified terminal provider result but
+  persisting the terminal action state fails
+- **THEN** the worker MUST stage the exact action, failure class, failure code,
+  and terminal result before the state write, MUST retry only terminal
+  persistence and trace completion after storage recovers, and MUST NOT repeat
+  the provider action or cancel first
 
 #### Scenario: Webhook storage is unavailable before operation start at retry exhaustion
 

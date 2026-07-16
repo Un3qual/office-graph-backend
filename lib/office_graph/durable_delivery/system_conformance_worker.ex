@@ -34,9 +34,17 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
            }) do
       :ok
     else
-      {:error, :forbidden} -> finish_terminal_job(job, "system_conformance_forbidden")
-      {:error, error} when is_struct(error) -> {:error, "system_conformance_storage_unavailable"}
-      {:error, _error} -> finish_terminal_job(job, "invalid_system_conformance_job")
+      {:error, :forbidden} ->
+        finish_terminal_job(job, "system_conformance_forbidden")
+
+      {:error, :integration_storage_unavailable} ->
+        {:error, "system_conformance_storage_unavailable"}
+
+      {:error, error} when is_struct(error) ->
+        {:error, "system_conformance_storage_unavailable"}
+
+      {:error, _error} ->
+        finish_terminal_job(job, "invalid_system_conformance_job")
     end
   end
 

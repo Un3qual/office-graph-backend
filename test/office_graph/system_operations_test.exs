@@ -274,6 +274,35 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert :ok = SystemConformanceWorker.perform(job)
   end
 
+  test "system conformance retries tagged operation-store outages" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    principal = system_principal!(bootstrap, "system.conformance")
+
+    args = %{
+      "organization_id" => bootstrap.organization.id,
+      "workspace_id" => nil,
+      "principal_id" => principal.id,
+      "authority_basis" => "test:durable-delivery",
+      "causation_key" => "test:conformance-tagged-storage-unavailable",
+      "idempotency_key" => "conformance-tagged-storage-unavailable"
+    }
+
+    assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
+
+    Repo.query!("SET LOCAL search_path TO pg_catalog")
+
+    result =
+      try do
+        SystemConformanceWorker.perform(job)
+      after
+        Repo.query!("SET LOCAL search_path TO public")
+      end
+
+    assert {:error, "system_conformance_storage_unavailable"} = result
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    assert :ok = SystemConformanceWorker.perform(job)
+  end
+
   test "system conformance event identity is independent across governing workspaces" do
     owner_attrs = [owner_email: "conformance-scope-owner@example.test"]
 

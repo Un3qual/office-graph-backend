@@ -9,7 +9,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     max_attempts: @max_attempts,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
-  alias OfficeGraph.{Audit, DurableDelivery, Repo, Revisions}
+  alias OfficeGraph.{Audit, DurableDelivery, Operations, Repo, Revisions}
 
   alias OfficeGraph.GitHubIntegration.{
     Installation,
@@ -31,12 +31,27 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
             "organization_id" => organization_id,
             "workspace_id" => workspace_id
           },
-          meta: %{"terminal_action_id" => terminal_action_id}
+          meta: %{"terminal_action_id" => terminal_action_id} = metadata
         } = job
       )
-      when is_binary(action_id) and is_binary(organization_id) and is_binary(workspace_id) and
+      when is_binary(action_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) and
              terminal_action_id == action_id do
-    persist_staged_terminal_action(job, action_id, organization_id, workspace_id)
+    case terminal_intent(metadata) do
+      {:ok, failure_class, failure_code, result_code} ->
+        persist_staged_terminal_action(
+          job,
+          action_id,
+          organization_id,
+          workspace_id,
+          failure_class,
+          failure_code,
+          result_code
+        )
+
+      {:error, code} ->
+        finish_terminal_job(job, code, {:cancel, code})
+    end
   end
 
   def perform(
@@ -48,7 +63,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
           }
         } = job
       )
-      when is_binary(action_id) and is_binary(organization_id) and is_binary(workspace_id) do
+      when is_binary(action_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
     with {:ok, action} <- action(action_id, organization_id, workspace_id) do
       perform_action(action, job)
     else
@@ -62,11 +78,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   def perform(_job), do: {:cancel, "invalid_github_outbound_job"}
 
-  defp perform_action(%OutboundAction{state: "succeeded"}, _job), do: :ok
+  defp perform_action(%OutboundAction{state: "succeeded"} = action, _job) do
+    case trace(action, "succeeded") do
+      :ok -> :ok
+      {:error, :integration_storage_unavailable} -> retry_completed_trace()
+    end
+  end
 
-  defp perform_action(%OutboundAction{state: "terminal", failure_code: code}, job),
-    do:
-      finish_terminal_job(job, code || "terminal_failure", {:cancel, code || "terminal_failure"})
+  defp perform_action(%OutboundAction{state: "terminal", failure_code: code} = action, job) do
+    case trace(action, "terminal") do
+      :ok ->
+        finish_terminal_job(
+          job,
+          code || "terminal_failure",
+          {:cancel, code || "terminal_failure"}
+        )
+
+      {:error, :integration_storage_unavailable} ->
+        retry_completed_trace()
+    end
+  end
 
   defp perform_action(action, job) do
     with {:ok, installation} <- active_installation(action),
@@ -230,19 +261,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp record_adapter_result({:ok, response}, action, job) do
     with {:ok, response_id} <- response_value(response, :id),
          {:ok, response_version} <- optional_response_value(response, :version) do
-      updated =
-        update_action!(action, %{
-          state: "succeeded",
-          provider_response_id: response_id,
-          provider_response_version: response_version,
-          failure_class: nil,
-          failure_code: nil,
-          attempted_at: DateTime.utc_now(),
-          completed_at: DateTime.utc_now()
-        })
+      attrs = %{
+        state: "succeeded",
+        provider_response_id: response_id,
+        provider_response_version: response_version,
+        failure_class: nil,
+        failure_code: nil,
+        attempted_at: DateTime.utc_now(),
+        completed_at: DateTime.utc_now()
+      }
 
-      trace!(updated, "succeeded")
-      :ok
+      case update_action(action, attrs) do
+        {:ok, updated} ->
+          case trace(updated, "succeeded") do
+            :ok -> :ok
+            {:error, :integration_storage_unavailable} -> retry_completed_trace()
+          end
+
+        {:error, :integration_storage_unavailable} ->
+          {:error, "integration_storage_unavailable"}
+      end
     else
       _invalid -> record_adapter_result({:error, :invalid_provider_response}, action, job)
     end
@@ -256,20 +294,19 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     persisted_class =
       if result == {:cancel, "attempts_exhausted"}, do: :terminal, else: failure_class
 
-    updated =
-      update_action!(action, %{
-        state: Atom.to_string(persisted_state),
-        failure_class: Atom.to_string(persisted_class),
-        failure_code: Atom.to_string(failure_code),
-        attempted_at: DateTime.utc_now(),
-        completed_at: if(persisted_state == :terminal, do: DateTime.utc_now())
-      })
-
     if persisted_state == :terminal do
-      trace!(updated, "terminal")
-      finish_terminal_job(job, failure_code, result)
+      stage_and_persist_terminal_action(job, action, persisted_class, failure_code, result)
     else
-      result
+      case update_action(action, %{
+             state: Atom.to_string(persisted_state),
+             failure_class: Atom.to_string(persisted_class),
+             failure_code: Atom.to_string(failure_code),
+             attempted_at: DateTime.utc_now(),
+             completed_at: nil
+           }) do
+        {:ok, _updated} -> result
+        {:error, :integration_storage_unavailable} -> {:error, "integration_storage_unavailable"}
+      end
     end
   end
 
@@ -342,10 +379,13 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp stage_terminal_action(job, action_id) do
-    metadata = %{
-      "terminal_action_id" => action_id,
-      "terminal_failure_code" => "integration_storage_unavailable"
-    }
+    metadata =
+      terminal_metadata(
+        action_id,
+        "terminal",
+        "integration_storage_unavailable",
+        "attempts_exhausted"
+      )
 
     case stage_job_metadata(job, metadata) do
       :ok -> {:snooze, @terminal_retry_delay_seconds}
@@ -353,34 +393,55 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
-  defp persist_staged_terminal_action(job, action_id, organization_id, workspace_id) do
-    case action(action_id, organization_id, workspace_id) do
-      {:ok, %OutboundAction{state: "succeeded"}} ->
-        :ok
+  defp stage_and_persist_terminal_action(
+         job,
+         action,
+         failure_class,
+         failure_code,
+         {:cancel, result_code}
+       ) do
+    metadata =
+      terminal_metadata(
+        action.id,
+        safe_code(failure_class),
+        safe_code(failure_code),
+        safe_code(result_code)
+      )
 
-      {:ok, %OutboundAction{state: "terminal", failure_code: code}} ->
-        finish_terminal_job(
-          job,
-          code || "integration_storage_unavailable",
-          {:cancel, "attempts_exhausted"}
+    case stage_job_metadata(job, metadata) do
+      :ok ->
+        staged_job = %{job | meta: Map.merge(job.meta || %{}, metadata)}
+
+        persist_terminal_action(
+          staged_job,
+          action,
+          safe_code(failure_class),
+          safe_code(failure_code),
+          safe_code(result_code)
         )
 
+      {:error, _error} ->
+        {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp persist_staged_terminal_action(
+         job,
+         action_id,
+         organization_id,
+         workspace_id,
+         failure_class,
+         failure_code,
+         result_code
+       ) do
+    case action(action_id, organization_id, workspace_id) do
       {:ok, action} ->
-        updated =
-          update_action!(action, %{
-            state: "terminal",
-            failure_class: "terminal",
-            failure_code: "integration_storage_unavailable",
-            attempted_at: DateTime.utc_now(),
-            completed_at: DateTime.utc_now()
-          })
-
-        trace!(updated, "terminal")
-
-        finish_terminal_job(
+        persist_terminal_action(
           job,
-          "integration_storage_unavailable",
-          {:cancel, "attempts_exhausted"}
+          action,
+          failure_class,
+          failure_code,
+          result_code
         )
 
       {:error, :integration_storage_unavailable} ->
@@ -388,6 +449,51 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
       {:error, code} ->
         finish_terminal_job(job, code, {:cancel, safe_code(code)})
+    end
+  end
+
+  defp persist_terminal_action(
+         _job,
+         %OutboundAction{state: "succeeded"} = action,
+         _failure_class,
+         _failure_code,
+         _result_code
+       ) do
+    case trace(action, "succeeded") do
+      :ok -> :ok
+      {:error, :integration_storage_unavailable} -> retry_completed_trace()
+    end
+  end
+
+  defp persist_terminal_action(
+         job,
+         %OutboundAction{state: "terminal"} = action,
+         _failure_class,
+         failure_code,
+         result_code
+       ) do
+    case trace(action, "terminal") do
+      :ok -> finish_terminal_job(job, action.failure_code || failure_code, {:cancel, result_code})
+      {:error, :integration_storage_unavailable} -> retry_completed_trace()
+    end
+  end
+
+  defp persist_terminal_action(job, action, failure_class, failure_code, result_code) do
+    case update_action(action, %{
+           state: "terminal",
+           failure_class: failure_class,
+           failure_code: failure_code,
+           attempted_at: DateTime.utc_now(),
+           completed_at: DateTime.utc_now()
+         }) do
+      {:ok, updated} ->
+        case trace(updated, "terminal") do
+          :ok -> finish_terminal_job(job, failure_code, {:cancel, result_code})
+          {:error, :integration_storage_unavailable} -> retry_completed_trace()
+        end
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
     end
   end
 
@@ -421,18 +527,94 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp update_action!(action, attrs) do
+  defp update_action(action, attrs) do
     action
     |> Ash.Changeset.for_update(:record_result, attrs)
-    |> Repo.ash_update!()
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> case do
+      {:ok, updated, _notifications} -> {:ok, updated}
+      {:ok, updated} -> {:ok, updated}
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
+  rescue
+    _error in [
+      Ash.Error.Forbidden,
+      Ash.Error.Framework,
+      Ash.Error.Invalid,
+      Ash.Error.Unknown,
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error,
+      RuntimeError
+    ] ->
+      {:error, :integration_storage_unavailable}
+  catch
+    _kind, _reason -> {:error, :integration_storage_unavailable}
   end
 
-  defp trace!(action, state) do
+  defp trace(action, state) do
     operation = %{id: action.operation_id, principal_id: action.principal_id}
     event = "github.#{action.action_kind}.#{state}"
-    Audit.record!(operation, event, "github_outbound_action", action.id)
-    Revisions.record!(operation, "github_outbound_action", action.id, event, event)
+
+    Repo.transaction(fn ->
+      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
+        Audit.record_once!(operation, event, "github_outbound_action", action.id)
+        Revisions.record_once!(operation, "github_outbound_action", action.id, event, event)
+        :ok
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
+  rescue
+    _error in [
+      Ash.Error.Forbidden,
+      Ash.Error.Framework,
+      Ash.Error.Invalid,
+      Ash.Error.Unknown,
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error,
+      RuntimeError
+    ] ->
+      {:error, :integration_storage_unavailable}
+  catch
+    _kind, _reason -> {:error, :integration_storage_unavailable}
   end
+
+  defp retry_completed_trace, do: {:snooze, @terminal_retry_delay_seconds}
+
+  defp terminal_metadata(action_id, failure_class, failure_code, result_code) do
+    %{
+      "terminal_action_id" => action_id,
+      "terminal_failure_class" => failure_class,
+      "terminal_failure_code" => failure_code,
+      "terminal_result_code" => result_code
+    }
+  end
+
+  defp terminal_intent(metadata) do
+    failure_class = Map.get(metadata, "terminal_failure_class", "terminal")
+    failure_code = Map.get(metadata, "terminal_failure_code", "integration_storage_unavailable")
+    result_code = Map.get(metadata, "terminal_result_code", "attempts_exhausted")
+
+    if failure_class in ~w(terminal authorization configuration) and
+         Enum.all?([failure_code, result_code], &safe_metadata_code?/1) do
+      {:ok, failure_class, failure_code, result_code}
+    else
+      {:error, "invalid_github_outbound_job"}
+    end
+  end
+
+  defp safe_metadata_code?(code) when is_binary(code),
+    do: Regex.match?(~r/^[a-z][a-z0-9_]*$/, code)
+
+  defp safe_metadata_code?(_code), do: false
 
   defp response_value(response, key) when is_map(response) do
     case Map.get(response, key, Map.get(response, to_string(key))) do
