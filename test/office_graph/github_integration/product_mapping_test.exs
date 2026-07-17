@@ -8,6 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest
   }
@@ -214,6 +215,49 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Ash.get!(Signal, reopened_signal_id, authorize?: false).state == "open"
     assert reopened_signal_id in current_outcome.signal_ids
     assert Repo.aggregate(Signal, :count) == 2
+  end
+
+  test "authoritative-absence read outages remain retryable without closing signals" do
+    context = context("missing-provider-work-read-unavailable")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-missing-provider-work-read-unavailable"
+      })
+
+    current = %{mapping_snapshot() | check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, current}})
+
+    assert {:ok, current_outcome} =
+             Reconciler.reconcile(operation!(context, request, "current-work"), request)
+
+    assert [signal_id] = current_outcome.signal_ids
+    [comment] = current.review_comments
+
+    without_comment = %{
+      current
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_comments: []
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, without_comment}})
+    RecordLoaderTestAdapter.configure!(%{ReviewComment => {:error, :database_unavailable}})
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation!(context, request, "missing-work"), request)
+
+    persisted_comment =
+      ReviewComment
+      |> Ash.Query.filter(body == ^comment.body)
+      |> Ash.read_one!(authorize?: false)
+
+    assert persisted_comment.state == "published"
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
   end
 
   test "stale child snapshots do not close provider work missing from that stale view" do
@@ -652,6 +696,37 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert persisted_reply.parent_comment_id == persisted_parent.id
     assert persisted_reply.review_thread_id == persisted_parent.review_thread_id
+    assert Repo.aggregate(Signal, :count) == 0
+  end
+
+  test "Office Graph review replies do not create follow-up signals" do
+    context = context("office-graph-review-reply")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-office-graph-review-reply"
+      })
+
+    base_snapshot = mapping_snapshot()
+    [comment] = base_snapshot.review_comments
+
+    own_reply = %{
+      comment
+      | node_id: "PRRC_office_graph_reply",
+        database_id: 302,
+        body:
+          "Implemented the requested change.\n\n<!-- office-graph-action:#{Ecto.UUID.generate()} -->",
+        author_label: "office-graph[bot]"
+    }
+
+    snapshot = %{base_snapshot | review_comments: [own_reply], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
+
+    assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
+    assert outcome.signal_ids == []
     assert Repo.aggregate(Signal, :count) == 0
   end
 

@@ -257,13 +257,16 @@ defmodule OfficeGraph.Authorization do
         {:error, :forbidden}
       end
 
-    case operation_matches? do
-      true ->
+    case {operation_matches?, authorization_result} do
+      {true, {:error, :integration_storage_unavailable}} ->
+        authorization_result
+
+      {true, _authorization_result} ->
         with :ok <- record_decision(session_context, operation, action_name, decision, reason) do
           result
         end
 
-      false ->
+      {false, _authorization_result} ->
         # Mismatched operations are refused before audit persistence so a forged
         # request cannot attach decisions to an operation it does not own.
         result
@@ -284,11 +287,12 @@ defmodule OfficeGraph.Authorization do
           organization_id != opts[:organization_id] ->
             deny(required, "scope_mismatch")
 
-          not granted_capability?(session_context, requested_workspace_id, required) ->
-            deny(required, "missing_capability")
-
           true ->
-            {:ok, {required, "allow", nil}}
+            evaluate_capability(
+              session_context,
+              requested_workspace_id,
+              required
+            )
         end
 
       :error ->
@@ -319,6 +323,19 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp deny(action, reason), do: {{:error, :forbidden}, {action, "deny", reason}}
+
+  defp unavailable(action),
+    do:
+      {{:error, :integration_storage_unavailable},
+       {action, "deny", "integration_storage_unavailable"}}
+
+  defp evaluate_capability(session_context, requested_workspace_id, required) do
+    case granted_capability?(session_context, requested_workspace_id, required) do
+      {:ok, true} -> {:ok, {required, "allow", nil}}
+      {:ok, false} -> deny(required, "missing_capability")
+      {:error, :integration_storage_unavailable} -> unavailable(required)
+    end
+  end
 
   defp record_decision(session_context, operation, action, decision, reason) do
     attrs = %{
@@ -359,8 +376,8 @@ defmodule OfficeGraph.Authorization do
            requested_workspace_id,
            required
          ) do
-      {:ok, granted?} -> granted?
-      {:error, :integration_storage_unavailable} -> false
+      {:ok, granted?} -> {:ok, granted?}
+      {:error, :integration_storage_unavailable} = error -> error
     end
   end
 

@@ -978,6 +978,51 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert updated.provider_sequence == 2
   end
 
+  test "provider resource trace write outages roll back and remain retryable" do
+    context = reconciliation_context("trace-storage-unavailable")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_trace_storage_unavailable",
+        "delivery-trace-storage-unavailable"
+      )
+
+    operation = reconciliation_operation!(context, request, "trace-storage-unavailable")
+
+    provider_snapshot =
+      snapshot(
+        1,
+        "open",
+        "PR_trace_storage_unavailable",
+        "R_trace_storage_unavailable"
+      )
+
+    Provider.put(%{{"pull_request", "PR_trace_storage_unavailable"} => {:ok, provider_snapshot}})
+
+    Repo.query!("""
+    ALTER TABLE audit_records
+    ADD CONSTRAINT test_github_provider_trace_storage
+    CHECK (action <> 'repository.reconcile.create')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!(
+          "ALTER TABLE audit_records DROP CONSTRAINT test_github_provider_trace_storage"
+        )
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == 0
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+  end
+
   test "malformed nested snapshots fail as invalid provider responses before writes" do
     context = reconciliation_context("invalid-nested-snapshot")
     request = request(context, "pull_request", "PR_invalid_nested", "delivery-invalid-nested")

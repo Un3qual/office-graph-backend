@@ -17,6 +17,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     InstallationCredential,
     RecordLoader,
     ReconciliationRequest,
+    ReviewReplyMarker,
     SecretStore,
     StorageResult,
     SyncOutcome
@@ -51,6 +52,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     :provider_unavailable,
     :integration_storage_unavailable
   ]
+  @finished_failure_states ~w(terminal authorization configuration)
 
   require Ash.Query
 
@@ -67,21 +69,34 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def exhaust_retry(operation, %ReconciliationRequest{} = request, failure_code) do
     if failure_code in @retryable_failure_codes do
-      with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
-           :ok <- validate_retry_request_authority(operation, request) do
-        StorageResult.run(fn ->
-          Repo.transaction(fn ->
-            lock!("github:sync-outcome:#{operation.id}")
-            terminalize_retry!(operation, request, failure_code)
-          end)
-        end)
-      end
+      finalize_failure(operation, request, Atom.to_string(failure_code))
     else
       {:error, :forbidden}
     end
   end
 
   def exhaust_retry(_operation, _request, _failure_code), do: {:error, :forbidden}
+
+  def finalize_failure(operation, %ReconciliationRequest{} = request, failure_code) do
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+         :ok <- validate_retry_request_authority(operation, request),
+         {:ok, failure_code_atom} <- persisted_failure_code(failure_code) do
+      StorageResult.run(fn ->
+        Repo.transaction(fn ->
+          lock!("github:sync-outcome:#{operation.id}")
+
+          finalize_failure!(
+            operation,
+            request,
+            failure_code_atom,
+            failure_code
+          )
+        end)
+      end)
+    end
+  end
+
+  def finalize_failure(_operation, _request, _failure_code), do: {:error, :forbidden}
 
   defp validate_retry_request_authority(operation, request) do
     if operation.authority_basis == "github_installation:#{request.installation_id}",
@@ -975,14 +990,18 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp missing_provider_resources!(operation, source, resource, pull_request_id, current_ids) do
     current_ids = MapSet.new(current_ids)
 
-    resource
-    |> Ash.Query.filter(
-      organization_id == ^operation.organization_id and source_id == ^source.id and
-        pull_request_id == ^pull_request_id and lifecycle_state == "active"
-    )
-    |> scope_query(operation.workspace_id)
-    |> Ash.read!(authorize?: false)
-    |> Enum.reject(&MapSet.member?(current_ids, &1.id))
+    query =
+      resource
+      |> Ash.Query.filter(
+        organization_id == ^operation.organization_id and source_id == ^source.id and
+          pull_request_id == ^pull_request_id and lifecycle_state == "active"
+      )
+      |> scope_query(operation.workspace_id)
+
+    case RecordLoader.read(resource, query, authorize?: false) do
+      {:ok, records} -> Enum.reject(records, &MapSet.member?(current_ids, &1.id))
+      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+    end
   end
 
   defp missing_provider_references!(operation, source, object_type, missing_ids) do
@@ -991,14 +1010,19 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         []
 
       missing_ids ->
-        ExternalReference
-        |> Ash.Query.filter(
-          organization_id == ^operation.organization_id and source_id == ^source.id and
-            provider == "github" and object_type == ^object_type and
-            resource_type == ^object_type and resource_id in ^missing_ids
-        )
-        |> scope_query(operation.workspace_id)
-        |> Ash.read!(authorize?: false)
+        query =
+          ExternalReference
+          |> Ash.Query.filter(
+            organization_id == ^operation.organization_id and source_id == ^source.id and
+              provider == "github" and object_type == ^object_type and
+              resource_type == ^object_type and resource_id in ^missing_ids
+          )
+          |> scope_query(operation.workspace_id)
+
+        case RecordLoader.read(ExternalReference, query, authorize?: false) do
+          {:ok, references} -> references
+          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+        end
     end
   end
 
@@ -1087,7 +1111,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp review_comment_actionable?(item, thread_states) do
-    item.record.state == "published" and
+    item.record.state == "published" and not ReviewReplyMarker.own_reply?(item.record.body) and
       case item.record.review_thread_id do
         nil -> true
         thread_id -> Map.get(thread_states, thread_id) == "open"
@@ -1367,6 +1391,25 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp known_code("provider_object_not_found"), do: :provider_object_not_found
   defp known_code(_code), do: :invalid_provider_response
 
+  defp persisted_failure_code("provider_rate_limited"), do: {:ok, :provider_rate_limited}
+  defp persisted_failure_code("provider_unavailable"), do: {:ok, :provider_unavailable}
+
+  defp persisted_failure_code("integration_storage_unavailable"),
+    do: {:ok, :integration_storage_unavailable}
+
+  defp persisted_failure_code("installation_revoked"), do: {:ok, :installation_revoked}
+  defp persisted_failure_code("invalid_credential"), do: {:ok, :invalid_credential}
+  defp persisted_failure_code("permission_denied"), do: {:ok, :permission_denied}
+  defp persisted_failure_code("adapter_unavailable"), do: {:ok, :adapter_unavailable}
+
+  defp persisted_failure_code("provider_object_not_found"),
+    do: {:ok, :provider_object_not_found}
+
+  defp persisted_failure_code("invalid_provider_response"),
+    do: {:ok, :invalid_provider_response}
+
+  defp persisted_failure_code(_failure_code), do: {:error, :forbidden}
+
   defp outcome_by_operation(operation_id) do
     SyncOutcome
     |> Ash.Query.filter(operation_id == ^operation_id)
@@ -1408,16 +1451,25 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end
   end
 
-  defp terminalize_retry!(operation, request, failure_code) do
+  defp finalize_failure!(operation, request, failure_code_atom, failure_code) do
     case outcome_by_operation(operation.id) do
       {:ok, %SyncOutcome{} = outcome} ->
         if outcome_matches_request?(outcome, request) do
-          terminalize_retry_outcome!(outcome, failure_code)
+          cond do
+            outcome.state == "retryable" and failure_code_atom in @retryable_failure_codes ->
+              terminalize_retry_outcome!(outcome, failure_code_atom)
+
+            outcome.state in @finished_failure_states and outcome.failure_code == failure_code ->
+              outcome
+
+            true ->
+              Repo.rollback(:forbidden)
+          end
         else
           Repo.rollback(:forbidden)
         end
 
-      {:ok, nil} ->
+      {:ok, nil} when failure_code_atom in @retryable_failure_codes ->
         attrs =
           terminal_outcome_attrs(
             operation,
@@ -1425,10 +1477,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
             request.object_type,
             request.object_id,
             request.delivery_id,
-            failure_code
+            failure_code_atom
           )
 
         persist_outcome!(operation.id, attrs)
+
+      {:ok, nil} ->
+        Repo.rollback(:forbidden)
 
       {:error, error} ->
         Repo.rollback(error)

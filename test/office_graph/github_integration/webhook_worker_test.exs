@@ -508,8 +508,28 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert {:cancel, "invalid_provider_response"} = WebhookWorker.perform(job)
 
-    assert %{"terminal_failure_code" => "invalid_provider_response"} =
-             Repo.get!(Oban.Job, job.id).meta
+    staged_job = Repo.get!(Oban.Job, job.id)
+
+    assert %{
+             "terminal_failure_code" => "invalid_provider_response",
+             "terminal_cancel_code" => "invalid_provider_response",
+             "terminal_operation_id" => operation_id,
+             "terminal_installation_id" => installation_id,
+             "terminal_object_type" => "pull_request",
+             "terminal_object_id" => "PR_worker_terminal_history",
+             "terminal_delivery_id" => "delivery-worker-terminal-history"
+           } = staged_job.meta
+
+    assert is_binary(operation_id)
+    assert installation_id == context.installation.id
+
+    event = Ash.get!(DomainEvent, job.args["event_id"], authorize?: false)
+    assert event.delivery_state == "failed"
+    assert event.failure_code == "invalid_provider_response"
+
+    Provider.put(%{{"pull_request", "PR_worker_terminal_history"} => {:error, :network_error}})
+
+    assert {:cancel, "invalid_provider_response"} = WebhookWorker.perform(staged_job)
   end
 
   test "rate-limit snoozes cannot extend the fixed inbound attempt budget" do

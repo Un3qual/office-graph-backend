@@ -81,6 +81,20 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
              )
   end
 
+  test "capability lookup outages remain distinguishable from forbidden reads" do
+    context = health_context("capability-lookup-unavailable")
+
+    # The rename is scoped to the DataCase transaction and is rolled back after
+    # the assertion, including when PostgreSQL marks the transaction aborted.
+    Repo.query!("ALTER TABLE role_capabilities RENAME TO unavailable_role_capabilities")
+
+    assert {:error, :integration_storage_unavailable} =
+             Projections.integration_health(
+               context.bootstrap.session,
+               context.installation.id
+             )
+  end
+
   test "dependent health lookup outages return the safe storage classification" do
     context = health_context("dependency-lookup-unavailable")
     RecordLoaderTestAdapter.configure!(%{})

@@ -203,6 +203,14 @@ extension records.
   signal for first-seen non-actionable state, and MUST reopen the same signal
   identity if the provider item later becomes actionable again
 
+#### Scenario: Office Graph-authored review reply is reconciled
+
+- **WHEN** a later provider snapshot includes a published review reply carrying
+  Office Graph's durable outbound-action marker
+- **THEN** reconciliation MUST retain the provider comment and provenance but
+  MUST treat it as non-actionable and MUST NOT create follow-up signal work for
+  Office Graph's own response
+
 #### Scenario: Deleted review-comment delivery has no surviving comment node
 
 - **WHEN** GitHub sends a deleted review-comment delivery after removing the
@@ -388,6 +396,15 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   the retryable integration-storage-unavailable classification, and the worker
   MUST NOT convert the valid delivery into an invalid-worker terminal outcome
 
+#### Scenario: Reconciliation collection or trace storage is temporarily unavailable
+
+- **WHEN** authoritative-absence reconciliation cannot read existing provider
+  resources or references, or a provider-resource audit or revision trace cannot
+  be written
+- **THEN** the reconciliation transaction MUST roll back, retain existing signal
+  and provider-resource state, and return the retryable
+  integration-storage-unavailable classification
+
 #### Scenario: Reconciliation terminalization persistence is temporarily unavailable
 
 - **WHEN** an exhausted reconciliation retry cannot persist its terminal sync
@@ -395,6 +412,14 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST retain its staged terminalization phase, retry only
   terminal persistence, and MUST NOT crash or cancel while the sync outcome
   remains retryable
+
+#### Scenario: Terminal reconciliation job resumes after metadata staging
+
+- **WHEN** reconciliation has durably recorded a classified terminal outcome and
+  the worker resumes after staging terminal job metadata
+- **THEN** the staged metadata MUST retain the exact operation, request, delivery,
+  receipt scope, and cancellation reason so replay finalizes the same outcome,
+  marks the receipt failed, avoids provider access, and only then cancels
 
 #### Scenario: Outbound authorization decision persistence is temporarily unavailable
 
@@ -411,6 +436,13 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the command MUST return the integration-storage-unavailable
   classification before binding persistence and MUST NOT expose the raw
   authorization persistence error through GraphQL or JSON
+
+#### Scenario: GitHub capability lookup storage is temporarily unavailable
+
+- **WHEN** an otherwise valid GitHub command or health read cannot read the
+  capability, role, or assignment store
+- **THEN** authorization MUST return the integration-storage-unavailable
+  classification and MUST NOT misclassify the temporary outage as forbidden
 
 #### Scenario: Health display limit excludes an older classified failure
 

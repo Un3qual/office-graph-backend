@@ -8,7 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
 
   @behaviour OfficeGraph.GitHubIntegration.Adapter
 
-  alias OfficeGraph.GitHubIntegration.Adapter
+  alias OfficeGraph.GitHubIntegration.{Adapter, ReviewReplyMarker}
 
   @max_comment_pages 100
   @max_snapshot_pages 100
@@ -839,7 +839,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
 
   defp reply_marker(request) do
     with {:ok, key} <- required_nonblank(request, :idempotency_key) do
-      {:ok, "<!-- office-graph-action:#{key} -->"}
+      {:ok, ReviewReplyMarker.render(key)}
     end
   end
 

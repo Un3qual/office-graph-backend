@@ -57,20 +57,29 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{
-        meta: %{
-          "terminal_failure_code" => failure_code,
-          "terminal_operation_id" => operation_id,
-          "terminal_installation_id" => installation_id,
-          "terminal_object_type" => object_type,
-          "terminal_object_id" => object_id,
-          "terminal_delivery_id" => delivery_id
-        }
-      })
+  def perform(
+        %Oban.Job{
+          args: %{
+            "event_id" => event_id,
+            "organization_id" => organization_id,
+            "workspace_id" => workspace_id
+          },
+          meta: %{
+            "terminal_failure_code" => failure_code,
+            "terminal_cancel_code" => cancel_code,
+            "terminal_operation_id" => operation_id,
+            "terminal_installation_id" => installation_id,
+            "terminal_object_type" => object_type,
+            "terminal_object_id" => object_id,
+            "terminal_delivery_id" => delivery_id
+          }
+        } = job
+      )
       when is_binary(failure_code) and is_binary(operation_id) and is_binary(installation_id) and
-             is_binary(object_type) and is_binary(object_id) and is_binary(delivery_id) do
-    with {:ok, failure_code} <- retry_failure_code(failure_code),
-         {:ok, request} <-
+             is_binary(object_type) and is_binary(object_id) and is_binary(delivery_id) and
+             is_binary(cancel_code) and is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
+    with {:ok, request} <-
            ReconciliationRequest.new(%{
              installation_id: installation_id,
              object_type: object_type,
@@ -78,11 +87,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
              delivery_id: delivery_id
            }),
          {:ok, operation} <- Operations.read_operation(operation_id) do
-      persist_terminal_failure(operation, request, failure_code)
+      persist_terminal_failure(job, operation, request, failure_code, cancel_code)
     else
-      {:error, :invalid_retry_failure_code} ->
-        {:cancel, "invalid_github_webhook_terminalization"}
-
       {:error, _error} ->
         retry_terminal_failure()
     end
@@ -299,6 +305,17 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   defp normalize_result(result, job),
     do: DurableDelivery.normalize_worker_result(result, job)
 
+  defp normalize_result({:error, {class, code}}, job, operation, request)
+       when class in [:terminal, :authorization, :configuration] do
+    case DurableDelivery.normalize_worker_result({:error, {:terminal, code}}, job) do
+      {:cancel, cancel_code} ->
+        stage_and_persist_terminal_failure(job, operation, request, safe_code(code), cancel_code)
+
+      other ->
+        other
+    end
+  end
+
   defp normalize_result(
          {:error, {:retryable, code, %DateTime{} = retry_at}},
          job,
@@ -334,16 +351,32 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
 
   defp normalize_result(result, job, _operation, _request), do: normalize_result(result, job)
 
-  defp stage_and_persist_terminal_failure(job, operation, request, failure_code) do
-    case stage_terminal_failure(job, operation, request, failure_code) do
-      :ok -> persist_terminal_failure(operation, request, failure_code)
-      {:error, _error} -> retry_terminal_failure()
+  defp stage_and_persist_terminal_failure(
+         job,
+         operation,
+         request,
+         failure_code,
+         cancel_code \\ "attempts_exhausted"
+       ) do
+    case stage_terminal_failure(job, operation, request, failure_code, cancel_code) do
+      :ok ->
+        persist_terminal_failure(
+          job,
+          operation,
+          request,
+          Atom.to_string(failure_code),
+          cancel_code
+        )
+
+      {:error, _error} ->
+        retry_terminal_failure()
     end
   end
 
-  defp stage_terminal_failure(job, operation, request, failure_code) do
+  defp stage_terminal_failure(job, operation, request, failure_code, cancel_code) do
     stage_terminal_metadata(job, %{
       "terminal_failure_code" => Atom.to_string(failure_code),
+      "terminal_cancel_code" => cancel_code,
       "terminal_operation_id" => operation.id,
       "terminal_installation_id" => request.installation_id,
       "terminal_object_type" => request.object_type,
@@ -378,9 +411,25 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp persist_terminal_failure(operation, request, failure_code) do
-    case Reconciler.exhaust_retry(operation, request, failure_code) do
-      {:ok, _outcome} -> {:cancel, "attempts_exhausted"}
+  defp persist_terminal_failure(
+         %Oban.Job{
+           args: %{
+             "event_id" => event_id,
+             "organization_id" => organization_id,
+             "workspace_id" => workspace_id
+           }
+         },
+         operation,
+         request,
+         failure_code,
+         cancel_code
+       ) do
+    scope = %{organization_id: organization_id, workspace_id: workspace_id}
+
+    with {:ok, _outcome} <- Reconciler.finalize_failure(operation, request, failure_code),
+         :ok <- DurableDelivery.mark_failed(event_id, scope, failure_code) do
+      {:cancel, cancel_code}
+    else
       {:error, _error} -> retry_terminal_failure()
     end
   end
