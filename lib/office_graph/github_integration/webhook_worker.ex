@@ -91,14 +91,15 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   @impl Oban.Worker
   def perform(
         %Oban.Job{
-          args: %{
-            "delivery_id" => delivery_id,
-            "installation_id" => installation_id,
-            "archive_id" => archive_id,
-            "event_id" => event_id,
-            "organization_id" => organization_id,
-            "workspace_id" => workspace_id
-          }
+          args:
+            %{
+              "delivery_id" => delivery_id,
+              "installation_id" => installation_id,
+              "archive_id" => archive_id,
+              "event_id" => event_id,
+              "organization_id" => organization_id,
+              "workspace_id" => workspace_id
+            } = args
         } = job
       )
       when is_binary(delivery_id) and is_binary(installation_id) and is_binary(archive_id) and
@@ -107,7 +108,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     with {:ok, installation} <- load_installation(installation_id, organization_id, workspace_id),
          {:ok, archive} <- load_archive(archive_id, delivery_id, installation),
          {:ok, credential_id} <- private_key_credential(installation.id),
-         {:ok, request} <- reconciliation_request(archive, installation, delivery_id),
+         {:ok, request} <-
+           reconciliation_request(
+             archive,
+             installation,
+             delivery_id,
+             Map.get(args, "pull_request_id")
+           ),
          {:ok, operation_request} <-
            operation_request(installation, credential_id, request, event_id),
          {:ok, operation} <- Operations.start_system_operation(operation_request) do
@@ -180,15 +187,18 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     end
   end
 
-  defp reconciliation_request(archive, installation, delivery_id) do
+  defp reconciliation_request(archive, installation, delivery_id, pull_request_id) do
     event_name = Map.get(archive.metadata, "event")
 
     with {:ok, payload} <- Jason.decode(archive.body),
-         {:ok, {object_type, object_id}} <- provider_object(event_name, payload) do
+         {:ok, {object_type, object_id}} <- provider_object(event_name, payload),
+         {:ok, pull_request_id} <-
+           validate_pull_request_scope(event_name, payload, pull_request_id) do
       ReconciliationRequest.new(%{
         installation_id: installation.id,
         object_type: object_type,
         object_id: object_id,
+        pull_request_id: pull_request_id,
         delivery_id: delivery_id
       })
     else
@@ -213,6 +223,36 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
 
   defp provider_object(_event_name, _payload), do: {:error, :unsupported_event}
 
+  defp validate_pull_request_scope("check_run", payload, pull_request_id)
+       when is_binary(pull_request_id) and pull_request_id != "" do
+    pull_request_ids =
+      payload
+      |> get_in(["check_run", "pull_requests"])
+      |> List.wrap()
+      |> Enum.map(&pull_request_identity/1)
+
+    if pull_request_id in pull_request_ids,
+      do: {:ok, pull_request_id},
+      else: {:error, :invalid_delivery_payload}
+  end
+
+  defp validate_pull_request_scope("check_run", _payload, _pull_request_id),
+    do: {:error, :invalid_delivery_payload}
+
+  defp validate_pull_request_scope(_event_name, _payload, nil), do: {:ok, nil}
+
+  defp validate_pull_request_scope(_event_name, _payload, _pull_request_id),
+    do: {:error, :invalid_delivery_payload}
+
+  defp pull_request_identity(%{"node_id" => node_id})
+       when is_binary(node_id) and node_id != "",
+       do: node_id
+
+  defp pull_request_identity(%{"id" => id}) when is_integer(id) and id > 0,
+    do: Integer.to_string(id)
+
+  defp pull_request_identity(_pull_request), do: nil
+
   defp nested_object(payload, key, object_type) do
     case Map.get(payload, key) do
       %{"node_id" => node_id} when is_binary(node_id) and node_id != "" ->
@@ -235,10 +275,18 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       authority_basis: "github_installation:#{installation.id}",
       causation_key: "domain_event:#{event_id}",
       idempotency_scope: "github:object",
-      idempotency_key: "#{request.object_type}:#{request.object_id}:#{request.delivery_id}",
+      idempotency_key: reconciliation_idempotency_key(request),
       credential_id: credential_id
     })
   end
+
+  defp reconciliation_idempotency_key(%{pull_request_id: pull_request_id} = request)
+       when is_binary(pull_request_id),
+       do:
+         "#{request.object_type}:#{request.object_id}:pull_request:#{pull_request_id}:#{request.delivery_id}"
+
+  defp reconciliation_idempotency_key(request),
+    do: "#{request.object_type}:#{request.object_id}:#{request.delivery_id}"
 
   defp normalize_result({:error, {class, code}}, job)
        when class in [:terminal, :authorization, :configuration] do

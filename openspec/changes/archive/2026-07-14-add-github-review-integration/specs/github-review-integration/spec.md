@@ -134,6 +134,14 @@ extension records.
 - **THEN** reconciliation MUST use the check run's timestamps and state to
   advance that check without overwriting it from an older child snapshot
 
+#### Scenario: One check run is associated with multiple pull requests
+
+- **WHEN** a GitHub check-run delivery identifies more than one associated pull
+  request for the same provider check
+- **THEN** Office Graph MUST enqueue and reconcile every associated pull request,
+  MUST retain an independent check projection, external reference, and signal
+  lifecycle per pull request, and MUST NOT select one arbitrary association
+
 #### Scenario: Requested-object collection is malformed
 
 - **WHEN** an adapter returns a missing or malformed review-comment or check-run
@@ -379,6 +387,21 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the command MUST return the integration-storage-unavailable
   classification before action creation or enqueue and MUST NOT expose the raw
   authorization persistence error through GraphQL or JSON
+
+#### Scenario: Installation binding authorization persistence is temporarily unavailable
+
+- **WHEN** an otherwise authorized installation-binding command cannot persist
+  its authorization decision
+- **THEN** the command MUST return the integration-storage-unavailable
+  classification before binding persistence and MUST NOT expose the raw
+  authorization persistence error through GraphQL or JSON
+
+#### Scenario: Health display limit excludes an older classified failure
+
+- **WHEN** a credential, permission, installation, or adapter failure exists
+  outside the bounded recent-failure display sample
+- **THEN** integration health MUST still derive remediation from the complete
+  classified failure set while keeping the displayed failure list bounded
 
 #### Scenario: Outbound success persistence is temporarily unavailable
 

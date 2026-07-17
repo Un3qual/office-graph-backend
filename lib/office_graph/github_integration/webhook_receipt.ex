@@ -94,7 +94,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
                     operation,
                     delivery_id,
                     event_name,
-                    archive.id
+                    archive.id,
+                    raw_body
                   ) do
              receipt_state
            else
@@ -113,15 +114,23 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          operation,
          delivery_id,
          event_name,
-         archive_id
+         archive_id,
+         raw_body
        ) do
     with {:ok, event} <-
            DurableDelivery.record_system_and_enqueue(operation, %{
              event_key: "github-delivery:#{delivery_id}",
              event_kind: "provider_delivery.received"
            }),
-         {:ok, _job} <-
-           enqueue_webhook(installation, delivery_id, event_name, archive_id, event.id) do
+         {:ok, _jobs} <-
+           enqueue_webhooks(
+             installation,
+             delivery_id,
+             event_name,
+             archive_id,
+             event.id,
+             raw_body
+           ) do
       {:ok, :created}
     end
   end
@@ -132,12 +141,38 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          _operation,
          _delivery_id,
          _event_name,
-         _archive_id
+         _archive_id,
+         _raw_body
        ),
        do: {:ok, :replayed}
 
-  defp enqueue_webhook(installation, delivery_id, event_name, archive_id, event_id) do
-    %{
+  defp enqueue_webhooks(installation, delivery_id, event_name, archive_id, event_id, raw_body) do
+    with {:ok, pull_request_ids} <- webhook_pull_request_ids(event_name, raw_body) do
+      Enum.reduce_while(pull_request_ids, {:ok, []}, fn pull_request_id, {:ok, jobs} ->
+        case enqueue_webhook(
+               installation,
+               delivery_id,
+               event_name,
+               archive_id,
+               event_id,
+               pull_request_id
+             ) do
+          {:ok, job} -> {:cont, {:ok, [job | jobs]}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp enqueue_webhook(
+         installation,
+         delivery_id,
+         event_name,
+         archive_id,
+         event_id,
+         pull_request_id
+       ) do
+    args = %{
       "delivery_id" => delivery_id,
       "event_name" => event_name,
       "installation_id" => installation.id,
@@ -146,9 +181,51 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
       "organization_id" => installation.organization_id,
       "workspace_id" => installation.workspace_id
     }
+
+    args =
+      if is_nil(pull_request_id),
+        do: args,
+        else: Map.put(args, "pull_request_id", pull_request_id)
+
+    args
     |> WebhookWorker.new()
     |> Oban.insert()
   end
+
+  defp webhook_pull_request_ids("check_run", raw_body) do
+    with {:ok, payload} <- Jason.decode(raw_body),
+         %{"pull_requests" => pull_requests} when is_list(pull_requests) <-
+           Map.get(payload, "check_run"),
+         {:ok, identities} <- map_pull_request_identities(pull_requests) do
+      {:ok, Enum.uniq(identities)}
+    else
+      _invalid -> {:error, :invalid_delivery}
+    end
+  end
+
+  defp webhook_pull_request_ids(_event_name, _raw_body), do: {:ok, [nil]}
+
+  defp map_pull_request_identities(pull_requests) do
+    Enum.reduce_while(pull_requests, {:ok, []}, fn pull_request, {:ok, identities} ->
+      case pull_request_identity(pull_request) do
+        {:ok, identity} -> {:cont, {:ok, [identity | identities]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, identities} -> {:ok, Enum.reverse(identities)}
+      error -> error
+    end
+  end
+
+  defp pull_request_identity(%{"node_id" => node_id})
+       when is_binary(node_id) and node_id != "",
+       do: {:ok, node_id}
+
+  defp pull_request_identity(%{"id" => id}) when is_integer(id) and id > 0,
+    do: {:ok, Integer.to_string(id)}
+
+  defp pull_request_identity(_pull_request), do: {:error, :invalid_delivery}
 
   defp active_installation(external_installation_id) do
     query =

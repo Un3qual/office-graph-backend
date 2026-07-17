@@ -85,16 +85,21 @@ defmodule OfficeGraph.GitHubIntegration do
   def bind_installation(_session_context, _operation, _attrs), do: {:error, :forbidden}
 
   defp bind_normalized_installation(session_context, operation, normalized) do
-    with :ok <-
-           Authorization.authorize_operation(
-             session_context,
-             operation,
-             :github_installation_bind,
-             organization_id: session_context.organization_id,
-             workspace_id: normalized.workspace_id
-           ) do
+    with :ok <- authorize_binding(session_context, operation, normalized.workspace_id) do
       persist_binding(session_context, operation, normalized)
     end
+  end
+
+  defp authorize_binding(session_context, operation, workspace_id) do
+    StorageResult.run(fn ->
+      Authorization.authorize_operation(
+        session_context,
+        operation,
+        :github_installation_bind,
+        organization_id: session_context.organization_id,
+        workspace_id: workspace_id
+      )
+    end)
   end
 
   defp normalize_binding(session_context, attrs) do

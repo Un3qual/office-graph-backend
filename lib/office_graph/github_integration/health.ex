@@ -150,7 +150,13 @@ defmodule OfficeGraph.GitHubIntegration.Health do
           {:terminal, :count,
            query: [
              filter: [failure_class: [in: ["terminal", "authorization", "configuration"]]]
-           ]}
+           ]},
+          {:reauthorize, :count,
+           query: [
+             filter: [failure_code: [in: ["installation_revoked", "permission_denied"]]]
+           ]},
+          {:rotate_credentials, :count, query: [filter: [failure_code: "invalid_credential"]]},
+          {:configure_adapter, :count, query: [filter: [failure_code: "adapter_unavailable"]]}
         ],
         authorize?: false
       )
@@ -160,7 +166,10 @@ defmodule OfficeGraph.GitHubIntegration.Health do
   defp merge_counts(outcome_counts, action_counts) do
     %{
       retryable: outcome_counts.retryable + action_counts.retryable,
-      terminal: outcome_counts.terminal + action_counts.terminal
+      terminal: outcome_counts.terminal + action_counts.terminal,
+      reauthorize: outcome_counts.reauthorize + action_counts.reauthorize,
+      rotate_credentials: outcome_counts.rotate_credentials + action_counts.rotate_credentials,
+      configure_adapter: outcome_counts.configure_adapter + action_counts.configure_adapter
     }
   end
 
@@ -187,7 +196,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
       last_success_at: last_success && last_success.updated_at,
       retryable_count: counts.retryable,
       terminal_count: counts.terminal,
-      remediation_code: remediation_code(installation, permissions, credentials, failures),
+      remediation_code: remediation_code(installation, permissions, credentials, counts),
       recent_failures: failures
     }
   end
@@ -250,15 +259,15 @@ defmodule OfficeGraph.GitHubIntegration.Health do
          %{lifecycle_state: "revoked"},
          _permissions,
          _credentials,
-         _failures
+         _classifications
        ),
        do: "reauthorize_installation"
 
-  defp remediation_code(_installation, _permissions, credentials, _failures)
+  defp remediation_code(_installation, _permissions, credentials, _classifications)
        when credentials == [],
        do: "configure_credentials"
 
-  defp remediation_code(_installation, permissions, credentials, failures) do
+  defp remediation_code(_installation, permissions, credentials, classifications) do
     cond do
       credential_posture(credentials) != "active" ->
         "rotate_credentials"
@@ -266,13 +275,13 @@ defmodule OfficeGraph.GitHubIntegration.Health do
       permission_posture(permissions) != "configured" ->
         "reauthorize_installation"
 
-      Enum.any?(failures, &(&1.code in ~w(installation_revoked permission_denied))) ->
+      classifications.reauthorize > 0 ->
         "reauthorize_installation"
 
-      Enum.any?(failures, &(&1.code == "invalid_credential")) ->
+      classifications.rotate_credentials > 0 ->
         "rotate_credentials"
 
-      Enum.any?(failures, &(&1.code == "adapter_unavailable")) ->
+      classifications.configure_adapter > 0 ->
         "configure_adapter"
 
       true ->

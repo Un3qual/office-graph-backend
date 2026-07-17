@@ -62,6 +62,42 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert scoped_archive.id == archive.id
   end
 
+  test "check-run deliveries enqueue one reconciliation per associated pull request" do
+    context = installation_context("multi-pr-check-run")
+    delivery_id = "delivery-#{Ecto.UUID.generate()}"
+
+    body =
+      Jason.encode!(%{
+        "action" => "completed",
+        "installation" => %{"id" => context.external_installation_id},
+        "check_run" => %{
+          "node_id" => "CR_multi_pr",
+          "pull_requests" => [
+            %{"node_id" => "PR_multi_pr_first", "number" => 24},
+            %{"node_id" => "PR_multi_pr_second", "number" => 25}
+          ]
+        }
+      })
+
+    headers = signed_headers(delivery_id, "check_run", body, context.webhook_secret)
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    jobs =
+      from(job in Oban.Job,
+        where:
+          job.worker == ^inspect(WebhookWorker) and
+            fragment("?->>'delivery_id'", job.args) == ^delivery_id,
+        order_by: fragment("?->>'pull_request_id'", job.args)
+      )
+      |> Repo.all()
+
+    assert Enum.map(jobs, & &1.args["pull_request_id"]) == [
+             "PR_multi_pr_first",
+             "PR_multi_pr_second"
+           ]
+  end
+
   test "replayed deliveries do not recreate webhook jobs after pruning" do
     context = installation_context("pruned-job-replay")
     delivery_id = "delivery-#{Ecto.UUID.generate()}"

@@ -256,6 +256,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         valid_collection?(snapshot.review_comments, &valid_review_comment?/1) and
         valid_collection?(snapshot.check_runs, &valid_check_run?/1) and
         matching_root_object?(snapshot, request) and
+        matching_pull_request_scope?(snapshot, request) and
         unique_node_ids?(snapshot.review_threads) and
         unique_node_ids?(snapshot.review_comments) and
         unique_node_ids?(snapshot.check_runs) and
@@ -275,6 +276,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: Enum.any?(snapshot.check_runs, &provider_object_matches?(&1, object_id))
 
   defp matching_root_object?(_snapshot, _request), do: false
+
+  defp matching_pull_request_scope?(snapshot, %{
+         object_type: "check_run",
+         pull_request_id: pull_request_id
+       })
+       when is_binary(pull_request_id),
+       do: provider_object_matches?(snapshot.pull_request, pull_request_id)
+
+  defp matching_pull_request_scope?(_snapshot, _request), do: true
 
   defp provider_object_matches?(object, object_id) do
     object.node_id == object_id or
@@ -517,13 +527,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         reconcile_checks!(operation, source, repository.record, pull_request.record, snapshot)
 
       missing_references =
-        missing_product_references!(
-          operation,
-          source,
-          pull_request.record,
-          comments,
-          checks
-        )
+        if pull_request_snapshot_older?(pull_request.record, snapshot) do
+          []
+        else
+          missing_product_references!(
+            operation,
+            source,
+            pull_request.record,
+            comments,
+            checks
+          )
+        end
 
       signal_ids =
         map_product_work!(operation, comments, checks, thread_records, missing_references)
@@ -543,9 +557,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp older_pull_request_snapshot?(%{object_type: "pull_request"}, pull_request, snapshot),
-    do: snapshot.provider_sequence < pull_request.provider_sequence
+    do: pull_request_snapshot_older?(pull_request, snapshot)
 
   defp older_pull_request_snapshot?(_request, _pull_request, _snapshot), do: false
+
+  defp pull_request_snapshot_older?(pull_request, snapshot),
+    do: snapshot.provider_sequence < pull_request.provider_sequence
 
   defp reconcile_repository!(operation, source, snapshot) do
     lock!(
@@ -831,13 +848,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       provider = check_provider_metadata(check, snapshot)
 
       existing =
-        base_by_extension(
-          operation,
-          CheckRunExtension,
-          :check_run_id,
-          CheckRun,
-          check.node_id
-        )
+        check_run_by_extension(operation, check.node_id, pull_request.id)
 
       result =
         SoftwareProving.upsert_provider_resource(operation, source, CheckRun, existing, %{
@@ -855,12 +866,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         })
         |> unwrap!()
 
-      ensure_extension!(
+      ensure_check_run_extension!(
         operation,
-        CheckRunExtension,
-        :check_run_id,
         result.record.id,
         %{
+          pull_request_id: pull_request.id,
           node_id: check.node_id,
           database_id: check.database_id,
           check_suite_database_id: check.check_suite_database_id
@@ -873,7 +883,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           source,
           result.record,
           "check_run",
-          check.node_id,
+          "#{check.node_id}:pull_request:#{snapshot.pull_request.node_id}",
           check.details_url,
           result.status
         )
@@ -1085,6 +1095,50 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           {:ok, base_record} -> base_record
           {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
         end
+    end
+  end
+
+  defp check_run_by_extension(operation, node_id, pull_request_id) do
+    case check_run_extension!(operation, node_id, pull_request_id) do
+      nil ->
+        nil
+
+      extension ->
+        case RecordLoader.get(CheckRun, extension.check_run_id,
+               action: :read_with_deleted,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, check_run} -> check_run
+          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+        end
+    end
+  end
+
+  defp ensure_check_run_extension!(operation, check_run_id, attrs) do
+    case check_run_extension!(operation, attrs.node_id, attrs.pull_request_id) do
+      nil ->
+        attrs
+        |> Map.put(:organization_id, operation.organization_id)
+        |> Map.put(:workspace_id, operation.workspace_id)
+        |> Map.put(:check_run_id, check_run_id)
+        |> then(&Repo.ash_create!(CheckRunExtension, &1))
+
+      existing ->
+        if existing.check_run_id == check_run_id,
+          do: existing,
+          else: Repo.rollback(:provider_identity_conflict)
+    end
+  end
+
+  defp check_run_extension!(operation, node_id, pull_request_id) do
+    operation
+    |> extension_by_node_query(CheckRunExtension, node_id)
+    |> Ash.Query.filter(pull_request_id == ^pull_request_id)
+    |> then(&RecordLoader.read_one(CheckRunExtension, &1, authorize?: false))
+    |> case do
+      {:ok, extension} -> extension
+      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
     end
   end
 

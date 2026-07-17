@@ -195,6 +195,61 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 2
   end
 
+  test "stale child snapshots do not close provider work missing from that stale view" do
+    context = context("stale-missing-provider-work")
+
+    pull_request_request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-current-provider-work"
+      })
+
+    current = mapping_snapshot()
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, current}})
+
+    assert {:ok, current_outcome} =
+             Reconciler.reconcile(
+               operation!(context, pull_request_request, "current-provider-work"),
+               pull_request_request
+             )
+
+    assert length(current_outcome.signal_ids) == 2
+    [comment] = current.review_comments
+
+    stale_comment_request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "review_comment",
+        object_id: comment.node_id,
+        delivery_id: "delivery-stale-provider-work"
+      })
+
+    stale = %{
+      current
+      | provider_version: "v2",
+        provider_sequence: 2,
+        provider_updated_at: ~U[2026-07-14 12:59:00Z],
+        review_comments: [comment],
+        check_runs: []
+    }
+
+    Provider.put(%{{"review_comment", comment.node_id} => {:ok, stale}})
+
+    assert {:ok, stale_outcome} =
+             Reconciler.reconcile(
+               operation!(context, stale_comment_request, "stale-provider-work"),
+               stale_comment_request
+             )
+
+    assert stale_outcome.signal_ids == []
+
+    assert Enum.all?(current_outcome.signal_ids, fn signal_id ->
+             Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+           end)
+  end
+
   test "non-published review comments do not create or retain open signals" do
     context = context("comment-signal-lifecycle")
 

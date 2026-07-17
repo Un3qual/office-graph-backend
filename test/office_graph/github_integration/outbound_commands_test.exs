@@ -969,6 +969,59 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert health.remediation_code == "rotate_credentials"
   end
 
+  test "health remediation considers classified failures outside the display limit", context do
+    TestAdapter.put(%{})
+
+    invalid_attrs = reply_attrs(context, "Record an older credential failure.")
+
+    invalid_operation =
+      command_operation!(
+        context,
+        :github_review_reply,
+        "reply:older-invalid-secret",
+        invalid_attrs
+      )
+
+    assert {:ok, invalid_action} =
+             OutboundCommands.reply_to_review(context.session, invalid_operation, invalid_attrs)
+
+    assert {:cancel, "invalid_credential"} = OutboundWorker.perform(job_for(invalid_action.id))
+
+    TestAdapter.put(%{context.credential.secret_reference => "private-key-outbound"})
+
+    rate_limited_attrs = reply_attrs(context, "Record a newer retryable failure.")
+
+    rate_limited_operation =
+      command_operation!(
+        context,
+        :github_review_reply,
+        "reply:newer-rate-limit",
+        rate_limited_attrs
+      )
+
+    assert {:ok, rate_limited_action} =
+             OutboundCommands.reply_to_review(
+               context.session,
+               rate_limited_operation,
+               rate_limited_attrs
+             )
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 30, :second)}}
+    })
+
+    assert {:snooze, _delay} = OutboundWorker.perform(job_for(rate_limited_action.id))
+
+    assert {:ok, health} =
+             GitHubIntegration.integration_health(context.session, context.installation.id,
+               limit: 1
+             )
+
+    assert Enum.map(health.recent_failures, & &1.code) == ["provider_rate_limited"]
+    assert health.remediation_code == "rotate_credentials"
+  end
+
   test "terminal outbound failures remain classified in durable job history", context do
     TestAdapter.put(%{})
 

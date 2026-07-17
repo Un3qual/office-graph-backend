@@ -101,6 +101,30 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert Repo.aggregate(Installation, :count) == 0
   end
 
+  test "authorization decision write outages remain retryable during binding" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    attrs = binding_attrs(bootstrap, "authorization-write-unavailable")
+
+    Repo.query!("""
+    ALTER TABLE authorization_decisions
+    ADD CONSTRAINT test_github_binding_authorization_write_storage
+    CHECK (action <> 'github.installation.bind')
+    """)
+
+    result =
+      try do
+        GitHubIntegration.bind_installation(bootstrap.session, attrs)
+      after
+        Repo.query!("""
+        ALTER TABLE authorization_decisions
+        DROP CONSTRAINT test_github_binding_authorization_write_storage
+        """)
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+    assert Repo.aggregate(Installation, :count) == 0
+  end
+
   test "binding transaction storage failures expose only the retryable availability result" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     attrs = binding_attrs(bootstrap, "transaction-unavailable")

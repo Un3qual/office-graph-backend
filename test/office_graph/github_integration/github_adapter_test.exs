@@ -179,6 +179,35 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     end
   end
 
+  test "check-run fetches use the webhook-selected pull request instead of an arbitrary first association",
+       context do
+    second_pull_request =
+      snapshot_response()
+      |> put_in(["data", "node", "id"], "PR_live_second")
+      |> put_in(["data", "node", "databaseId"], 25)
+      |> put_in(["data", "node", "number"], 25)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(second_pull_request)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_live",
+               pull_request_id: "PR_live_second",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert snapshot.pull_request.node_id == "PR_live_second"
+
+    [_token_request, snapshot_request] = HTTPClient.requests()
+    {_method, _url, _headers, encoded_body} = snapshot_request
+    assert Jason.decode!(encoded_body)["variables"] == %{"id" => "PR_live_second"}
+  end
+
   test "fetch follows authoritative review-thread pages instead of truncating the snapshot",
        context do
     first_page =

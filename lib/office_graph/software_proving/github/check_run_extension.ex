@@ -5,6 +5,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
     table: "github_check_runs",
     accept: [
       :check_run_id,
+      :pull_request_id,
       :organization_id,
       :workspace_id,
       :node_id,
@@ -19,6 +20,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
       writable?: true,
       public?: true
 
+    attribute :pull_request_id, :uuid, allow_nil?: false, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
@@ -35,13 +37,21 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
       define_attribute? false
       public? true
     end
+
+    belongs_to :pull_request, OfficeGraph.SoftwareProving.PullRequest do
+      source_attribute :pull_request_id
+      destination_attribute :id
+      define_attribute? false
+      public? true
+    end
   end
 
   identities do
-    identity :unique_workspace_node_id, [:organization_id, :workspace_id, :node_id],
-      where: expr(not is_nil(workspace_id))
+    identity :unique_workspace_node_id,
+             [:organization_id, :workspace_id, :node_id, :pull_request_id],
+             where: expr(not is_nil(workspace_id))
 
-    identity :unique_organization_node_id, [:organization_id, :node_id],
+    identity :unique_organization_node_id, [:organization_id, :node_id, :pull_request_id],
       where: expr(is_nil(workspace_id))
   end
 end

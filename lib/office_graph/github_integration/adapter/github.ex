@@ -25,7 +25,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       }
       ... on CheckRun {
         checkSuite {
-          pullRequests(first: 1) { nodes { id } }
+          pullRequests(first: 2) { nodes { id databaseId } }
         }
       }
     }
@@ -232,17 +232,25 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   """
 
   @impl true
-  def fetch(%{
-        object_type: object_type,
-        object_id: object_id,
-        external_installation_id: installation_id,
-        credential: credential
-      })
+  def fetch(
+        %{
+          object_type: object_type,
+          object_id: object_id,
+          external_installation_id: installation_id,
+          credential: credential
+        } = request
+      )
       when object_type in ~w(pull_request review_comment check_run) and
              is_binary(object_id) and object_id != "" and is_integer(installation_id) and
              installation_id > 0 and is_binary(credential) do
     with {:ok, token} <- installation_token(installation_id, credential),
-         {:ok, pull_request_id} <- resolve_pull_request(token, object_type, object_id),
+         {:ok, pull_request_id} <-
+           resolve_pull_request(
+             token,
+             object_type,
+             object_id,
+             Map.get(request, :pull_request_id)
+           ),
          {:ok, response} <- graphql(token, @pull_request_query, %{"id" => pull_request_id}),
          {:ok, pull_request} <- response_node(response),
          {:ok, pull_request} <- complete_snapshot(token, pull_request),
@@ -303,28 +311,65 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     __MODULE__.TokenCache.clear()
   end
 
-  defp resolve_pull_request(token, object_type, object_id) do
-    with {:ok, response} <- graphql(token, @resolve_query, %{"id" => object_id}),
-         {:ok, node} <- response_node(response) do
-      pull_request_id(node, object_type)
+  defp resolve_pull_request(token, "check_run", object_id, pull_request_id)
+       when is_binary(pull_request_id) and pull_request_id != "" do
+    case Integer.parse(pull_request_id) do
+      {_database_id, ""} ->
+        resolve_pull_request_node(token, "check_run", object_id, pull_request_id)
+
+      _node_id ->
+        {:ok, pull_request_id}
     end
   end
 
-  defp pull_request_id(%{"id" => id}, "pull_request") when is_binary(id) and id != "",
+  defp resolve_pull_request(token, object_type, object_id, nil),
+    do: resolve_pull_request_node(token, object_type, object_id, nil)
+
+  defp resolve_pull_request(_token, _object_type, _object_id, _pull_request_id),
+    do: {:error, :invalid_provider_response}
+
+  defp resolve_pull_request_node(token, object_type, object_id, pull_request_id) do
+    with {:ok, response} <- graphql(token, @resolve_query, %{"id" => object_id}),
+         {:ok, node} <- response_node(response) do
+      pull_request_id(node, object_type, pull_request_id)
+    end
+  end
+
+  defp pull_request_id(%{"id" => id}, "pull_request", nil) when is_binary(id) and id != "",
     do: {:ok, id}
 
-  defp pull_request_id(%{"pullRequest" => %{"id" => id}}, "review_comment")
+  defp pull_request_id(%{"pullRequest" => %{"id" => id}}, "review_comment", nil)
        when is_binary(id) and id != "",
        do: {:ok, id}
 
   defp pull_request_id(
-         %{"checkSuite" => %{"pullRequests" => %{"nodes" => [%{"id" => id} | _]}}},
-         "check_run"
+         %{"checkSuite" => %{"pullRequests" => %{"nodes" => [%{"id" => id}]}}},
+         "check_run",
+         nil
        )
        when is_binary(id) and id != "",
        do: {:ok, id}
 
-  defp pull_request_id(_node, _object_type), do: {:error, :invalid_provider_response}
+  defp pull_request_id(
+         %{"checkSuite" => %{"pullRequests" => %{"nodes" => nodes}}},
+         "check_run",
+         pull_request_id
+       )
+       when is_list(nodes) and is_binary(pull_request_id) do
+    case Integer.parse(pull_request_id) do
+      {database_id, ""} when database_id > 0 ->
+        case Enum.find(nodes, &(&1["databaseId"] == database_id)) do
+          %{"id" => id} when is_binary(id) and id != "" -> {:ok, id}
+          _missing -> {:error, :invalid_provider_response}
+        end
+
+      _not_numeric ->
+        {:error, :invalid_provider_response}
+    end
+  end
+
+  defp pull_request_id(_node, _object_type, _pull_request_id),
+    do: {:error, :invalid_provider_response}
 
   defp normalize_snapshot(pull_request) do
     with {:ok, updated_at_raw} <- required_nonblank(pull_request, "updatedAt"),

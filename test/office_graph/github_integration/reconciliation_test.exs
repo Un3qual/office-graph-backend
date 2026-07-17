@@ -242,6 +242,71 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              |> Ash.read_one!(authorize?: false)
   end
 
+  test "one provider check run keeps independent projections for every associated pull request" do
+    context = reconciliation_context("multi-pr-check-projection")
+    check_node_id = "CR_multi_pr_projection"
+
+    check = %Adapter.CheckRunSnapshot{
+      node_id: check_node_id,
+      database_id: 705,
+      provider_version: "check-v1",
+      provider_sequence: 10,
+      provider_updated_at: ~U[2026-07-14 12:01:00Z],
+      name: "Shared head check",
+      status: "completed",
+      conclusion: "failure",
+      completed_at: ~U[2026-07-14 12:01:00Z]
+    }
+
+    requests =
+      for {suffix, pull_request_node_id, repository_node_id, database_id, number} <- [
+            {"first", "PR_multi_projection_first", "R_multi_projection", 706, 24},
+            {"second", "PR_multi_projection_second", "R_multi_projection", 707, 25}
+          ] do
+        request =
+          request(
+            context,
+            "check_run",
+            check_node_id,
+            "delivery-multi-projection-#{suffix}"
+          )
+
+        snapshot =
+          snapshot(1, "open", pull_request_node_id, repository_node_id)
+          |> then(fn value ->
+            %{
+              value
+              | pull_request: %{
+                  value.pull_request
+                  | database_id: database_id,
+                    number: number
+                },
+                check_runs: [check]
+            }
+          end)
+
+        Provider.put(%{{"check_run", check_node_id} => {:ok, snapshot}})
+
+        assert {:ok, %{state: "reconciled"}} =
+                 Reconciler.reconcile(
+                   reconciliation_operation!(context, request, "multi-projection-#{suffix}"),
+                   request
+                 )
+
+        request
+      end
+
+    assert length(requests) == 2
+
+    checks =
+      CheckRun
+      |> Ash.Query.filter(name == "Shared head check")
+      |> Ash.read!(authorize?: false)
+
+    assert checks |> Enum.map(& &1.pull_request_id) |> Enum.uniq() |> length() == 2
+    assert length(checks) == 2
+  end
+
   test "stale nested resources do not refresh references or product work" do
     context = reconciliation_context("nested-ordering")
     pull_request_node_id = "PR_nested_ordering"
@@ -324,7 +389,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              ExternalRefs.upsert_provider_reference(operation_v1, github_source, %{
                provider: "github",
                object_type: "check_run",
-               external_id: "check_run:#{check_node_id}",
+               external_id: "check_run:#{check_node_id}:pull_request:#{pull_request_node_id}",
                url: "https://example.test/checks/authoritative",
                resource_type: "check_run",
                resource_id: check.id
@@ -359,7 +424,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:ok, _outcome} = Reconciler.reconcile(operation_v2, request)
 
     comment_external_id = "review_comment:#{comment_node_id}"
-    check_external_id = "check_run:#{check_node_id}"
+    check_external_id = "check_run:#{check_node_id}:pull_request:#{pull_request_node_id}"
 
     comment_reference =
       ExternalReference
