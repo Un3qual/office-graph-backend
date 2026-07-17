@@ -465,8 +465,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 #### Scenario: Reconciliation collection or trace storage is temporarily unavailable
 
 - **WHEN** authoritative-absence reconciliation cannot read existing provider
-  resources or references, or a provider-resource audit or revision trace cannot
-  be written
+  resources or references, or a provider-resource, external-reference, or
+  product-signal audit or revision trace cannot be written
 - **THEN** the reconciliation transaction MUST roll back, retain existing signal
   and provider-resource state, and return the retryable
   integration-storage-unavailable classification

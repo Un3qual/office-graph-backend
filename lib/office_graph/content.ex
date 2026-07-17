@@ -35,6 +35,7 @@ defmodule OfficeGraph.Content do
          true <- is_binary(operation.workspace_id) do
       persist_plain_document(operation, operation, plain_text)
     else
+      {:error, :integration_storage_unavailable} = error -> error
       _invalid -> {:error, :forbidden}
     end
   end
@@ -51,6 +52,7 @@ defmodule OfficeGraph.Content do
          true <- is_binary(operation.workspace_id) do
       plain_text_for_scope(operation, document_id)
     else
+      {:error, :integration_storage_unavailable} = error -> error
       _invalid -> {:error, :forbidden}
     end
   end

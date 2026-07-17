@@ -45,4 +45,13 @@ defmodule OfficeGraph.Authorization.SystemRoleTest do
                :integration_reconcile
              )
   end
+
+  test "system role setup preserves classified principal lookup failures" do
+    assert {:error, :integration_storage_unavailable} =
+             Authorization.ensure_system_role(
+               %{id: "invalid-principal-id"},
+               %{organization_id: Ecto.UUID.generate(), workspace_id: nil},
+               [:provider_webhook_receive]
+             )
+  end
 end

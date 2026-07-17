@@ -163,6 +163,7 @@ defmodule OfficeGraph.Authorization do
          {:ok, capability_keys} <- system_capability_keys(actions) do
       persist_system_role(principal_id, organization_id, workspace_id, capability_keys)
     else
+      {:error, :integration_storage_unavailable} = error -> error
       _error -> {:error, :forbidden}
     end
   end

@@ -575,6 +575,47 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert length(recovered.signal_ids) == 2
   end
 
+  test "product-signal trace write outages remain retryable without partial writes" do
+    context = context("signal-trace-storage-unavailable")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-signal-trace-storage-unavailable"
+      })
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
+    operation = operation!(context, request, "signal-trace-storage-unavailable")
+    repository_count = Repo.aggregate(Repository, :count)
+    signal_count = Repo.aggregate(Signal, :count)
+
+    Repo.query!("""
+    ALTER TABLE revisions
+    ADD CONSTRAINT test_integration_signal_trace_storage_unavailable
+    CHECK (revision_type <> 'signal.create')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      after
+        Repo.query!("""
+        ALTER TABLE revisions
+        DROP CONSTRAINT test_integration_signal_trace_storage_unavailable
+        """)
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert Repo.aggregate(Repository, :count) == repository_count
+    assert Repo.aggregate(Signal, :count) == signal_count
+
+    assert {:ok, recovered} = Reconciler.reconcile(operation, request)
+    assert recovered.state == "reconciled"
+    assert length(recovered.signal_ids) == 2
+  end
+
   test "actionable provider edits refresh the canonical signal content" do
     context = context("signal-content-refresh")
 
