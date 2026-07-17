@@ -891,7 +891,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       "/repos/#{repository_path(context.repository)}/pulls/#{context.number}/comments?per_page=100&page=#{page}"
 
     with {:ok, comments, _headers} when is_list(comments) <- rest(token, :get, path, nil) do
-      case Enum.find(comments, &reply_marker?(&1, marker)) do
+      case Enum.find(comments, &reply_marker?(&1, marker, context.database_id)) do
         nil when length(comments) == 100 -> find_reply_page(token, context, marker, page + 1)
         nil -> {:ok, nil}
         comment -> response_identity(comment)
@@ -908,10 +908,15 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     end
   end
 
-  defp reply_marker?(%{"body" => body}, marker) when is_binary(body),
-    do: String.contains?(body, marker)
+  defp reply_marker?(
+         %{"body" => body, "in_reply_to_id" => parent_database_id},
+         marker,
+         target_database_id
+       )
+       when is_binary(body) and parent_database_id == target_database_id,
+       do: String.contains?(body, marker)
 
-  defp reply_marker?(_comment, _marker), do: false
+  defp reply_marker?(_comment, _marker, _target_database_id), do: false
 
   defp review_reply_path(context) do
     "/repos/#{repository_path(context.repository)}/pulls/#{context.number}/comments/#{context.database_id}/replies"

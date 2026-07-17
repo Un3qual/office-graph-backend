@@ -273,6 +273,13 @@ the first GitHub integration.
 - **THEN** Office Graph MUST reject the command before action enqueue,
   credential resolution, or provider access
 
+#### Scenario: Reply target is already a reply
+
+- **WHEN** an actor requests a reply to a review comment that already has a
+  parent review comment
+- **THEN** Office Graph MUST reject the unsupported nested reply before action
+  enqueue, credential resolution, or provider access
+
 #### Scenario: Review reply contains intentional Markdown whitespace
 
 - **WHEN** an actor submits a nonblank review reply with leading indentation or
@@ -286,6 +293,8 @@ the first GitHub integration.
   successful provider response
 - **THEN** the adapter request MUST carry the durable action identity and the
   worker MUST reconcile that identity before attempting another reply create
+- **AND** the adapter MUST accept a marked provider comment only when its
+  in-reply-to identity exactly matches the selected target comment
 
 #### Scenario: Selected installation does not own target provenance
 
@@ -340,6 +349,8 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   valid reset or retry delay, including a GraphQL response reset header
 - **THEN** the job MUST retry no earlier than the bounded reset policy and health
   MUST expose a safe rate-limit state
+- **AND** a temporary failure to persist the local retryable action state MUST
+  NOT replace the provider-derived snooze with an earlier generic retry
 
 #### Scenario: Installation is revoked
 

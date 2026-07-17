@@ -248,7 +248,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     end
   end
 
-  defp require_replyable_review_comment(%ReviewComment{state: "published"}), do: :ok
+  defp require_replyable_review_comment(%ReviewComment{
+         state: "published",
+         parent_comment_id: nil
+       }),
+       do: :ok
+
   defp require_replyable_review_comment(_record), do: {:error, :forbidden}
 
   defp check_target(installation, normalized) do

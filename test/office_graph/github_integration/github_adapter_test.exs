@@ -466,7 +466,8 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert Enum.map(snapshot.check_runs, & &1.node_id) == ["CR_live", "CR_live_2"]
   end
 
-  test "review reply callbacks reconcile the durable marker before creating a reply", context do
+  test "review reply callbacks reconcile the durable marker only for the target parent",
+       context do
     marker = "<!-- office-graph-action:action-42 -->"
 
     HTTPClient.put([
@@ -474,8 +475,16 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
       json_response(review_comment_context()),
       json_response([
         %{
-          "id" => 901,
+          "id" => 900,
+          "node_id" => "PRRC_unrelated_reply",
+          "in_reply_to_id" => 899,
+          "body" => "Copied marker\n\n#{marker}",
+          "updated_at" => "2026-07-16T12:29:00Z"
+        },
+        %{
+          "id" => 902,
           "node_id" => "PRRC_existing_reply",
+          "in_reply_to_id" => 901,
           "body" => "Already sent\n\n#{marker}",
           "updated_at" => "2026-07-16T12:30:00Z"
         }

@@ -315,10 +315,15 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
              completed_at: nil
            }) do
         {:ok, _updated} -> result
-        {:error, :integration_storage_unavailable} -> {:error, "integration_storage_unavailable"}
+        {:error, :integration_storage_unavailable} -> retry_state_persistence_result(result)
       end
     end
   end
+
+  defp retry_state_persistence_result({:snooze, _delay} = result), do: result
+
+  defp retry_state_persistence_result(_result),
+    do: {:error, "integration_storage_unavailable"}
 
   defp classify({:rate_limited, %DateTime{} = reset_at}, %Oban.Job{} = job) do
     job = retry_budget(job)

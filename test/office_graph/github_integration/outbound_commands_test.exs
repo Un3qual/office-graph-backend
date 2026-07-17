@@ -210,6 +210,51 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Provider.calls("review_reply", "PRRC_outbound") == 0
   end
 
+  test "review replies reject replies-to-replies before enqueue", context do
+    reply =
+      Repo.ash_create!(ReviewComment, %{
+        organization_id: context.comment.organization_id,
+        workspace_id: context.comment.workspace_id,
+        source_id: context.comment.source_id,
+        pull_request_id: context.comment.pull_request_id,
+        review_thread_id: context.comment.review_thread_id,
+        parent_comment_id: context.comment.id,
+        body: "Already a reply",
+        author_label: "reviewer",
+        state: "published",
+        published_at: ~U[2026-07-14 15:59:00Z],
+        provider_version: "v2",
+        provider_sequence: 2,
+        provider_updated_at: ~U[2026-07-14 16:01:00Z],
+        sync_state: "synced",
+        operation_id: context.comment.operation_id
+      })
+
+    Repo.ash_create!(ReviewCommentExtension, %{
+      review_comment_id: reply.id,
+      organization_id: reply.organization_id,
+      workspace_id: reply.workspace_id,
+      node_id: "PRRC_outbound_reply",
+      database_id: 705,
+      review_database_id: 706
+    })
+
+    attrs = %{
+      installation_id: context.installation.id,
+      review_comment_id: reply.id,
+      body: "GitHub does not support nested review replies.",
+      expected_provider_version: reply.provider_version
+    }
+
+    operation = command_operation!(context, :github_review_reply, "reply:nested", attrs)
+
+    assert {:error, :forbidden} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
   test "check updates are version-guarded and use only the check adapter action", context do
     attrs = %{
       installation_id: context.installation.id,
@@ -813,6 +858,42 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert health.retryable_count == 1
     assert health.terminal_count == 0
     assert Enum.map(health.recent_failures, & &1.code) == ["provider_rate_limited"]
+  end
+
+  test "rate limits preserve the provider reset snooze when retry-state persistence fails",
+       context do
+    attrs = reply_attrs(context, "Honor the provider reset during a storage outage.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:rate-limit-write", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 30, :second)}}
+    })
+
+    Repo.query!("""
+    ALTER TABLE github_outbound_actions
+    ADD CONSTRAINT test_github_outbound_rate_limit_write
+    CHECK (state <> 'retryable')
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job_for(action.id))
+      after
+        Repo.query!("""
+        ALTER TABLE github_outbound_actions
+        DROP CONSTRAINT test_github_outbound_rate_limit_write
+        """)
+      end
+
+    assert {:snooze, delay} = result
+    assert delay in 1..30
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+    assert Provider.calls("review_reply", "PRRC_outbound") == 1
   end
 
   test "provider permission denials retain authorization classification", context do
