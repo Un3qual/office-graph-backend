@@ -864,7 +864,8 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       {:ok, signing_input <> "." <> Base.url_encode64(signature, padding: false)}
     end
   rescue
-    _error -> {:error, :invalid_credential}
+    _error in [ArgumentError, ErlangError, FunctionClauseError] ->
+      {:error, :invalid_credential}
   end
 
   defp decode_private_key(credential) do
@@ -873,7 +874,8 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       _invalid -> {:error, :invalid_credential}
     end
   rescue
-    _error -> {:error, :invalid_credential}
+    _error in [ArgumentError, ErlangError, FunctionClauseError] ->
+      {:error, :invalid_credential}
   end
 
   defp encode_segment(value) do

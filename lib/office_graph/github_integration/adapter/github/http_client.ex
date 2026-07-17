@@ -50,7 +50,8 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient.Httpc do
         {:error, :network_error}
     end
   rescue
-    _error -> {:error, :network_error}
+    _error in [ArgumentError, ErlangError, FunctionClauseError] ->
+      {:error, :network_error}
   catch
     :exit, _reason -> {:error, :network_error}
   end
