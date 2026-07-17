@@ -180,6 +180,7 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
     check =
       create!(CheckRun, base_attrs(context, 24), %{
         repository_id: repository.id,
+        pull_request_id: pull_request.id,
         name: "verify",
         status: "queued"
       })
@@ -242,6 +243,7 @@ defmodule OfficeGraph.SoftwareProving.ResourceTest do
                CheckRunExtension,
                %{
                  check_run_id: check.id,
+                 pull_request_id: pull_request.id,
                  organization_id: context.bootstrap.organization.id,
                  node_id: "CR_1",
                  database_id: 201,

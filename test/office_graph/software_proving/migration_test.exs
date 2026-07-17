@@ -31,16 +31,20 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
       assert column_exists?(table, "workspace_id")
       refute column_exists?(table, "lifecycle_state")
 
-      assert index_columns("#{table}_workspace_node_id_index") == [
-               "organization_id",
-               "workspace_id",
-               "node_id"
-             ]
+      workspace_identity_columns =
+        if table == "github_check_runs",
+          do: ["organization_id", "workspace_id", "node_id", "pull_request_id"],
+          else: ["organization_id", "workspace_id", "node_id"]
 
-      assert index_columns("#{table}_organization_node_id_index") == [
-               "organization_id",
-               "node_id"
-             ]
+      organization_identity_columns =
+        if table == "github_check_runs",
+          do: ["organization_id", "node_id", "pull_request_id"],
+          else: ["organization_id", "node_id"]
+
+      assert index_columns("#{table}_workspace_node_id_index") == workspace_identity_columns
+
+      assert index_columns("#{table}_organization_node_id_index") ==
+               organization_identity_columns
 
       assert %{unique?: true, predicate: workspace_predicate} =
                index_definition("#{table}_workspace_node_id_index")
@@ -52,6 +56,9 @@ defmodule OfficeGraph.SoftwareProving.MigrationTest do
 
       assert organization_predicate =~ "workspace_id IS NULL"
     end
+
+    assert column_exists?("github_check_runs", "pull_request_id")
+    refute column_nullable?("github_check_runs", "pull_request_id")
 
     refute column_exists?("repositories", "github_node_id")
     refute column_exists?("pull_requests", "github_database_id")

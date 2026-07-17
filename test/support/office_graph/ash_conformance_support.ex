@@ -302,11 +302,11 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     },
     OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
       unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
+        keys: [:organization_id, :workspace_id, :node_id, :pull_request_id],
         where: "not is_nil(workspace_id)"
       },
       unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
+        keys: [:organization_id, :node_id, :pull_request_id],
         where: "is_nil(workspace_id)"
       }
     },
