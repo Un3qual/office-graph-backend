@@ -51,7 +51,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   """
 
   @pull_request_query """
-  query OfficeGraphPullRequestSnapshot($id: ID!) {
+  query OfficeGraphPullRequestSnapshot($id: ID!, $requestedObjectId: ID!) {
     node(id: $id) {
       ... on PullRequest {
         id
@@ -129,6 +129,19 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
             }
           }
         }
+      }
+    }
+    requestedObject: node(id: $requestedObjectId) {
+      ... on CheckRun {
+        id
+        databaseId
+        checkSuite { databaseId }
+        name
+        status
+        conclusion
+        detailsUrl
+        startedAt
+        completedAt
       }
     }
   }
@@ -269,10 +282,15 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
              object_id,
              Map.get(request, :pull_request_id)
            ),
-         {:ok, response} <- graphql(token, @pull_request_query, %{"id" => pull_request_id}),
+         {:ok, response} <-
+           graphql(token, @pull_request_query, %{
+             "id" => pull_request_id,
+             "requestedObjectId" => object_id
+           }),
          {:ok, pull_request} <- response_node(response),
+         {:ok, requested_check} <- requested_check(response, object_type),
          {:ok, pull_request} <- complete_snapshot(token, pull_request),
-         {:ok, snapshot} <- normalize_snapshot(pull_request) do
+         {:ok, snapshot} <- normalize_snapshot(pull_request, requested_check) do
       {:ok, snapshot}
     end
   end
@@ -408,13 +426,13 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   defp pull_request_id(_node, _object_type, _pull_request_id),
     do: {:error, :invalid_provider_response}
 
-  defp normalize_snapshot(pull_request) do
+  defp normalize_snapshot(pull_request, requested_check) do
     with {:ok, updated_at_raw} <- required_nonblank(pull_request, "updatedAt"),
          {:ok, updated_at} <- datetime(updated_at_raw),
          {:ok, repository} <- normalize_repository(pull_request["repository"]),
          {:ok, pull_request_snapshot} <- normalize_pull_request(pull_request),
          {:ok, threads, comments} <- normalize_threads(pull_request["reviewThreads"]),
-         {:ok, checks} <- normalize_checks(pull_request["commits"]) do
+         {:ok, checks} <- normalize_checks(pull_request["commits"], requested_check) do
       {:ok,
        %Adapter.ReconciliationSnapshot{
          provider_version: updated_at_raw,
@@ -561,16 +579,32 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     end
   end
 
-  defp normalize_checks(%{"nodes" => [%{"commit" => commit} | _]}) do
+  defp normalize_checks(%{"nodes" => [%{"commit" => commit} | _]}, requested_check) do
     nodes = get_in(commit, ["statusCheckRollup", "contexts", "nodes"]) || []
 
-    nodes
-    |> Enum.filter(&(&1["__typename"] in [nil, "CheckRun"]))
-    |> map_results(&normalize_check/1)
+    with {:ok, head_checks} <-
+           nodes
+           |> Enum.filter(&(&1["__typename"] in [nil, "CheckRun"]))
+           |> map_results(&normalize_check/1),
+         {:ok, requested_checks} <- normalize_requested_check(requested_check) do
+      {:ok, Enum.uniq_by(requested_checks ++ head_checks, & &1.node_id)}
+    end
   end
 
-  defp normalize_checks(%{"nodes" => []}), do: {:ok, []}
-  defp normalize_checks(_commits), do: {:error, :invalid_provider_response}
+  defp normalize_checks(%{"nodes" => []}, requested_check),
+    do: normalize_requested_check(requested_check)
+
+  defp normalize_checks(_commits, _requested_check),
+    do: {:error, :invalid_provider_response}
+
+  defp normalize_requested_check(nil), do: {:ok, []}
+
+  defp normalize_requested_check(requested_check) when is_map(requested_check) do
+    case normalize_check(requested_check) do
+      {:ok, check} -> {:ok, [check]}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize_check(check) when is_map(check) do
     with {:ok, node_id} <- required_nonblank(check, "id"),
@@ -615,7 +649,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   defp check_provider_metadata(node_id, status, conclusion, started_at, completed_at) do
     case completed_at || started_at do
       %DateTime{} = observed_at ->
-        %{
+        %Adapter.ProviderMetadata{
           version:
             Enum.join(
               [
@@ -633,12 +667,22 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
         }
 
       nil ->
-        %{version: nil, sequence: nil, updated_at: nil}
+        %Adapter.ProviderMetadata{version: nil, sequence: nil, updated_at: nil}
     end
   end
 
   defp datetime_version(nil), do: "none"
   defp datetime_version(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp requested_check(response, "check_run") do
+    case Map.get(response, "requestedObject") do
+      nil -> {:ok, nil}
+      requested_check when is_map(requested_check) -> {:ok, requested_check}
+      _invalid -> {:error, :invalid_provider_response}
+    end
+  end
+
+  defp requested_check(_response, _object_type), do: {:ok, nil}
 
   defp complete_snapshot(token, %{"id" => pull_request_id} = pull_request) do
     with {:ok, thread_connection} <-

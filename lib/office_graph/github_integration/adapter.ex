@@ -66,6 +66,12 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.PullRequestSnapshot do
   ]
 end
 
+defmodule OfficeGraph.GitHubIntegration.Adapter.ProviderMetadata do
+  @moduledoc false
+  @enforce_keys [:version, :sequence, :updated_at]
+  defstruct [:version, :sequence, :updated_at]
+end
+
 defmodule OfficeGraph.GitHubIntegration.Adapter.ReviewThreadSnapshot do
   @moduledoc false
   @enforce_keys [:node_id, :state]

@@ -232,7 +232,53 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
     [_token_request, snapshot_request] = HTTPClient.requests()
     {_method, _url, _headers, encoded_body} = snapshot_request
-    assert Jason.decode!(encoded_body)["variables"] == %{"id" => "PR_live_second"}
+
+    assert Jason.decode!(encoded_body)["variables"] == %{
+             "id" => "PR_live_second",
+             "requestedObjectId" => "CR_live"
+           }
+  end
+
+  test "check-run fetches include the requested run when it is outside the head commit",
+       context do
+    historical_check = %{
+      "id" => "CR_historical",
+      "databaseId" => 906,
+      "checkSuite" => %{"databaseId" => 79},
+      "name" => "historical verify",
+      "status" => "COMPLETED",
+      "conclusion" => "FAILURE",
+      "detailsUrl" => "https://github.com/check/906",
+      "startedAt" => "2026-07-15T11:40:00Z",
+      "completedAt" => "2026-07-15T11:50:00Z"
+    }
+
+    response = put_in(snapshot_response(), ["data", "requestedObject"], historical_check)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(response)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_historical",
+               pull_request_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert %{status: "completed", conclusion: "failure"} =
+             Enum.find(snapshot.check_runs, &(&1.node_id == "CR_historical"))
+
+    [_token_request, snapshot_request] = HTTPClient.requests()
+    {_method, _url, _headers, encoded_body} = snapshot_request
+
+    assert Jason.decode!(encoded_body)["variables"] == %{
+             "id" => "PR_live",
+             "requestedObjectId" => "CR_historical"
+           }
   end
 
   test "numeric check-run pull request resolution follows every association page", context do
@@ -299,7 +345,11 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
            }
 
     {_method, _url, _headers, snapshot_body} = snapshot_request
-    assert Jason.decode!(snapshot_body)["variables"] == %{"id" => "PR_live_third"}
+
+    assert Jason.decode!(snapshot_body)["variables"] == %{
+             "id" => "PR_live_third",
+             "requestedObjectId" => "CR_live"
+           }
   end
 
   test "fetch follows authoritative review-thread pages instead of truncating the snapshot",

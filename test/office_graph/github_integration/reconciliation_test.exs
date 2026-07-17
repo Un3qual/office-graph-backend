@@ -27,7 +27,15 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
   }
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
-  alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, Repository, ReviewComment}
+
+  alias OfficeGraph.SoftwareProving.{
+    CheckRun,
+    PullRequest,
+    Repository,
+    ReviewComment,
+    ReviewThread
+  }
+
   alias OfficeGraph.SoftwareProving.GitHub.RepositoryExtension
 
   defmodule UnavailableSecretStore do
@@ -240,6 +248,70 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              CheckRun
              |> Ash.Query.filter(name == "Current-parent check")
              |> Ash.read_one!(authorize?: false)
+  end
+
+  test "review-thread state advances when the pull request version is unchanged" do
+    context = reconciliation_context("current-parent-updated-thread")
+    pull_request_node_id = "PR_current_parent_updated_thread"
+    repository_node_id = "R_current_parent_updated_thread"
+    thread_node_id = "PRRT_current_parent_updated_thread"
+
+    open_request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-current-parent-open-thread"
+      )
+
+    open_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:review_threads, [
+        %Adapter.ReviewThreadSnapshot{
+          node_id: thread_node_id,
+          state: "open",
+          path: "lib/reviewed.ex",
+          line: 42,
+          side: "RIGHT"
+        }
+      ])
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, open_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, open_request, "open-thread"),
+               open_request
+             )
+
+    open_thread = ReviewThread |> Ash.read_one!(authorize?: false)
+    assert open_thread.state == "open"
+
+    resolved_request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-current-parent-resolved-thread"
+      )
+
+    resolved_snapshot =
+      put_in(open_snapshot.review_threads, [
+        %{hd(open_snapshot.review_threads) | state: "resolved"}
+      ])
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, resolved_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, resolved_request, "resolved-thread"),
+               resolved_request
+             )
+
+    resolved_thread = Ash.get!(ReviewThread, open_thread.id, authorize?: false)
+    assert resolved_thread.state == "resolved"
+    assert resolved_thread.provider_sequence == open_thread.provider_sequence
+    refute resolved_thread.provider_version == open_thread.provider_version
   end
 
   test "a changed provider version advances a check when its sequence ties" do
@@ -682,6 +754,40 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     refute SyncOutcome
            |> Ash.Query.filter(operation_id == ^operation.id)
            |> Ash.exists?(authorize?: false)
+  end
+
+  test "an installation revoked after operation start records a terminal outcome" do
+    context = reconciliation_context("post-start-revocation")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_post_start_revocation",
+        "delivery-post-start-revocation"
+      )
+
+    operation = reconciliation_operation!(context, request, "post-start-revocation")
+
+    context.installation
+    |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
+    |> Repo.ash_update!()
+
+    Provider.put(%{
+      {"pull_request", request.object_id} =>
+        {:ok, snapshot(1, "open", request.object_id, "R_post_start_revocation")}
+    })
+
+    assert {:error, {:terminal, :installation_revoked}} =
+             Reconciler.reconcile(operation, request)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_code == "installation_revoked"
   end
 
   test "transient installation and credential lookup failures persist retryable outcomes" do

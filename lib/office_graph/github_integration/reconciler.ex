@@ -153,6 +153,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       {:ok, installation} ->
         reconcile_provider(operation, request, installation)
 
+      {:error, {:installation_revoked, installation}} ->
+        record_failure(operation, request, installation, :installation_revoked)
+
       {:error, :integration_storage_unavailable} ->
         record_storage_failure(operation, request)
 
@@ -180,7 +183,6 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          ) do
       {:ok,
        %Installation{
-         lifecycle_state: "active",
          organization_id: organization_id,
          workspace_id: workspace_id,
          service_principal_id: principal_id
@@ -188,9 +190,16 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       when organization_id == operation.organization_id and
              workspace_id == operation.workspace_id and
              principal_id == operation.principal_id ->
-        if operation.authority_basis == "github_installation:#{installation.id}",
-          do: {:ok, installation},
-          else: {:error, :forbidden}
+        cond do
+          operation.authority_basis != "github_installation:#{installation.id}" ->
+            {:error, :forbidden}
+
+          installation.lifecycle_state == "active" ->
+            {:ok, installation}
+
+          true ->
+            {:error, {:installation_revoked, installation}}
+        end
 
       {:ok, _missing_or_cross_scope} ->
         {:error, :forbidden}
@@ -696,6 +705,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_threads!(operation, source, pull_request, snapshot) do
     Map.new(snapshot.review_threads, fn thread ->
+      provider = thread_provider_metadata(thread, snapshot)
+
       existing =
         base_by_extension(
           operation,
@@ -713,9 +724,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           line: thread.line,
           side: thread.side,
           resolved_at: thread.resolved_at,
-          provider_version: snapshot.provider_version,
-          provider_sequence: snapshot.provider_sequence,
-          provider_updated_at: snapshot.provider_updated_at
+          provider_version: provider.version,
+          provider_sequence: provider.sequence,
+          provider_updated_at: provider.updated_at
         })
         |> unwrap!()
 
@@ -729,6 +740,27 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
       {thread.node_id, result.record}
     end)
+  end
+
+  defp thread_provider_metadata(thread, snapshot) do
+    digest =
+      [
+        thread.node_id,
+        thread.state,
+        thread.path,
+        thread.line,
+        thread.side,
+        thread.resolved_at
+      ]
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    %Adapter.ProviderMetadata{
+      version: "github-review-thread:v1:#{digest}",
+      sequence: snapshot.provider_sequence,
+      updated_at: snapshot.provider_updated_at
+    }
   end
 
   defp reconcile_comments!(operation, source, pull_request, thread_ids, snapshot) do
@@ -928,10 +960,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          _snapshot
        )
        when is_binary(version) and is_integer(sequence),
-       do: %{version: version, sequence: sequence, updated_at: updated_at}
+       do: %Adapter.ProviderMetadata{version: version, sequence: sequence, updated_at: updated_at}
 
   defp check_provider_metadata(_check, snapshot),
-    do: %{
+    do: %Adapter.ProviderMetadata{
       version: snapshot.provider_version,
       sequence: snapshot.provider_sequence,
       updated_at: snapshot.provider_updated_at

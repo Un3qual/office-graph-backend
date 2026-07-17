@@ -215,6 +215,7 @@ defmodule OfficeGraph.Authorization do
     end)
     |> case do
       {:ok, :ok} -> :ok
+      {:error, :integration_storage_unavailable} -> {:error, :integration_storage_unavailable}
       {:error, _reason} -> {:error, :forbidden}
     end
   end
@@ -517,7 +518,10 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp get_or_create!(resource, lookup, attrs) do
-    Repo.get_or_insert!(resource, lookup, attrs, &insert_contract!/2)
+    case Repo.get_or_insert(resource, lookup, attrs, &insert_contract!/2) do
+      {:ok, record} -> record
+      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+    end
   end
 
   defp insert_contract!(Capability, _attrs), do: {"capabilities", [:key], [:id]}
