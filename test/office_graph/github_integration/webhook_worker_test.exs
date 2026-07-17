@@ -132,6 +132,45 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert outcome.object_id == "PR_worker_review"
   end
 
+  test "review-thread state deliveries reconcile their containing pull request" do
+    context = worker_context("review-thread")
+    pull_request_node_id = "PR_worker_review_thread"
+
+    body =
+      Jason.encode!(%{
+        "action" => "resolved",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => pull_request_node_id, "number" => 25},
+        "thread" => %{"node_id" => "PRRT_worker_review_thread"}
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-review-thread",
+      "x-github-event" => "pull_request_review_thread",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    provider_snapshot =
+      snapshot()
+      |> then(fn value ->
+        %{value | pull_request: %{value.pull_request | node_id: pull_request_node_id}}
+      end)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, provider_snapshot}})
+
+    assert :ok = WebhookWorker.perform(webhook_job("delivery-worker-review-thread"))
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.object_type == "pull_request"
+    assert outcome.object_id == pull_request_node_id
+  end
+
   test "deleted review-comment deliveries reconcile through the surviving pull request" do
     context = worker_context("deleted-review-comment")
     pull_request_node_id = "PR_worker_deleted_review_comment"

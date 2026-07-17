@@ -19,6 +19,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
     pull_request
     pull_request_review
     pull_request_review_comment
+    pull_request_review_thread
   ))
 
   @header_pattern ~r/^[A-Za-z0-9._:=+-]+$/

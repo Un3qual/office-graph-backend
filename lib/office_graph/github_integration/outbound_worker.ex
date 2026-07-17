@@ -16,7 +16,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     InstallationCredential,
     OutboundAction,
     RecordLoader,
-    SecretStore
+    SecretStore,
+    StorageResult
   }
 
   alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
@@ -569,33 +570,153 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp persist_terminal_action(
          job,
          %OutboundAction{state: "terminal"} = action,
-         _failure_class,
+         failure_class,
          failure_code,
          result_code
        ) do
+    case ensure_terminal_installation_state(action) do
+      {:ok, current} ->
+        finish_current_terminal_action(job, current, failure_class, failure_code, result_code)
+
+      {:error, :integration_storage_unavailable} ->
+        retry_completed_trace()
+    end
+  end
+
+  defp persist_terminal_action(
+         job,
+         %OutboundAction{state: state} = action,
+         failure_class,
+         "installation_revoked" = failure_code,
+         result_code
+       )
+       when state in ["pending", "retryable"] do
+    attrs = terminal_action_attrs(failure_class, failure_code)
+
+    case persist_revoked_outcome(action, attrs) do
+      {:ok, current} ->
+        finish_current_terminal_action(job, current, failure_class, failure_code, result_code)
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp persist_terminal_action(job, action, failure_class, failure_code, result_code) do
+    case update_action(action, terminal_action_attrs(failure_class, failure_code)) do
+      {:ok, updated} ->
+        finish_persisted_terminal_action(job, updated, failure_code, result_code)
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp terminal_action_attrs(failure_class, failure_code) do
+    %{
+      state: "terminal",
+      failure_class: failure_class,
+      failure_code: failure_code,
+      attempted_at: DateTime.utc_now(),
+      completed_at: DateTime.utc_now()
+    }
+  end
+
+  defp finish_persisted_terminal_action(job, action, failure_code, result_code) do
     case trace(action, "terminal") do
       :ok -> finish_terminal_job(job, action.failure_code || failure_code, {:cancel, result_code})
       {:error, :integration_storage_unavailable} -> retry_completed_trace()
     end
   end
 
-  defp persist_terminal_action(job, action, failure_class, failure_code, result_code) do
-    case update_action(action, %{
-           state: "terminal",
-           failure_class: failure_class,
-           failure_code: failure_code,
-           attempted_at: DateTime.utc_now(),
-           completed_at: DateTime.utc_now()
-         }) do
-      {:ok, updated} ->
-        case trace(updated, "terminal") do
-          :ok -> finish_terminal_job(job, failure_code, {:cancel, result_code})
-          {:error, :integration_storage_unavailable} -> retry_completed_trace()
-        end
+  defp finish_current_terminal_action(
+         job,
+         %OutboundAction{state: "succeeded"} = action,
+         failure_class,
+         failure_code,
+         result_code
+       ),
+       do: persist_terminal_action(job, action, failure_class, failure_code, result_code)
 
-      {:error, :integration_storage_unavailable} ->
-        {:snooze, @terminal_retry_delay_seconds}
+  defp finish_current_terminal_action(
+         job,
+         %OutboundAction{state: "terminal"} = action,
+         _failure_class,
+         failure_code,
+         result_code
+       ),
+       do: finish_persisted_terminal_action(job, action, failure_code, result_code)
+
+  defp ensure_terminal_installation_state(
+         %OutboundAction{
+           failure_code: "installation_revoked"
+         } = action
+       ) do
+    persist_revoked_outcome(action, %{})
+  end
+
+  defp ensure_terminal_installation_state(action), do: {:ok, action}
+
+  defp persist_revoked_outcome(action, attrs) do
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        with {:ok, _locked_operation} <- Operations.lock_operation(action.operation_id),
+             {:ok, current} <-
+               action(action.id, action.organization_id, action.workspace_id),
+             {:ok, current} <- record_revoked_action(current, attrs),
+             :ok <- revoke_installation_if_winner(current) do
+          current
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    end)
+  end
+
+  defp record_revoked_action(%OutboundAction{state: state} = action, attrs)
+       when state in ["pending", "retryable"],
+       do: update_action(action, attrs)
+
+  defp record_revoked_action(action, _attrs), do: {:ok, action}
+
+  defp revoke_installation_if_winner(%OutboundAction{} = action) do
+    if action.state == "terminal" and action.failure_code == "installation_revoked" do
+      case RecordLoader.get(Installation, action.installation_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok,
+         %Installation{
+           organization_id: organization_id,
+           workspace_id: workspace_id,
+           lifecycle_state: "revoked"
+         }}
+        when organization_id == action.organization_id and workspace_id == action.workspace_id ->
+          :ok
+
+        {:ok,
+         %Installation{organization_id: organization_id, workspace_id: workspace_id} =
+             installation}
+        when organization_id == action.organization_id and workspace_id == action.workspace_id ->
+          update_installation_lifecycle(installation, "revoked")
+
+        {:ok, _missing_or_cross_scope} ->
+          {:error, :integration_storage_unavailable}
+
+        {:error, _storage_error} ->
+          {:error, :integration_storage_unavailable}
+      end
+    else
+      :ok
     end
+  end
+
+  defp update_installation_lifecycle(installation, lifecycle_state) do
+    installation
+    |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: lifecycle_state})
+    |> Repo.ash_update!()
+
+    :ok
   end
 
   defp finish_terminal_job(%Oban.Job{} = job, failure_code, result) do

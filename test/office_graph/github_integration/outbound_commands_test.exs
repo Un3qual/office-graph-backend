@@ -919,6 +919,50 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert health.remediation_code == "reauthorize_installation"
   end
 
+  test "provider-reported revocation atomically terminalizes the action and installation",
+       context do
+    attrs = reply_attrs(context, "Stop provider work after GitHub revokes the installation.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:installation-revoked", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :installation_revoked}})
+
+    Repo.query!("""
+    ALTER TABLE github_installations
+    ADD CONSTRAINT test_github_outbound_installation_revocation
+    CHECK (lifecycle_state <> 'revoked')
+    """)
+
+    try do
+      assert {:snooze, 5} = OutboundWorker.perform(job_for(action.id))
+      assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+
+      assert Ash.get!(Installation, context.installation.id, authorize?: false).lifecycle_state ==
+               "active"
+    after
+      Repo.query!("""
+      ALTER TABLE github_installations
+      DROP CONSTRAINT test_github_outbound_installation_revocation
+      """)
+    end
+
+    staged_job = Repo.get!(Oban.Job, job_for(action.id).id)
+    assert staged_job.meta["terminal_action_id"] == action.id
+
+    assert {:cancel, "installation_revoked"} = OutboundWorker.perform(staged_job)
+    assert Provider.calls("review_reply", "PRRC_outbound") == 1
+
+    terminal_action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert terminal_action.state == "terminal"
+    assert terminal_action.failure_code == "installation_revoked"
+
+    revoked_installation = Ash.get!(Installation, context.installation.id, authorize?: false)
+    assert revoked_installation.lifecycle_state == "revoked"
+  end
+
   test "rate-limit snoozes cannot extend the fixed outbound attempt budget", context do
     attrs = reply_attrs(context, "The provider remains rate limited.")
 

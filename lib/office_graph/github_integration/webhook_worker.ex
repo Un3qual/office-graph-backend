@@ -226,6 +226,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   defp provider_object("pull_request_review", payload),
     do: nested_object(payload, "pull_request", "pull_request")
 
+  defp provider_object("pull_request_review_thread", payload),
+    do: nested_object(payload, "pull_request", "pull_request")
+
   defp provider_object("pull_request_review_comment", %{"action" => "deleted"} = payload),
     do: nested_object(payload, "pull_request", "pull_request")
 
