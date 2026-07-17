@@ -187,11 +187,21 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   def mark_failed(event_id, expected_scope, failure_code) do
+    mark_failure(event_id, expected_scope, failure_code, ["pending"])
+  end
+
+  def mark_processing_failed(event_id, expected_scope, failure_code) do
+    mark_failure(event_id, expected_scope, failure_code, ["pending", "dispatched"])
+  end
+
+  defp mark_failure(event_id, expected_scope, failure_code, allowed_states) do
     failure_code =
       OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
 
     if valid_event_id?(event_id) do
-      case transaction(fn -> mark_failed_locked(event_id, expected_scope, failure_code) end) do
+      case transaction(fn ->
+             mark_failed_locked(event_id, expected_scope, failure_code, allowed_states)
+           end) do
         {:ok, result} -> result
         {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
       end
@@ -202,10 +212,10 @@ defmodule OfficeGraph.DurableDelivery do
     _kind, _reason -> {:error, {:retryable, :event_failure_transition_crashed}}
   end
 
-  defp mark_failed_locked(event_id, expected_scope, failure_code) do
+  defp mark_failed_locked(event_id, expected_scope, failure_code, allowed_states) do
     case read_event_for_transition(event_id) do
-      {:ok, %{delivery_state: "pending"} = event} ->
-        if event_in_scope?(event, expected_scope) do
+      {:ok, %{delivery_state: state} = event} ->
+        if state in allowed_states and event_in_scope?(event, expected_scope) do
           mark_event_failed(event, failure_code)
         else
           :ok

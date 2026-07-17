@@ -3,7 +3,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
   import Ecto.Query
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
+  alias OfficeGraph.{DurableDelivery, Foundation, GitHubIntegration, Repo}
 
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.Integrations.RawArchive
@@ -64,7 +64,12 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
 
-    Provider.put(%{{"pull_request", "PR_worker"} => {:ok, snapshot()}})
+    live_provider_sequence = 1_754_073_200_000_000
+
+    Provider.put(%{
+      {"pull_request", "PR_worker"} =>
+        {:ok, %{snapshot() | provider_sequence: live_provider_sequence}}
+    })
 
     worker_name = inspect(WebhookWorker)
     job = Repo.one!(from job in Oban.Job, where: job.worker == ^worker_name)
@@ -85,6 +90,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert event.subject_kind == "pull_request"
     assert event.subject_id == outcome.resource_id
+    assert event.subject_version == live_provider_sequence
   end
 
   test "review deliveries reconcile the pull request represented by the snapshot" do
@@ -262,6 +268,74 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     event = Ash.get!(DomainEvent, job.args["event_id"], authorize?: false)
     assert event.delivery_state == "failed"
     assert event.failure_code == "integration_storage_unavailable"
+  end
+
+  test "pre-operation terminal failures retain complete replay metadata until persistence succeeds" do
+    context = worker_context("pre-operation-terminal-replay")
+    delivery_id = "delivery-worker-pre-operation-terminal-replay"
+
+    body =
+      Jason.encode!(%{
+        "action" => "opened",
+        "installation" => %{"id" => context.external_installation_id},
+        "pull_request" => %{"node_id" => "PR_worker_pre_operation_terminal", "number" => 25}
+      })
+
+    headers = %{
+      "x-github-delivery" => delivery_id,
+      "x-github-event" => "pull_request",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+    job = webhook_job(delivery_id)
+
+    Repo.query!("DELETE FROM raw_archives WHERE id = $1", [
+      Ecto.UUID.dump!(job.args["archive_id"])
+    ])
+
+    Repo.query!("""
+    ALTER TABLE github_sync_outcomes
+    ADD CONSTRAINT test_github_pre_operation_terminal_replay
+    CHECK (state <> 'terminal')
+    """)
+
+    try do
+      assert {:snooze, 5} = WebhookWorker.perform(job)
+
+      assert %{
+               "terminal_phase" => "pre_operation",
+               "terminal_failure_code" => "invalid_delivery_archive",
+               "terminal_cancel_code" => "invalid_delivery_archive",
+               "terminal_installation_id" => installation_id,
+               "terminal_delivery_id" => ^delivery_id
+             } = Repo.get!(Oban.Job, job.id).meta
+
+      assert installation_id == context.installation.id
+      assert Repo.aggregate(SyncOutcome, :count) == 0
+    after
+      Repo.query!(
+        "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_pre_operation_terminal_replay"
+      )
+    end
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert {:cancel, "invalid_delivery_archive"} = WebhookWorker.perform(staged_job)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(
+        installation_id == ^context.installation.id and object_type == "provider_delivery"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.object_id == delivery_id
+    assert outcome.failure_code == "invalid_delivery_archive"
+
+    event = Ash.get!(DomainEvent, job.args["event_id"], authorize?: false)
+    assert event.delivery_state == "failed"
+    assert event.failure_code == "invalid_delivery_archive"
   end
 
   test "transient credential binding lookup failures remain retryable" do
@@ -505,6 +579,11 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     Provider.put(%{{"pull_request", "PR_worker_terminal_history"} => {:ok, %{}}})
     job = webhook_job("delivery-worker-terminal-history")
+
+    assert :ok = DurableDelivery.dispatch(job.args["event_id"])
+
+    assert %{delivery_state: "dispatched"} =
+             Ash.get!(DomainEvent, job.args["event_id"], authorize?: false)
 
     assert {:cancel, "invalid_provider_response"} = WebhookWorker.perform(job)
 

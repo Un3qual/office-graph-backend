@@ -15,6 +15,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     Adapter,
     Installation,
     InstallationCredential,
+    OutboundAction,
     RecordLoader,
     ReconciliationRequest,
     ReviewReplyMarker,
@@ -52,6 +53,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     :provider_unavailable,
     :integration_storage_unavailable
   ]
+  @pre_operation_failure_codes @retryable_failure_codes ++
+                                 [
+                                   :installation_revoked,
+                                   :invalid_credential,
+                                   :invalid_delivery_archive,
+                                   :invalid_delivery_payload,
+                                   :invalid_worker_result
+                                 ]
   @finished_failure_states ~w(terminal authorization configuration)
 
   require Ash.Query
@@ -106,7 +115,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   def exhaust_pre_operation(operation, installation_id, delivery_id, failure_code)
       when is_binary(installation_id) and is_binary(delivery_id) and
-             failure_code in @retryable_failure_codes do
+             failure_code in @pre_operation_failure_codes do
     with :ok <- Operations.validate_system_operation(operation, :provider_webhook_receive) do
       attrs =
         terminal_outcome_attrs(
@@ -973,6 +982,23 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         |> Map.fetch!(:record)
       end)
 
+    tombstoned_checks =
+      Enum.map(missing_checks, fn check ->
+        SoftwareProving.upsert_provider_resource(
+          operation,
+          source,
+          CheckRun,
+          check,
+          %{
+            provider_version: "office-graph:github:check-run-absent:#{snapshot.provider_version}",
+            provider_sequence: max(snapshot.provider_sequence, check.provider_sequence || -1),
+            provider_updated_at: snapshot.provider_updated_at || check.provider_updated_at
+          }
+        )
+        |> unwrap!()
+        |> Map.fetch!(:record)
+      end)
+
     missing_provider_references!(
       operation,
       source,
@@ -983,7 +1009,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         operation,
         source,
         "check_run",
-        Enum.map(missing_checks, & &1.id)
+        Enum.map(tombstoned_checks, & &1.id)
       )
   end
 
@@ -1059,7 +1085,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         if item.status == :stale do
           []
         else
-          actionable? = review_comment_actionable?(item, thread_states)
+          actionable? = review_comment_actionable?(operation, item, thread_states)
 
           result =
             WorkGraph.sync_integration_signal(
@@ -1110,13 +1136,54 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     comment_signals ++ check_signals
   end
 
-  defp review_comment_actionable?(item, thread_states) do
-    item.record.state == "published" and not ReviewReplyMarker.own_reply?(item.record.body) and
+  defp review_comment_actionable?(operation, item, thread_states) do
+    item.record.state == "published" and not authenticated_own_reply?(operation, item) and
       case item.record.review_thread_id do
         nil -> true
         thread_id -> Map.get(thread_states, thread_id) == "open"
       end
   end
+
+  defp authenticated_own_reply?(operation, item) do
+    case ReviewReplyMarker.action_id(item.record.body) do
+      nil ->
+        false
+
+      action_id ->
+        case RecordLoader.get(OutboundAction, action_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, %OutboundAction{} = action} ->
+            authenticated_reply_action?(operation, item, action)
+
+          {:ok, nil} ->
+            false
+
+          {:error, _storage_error} ->
+            Repo.rollback(:integration_storage_unavailable)
+        end
+    end
+  end
+
+  defp authenticated_reply_action?(operation, item, action) do
+    action.state == "succeeded" and action.action_kind == "review_reply" and
+      action.target_type == "review_comment" and
+      action.organization_id == operation.organization_id and
+      action.workspace_id == operation.workspace_id and
+      operation.authority_basis == "github_installation:#{action.installation_id}" and
+      action.provider_response_id in provider_comment_identities(item.snapshot)
+  end
+
+  defp provider_comment_identities(snapshot) do
+    [snapshot.node_id, optional_database_identity(snapshot.database_id)]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp optional_database_identity(database_id) when is_integer(database_id),
+    do: Integer.to_string(database_id)
+
+  defp optional_database_identity(_database_id), do: nil
 
   defp failing_check?(%{status: "completed", conclusion: conclusion}),
     do: conclusion in ~w(failure timed_out cancelled action_required startup_failure)

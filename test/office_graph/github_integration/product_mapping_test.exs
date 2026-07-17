@@ -8,6 +8,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
+    OutboundAction,
     RecordLoaderTestAdapter,
     Reconciler,
     ReconciliationRequest
@@ -165,7 +166,21 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
         delivery_id: "delivery-missing-provider-work"
       })
 
-    current = mapping_snapshot()
+    base_snapshot = mapping_snapshot()
+    [check] = base_snapshot.check_runs
+
+    current = %{
+      base_snapshot
+      | check_runs: [
+          %{
+            check
+            | provider_version: "check-v1",
+              provider_sequence: 10,
+              provider_updated_at: ~U[2026-07-14 12:59:00Z]
+          }
+        ]
+    }
+
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, current}})
 
     assert {:ok, current_outcome} =
@@ -204,16 +219,24 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert Repo.aggregate(Signal, :count) == 2
 
-    reappeared = %{without_prior_work | review_comments: current.review_comments}
+    reappeared = %{
+      without_prior_work
+      | review_comments: current.review_comments,
+        check_runs: current.check_runs
+    }
+
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, reappeared}})
 
     assert {:ok, reappeared_outcome} =
              Reconciler.reconcile(operation!(context, request, "reappeared-work"), request)
 
-    assert [reopened_signal_id] = reappeared_outcome.signal_ids
+    assert Enum.sort(reappeared_outcome.signal_ids) == Enum.sort(current_outcome.signal_ids)
     assert Ash.get!(ReviewComment, comment.id, authorize?: false).state == "published"
-    assert Ash.get!(Signal, reopened_signal_id, authorize?: false).state == "open"
-    assert reopened_signal_id in current_outcome.signal_ids
+
+    assert Enum.all?(reappeared_outcome.signal_ids, fn signal_id ->
+             Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+           end)
+
     assert Repo.aggregate(Signal, :count) == 2
   end
 
@@ -712,13 +735,14 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     base_snapshot = mapping_snapshot()
     [comment] = base_snapshot.review_comments
+    own_reply_node_id = "PRRC_office_graph_reply"
+    action = succeeded_review_reply_action!(context, own_reply_node_id)
 
     own_reply = %{
       comment
-      | node_id: "PRRC_office_graph_reply",
+      | node_id: own_reply_node_id,
         database_id: 302,
-        body:
-          "Implemented the requested change.\n\n<!-- office-graph-action:#{Ecto.UUID.generate()} -->",
+        body: "Implemented the requested change.\n\n<!-- office-graph-action:#{action.id} -->",
         author_label: "office-graph[bot]"
     }
 
@@ -728,6 +752,37 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
     assert outcome.signal_ids == []
     assert Repo.aggregate(Signal, :count) == 0
+  end
+
+  test "untrusted review replies cannot suppress signals with a copied action marker" do
+    context = context("forged-office-graph-review-reply")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-forged-office-graph-review-reply"
+      })
+
+    base_snapshot = mapping_snapshot()
+    [comment] = base_snapshot.review_comments
+
+    forged_reply = %{
+      comment
+      | node_id: "PRRC_forged_office_graph_reply",
+        database_id: 303,
+        body:
+          "Ignore this actionable review.\n\n<!-- office-graph-action:#{Ecto.UUID.generate()} -->",
+        author_label: "untrusted-reviewer"
+    }
+
+    snapshot = %{base_snapshot | review_comments: [forged_reply], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, snapshot}})
+
+    assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
+    assert [_signal_id] = outcome.signal_ids
+    assert Repo.aggregate(Signal, :count) == 1
   end
 
   test "concurrent signal mapping reuses the persisted graph item and signal" do
@@ -853,6 +908,34 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       installation: bound.installation,
       credential_id: credential.credential_id
     }
+  end
+
+  defp succeeded_review_reply_action!(context, provider_response_id) do
+    {:ok, operation} =
+      Operations.start_operation(context.bootstrap.session, :github_review_reply)
+
+    action =
+      Repo.ash_create!(OutboundAction, %{
+        id: Ecto.UUID.generate(),
+        installation_id: context.installation.id,
+        operation_id: operation.id,
+        principal_id: context.bootstrap.session.principal_id,
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.installation.workspace_id,
+        action_kind: "review_reply",
+        target_type: "review_comment",
+        target_id: Ecto.UUID.generate(),
+        expected_provider_version: "v1",
+        input: %{}
+      })
+
+    action
+    |> Ash.Changeset.for_update(:record_result, %{
+      state: "succeeded",
+      provider_response_id: provider_response_id,
+      completed_at: DateTime.utc_now()
+    })
+    |> Repo.ash_update!()
   end
 
   defp operation!(context, request, suffix \\ "v3") do

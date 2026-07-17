@@ -121,6 +121,13 @@ extension records.
 - **THEN** Office Graph MUST apply the changed provider state while exact
   sequence-and-version replays remain stale
 
+#### Scenario: Provider sequence uses live microsecond precision
+
+- **WHEN** GitHub timestamps produce a provider sequence larger than a signed
+  32-bit integer
+- **THEN** reconciliation MUST persist that sequence on provider state, sync
+  outcomes, operations, and durable events without truncation or overflow
+
 #### Scenario: The same provider object is visible in multiple workspaces
 
 - **WHEN** two installations in one organization reconcile the same GitHub object
@@ -208,17 +215,21 @@ extension records.
   snapshot no longer contains a previously mapped review comment or check
 - **THEN** Office Graph MUST close the existing mapped signal without deleting
   its provenance, MUST tombstone an absent review comment with a changed local
-  provider version so outbound replies fail closed, MUST NOT create an open
-  signal for first-seen non-actionable state, and MUST reopen the same signal
-  identity if the provider item later becomes actionable again
+  provider version so outbound replies fail closed, MUST record a changed local
+  absence version for an absent check, MUST NOT create an open signal for
+  first-seen non-actionable state, and MUST reopen the same signal identity if
+  the provider item later becomes actionable again with an otherwise unchanged
+  provider version
 
 #### Scenario: Office Graph-authored review reply is reconciled
 
-- **WHEN** a later provider snapshot includes a published review reply carrying
-  Office Graph's durable outbound-action marker
+- **WHEN** a later provider snapshot includes a published review reply whose
+  durable outbound-action marker, succeeded action, scope, and recorded provider
+  response identity all match that exact provider comment
 - **THEN** reconciliation MUST retain the provider comment and provenance but
   MUST treat it as non-actionable and MUST NOT create follow-up signal work for
   Office Graph's own response
+- **AND** a marker without that durable identity match MUST remain actionable
 
 #### Scenario: Deleted review-comment delivery has no surviving comment node
 
@@ -372,7 +383,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **WHEN** an inbound reconciliation job reaches a classified non-retryable
   failure
 - **THEN** its durable job history MUST retain the same safe failure code even
-  when the receipt event does not carry that terminal state
+  when the receipt event cannot carry that terminal state, and an existing
+  in-scope receipt MUST transition to failed even if its delivery notification
+  was already dispatched
 
 #### Scenario: Outbound action terminates
 
@@ -476,3 +489,12 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST persist a terminalization phase, durably record the
   terminal provider-delivery outcome and failed receipt after storage recovers,
   expose the classified failure through health, and MUST NOT cancel first
+
+#### Scenario: Webhook fails terminally before reconciliation operation start
+
+- **WHEN** an archived delivery, credential binding, installation, or payload is
+  terminally invalid before Office Graph can start its reconciliation operation
+- **THEN** the worker MUST stage the exact pre-operation phase, installation,
+  delivery, failure, and cancellation identities before persistence, MUST retry
+  only terminal persistence after a storage outage, and MUST durably record the
+  provider-delivery outcome and failed receipt before cancellation
