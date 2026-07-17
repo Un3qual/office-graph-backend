@@ -37,7 +37,13 @@ config :office_graph,
 
 config :office_graph,
        :github_adapter,
-       OfficeGraph.GitHubIntegration.Adapter.Unavailable
+       OfficeGraph.GitHubIntegration.Adapter.GitHub
+
+config :office_graph,
+       :github_http_client,
+       OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient.Httpc
+
+config :office_graph, :github_api_url, "https://api.github.com"
 
 config :office_graph,
        :github_record_loader,

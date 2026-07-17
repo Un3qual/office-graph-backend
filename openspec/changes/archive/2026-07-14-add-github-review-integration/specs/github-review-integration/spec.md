@@ -13,6 +13,14 @@ references through a narrow authorized command.
 - **THEN** Office Graph MUST create or idempotently return the installation
   binding without returning secret values
 
+#### Scenario: Bound installation performs provider work
+
+- **WHEN** a non-test runtime has a configured GitHub App ID and an active bound
+  installation with a resolvable private-key credential
+- **THEN** Office Graph MUST authenticate as that App installation and execute
+  authoritative reads, review replies, and check updates through the live
+  adapter instead of returning an adapter-unavailable configuration failure
+
 #### Scenario: Workspace-scoped owner requests organization binding
 
 - **WHEN** an owner whose installation-binding capability is assigned only to
