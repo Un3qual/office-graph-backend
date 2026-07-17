@@ -643,6 +643,15 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     )
 
     terminalization_job = Repo.get!(Oban.Job, job.id)
+
+    RecordLoaderTestAdapter.configure!(%{
+      SyncOutcome => {:raise, RuntimeError.exception("transient terminalization storage failure")}
+    })
+
+    assert {:snooze, 5} = WebhookWorker.perform(terminalization_job)
+
+    RecordLoaderTestAdapter.put(%{})
+
     assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(terminalization_job)
 
     outcome = Ash.get!(SyncOutcome, outcome.id, authorize?: false)

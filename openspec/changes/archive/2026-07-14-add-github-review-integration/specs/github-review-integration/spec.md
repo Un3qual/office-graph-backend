@@ -106,6 +106,13 @@ extension records.
 - **THEN** Office Graph MUST skip or reconcile it and MUST NOT overwrite newer
   provider-neutral state, signal content, or external-reference URLs
 
+#### Scenario: Provider version changes while its sequence ties
+
+- **WHEN** an authoritative provider read returns the same provider sequence as
+  the stored resource but a different opaque provider version
+- **THEN** Office Graph MUST apply the changed provider state while exact
+  sequence-and-version replays remain stale
+
 #### Scenario: The same provider object is visible in multiple workspaces
 
 - **WHEN** two installations in one organization reconcile the same GitHub object
@@ -191,9 +198,10 @@ extension records.
   previously failing check non-failing, or an authoritative current pull-request
   snapshot no longer contains a previously mapped review comment or check
 - **THEN** Office Graph MUST close the existing mapped signal without deleting
-  its provenance, MUST NOT create an open signal for first-seen non-actionable
-  state, and MUST reopen the same signal identity if the provider item later
-  becomes actionable again
+  its provenance, MUST tombstone an absent review comment with a changed local
+  provider version so outbound replies fail closed, MUST NOT create an open
+  signal for first-seen non-actionable state, and MUST reopen the same signal
+  identity if the provider item later becomes actionable again
 
 #### Scenario: Deleted review-comment delivery has no surviving comment node
 
@@ -301,7 +309,7 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 #### Scenario: GitHub rate limit is returned
 
 - **WHEN** an adapter call returns a primary or secondary rate limit with a
-  valid reset or retry delay
+  valid reset or retry delay, including a GraphQL response reset header
 - **THEN** the job MUST retry no earlier than the bounded reset policy and health
   MUST expose a safe rate-limit state
 
@@ -379,6 +387,14 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the transaction MUST roll back, the reconciliation result MUST retain
   the retryable integration-storage-unavailable classification, and the worker
   MUST NOT convert the valid delivery into an invalid-worker terminal outcome
+
+#### Scenario: Reconciliation terminalization persistence is temporarily unavailable
+
+- **WHEN** an exhausted reconciliation retry cannot persist its terminal sync
+  outcome because integration storage raises or returns a transient failure
+- **THEN** the worker MUST retain its staged terminalization phase, retry only
+  terminal persistence, and MUST NOT crash or cancel while the sync outcome
+  remains retryable
 
 #### Scenario: Outbound authorization decision persistence is temporarily unavailable
 

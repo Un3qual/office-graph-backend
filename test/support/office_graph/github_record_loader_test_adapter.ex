@@ -35,6 +35,7 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
     ensure_table!()
 
     case :ets.lookup(@table, resource) do
+      [{^resource, {:raise, exception}}] -> raise exception
       [{^resource, response}] -> response
       [] -> Ash.get(resource, id, opts)
     end
@@ -45,6 +46,7 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
     ensure_table!()
 
     case :ets.lookup(@table, resource) do
+      [{^resource, {:raise, exception}}] -> raise exception
       [{^resource, response}] -> response
       [] -> Ash.read_one(query, opts)
     end
@@ -55,6 +57,7 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
     ensure_table!()
 
     case :ets.lookup(@table, resource) do
+      [{^resource, {:raise, exception}}] -> raise exception
       [{^resource, response}] -> response
       [] -> Ash.read(query, opts)
     end
@@ -65,6 +68,7 @@ defmodule OfficeGraph.GitHubIntegration.RecordLoaderTestAdapter do
     ensure_table!()
 
     case :ets.lookup(@table, resource) do
+      [{^resource, {:raise, exception}}] -> raise exception
       [{^resource, response}] -> response
       [] -> Ash.aggregate(query, aggregates, opts)
     end

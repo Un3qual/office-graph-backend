@@ -172,6 +172,11 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert length(current_outcome.signal_ids) == 2
 
+    comment =
+      ReviewComment
+      |> Ash.Query.filter(state == "published")
+      |> Ash.read_one!(authorize?: false)
+
     without_prior_work = %{
       current
       | provider_version: "v4",
@@ -188,10 +193,26 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert missing_outcome.signal_ids == []
 
+    tombstoned_comment = Ash.get!(ReviewComment, comment.id, authorize?: false)
+    assert tombstoned_comment.state == "deleted"
+    assert tombstoned_comment.provider_version != comment.provider_version
+
     assert Enum.all?(current_outcome.signal_ids, fn signal_id ->
              Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
            end)
 
+    assert Repo.aggregate(Signal, :count) == 2
+
+    reappeared = %{without_prior_work | review_comments: current.review_comments}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, reappeared}})
+
+    assert {:ok, reappeared_outcome} =
+             Reconciler.reconcile(operation!(context, request, "reappeared-work"), request)
+
+    assert [reopened_signal_id] = reappeared_outcome.signal_ids
+    assert Ash.get!(ReviewComment, comment.id, authorize?: false).state == "published"
+    assert Ash.get!(Signal, reopened_signal_id, authorize?: false).state == "open"
+    assert reopened_signal_id in current_outcome.signal_ids
     assert Repo.aggregate(Signal, :count) == 2
   end
 

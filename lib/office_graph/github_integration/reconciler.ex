@@ -69,9 +69,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     if failure_code in @retryable_failure_codes do
       with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
            :ok <- validate_retry_request_authority(operation, request) do
-        Repo.transaction(fn ->
-          lock!("github:sync-outcome:#{operation.id}")
-          terminalize_retry!(operation, request, failure_code)
+        StorageResult.run(fn ->
+          Repo.transaction(fn ->
+            lock!("github:sync-outcome:#{operation.id}")
+            terminalize_retry!(operation, request, failure_code)
+          end)
         end)
       end
     else
@@ -535,7 +537,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
             source,
             pull_request.record,
             comments,
-            checks
+            checks,
+            snapshot
           )
         end
 
@@ -910,46 +913,79 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       updated_at: snapshot.provider_updated_at
     }
 
-  defp missing_product_references!(operation, source, pull_request, comments, checks) do
+  defp missing_product_references!(
+         operation,
+         source,
+         pull_request,
+         comments,
+         checks,
+         snapshot
+       ) do
+    missing_comments =
+      missing_provider_resources!(
+        operation,
+        source,
+        ReviewComment,
+        pull_request.id,
+        Enum.map(comments, & &1.record.id)
+      )
+
+    missing_checks =
+      missing_provider_resources!(
+        operation,
+        source,
+        CheckRun,
+        pull_request.id,
+        Enum.map(checks, & &1.record.id)
+      )
+
+    tombstoned_comments =
+      Enum.map(missing_comments, fn comment ->
+        SoftwareProving.upsert_provider_resource(
+          operation,
+          source,
+          ReviewComment,
+          comment,
+          %{
+            state: "deleted",
+            provider_version:
+              "office-graph:github:review-comment-absent:#{snapshot.provider_version}",
+            provider_sequence: max(snapshot.provider_sequence, comment.provider_sequence || -1),
+            provider_updated_at: snapshot.provider_updated_at || comment.provider_updated_at
+          }
+        )
+        |> unwrap!()
+        |> Map.fetch!(:record)
+      end)
+
     missing_provider_references!(
       operation,
       source,
-      ReviewComment,
       "review_comment",
-      pull_request.id,
-      Enum.map(comments, & &1.record.id)
+      Enum.map(tombstoned_comments, & &1.id)
     ) ++
       missing_provider_references!(
         operation,
         source,
-        CheckRun,
         "check_run",
-        pull_request.id,
-        Enum.map(checks, & &1.record.id)
+        Enum.map(missing_checks, & &1.id)
       )
   end
 
-  defp missing_provider_references!(
-         operation,
-         source,
-         resource,
-         object_type,
-         pull_request_id,
-         current_ids
-       ) do
+  defp missing_provider_resources!(operation, source, resource, pull_request_id, current_ids) do
     current_ids = MapSet.new(current_ids)
 
-    missing_ids =
-      resource
-      |> Ash.Query.filter(
-        organization_id == ^operation.organization_id and source_id == ^source.id and
-          pull_request_id == ^pull_request_id and lifecycle_state == "active"
-      )
-      |> scope_query(operation.workspace_id)
-      |> Ash.read!(authorize?: false)
-      |> Enum.reject(&MapSet.member?(current_ids, &1.id))
-      |> Enum.map(& &1.id)
+    resource
+    |> Ash.Query.filter(
+      organization_id == ^operation.organization_id and source_id == ^source.id and
+        pull_request_id == ^pull_request_id and lifecycle_state == "active"
+    )
+    |> scope_query(operation.workspace_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.reject(&MapSet.member?(current_ids, &1.id))
+  end
 
+  defp missing_provider_references!(operation, source, object_type, missing_ids) do
     case missing_ids do
       [] ->
         []
@@ -1445,13 +1481,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp persist_pre_operation(operation, attrs) do
-    Repo.transaction(fn ->
-      lock!("github:sync-outcome:#{operation.id}")
-      outcome = persist_outcome!(operation.id, attrs)
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        lock!("github:sync-outcome:#{operation.id}")
+        outcome = persist_outcome!(operation.id, attrs)
 
-      if pre_operation_outcome?(outcome, attrs),
-        do: outcome,
-        else: Repo.rollback(:forbidden)
+        if pre_operation_outcome?(outcome, attrs),
+          do: outcome,
+          else: Repo.rollback(:forbidden)
+      end)
     end)
   end
 

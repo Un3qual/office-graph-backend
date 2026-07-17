@@ -59,7 +59,7 @@ defmodule OfficeGraph.SoftwareProving do
   end
 
   defp do_upsert_provider_resource(operation, _source, resource, existing, attrs) do
-    if attrs.provider_sequence > (existing.provider_sequence || -1) do
+    if newer_provider_state?(existing, attrs) do
       record =
         existing
         |> Ash.Changeset.for_update(
@@ -80,6 +80,14 @@ defmodule OfficeGraph.SoftwareProving do
     else
       {:ok, %{record: existing, status: :stale}}
     end
+  end
+
+  defp newer_provider_state?(existing, attrs) do
+    existing_sequence = existing.provider_sequence || -1
+
+    attrs.provider_sequence > existing_sequence or
+      (attrs.provider_sequence == existing_sequence and
+         Map.get(attrs, :provider_version) != existing.provider_version)
   end
 
   defp validate_source(%{id: id, kind: "provider"}) when is_binary(id), do: :ok

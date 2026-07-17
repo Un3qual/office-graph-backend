@@ -115,6 +115,33 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
              })
   end
 
+  test "GraphQL rate limits honor the provider reset header", context do
+    reset_at = DateTime.add(DateTime.utc_now(), 15, :minute)
+    reset_epoch = DateTime.to_unix(reset_at)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(
+        %{
+          "data" => %{"node" => nil},
+          "errors" => [%{"type" => "RATE_LIMITED", "message" => "API rate limit exceeded"}]
+        },
+        200,
+        %{"x-ratelimit-reset" => Integer.to_string(reset_epoch)}
+      )
+    ])
+
+    assert {:error, {:rate_limited, provider_reset_at}} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_graphql_rate_limited",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert DateTime.to_unix(provider_reset_at) == reset_epoch
+  end
+
   test "secondary rate-limit responses remain retryable when primary quota remains", context do
     HTTPClient.put([
       installation_token_response(),
@@ -583,8 +610,8 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     }
   end
 
-  defp json_response(body, status \\ 200) do
-    {:ok, %{status: status, headers: %{}, body: Jason.encode!(body)}}
+  defp json_response(body, status \\ 200, headers \\ %{}) do
+    {:ok, %{status: status, headers: headers, body: Jason.encode!(body)}}
   end
 
   defp error_response(status, body, headers \\ %{}) do

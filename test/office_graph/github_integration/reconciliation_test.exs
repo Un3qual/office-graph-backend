@@ -242,6 +242,77 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              |> Ash.read_one!(authorize?: false)
   end
 
+  test "a changed provider version advances a check when its sequence ties" do
+    context = reconciliation_context("equal-sequence-updated-check")
+    pull_request_node_id = "PR_equal_sequence_updated_check"
+    repository_node_id = "R_equal_sequence_updated_check"
+    check_node_id = "CR_equal_sequence_updated_check"
+
+    request =
+      request(
+        context,
+        "check_run",
+        check_node_id,
+        "delivery-equal-sequence-updated-check"
+      )
+
+    observed_at = ~U[2026-07-14 12:01:00Z]
+
+    in_progress = %Adapter.CheckRunSnapshot{
+      node_id: check_node_id,
+      database_id: 708,
+      provider_version: "check-in-progress",
+      provider_sequence: 10,
+      provider_updated_at: observed_at,
+      name: "Equal-sequence check",
+      status: "in_progress",
+      started_at: observed_at
+    }
+
+    initial_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:check_runs, [in_progress])
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, initial_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-in-progress"),
+               request
+             )
+
+    completed_snapshot = %{
+      initial_snapshot
+      | check_runs: [
+          %{
+            in_progress
+            | status: "completed",
+              conclusion: "failure",
+              provider_version: "check-completed-failure",
+              completed_at: observed_at
+          }
+        ]
+    }
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, completed_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-completed"),
+               request
+             )
+
+    assert %CheckRun{
+             status: "completed",
+             conclusion: "failure",
+             provider_version: "check-completed-failure",
+             provider_sequence: 10
+           } =
+             CheckRun
+             |> Ash.Query.filter(name == "Equal-sequence check")
+             |> Ash.read_one!(authorize?: false)
+  end
+
   test "one provider check run keeps independent projections for every associated pull request" do
     context = reconciliation_context("multi-pr-check-projection")
     check_node_id = "CR_multi_pr_projection"

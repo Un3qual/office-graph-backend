@@ -962,7 +962,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   end
 
   defp graphql(token, query, variables) do
-    with {:ok, response, _headers} <-
+    with {:ok, response, response_headers} <-
            request_json(
              :post,
              graphql_url(),
@@ -971,7 +971,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
            ) do
       case response do
         %{"data" => _data, "errors" => errors} when is_list(errors) and errors != [] ->
-          classify_graphql_errors(errors)
+          classify_graphql_errors(errors, response_headers)
 
         %{"data" => data} when is_map(data) ->
           {:ok, data}
@@ -982,10 +982,10 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     end
   end
 
-  defp classify_graphql_errors(errors) do
+  defp classify_graphql_errors(errors, response_headers) do
     cond do
       Enum.any?(errors, &(get_in(&1, ["type"]) == "RATE_LIMITED")) ->
-        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 60, :second)}}
+        {:error, {:rate_limited, rate_limit_reset(response_headers)}}
 
       Enum.any?(errors, &(get_in(&1, ["type"]) == "FORBIDDEN")) ->
         {:error, :permission_denied}
