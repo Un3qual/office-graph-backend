@@ -153,6 +153,48 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 1
   end
 
+  test "signals close when provider work leaves the authoritative pull request snapshot" do
+    context = context("missing-provider-work")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-missing-provider-work"
+      })
+
+    current = mapping_snapshot()
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, current}})
+
+    assert {:ok, current_outcome} =
+             Reconciler.reconcile(operation!(context, request, "current-work"), request)
+
+    assert length(current_outcome.signal_ids) == 2
+
+    without_prior_work = %{
+      current
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_comments: [],
+        check_runs: []
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, without_prior_work}})
+
+    assert {:ok, missing_outcome} =
+             Reconciler.reconcile(operation!(context, request, "missing-work"), request)
+
+    assert missing_outcome.signal_ids == []
+
+    assert Enum.all?(current_outcome.signal_ids, fn signal_id ->
+             Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+           end)
+
+    assert Repo.aggregate(Signal, :count) == 2
+  end
+
   test "non-published review comments do not create or retain open signals" do
     context = context("comment-signal-lifecycle")
 

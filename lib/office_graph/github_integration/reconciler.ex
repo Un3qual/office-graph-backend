@@ -22,6 +22,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     SyncOutcome
   }
 
+  alias OfficeGraph.ExternalRefs.ExternalReference
+
   alias OfficeGraph.SoftwareProving.{
     CheckRun,
     PullRequest,
@@ -330,6 +332,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     nonblank_string?(check.node_id) and optional_positive_integer?(check.database_id) and
       optional_positive_integer?(check.check_suite_database_id) and nonblank_string?(check.name) and
       check.status in @check_statuses and valid_check_state?(check) and
+      valid_optional_provider_metadata?(check) and
       optional_string?(check.details_url) and optional_datetime?(check.started_at) and
       optional_datetime?(check.completed_at)
   end
@@ -344,6 +347,22 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
        do: true
 
   defp valid_check_state?(_check), do: false
+
+  defp valid_optional_provider_metadata?(%{
+         provider_version: nil,
+         provider_sequence: nil,
+         provider_updated_at: nil
+       }),
+       do: true
+
+  defp valid_optional_provider_metadata?(%{
+         provider_version: version,
+         provider_sequence: sequence,
+         provider_updated_at: updated_at
+       }),
+       do:
+         nonblank_string?(version) and is_integer(sequence) and sequence >= 0 and
+           optional_datetime?(updated_at)
 
   defp valid_collection?(items, validator) when is_list(items), do: Enum.all?(items, validator)
   defp valid_collection?(_items, _validator), do: false
@@ -479,7 +498,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     repository = reconcile_repository!(operation, source, snapshot)
     pull_request = reconcile_pull_request!(operation, source, repository, snapshot)
 
-    if request.object_type == "pull_request" and pull_request.status == :stale do
+    if older_pull_request_snapshot?(request, pull_request.record, snapshot) do
       create_outcome!(
         operation,
         request,
@@ -497,8 +516,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       checks =
         reconcile_checks!(operation, source, repository.record, pull_request.record, snapshot)
 
+      missing_references =
+        missing_product_references!(
+          operation,
+          source,
+          pull_request.record,
+          comments,
+          checks
+        )
+
       signal_ids =
-        map_product_work!(operation, comments, checks, thread_records)
+        map_product_work!(operation, comments, checks, thread_records, missing_references)
 
       record_invalidation!(operation, pull_request.record, snapshot)
 
@@ -513,6 +541,11 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       )
     end
   end
+
+  defp older_pull_request_snapshot?(%{object_type: "pull_request"}, pull_request, snapshot),
+    do: snapshot.provider_sequence < pull_request.provider_sequence
+
+  defp older_pull_request_snapshot?(_request, _pull_request, _snapshot), do: false
 
   defp reconcile_repository!(operation, source, snapshot) do
     lock!(
@@ -795,6 +828,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_checks!(operation, source, repository, pull_request, snapshot) do
     Enum.map(snapshot.check_runs, fn check ->
+      provider = check_provider_metadata(check, snapshot)
+
       existing =
         base_by_extension(
           operation,
@@ -814,9 +849,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           details_url: check.details_url,
           started_at: check.started_at,
           completed_at: check.completed_at,
-          provider_version: snapshot.provider_version,
-          provider_sequence: snapshot.provider_sequence,
-          provider_updated_at: snapshot.provider_updated_at
+          provider_version: provider.version,
+          provider_sequence: provider.sequence,
+          provider_updated_at: provider.updated_at
         })
         |> unwrap!()
 
@@ -847,13 +882,105 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end)
   end
 
-  defp map_product_work!(operation, comments, checks, thread_records) do
-    if is_nil(operation.workspace_id),
-      do: [],
-      else: map_workspace_product_work!(operation, comments, checks, thread_records)
+  defp check_provider_metadata(
+         %{
+           provider_version: version,
+           provider_sequence: sequence,
+           provider_updated_at: updated_at
+         },
+         _snapshot
+       )
+       when is_binary(version) and is_integer(sequence),
+       do: %{version: version, sequence: sequence, updated_at: updated_at}
+
+  defp check_provider_metadata(_check, snapshot),
+    do: %{
+      version: snapshot.provider_version,
+      sequence: snapshot.provider_sequence,
+      updated_at: snapshot.provider_updated_at
+    }
+
+  defp missing_product_references!(operation, source, pull_request, comments, checks) do
+    missing_provider_references!(
+      operation,
+      source,
+      ReviewComment,
+      "review_comment",
+      pull_request.id,
+      Enum.map(comments, & &1.record.id)
+    ) ++
+      missing_provider_references!(
+        operation,
+        source,
+        CheckRun,
+        "check_run",
+        pull_request.id,
+        Enum.map(checks, & &1.record.id)
+      )
   end
 
-  defp map_workspace_product_work!(operation, comments, checks, thread_records) do
+  defp missing_provider_references!(
+         operation,
+         source,
+         resource,
+         object_type,
+         pull_request_id,
+         current_ids
+       ) do
+    current_ids = MapSet.new(current_ids)
+
+    missing_ids =
+      resource
+      |> Ash.Query.filter(
+        organization_id == ^operation.organization_id and source_id == ^source.id and
+          pull_request_id == ^pull_request_id and lifecycle_state == "active"
+      )
+      |> scope_query(operation.workspace_id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.reject(&MapSet.member?(current_ids, &1.id))
+      |> Enum.map(& &1.id)
+
+    case missing_ids do
+      [] ->
+        []
+
+      missing_ids ->
+        ExternalReference
+        |> Ash.Query.filter(
+          organization_id == ^operation.organization_id and source_id == ^source.id and
+            provider == "github" and object_type == ^object_type and
+            resource_type == ^object_type and resource_id in ^missing_ids
+        )
+        |> scope_query(operation.workspace_id)
+        |> Ash.read!(authorize?: false)
+    end
+  end
+
+  defp scope_query(query, nil), do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp scope_query(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
+  defp map_product_work!(operation, comments, checks, thread_records, missing_references) do
+    if is_nil(operation.workspace_id),
+      do: [],
+      else:
+        map_workspace_product_work!(
+          operation,
+          comments,
+          checks,
+          thread_records,
+          missing_references
+        )
+  end
+
+  defp map_workspace_product_work!(
+         operation,
+         comments,
+         checks,
+         thread_records,
+         missing_references
+       ) do
     thread_states =
       Map.new(thread_records, fn {_node_id, record} -> {record.id, record.state} end)
 
@@ -903,6 +1030,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           if actionable?, do: [result.signal.id], else: []
         end
       end)
+
+    Enum.each(missing_references, fn reference ->
+      operation
+      |> WorkGraph.sync_integration_signal(reference, %{}, false)
+      |> unwrap!()
+    end)
 
     comment_signals ++ check_signals
   end

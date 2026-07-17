@@ -176,6 +176,72 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              |> Ash.read_one!(authorize?: false)
   end
 
+  test "a requested check uses its own timestamps when the pull request version is unchanged" do
+    context = reconciliation_context("current-parent-updated-check")
+    pull_request_node_id = "PR_current_parent_updated_check"
+    repository_node_id = "R_current_parent_updated_check"
+    check_node_id = "CR_current_parent_updated_check"
+
+    request =
+      request(
+        context,
+        "check_run",
+        check_node_id,
+        "delivery-current-parent-updated-check"
+      )
+
+    in_progress = %Adapter.CheckRunSnapshot{
+      node_id: check_node_id,
+      database_id: 704,
+      provider_version: "check-v1",
+      provider_sequence: 10,
+      provider_updated_at: ~U[2026-07-14 12:01:00Z],
+      name: "Current-parent check",
+      status: "in_progress",
+      started_at: ~U[2026-07-14 12:01:00Z]
+    }
+
+    current_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:check_runs, [in_progress])
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, current_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-in-progress"),
+               request
+             )
+
+    completed_snapshot = %{
+      current_snapshot
+      | check_runs: [
+          %{
+            in_progress
+            | status: "completed",
+              conclusion: "failure",
+              provider_version: "check-v2",
+              provider_sequence: 11,
+              provider_updated_at: ~U[2026-07-14 12:02:00Z],
+              completed_at: ~U[2026-07-14 12:02:00Z]
+          }
+        ]
+    }
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, completed_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-completed"),
+               request
+             )
+
+    assert %CheckRun{status: "completed", conclusion: "failure"} =
+             CheckRun
+             |> Ash.Query.filter(name == "Current-parent check")
+             |> Ash.read_one!(authorize?: false)
+  end
+
   test "stale nested resources do not refresh references or product work" do
     context = reconciliation_context("nested-ordering")
     pull_request_node_id = "PR_nested_ordering"

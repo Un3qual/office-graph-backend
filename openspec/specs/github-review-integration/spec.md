@@ -134,6 +134,13 @@ extension records.
 - **THEN** reconciliation MUST evaluate and persist the requested child instead
   of skipping the entire snapshot because the pull request is stale
 
+#### Scenario: Check freshness advances independently of its pull request
+
+- **WHEN** an authoritative check run advances while the containing pull
+  request's provider version remains unchanged
+- **THEN** reconciliation MUST use the check run's timestamps and state to
+  advance that check without overwriting it from an older child snapshot
+
 #### Scenario: Requested-object collection is malformed
 
 - **WHEN** an adapter returns a missing or malformed review-comment or check-run
@@ -180,11 +187,19 @@ extension records.
 
 - **WHEN** a newer reconciliation marks a review comment pending, minimized, or
   deleted, marks its containing review thread resolved or outdated, or marks a
-  previously failing check non-failing
+  previously failing check non-failing, or an authoritative current pull-request
+  snapshot no longer contains a previously mapped review comment or check
 - **THEN** Office Graph MUST close the existing mapped signal without deleting
   its provenance, MUST NOT create an open signal for first-seen non-actionable
   state, and MUST reopen the same signal identity if the provider item later
   becomes actionable again
+
+#### Scenario: Deleted review-comment delivery has no surviving comment node
+
+- **WHEN** GitHub sends a deleted review-comment delivery after removing the
+  comment from authoritative thread results
+- **THEN** the durable handler MUST reconcile through the surviving pull request
+  identity and MUST close any mapped signal for the now-absent comment
 
 #### Scenario: Actionable provider review work changes
 
@@ -310,13 +325,15 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 
 #### Scenario: GitHub rate limit is returned
 
-- **WHEN** an adapter call returns a valid rate-limit reset
+- **WHEN** an adapter call returns a primary or secondary rate limit with a
+  valid reset or retry delay
 - **THEN** the job MUST retry no earlier than the bounded reset policy and health
   MUST expose a safe rate-limit state
 
 #### Scenario: Installation is revoked
 
-- **WHEN** GitHub reports that an installation is revoked
+- **WHEN** GitHub reports that an installation is revoked, including a not-found
+  or gone response from installation-token exchange
 - **THEN** Office Graph MUST atomically persist the installation's revoked
   lifecycle only when its terminal revoked outcome wins any concurrent outcome
   race, new provider work MUST fail closed, and historical provenance MUST remain
@@ -342,6 +359,13 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** Office Graph MUST retain an authorization failure classification and
   MUST stop retrying the action, and health MUST direct operators to reauthorize
   the installation
+
+#### Scenario: GitHub denies an authoritative read
+
+- **WHEN** GitHub GraphQL returns a forbidden error because an installation no
+  longer has permission to read required pull-request or check state
+- **THEN** Office Graph MUST retain the permission-denied classification and
+  health MUST direct operators to reauthorize the installation
 
 #### Scenario: Webhook reconciliation terminates
 

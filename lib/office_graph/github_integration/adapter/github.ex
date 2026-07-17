@@ -507,12 +507,17 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       conclusion =
         if status == "completed", do: downcase_string(check["conclusion"]), else: nil
 
+      provider = check_provider_metadata(node_id, status, conclusion, started_at, completed_at)
+
       {:ok,
        %Adapter.CheckRunSnapshot{
          node_id: node_id,
          database_id: optional_positive_integer(check["databaseId"]),
          check_suite_database_id:
            optional_positive_integer(get_in(check, ["checkSuite", "databaseId"])),
+         provider_version: provider.version,
+         provider_sequence: provider.sequence,
+         provider_updated_at: provider.updated_at,
          name: name,
          status: status,
          conclusion: conclusion,
@@ -524,6 +529,34 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   end
 
   defp normalize_check(_check), do: {:error, :invalid_provider_response}
+
+  defp check_provider_metadata(node_id, status, conclusion, started_at, completed_at) do
+    case completed_at || started_at do
+      %DateTime{} = observed_at ->
+        %{
+          version:
+            Enum.join(
+              [
+                "github-check",
+                node_id,
+                status,
+                conclusion || "none",
+                datetime_version(started_at),
+                datetime_version(completed_at)
+              ],
+              ":"
+            ),
+          sequence: DateTime.to_unix(observed_at, :microsecond),
+          updated_at: observed_at
+        }
+
+      nil ->
+        %{version: nil, sequence: nil, updated_at: nil}
+    end
+  end
+
+  defp datetime_version(nil), do: "none"
+  defp datetime_version(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   defp complete_snapshot(token, %{"id" => pull_request_id} = pull_request) do
     with {:ok, thread_connection} <-
@@ -843,7 +876,8 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
              :post,
              api_url() <> "/app/installations/#{installation_id}/access_tokens",
              app_headers(jwt),
-             %{}
+             %{},
+             :installation_token
            ),
          {:ok, token} <- required_nonblank(response, "token"),
          {:ok, expires_at} <- datetime(response["expires_at"]) do
@@ -904,16 +938,23 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   end
 
   defp classify_graphql_errors(errors) do
-    if Enum.any?(errors, &(get_in(&1, ["type"]) == "RATE_LIMITED")),
-      do: {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 60, :second)}},
-      else: {:error, :invalid_provider_response}
+    cond do
+      Enum.any?(errors, &(get_in(&1, ["type"]) == "RATE_LIMITED")) ->
+        {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 60, :second)}}
+
+      Enum.any?(errors, &(get_in(&1, ["type"]) == "FORBIDDEN")) ->
+        {:error, :permission_denied}
+
+      true ->
+        {:error, :invalid_provider_response}
+    end
   end
 
   defp rest(token, method, path, body) do
     request_json(method, api_url() <> path, installation_headers(token), body)
   end
 
-  defp request_json(method, url, headers, body) do
+  defp request_json(method, url, headers, body, failure_context \\ :provider) do
     encoded_body = if is_nil(body), do: nil, else: Jason.encode!(body)
 
     case http_client().request(method, url, headers, encoded_body) do
@@ -924,8 +965,11 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
           {:error, _error} -> {:error, :invalid_provider_response}
         end
 
+      {:ok, %{status: status, headers: response_headers, body: response_body}} ->
+        {:error, classify_http_failure(status, response_headers, response_body, failure_context)}
+
       {:ok, %{status: status, headers: response_headers}} ->
-        {:error, classify_http_failure(status, response_headers)}
+        {:error, classify_http_failure(status, response_headers, nil, failure_context)}
 
       {:error, :network_error} ->
         {:error, :network_error}
@@ -938,29 +982,71 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     end
   end
 
-  defp classify_http_failure(status, headers) when status in [403, 429] do
-    if status == 429 or header(headers, "x-ratelimit-remaining") == "0" do
-      reset_at =
-        case Integer.parse(header(headers, "x-ratelimit-reset") || "") do
-          {seconds, ""} ->
-            case DateTime.from_unix(seconds) do
-              {:ok, datetime} -> datetime
-              {:error, _reason} -> DateTime.add(DateTime.utc_now(), 60, :second)
-            end
+  defp classify_http_failure(status, _headers, _body, :installation_token)
+       when status in [404, 410],
+       do: :installation_revoked
 
-          _invalid ->
-            DateTime.add(DateTime.utc_now(), 60, :second)
-        end
+  defp classify_http_failure(status, headers, body, _context) when status in [403, 429] do
+    if status == 429 or header(headers, "x-ratelimit-remaining") == "0" or
+         secondary_rate_limit?(headers, body),
+       do: {:rate_limited, rate_limit_reset(headers)},
+       else: :permission_denied
+  end
 
-      {:rate_limited, reset_at}
-    else
-      :permission_denied
+  defp classify_http_failure(401, _headers, _body, _context), do: :invalid_credential
+
+  defp classify_http_failure(status, _headers, _body, _context) when status in 500..599,
+    do: :provider_unavailable
+
+  defp classify_http_failure(_status, _headers, _body, _context),
+    do: :invalid_provider_response
+
+  defp secondary_rate_limit?(headers, body) do
+    not is_nil(header(headers, "retry-after")) or secondary_rate_limit_body?(body)
+  end
+
+  defp secondary_rate_limit_body?(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"message" => message}} when is_binary(message) ->
+        normalized = String.downcase(message)
+
+        String.contains?(normalized, "secondary rate limit") or
+          String.contains?(normalized, "abuse detection")
+
+      _invalid ->
+        false
     end
   end
 
-  defp classify_http_failure(401, _headers), do: :invalid_credential
-  defp classify_http_failure(status, _headers) when status in 500..599, do: :provider_unavailable
-  defp classify_http_failure(_status, _headers), do: :invalid_provider_response
+  defp secondary_rate_limit_body?(_body), do: false
+
+  defp rate_limit_reset(headers) do
+    case positive_header_integer(headers, "retry-after") do
+      {:ok, delay_seconds} ->
+        DateTime.add(DateTime.utc_now(), delay_seconds, :second)
+
+      :error ->
+        case positive_header_integer(headers, "x-ratelimit-reset") do
+          {:ok, reset_seconds} ->
+            case DateTime.from_unix(reset_seconds) do
+              {:ok, datetime} -> datetime
+              {:error, _reason} -> default_rate_limit_reset()
+            end
+
+          :error ->
+            default_rate_limit_reset()
+        end
+    end
+  end
+
+  defp positive_header_integer(headers, name) do
+    case Integer.parse(header(headers, name) || "") do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _invalid -> :error
+    end
+  end
+
+  defp default_rate_limit_reset, do: DateTime.add(DateTime.utc_now(), 60, :second)
 
   defp app_headers(jwt) do
     common_headers() |> Map.put("authorization", "Bearer " <> jwt)

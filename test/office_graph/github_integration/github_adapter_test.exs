@@ -81,6 +81,63 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert HTTPClient.requests() == []
   end
 
+  test "installation token not-found responses classify the binding as revoked", context do
+    HTTPClient.put([
+      error_response(404, %{"message" => "Not Found"})
+    ])
+
+    assert {:error, :installation_revoked} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_revoked",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert length(HTTPClient.requests()) == 1
+  end
+
+  test "GraphQL forbidden errors preserve the permission-denied classification", context do
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{
+        "data" => %{"node" => nil},
+        "errors" => [%{"type" => "FORBIDDEN", "message" => "Resource not accessible"}]
+      })
+    ])
+
+    assert {:error, :permission_denied} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_forbidden",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+  end
+
+  test "secondary rate-limit responses remain retryable when primary quota remains", context do
+    HTTPClient.put([
+      installation_token_response(),
+      error_response(
+        403,
+        %{"message" => "You have exceeded a secondary rate limit."},
+        %{"retry-after" => "30", "x-ratelimit-remaining" => "4999"}
+      )
+    ])
+
+    before = DateTime.utc_now()
+
+    assert {:error, {:rate_limited, reset_at}} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_secondary_rate_limit",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert DateTime.diff(reset_at, before, :second) in 29..31
+  end
+
   test "fetch authenticates as the app and normalizes authoritative pull request state",
        context do
     HTTPClient.put([
@@ -499,6 +556,10 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
   defp json_response(body, status \\ 200) do
     {:ok, %{status: status, headers: %{}, body: Jason.encode!(body)}}
+  end
+
+  defp error_response(status, body, headers \\ %{}) do
+    {:ok, %{status: status, headers: headers, body: Jason.encode!(body)}}
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
