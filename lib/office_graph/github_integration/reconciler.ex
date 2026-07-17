@@ -479,7 +479,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     repository = reconcile_repository!(operation, source, snapshot)
     pull_request = reconcile_pull_request!(operation, source, repository, snapshot)
 
-    if pull_request.status == :stale do
+    if request.object_type == "pull_request" and pull_request.status == :stale do
       create_outcome!(
         operation,
         request,

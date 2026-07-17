@@ -114,6 +114,68 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(SyncOutcome, :count) == 2
   end
 
+  test "a new requested child reconciles when its pull request version is already current" do
+    context = reconciliation_context("current-parent-new-child")
+    pull_request_node_id = "PR_current_parent_new_child"
+    repository_node_id = "R_current_parent_new_child"
+
+    pull_request_request =
+      request(
+        context,
+        "pull_request",
+        pull_request_node_id,
+        "delivery-current-parent"
+      )
+
+    current_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, current_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, pull_request_request, "current-parent"),
+               pull_request_request
+             )
+
+    comment_node_id = "PRRC_current_parent_new_child"
+
+    comment_request =
+      request(
+        context,
+        "review_comment",
+        comment_node_id,
+        "delivery-current-parent-new-child"
+      )
+
+    comment_snapshot =
+      current_snapshot
+      |> Map.put(:review_comments, [
+        %Adapter.ReviewCommentSnapshot{
+          node_id: comment_node_id,
+          database_id: 703,
+          body: "New child from an independently delivered review event",
+          author_label: "review-bot",
+          state: "published",
+          published_at: ~U[2026-07-14 12:00:02Z],
+          url: "https://example.test/comments/current-parent-new-child"
+        }
+      ])
+
+    Provider.put(%{{"review_comment", comment_node_id} => {:ok, comment_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, comment_request, "current-parent-new-child"),
+               comment_request
+             )
+
+    assert %ReviewComment{body: "New child from an independently delivered review event"} =
+             ReviewComment
+             |> Ash.Query.filter(provider_sequence == 2)
+             |> Ash.read_one!(authorize?: false)
+  end
+
   test "stale nested resources do not refresh references or product work" do
     context = reconciliation_context("nested-ordering")
     pull_request_node_id = "PR_nested_ordering"

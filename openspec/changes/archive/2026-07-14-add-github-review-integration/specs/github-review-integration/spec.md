@@ -111,6 +111,14 @@ extension records.
 - **THEN** the returned snapshot MUST contain the requested object, while a review
   submission SHALL reconcile through its containing pull request identity
 
+#### Scenario: Requested child is newer than its already-current pull request
+
+- **WHEN** a review-comment or check delivery contains a requested child that is
+  not stored locally while the containing pull request already has the same or a
+  newer provider version
+- **THEN** reconciliation MUST evaluate and persist the requested child instead
+  of skipping the entire snapshot because the pull request is stale
+
 #### Scenario: Requested-object collection is malformed
 
 - **WHEN** an adapter returns a missing or malformed review-comment or check-run
