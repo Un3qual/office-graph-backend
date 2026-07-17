@@ -73,6 +73,33 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert action.provider_response_version == "reply-v1"
   end
 
+  test "authorization decision write outages use the integration storage contract", context do
+    attrs = reply_attrs(context, "Retry after authorization decision storage recovers.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:authorization-write", attrs)
+
+    Repo.query!("""
+    ALTER TABLE authorization_decisions
+    ADD CONSTRAINT test_github_outbound_authorization_write_storage
+    CHECK (action <> 'github.review.reply')
+    """)
+
+    result =
+      try do
+        OutboundCommands.reply_to_review(context.session, operation, attrs)
+      after
+        Repo.query!("""
+        ALTER TABLE authorization_decisions
+        DROP CONSTRAINT test_github_outbound_authorization_write_storage
+        """)
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert count_jobs_for_worker() == 0
+  end
+
   @tag installation_scope: :organization
   test "organization-scoped installations enqueue outbound actions from authorized workspace sessions",
        context do
@@ -461,6 +488,60 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
     assert trace_counts(action, "github.review_reply.terminal") == {1, 1}
+  end
+
+  test "successful check updates stage provider identity before action persistence", context do
+    attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "completed",
+      conclusion: "success",
+      details_url: "https://example.test/checks/staged-success",
+      expected_provider_version: context.check.provider_version
+    }
+
+    operation =
+      command_operation!(context, :github_check_update, "check:staged-success", attrs)
+
+    assert {:ok, action} = OutboundCommands.update_check(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    Provider.put(%{
+      {"check_update", "CR_outbound"} => {:ok, %{id: "CR_staged_success", version: "check-v2"}}
+    })
+
+    Repo.query!("""
+    ALTER TABLE github_outbound_actions
+    ADD CONSTRAINT test_github_outbound_success_write
+    CHECK (state <> 'succeeded')
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job)
+      after
+        Repo.query!("""
+        ALTER TABLE github_outbound_actions
+        DROP CONSTRAINT test_github_outbound_success_write
+        """)
+      end
+
+    assert {:snooze, 5} = result
+
+    staged_job = Repo.get!(Oban.Job, job.id)
+    assert staged_job.meta["successful_action_id"] == action.id
+    assert staged_job.meta["successful_provider_response_id"] == "CR_staged_success"
+    assert staged_job.meta["successful_provider_response_version"] == "check-v2"
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+    assert Provider.calls("check_update", "CR_outbound") == 1
+
+    assert :ok = OutboundWorker.perform(staged_job)
+
+    succeeded = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert succeeded.state == "succeeded"
+    assert succeeded.provider_response_id == "CR_staged_success"
+    assert succeeded.provider_response_version == "check-v2"
+    assert Provider.calls("check_update", "CR_outbound") == 1
   end
 
   test "transient loaded-action dependency lookups remain retryable", context do

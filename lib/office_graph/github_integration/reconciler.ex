@@ -18,6 +18,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     RecordLoader,
     ReconciliationRequest,
     SecretStore,
+    StorageResult,
     SyncOutcome
   }
 
@@ -1043,16 +1044,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       retry_at: retry_at
     }
 
-    case Repo.transaction(fn ->
-           lock!("github:sync-outcome:#{operation.id}")
+    case StorageResult.run(fn ->
+           Repo.transaction(fn ->
+             lock!("github:sync-outcome:#{operation.id}")
 
-           outcome = persist_outcome!(operation.id, attrs)
-           persist_installation_failure!(installation, failure_code, outcome)
-           outcome
+             outcome = persist_outcome!(operation.id, attrs)
+             persist_installation_failure!(installation, failure_code, outcome)
+             outcome
+           end)
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
-      {:error, error} -> {:error, error}
     end
   end
 
@@ -1071,13 +1073,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       retry_at: nil
     }
 
-    case Repo.transaction(fn ->
-           lock!("github:sync-outcome:#{operation.id}")
-           persist_outcome!(operation.id, attrs)
+    case StorageResult.run(fn ->
+           Repo.transaction(fn ->
+             lock!("github:sync-outcome:#{operation.id}")
+             persist_outcome!(operation.id, attrs)
+           end)
          end) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
-      {:error, error} -> {:error, error}
     end
   end
 

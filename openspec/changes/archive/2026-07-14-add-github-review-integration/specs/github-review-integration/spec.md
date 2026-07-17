@@ -315,6 +315,40 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   state transition after storage recovers, and MUST NOT cancel while the action
   remains pending
 
+#### Scenario: Outbound terminal result persistence is temporarily unavailable
+
+- **WHEN** an outbound action reaches a classified terminal provider result but
+  persisting the terminal action state fails
+- **THEN** the worker MUST stage the exact action, failure class, failure code,
+  and terminal result before the state write, MUST retry only terminal
+  persistence and trace completion after storage recovers, and MUST NOT repeat
+  the provider action or cancel first
+
+#### Scenario: Reconciliation failure persistence is temporarily unavailable
+
+- **WHEN** Office Graph classifies a provider failure but cannot atomically
+  persist its sync outcome or related installation lifecycle transition
+- **THEN** the transaction MUST roll back, the reconciliation result MUST retain
+  the retryable integration-storage-unavailable classification, and the worker
+  MUST NOT convert the valid delivery into an invalid-worker terminal outcome
+
+#### Scenario: Outbound authorization decision persistence is temporarily unavailable
+
+- **WHEN** an otherwise authorized outbound command cannot persist its
+  authorization decision
+- **THEN** the command MUST return the integration-storage-unavailable
+  classification before action creation or enqueue and MUST NOT expose the raw
+  authorization persistence error through GraphQL or JSON
+
+#### Scenario: Outbound success persistence is temporarily unavailable
+
+- **WHEN** GitHub accepts an outbound action and returns a valid response
+  identity but Office Graph cannot persist the successful action state while
+  durable job metadata remains writable
+- **THEN** the worker MUST first stage the exact action and provider response
+  identity, retry only successful-state persistence and trace completion after
+  storage recovers, and MUST NOT repeat the provider action
+
 #### Scenario: Webhook storage is unavailable before operation start at retry exhaustion
 
 - **WHEN** the final inbound attempt cannot load the installation or receipt

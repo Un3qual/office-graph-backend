@@ -379,6 +379,47 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert outcome.failure_code == "provider_unavailable"
   end
 
+  test "provider failure outcome write outages remain retryable storage errors" do
+    context = reconciliation_context("failure-outcome-write-unavailable")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_failure_outcome_write_unavailable",
+        "delivery-failure-outcome-write-unavailable"
+      )
+
+    operation =
+      reconciliation_operation!(context, request, "failure-outcome-write-unavailable")
+
+    Provider.put(%{{"pull_request", request.object_id} => {:error, :network_error}})
+
+    Repo.query!("""
+    ALTER TABLE github_sync_outcomes
+    ADD CONSTRAINT test_github_failure_outcome_write_storage
+    CHECK (failure_code IS DISTINCT FROM 'provider_unavailable')
+    """)
+
+    result =
+      try do
+        Reconciler.reconcile(operation, request)
+      rescue
+        error -> {:raised, error}
+      after
+        Repo.query!("""
+        ALTER TABLE github_sync_outcomes
+        DROP CONSTRAINT test_github_failure_outcome_write_storage
+        """)
+      end
+
+    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+
+    refute SyncOutcome
+           |> Ash.Query.filter(operation_id == ^operation.id)
+           |> Ash.exists?(authorize?: false)
+  end
+
   test "transient installation and credential lookup failures persist retryable outcomes" do
     context = reconciliation_context("record-lookup-unavailable")
     RecordLoaderTestAdapter.configure!(%{})

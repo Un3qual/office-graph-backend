@@ -31,6 +31,35 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
             "organization_id" => organization_id,
             "workspace_id" => workspace_id
           },
+          meta: %{"successful_action_id" => successful_action_id} = metadata
+        } = job
+      )
+      when is_binary(action_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) and
+             successful_action_id == action_id do
+    case successful_intent(metadata) do
+      {:ok, response_id, response_version} ->
+        persist_staged_successful_action(
+          job,
+          action_id,
+          organization_id,
+          workspace_id,
+          response_id,
+          response_version
+        )
+
+      {:error, code} ->
+        finish_terminal_job(job, code, {:cancel, code})
+    end
+  end
+
+  def perform(
+        %Oban.Job{
+          args: %{
+            "action_id" => action_id,
+            "organization_id" => organization_id,
+            "workspace_id" => workspace_id
+          },
           meta: %{"terminal_action_id" => terminal_action_id} = metadata
         } = job
       )
@@ -261,26 +290,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp record_adapter_result({:ok, response}, action, job) do
     with {:ok, response_id} <- response_value(response, :id),
          {:ok, response_version} <- optional_response_value(response, :version) do
-      attrs = %{
-        state: "succeeded",
-        provider_response_id: response_id,
-        provider_response_version: response_version,
-        failure_class: nil,
-        failure_code: nil,
-        attempted_at: DateTime.utc_now(),
-        completed_at: DateTime.utc_now()
-      }
-
-      case update_action(action, attrs) do
-        {:ok, updated} ->
-          case trace(updated, "succeeded") do
-            :ok -> :ok
-            {:error, :integration_storage_unavailable} -> retry_completed_trace()
-          end
-
-        {:error, :integration_storage_unavailable} ->
-          {:error, "integration_storage_unavailable"}
-      end
+      stage_and_persist_successful_action(job, action, response_id, response_version)
     else
       _invalid -> record_adapter_result({:error, :invalid_provider_response}, action, job)
     end
@@ -423,6 +433,92 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       {:error, _error} ->
         {:snooze, @terminal_retry_delay_seconds}
     end
+  end
+
+  defp stage_and_persist_successful_action(job, action, response_id, response_version) do
+    metadata = successful_metadata(action.id, response_id, response_version)
+
+    case stage_job_metadata(job, metadata) do
+      :ok ->
+        staged_job = %{job | meta: Map.merge(job.meta || %{}, metadata)}
+        persist_successful_action(staged_job, action, response_id, response_version)
+
+      {:error, _error} ->
+        {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp persist_staged_successful_action(
+         job,
+         action_id,
+         organization_id,
+         workspace_id,
+         response_id,
+         response_version
+       ) do
+    case action(action_id, organization_id, workspace_id) do
+      {:ok, action} ->
+        persist_successful_action(job, action, response_id, response_version)
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
+
+      {:error, code} ->
+        finish_terminal_job(job, code, {:cancel, safe_code(code)})
+    end
+  end
+
+  defp persist_successful_action(
+         _job,
+         %OutboundAction{
+           state: "succeeded",
+           provider_response_id: response_id,
+           provider_response_version: response_version
+         } = action,
+         response_id,
+         response_version
+       ) do
+    case trace(action, "succeeded") do
+      :ok -> :ok
+      {:error, :integration_storage_unavailable} -> retry_completed_trace()
+    end
+  end
+
+  defp persist_successful_action(
+         _job,
+         %OutboundAction{state: state} = action,
+         response_id,
+         response_version
+       )
+       when state in ["pending", "retryable"] do
+    attrs = %{
+      state: "succeeded",
+      provider_response_id: response_id,
+      provider_response_version: response_version,
+      failure_class: nil,
+      failure_code: nil,
+      attempted_at: DateTime.utc_now(),
+      completed_at: DateTime.utc_now()
+    }
+
+    case update_action(action, attrs) do
+      {:ok, updated} ->
+        case trace(updated, "succeeded") do
+          :ok -> :ok
+          {:error, :integration_storage_unavailable} -> retry_completed_trace()
+        end
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @terminal_retry_delay_seconds}
+    end
+  end
+
+  defp persist_successful_action(job, _action, _response_id, _response_version) do
+    finish_terminal_job(
+      job,
+      "invalid_provider_response",
+      {:cancel, "invalid_provider_response"}
+    )
   end
 
   defp persist_staged_terminal_action(
@@ -596,6 +692,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       "terminal_failure_code" => failure_code,
       "terminal_result_code" => result_code
     }
+  end
+
+  defp successful_metadata(action_id, response_id, response_version) do
+    %{
+      "successful_action_id" => action_id,
+      "successful_provider_response_id" => response_id,
+      "successful_provider_response_version" => response_version
+    }
+  end
+
+  defp successful_intent(metadata) do
+    response_id = Map.get(metadata, "successful_provider_response_id")
+    response_version = Map.get(metadata, "successful_provider_response_version")
+
+    if is_binary(response_id) and response_id != "" and
+         (is_nil(response_version) or (is_binary(response_version) and response_version != "")) do
+      {:ok, response_id, response_version}
+    else
+      {:error, "invalid_github_outbound_job"}
+    end
   end
 
   defp terminal_intent(metadata) do

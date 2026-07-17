@@ -140,10 +140,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     do: {:error, :forbidden}
 
   defp authorize(session_context, operation, capability, workspace_id) do
-    Authorization.authorize_operation(session_context, operation, capability,
-      organization_id: session_context.organization_id,
-      workspace_id: workspace_id
-    )
+    StorageResult.run(fn ->
+      Authorization.authorize_operation(session_context, operation, capability,
+        organization_id: session_context.organization_id,
+        workspace_id: workspace_id
+      )
+    end)
   end
 
   defp normalize_reply(attrs) do
