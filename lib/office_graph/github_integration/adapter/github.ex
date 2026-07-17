@@ -25,7 +25,25 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       }
       ... on CheckRun {
         checkSuite {
-          pullRequests(first: 2) { nodes { id databaseId } }
+          pullRequests(first: 100) {
+            nodes { id databaseId }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }
+  }
+  """
+
+  @check_suite_pull_requests_page_query """
+  query OfficeGraphCheckSuitePullRequestsPage($id: ID!, $cursor: String!) {
+    node(id: $id) {
+      ... on CheckRun {
+        checkSuite {
+          pullRequests(first: 100, after: $cursor) {
+            nodes { id databaseId }
+            pageInfo { hasNextPage endCursor }
+          }
         }
       }
     }
@@ -330,10 +348,29 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
 
   defp resolve_pull_request_node(token, object_type, object_id, pull_request_id) do
     with {:ok, response} <- graphql(token, @resolve_query, %{"id" => object_id}),
-         {:ok, node} <- response_node(response) do
+         {:ok, node} <- response_node(response),
+         {:ok, node} <-
+           complete_resolve_node(token, object_type, object_id, node) do
       pull_request_id(node, object_type, pull_request_id)
     end
   end
+
+  defp complete_resolve_node(
+         token,
+         "check_run",
+         object_id,
+         %{"checkSuite" => %{"pullRequests" => connection}} = node
+       ) do
+    with {:ok, complete_connection} <-
+           complete_check_suite_pull_request_pages(token, object_id, connection, 1) do
+      {:ok, put_in(node, ["checkSuite", "pullRequests"], complete_connection)}
+    end
+  end
+
+  defp complete_resolve_node(_token, "check_run", _object_id, _node),
+    do: {:error, :invalid_provider_response}
+
+  defp complete_resolve_node(_token, _object_type, _object_id, node), do: {:ok, node}
 
   defp pull_request_id(%{"id" => id}, "pull_request", nil) when is_binary(id) and id != "",
     do: {:ok, id}
@@ -712,6 +749,34 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
         end
       end,
       &complete_check_pages(token, pull_request_id, &1, page + 1)
+    )
+  end
+
+  defp complete_check_suite_pull_request_pages(_token, _object_id, connection, _page)
+       when not is_map(connection),
+       do: {:error, :invalid_provider_response}
+
+  defp complete_check_suite_pull_request_pages(_token, _object_id, _connection, page)
+       when page > @max_snapshot_pages,
+       do: {:error, :invalid_provider_response}
+
+  defp complete_check_suite_pull_request_pages(token, object_id, connection, page) do
+    append_connection_page(
+      connection,
+      fn cursor ->
+        with {:ok, response} <-
+               graphql(token, @check_suite_pull_requests_page_query, %{
+                 "id" => object_id,
+                 "cursor" => cursor
+               }),
+             {:ok, node} <- response_node(response),
+             %{"checkSuite" => check_suite} when is_map(check_suite) <- node do
+          connection_value(check_suite, "pullRequests")
+        else
+          _invalid -> {:error, :invalid_provider_response}
+        end
+      end,
+      &complete_check_suite_pull_request_pages(token, object_id, &1, page + 1)
     )
   end
 

@@ -35,6 +35,14 @@ references through a narrow authorized command.
 - **THEN** Office Graph MUST create or idempotently return the
   organization-scoped binding without returning secret values
 
+#### Scenario: One system principal operates at multiple scopes
+
+- **WHEN** the same active system principal receives different integration
+  capabilities at organization and workspace scopes
+- **THEN** each capability membership MUST remain attached to its intended
+  assignment scope and MUST NOT become effective through another scoped
+  assignment for that principal
+
 #### Scenario: Unauthenticated setup is attempted
 
 - **WHEN** a request without an authorized human session attempts to bind an
@@ -144,7 +152,8 @@ extension records.
 #### Scenario: One check run is associated with multiple pull requests
 
 - **WHEN** a GitHub check-run delivery identifies more than one associated pull
-  request for the same provider check
+  request for the same provider check, including an association identified only
+  by database ID beyond the first provider connection page
 - **THEN** Office Graph MUST enqueue and reconcile every associated pull request,
   MUST retain an independent check projection, external reference, and signal
   lifecycle per pull request, and MUST NOT select one arbitrary association

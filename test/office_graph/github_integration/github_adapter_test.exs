@@ -235,6 +235,73 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert Jason.decode!(encoded_body)["variables"] == %{"id" => "PR_live_second"}
   end
 
+  test "numeric check-run pull request resolution follows every association page", context do
+    third_pull_request =
+      snapshot_response()
+      |> put_in(["data", "node", "id"], "PR_live_third")
+      |> put_in(["data", "node", "databaseId"], 26)
+      |> put_in(["data", "node", "number"], 26)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{
+        "data" => %{
+          "node" => %{
+            "checkSuite" => %{
+              "pullRequests" => %{
+                "nodes" => [
+                  %{"id" => "PR_live_first", "databaseId" => 24},
+                  %{"id" => "PR_live_second", "databaseId" => 25}
+                ],
+                "pageInfo" => %{
+                  "hasNextPage" => true,
+                  "endCursor" => "pull-request-cursor-1"
+                }
+              }
+            }
+          }
+        }
+      }),
+      json_response(%{
+        "data" => %{
+          "node" => %{
+            "checkSuite" => %{
+              "pullRequests" => %{
+                "nodes" => [%{"id" => "PR_live_third", "databaseId" => 26}],
+                "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+              }
+            }
+          }
+        }
+      }),
+      json_response(third_pull_request)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_live",
+               pull_request_id: "26",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert snapshot.pull_request.node_id == "PR_live_third"
+
+    [_token_request, _resolve_request, association_page_request, snapshot_request] =
+      HTTPClient.requests()
+
+    {_method, _url, _headers, association_page_body} = association_page_request
+
+    assert Jason.decode!(association_page_body)["variables"] == %{
+             "id" => "CR_live",
+             "cursor" => "pull-request-cursor-1"
+           }
+
+    {_method, _url, _headers, snapshot_body} = snapshot_request
+    assert Jason.decode!(snapshot_body)["variables"] == %{"id" => "PR_live_third"}
+  end
+
   test "fetch follows authoritative review-thread pages instead of truncating the snapshot",
        context do
     first_page =

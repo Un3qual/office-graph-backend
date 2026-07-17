@@ -157,7 +157,8 @@ defmodule OfficeGraph.Authorization do
         %{organization_id: organization_id, workspace_id: workspace_id},
         actions
       )
-      when is_binary(principal_id) and is_binary(organization_id) and is_list(actions) do
+      when is_binary(principal_id) and is_binary(organization_id) and
+             (is_nil(workspace_id) or is_binary(workspace_id)) and is_list(actions) do
     with {:ok, true} <- Identity.active_system_principal(principal_id),
          {:ok, capability_keys} <- system_capability_keys(actions) do
       persist_system_role(principal_id, organization_id, workspace_id, capability_keys)
@@ -170,14 +171,16 @@ defmodule OfficeGraph.Authorization do
 
   defp persist_system_role(principal_id, organization_id, workspace_id, capability_keys) do
     Repo.transaction(fn ->
+      role_key = system_role_key(principal_id, workspace_id)
+
       role =
         get_or_create!(
           Role,
-          [organization_id: organization_id, key: "system:#{principal_id}"],
+          [organization_id: organization_id, key: role_key],
           %{
             organization_id: organization_id,
-            key: "system:#{principal_id}",
-            name: "System principal #{principal_id}"
+            key: role_key,
+            name: system_role_name(principal_id, workspace_id)
           }
         )
 
@@ -214,6 +217,18 @@ defmodule OfficeGraph.Authorization do
       {:error, _reason} -> {:error, :forbidden}
     end
   end
+
+  defp system_role_key(principal_id, nil),
+    do: "system:#{principal_id}:organization"
+
+  defp system_role_key(principal_id, workspace_id),
+    do: "system:#{principal_id}:workspace:#{workspace_id}"
+
+  defp system_role_name(principal_id, nil),
+    do: "System principal #{principal_id} (organization)"
+
+  defp system_role_name(principal_id, workspace_id),
+    do: "System principal #{principal_id} (workspace #{workspace_id})"
 
   def authorize_projection(session_context, action, opts \\ [])
 
