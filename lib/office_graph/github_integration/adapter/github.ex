@@ -26,7 +26,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       ... on CheckRun {
         checkSuite {
           pullRequests(first: 100) {
-            nodes { id databaseId }
+            nodes { id fullDatabaseId }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -41,7 +41,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       ... on CheckRun {
         checkSuite {
           pullRequests(first: 100, after: $cursor) {
-            nodes { id databaseId }
+            nodes { id fullDatabaseId }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -55,7 +55,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     node(id: $id) {
       ... on PullRequest {
         id
-        databaseId
+        fullDatabaseId
         number
         title
         body
@@ -89,7 +89,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
             comments(first: 100) {
               nodes {
                 id
-                databaseId
+                fullDatabaseId
                 body
                 state
                 isMinimized
@@ -98,7 +98,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
                 url
                 author { login }
                 replyTo { id }
-                pullRequestReview { databaseId }
+                pullRequestReview { fullDatabaseId }
               }
               pageInfo { hasNextPage endCursor }
             }
@@ -152,7 +152,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   query OfficeGraphOutboundTarget($id: ID!) {
     node(id: $id) {
       ... on PullRequestReviewComment {
-        databaseId
+        fullDatabaseId
         pullRequest {
           number
           repository { nameWithOwner }
@@ -183,7 +183,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
             comments(first: 100) {
               nodes {
                 id
-                databaseId
+                fullDatabaseId
                 body
                 state
                 isMinimized
@@ -192,7 +192,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
                 url
                 author { login }
                 replyTo { id }
-                pullRequestReview { databaseId }
+                pullRequestReview { fullDatabaseId }
               }
               pageInfo { hasNextPage endCursor }
             }
@@ -211,7 +211,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
         comments(first: 100, after: $cursor) {
           nodes {
             id
-            databaseId
+            fullDatabaseId
             body
             state
             isMinimized
@@ -220,7 +220,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
             url
             author { login }
             replyTo { id }
-            pullRequestReview { databaseId }
+            pullRequestReview { fullDatabaseId }
           }
           pageInfo { hasNextPage endCursor }
         }
@@ -414,7 +414,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
        when is_list(nodes) and is_binary(pull_request_id) do
     case Integer.parse(pull_request_id) do
       {database_id, ""} when database_id > 0 ->
-        case Enum.find(nodes, &(&1["databaseId"] == database_id)) do
+        case Enum.find(nodes, &(optional_database_id(&1["fullDatabaseId"]) == database_id)) do
           %{"id" => id} when is_binary(id) and id != "" -> {:ok, id}
           _missing -> {:error, :invalid_provider_response}
         end
@@ -487,7 +487,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       {:ok,
        %Adapter.PullRequestSnapshot{
          node_id: node_id,
-         database_id: optional_positive_integer(pull_request["databaseId"]),
+         database_id: optional_database_id(pull_request["fullDatabaseId"]),
          number: number,
          title: title,
          body: optional_string(pull_request["body"]),
@@ -556,10 +556,10 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
          {:ok, state} <- normalize_comment_state(comment),
          {:ok, created_at} <- optional_datetime(comment["createdAt"]),
          {:ok, updated_at} <- datetime(comment["updatedAt"]) do
-      database_id = optional_positive_integer(comment["databaseId"])
+      database_id = optional_database_id(comment["fullDatabaseId"])
 
       review_database_id =
-        optional_positive_integer(get_in(comment, ["pullRequestReview", "databaseId"]))
+        optional_database_id(get_in(comment, ["pullRequestReview", "fullDatabaseId"]))
 
       parent_comment_node_id = get_in(comment, ["replyTo", "id"])
       author_label = get_in(comment, ["author", "login"])
@@ -956,7 +956,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   end
 
   defp normalize_outbound_context(node, :review_comment) do
-    with {:ok, database_id} <- positive_integer(node, "databaseId"),
+    with {:ok, database_id} <- positive_database_id(node, "fullDatabaseId"),
          {:ok, number} <- nested_positive_integer(node, ["pullRequest", "number"]),
          {:ok, repository} <-
            nested_nonblank(node, ["pullRequest", "repository", "nameWithOwner"]) do
@@ -1339,6 +1339,13 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     end
   end
 
+  defp positive_database_id(map, key) do
+    case optional_database_id(value(map, key)) do
+      nil -> {:error, :invalid_provider_response}
+      database_id -> {:ok, database_id}
+    end
+  end
+
   defp nested_nonblank(map, path), do: required_nonblank(%{value: get_in(map, path)}, :value)
 
   defp nested_positive_integer(map, path),
@@ -1370,6 +1377,17 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
 
   defp optional_positive_integer(value) when is_integer(value) and value > 0, do: value
   defp optional_positive_integer(_value), do: nil
+
+  defp optional_database_id(value) when is_integer(value) and value > 0, do: value
+
+  defp optional_database_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {database_id, ""} when database_id > 0 -> database_id
+      _invalid -> nil
+    end
+  end
+
+  defp optional_database_id(_value), do: nil
 
   defp optional_string(value) when is_binary(value), do: value
   defp optional_string(_value), do: nil

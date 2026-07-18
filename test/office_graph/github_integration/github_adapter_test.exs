@@ -4,6 +4,10 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
   alias OfficeGraph.GitHubIntegration.Adapter
   alias OfficeGraph.GitHubIntegration.Adapter.GitHub
 
+  @large_pull_request_database_id 4_294_967_296
+  @large_review_comment_database_id 4_294_967_297
+  @large_review_database_id 4_294_967_298
+
   defmodule HTTPClient do
     @behaviour OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient
 
@@ -190,11 +194,14 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
     assert snapshot.repository.provider_updated_at == ~U[2026-07-16 10:00:00Z]
     assert snapshot.pull_request.node_id == "PR_live"
+    assert snapshot.pull_request.database_id == @large_pull_request_database_id
     assert [%{node_id: "PRRT_live", state: "open"}] = snapshot.review_threads
 
     assert [%{node_id: "PRRC_live", review_thread_node_id: "PRRT_live"} = comment] =
              snapshot.review_comments
 
+    assert comment.database_id == @large_review_comment_database_id
+    assert comment.review_database_id == @large_review_database_id
     assert comment.provider_version =~ "github-review-comment:v1:"
     assert comment.provider_sequence == DateTime.to_unix(~U[2026-07-16 11:31:00Z], :microsecond)
     assert comment.provider_updated_at == ~U[2026-07-16 11:31:00Z]
@@ -272,7 +279,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     second_pull_request =
       snapshot_response()
       |> put_in(["data", "node", "id"], "PR_live_second")
-      |> put_in(["data", "node", "databaseId"], 25)
+      |> put_in(["data", "node", "fullDatabaseId"], "4294967295")
       |> put_in(["data", "node", "number"], 25)
 
     HTTPClient.put([
@@ -348,7 +355,10 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     third_pull_request =
       snapshot_response()
       |> put_in(["data", "node", "id"], "PR_live_third")
-      |> put_in(["data", "node", "databaseId"], 26)
+      |> put_in(
+        ["data", "node", "fullDatabaseId"],
+        Integer.to_string(@large_pull_request_database_id)
+      )
       |> put_in(["data", "node", "number"], 26)
 
     HTTPClient.put([
@@ -359,8 +369,8 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
             "checkSuite" => %{
               "pullRequests" => %{
                 "nodes" => [
-                  %{"id" => "PR_live_first", "databaseId" => 24},
-                  %{"id" => "PR_live_second", "databaseId" => 25}
+                  %{"id" => "PR_live_first", "fullDatabaseId" => "4294967294"},
+                  %{"id" => "PR_live_second", "fullDatabaseId" => "4294967295"}
                 ],
                 "pageInfo" => %{
                   "hasNextPage" => true,
@@ -376,7 +386,12 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
           "node" => %{
             "checkSuite" => %{
               "pullRequests" => %{
-                "nodes" => [%{"id" => "PR_live_third", "databaseId" => 26}],
+                "nodes" => [
+                  %{
+                    "id" => "PR_live_third",
+                    "fullDatabaseId" => Integer.to_string(@large_pull_request_database_id)
+                  }
+                ],
                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
               }
             }
@@ -390,12 +405,13 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
              GitHub.fetch(%{
                object_type: "check_run",
                object_id: "CR_live",
-               pull_request_id: "26",
+               pull_request_id: Integer.to_string(@large_pull_request_database_id),
                external_installation_id: 42,
                credential: context.private_key
              })
 
     assert snapshot.pull_request.node_id == "PR_live_third"
+    assert snapshot.pull_request.database_id == @large_pull_request_database_id
 
     [_token_request, _resolve_request, association_page_request, snapshot_request] =
       HTTPClient.requests()
@@ -503,7 +519,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
             "nodes" => [
               %{
                 "id" => "PRRC_live_reply",
-                "databaseId" => 904,
+                "fullDatabaseId" => "4294967300",
                 "body" => "Follow-up",
                 "state" => "SUBMITTED",
                 "isMinimized" => false,
@@ -512,7 +528,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
                 "url" => "https://github.com/comment/904",
                 "author" => %{"login" => "reviewer"},
                 "replyTo" => %{"id" => "PRRC_live"},
-                "pullRequestReview" => %{"databaseId" => 89}
+                "pullRequestReview" => %{"fullDatabaseId" => "4294967301"}
               }
             ],
             "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
@@ -585,7 +601,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
     HTTPClient.put([
       installation_token_response(),
-      json_response(review_comment_context()),
+      json_response(review_comment_context(@large_review_comment_database_id)),
       json_response([
         %{
           "id" => 900,
@@ -597,7 +613,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
         %{
           "id" => 902,
           "node_id" => "PRRC_existing_reply",
-          "in_reply_to_id" => 901,
+          "in_reply_to_id" => @large_review_comment_database_id,
           "body" => "Already sent\n\n#{marker}",
           "updated_at" => "2026-07-16T12:30:00Z"
         }
@@ -621,7 +637,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
     HTTPClient.put([
       installation_token_response(),
-      json_response(review_comment_context()),
+      json_response(review_comment_context(@large_review_comment_database_id)),
       json_response(%{
         "id" => 902,
         "node_id" => "PRRC_created_reply",
@@ -632,7 +648,10 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert {:ok, %{id: "PRRC_created_reply", version: "2026-07-16T12:31:00Z"}} =
              GitHub.reply_to_review(request, context.private_key)
 
-    {_method, _url, _headers, encoded_body} = List.last(HTTPClient.requests())
+    expected_url =
+      "https://api.github.test/repos/Un3qual/office-graph-backend/pulls/24/comments/#{@large_review_comment_database_id}/replies"
+
+    assert {:post, ^expected_url, _headers, encoded_body} = List.last(HTTPClient.requests())
 
     assert Jason.decode!(encoded_body) == %{
              "body" => "Please address this.\n\n#{marker}"
@@ -684,11 +703,11 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     )
   end
 
-  defp review_comment_context do
+  defp review_comment_context(database_id) do
     %{
       "data" => %{
         "node" => %{
-          "databaseId" => 901,
+          "fullDatabaseId" => Integer.to_string(database_id),
           "pullRequest" => %{
             "number" => 24,
             "repository" => %{"nameWithOwner" => "Un3qual/office-graph-backend"}
@@ -716,7 +735,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
       "data" => %{
         "node" => %{
           "id" => "PR_live",
-          "databaseId" => 24,
+          "fullDatabaseId" => Integer.to_string(@large_pull_request_database_id),
           "number" => 24,
           "title" => "Live GitHub adapter",
           "body" => "Normalize authoritative state.",
@@ -752,7 +771,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
                   "nodes" => [
                     %{
                       "id" => "PRRC_live",
-                      "databaseId" => 901,
+                      "fullDatabaseId" => Integer.to_string(@large_review_comment_database_id),
                       "body" => "Fix the root cause.",
                       "state" => "SUBMITTED",
                       "createdAt" => "2026-07-16T11:30:00Z",
@@ -760,7 +779,9 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
                       "url" => "https://github.com/comment/901",
                       "author" => %{"login" => "review-bot"},
                       "replyTo" => nil,
-                      "pullRequestReview" => %{"databaseId" => 88}
+                      "pullRequestReview" => %{
+                        "fullDatabaseId" => Integer.to_string(@large_review_database_id)
+                      }
                     }
                   ],
                   "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}

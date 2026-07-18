@@ -135,6 +135,14 @@ extension records.
 - **THEN** reconciliation MUST persist that sequence on provider state, sync
   outcomes, operations, and durable events without truncation or overflow
 
+#### Scenario: Provider database identities exceed GraphQL Int
+
+- **WHEN** GitHub returns a 64-bit full database identity for a pull-request
+  association, review comment, or review
+- **THEN** the adapter MUST parse the identity without truncation, resolve the
+  selected pull request, and use the selected review comment as the REST reply
+  target without rejecting the valid provider response
+
 #### Scenario: The same provider object is visible in multiple workspaces
 
 - **WHEN** two installations in one organization reconcile the same GitHub object
