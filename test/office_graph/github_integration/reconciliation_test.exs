@@ -1450,6 +1450,62 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(Repository, :count) == 0
   end
 
+  test "snapshot identity conflicts persist a classified terminal outcome" do
+    context = reconciliation_context("snapshot-identity-conflict")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_snapshot_identity_conflict",
+        "delivery-snapshot-identity-conflict"
+      )
+
+    operation = reconciliation_operation!(context, request, "snapshot-identity-conflict")
+    {:ok, source} = Integrations.ensure_provider_source("github", "GitHub")
+
+    Ash.create!(
+      ExternalReference,
+      %{
+        id: Ecto.UUID.generate(),
+        organization_id: operation.organization_id,
+        workspace_id: operation.workspace_id,
+        source_id: source.id,
+        provider: "github",
+        object_type: "repository",
+        external_id: "repository:R_snapshot_identity_conflict",
+        url: "https://example.test/conflicting-repository",
+        operation_id: operation.id,
+        resource_type: "repository",
+        resource_id: Ecto.UUID.generate()
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    provider_snapshot =
+      snapshot(
+        1,
+        "open",
+        "PR_snapshot_identity_conflict",
+        "R_snapshot_identity_conflict"
+      )
+
+    Provider.put(%{{"pull_request", "PR_snapshot_identity_conflict"} => {:ok, provider_snapshot}})
+
+    assert {:error, {:terminal, :invalid_provider_response}} =
+             Reconciler.reconcile(operation, request)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_code == "invalid_provider_response"
+    assert Repo.aggregate(Repository, :count) == 0
+  end
+
   test "cyclic review comment parents are classified before provider-neutral writes" do
     context = reconciliation_context("cyclic-comment-parents")
     request = request(context, "pull_request", "PR_cyclic_comments", "delivery-cyclic-comments")

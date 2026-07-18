@@ -240,6 +240,128 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 2
   end
 
+  test "a completed check reopens after a newer authoritative absence" do
+    context = context("check-reappears-after-absence")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-check-reappears-after-absence"
+      })
+
+    base_snapshot = mapping_snapshot()
+    [check] = base_snapshot.check_runs
+
+    unchanged_check = %{
+      check
+      | provider_version: "check-v1",
+        provider_sequence: 2,
+        provider_updated_at: ~U[2026-07-14 12:59:00Z]
+    }
+
+    present = %{base_snapshot | review_comments: [], check_runs: [unchanged_check]}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, present}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "check-present"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+
+    absent = %{
+      present
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        check_runs: []
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, absent}})
+
+    assert {:ok, %{signal_ids: []}} =
+             Reconciler.reconcile(operation!(context, request, "check-absent"), request)
+
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    reappeared = %{
+      absent
+      | provider_version: "v5",
+        provider_sequence: 5,
+        provider_updated_at: ~U[2026-07-14 13:02:00Z],
+        check_runs: [unchanged_check]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, reappeared}})
+
+    assert {:ok, reappeared_outcome} =
+             Reconciler.reconcile(operation!(context, request, "check-reappeared"), request)
+
+    assert reappeared_outcome.signal_ids == [signal_id]
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+  end
+
+  test "an unchanged review comment reopens after a newer authoritative absence" do
+    context = context("comment-reappears-after-absence")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-comment-reappears-after-absence"
+      })
+
+    base_snapshot = mapping_snapshot()
+    [comment] = base_snapshot.review_comments
+
+    unchanged_comment = %{
+      comment
+      | provider_version: "comment-v1",
+        provider_sequence: 2,
+        provider_updated_at: ~U[2026-07-14 12:58:00Z]
+    }
+
+    present = %{base_snapshot | review_comments: [unchanged_comment], check_runs: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, present}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "comment-present"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+
+    absent = %{
+      present
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_comments: []
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, absent}})
+
+    assert {:ok, %{signal_ids: []}} =
+             Reconciler.reconcile(operation!(context, request, "comment-absent"), request)
+
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+
+    reappeared = %{
+      absent
+      | provider_version: "v5",
+        provider_sequence: 5,
+        provider_updated_at: ~U[2026-07-14 13:02:00Z],
+        review_comments: [unchanged_comment]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, reappeared}})
+
+    assert {:ok, reappeared_outcome} =
+             Reconciler.reconcile(operation!(context, request, "comment-reappeared"), request)
+
+    assert reappeared_outcome.signal_ids == [signal_id]
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+  end
+
   test "a requested check outside the current head is retained but non-actionable" do
     context = context("requested-outside-current-head")
 

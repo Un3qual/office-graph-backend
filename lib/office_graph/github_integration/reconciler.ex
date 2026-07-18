@@ -48,6 +48,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   @review_comment_states ~w(pending published minimized deleted)
   @check_statuses ~w(queued in_progress completed)
   @check_conclusions ~w(success failure neutral cancelled skipped timed_out action_required startup_failure stale)
+  @review_comment_absence_version_prefix "office-graph:github:review-comment-absent:"
+  @check_run_absence_version_prefix "office-graph:github:check-run-absent:"
   @retryable_failure_codes [
     :provider_rate_limited,
     :provider_unavailable,
@@ -556,7 +558,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
       {:error, error} when is_struct(error) -> retryable_storage_error()
-      {:error, error} -> {:error, error}
+      {:error, error} -> record_failure(operation, request, installation, error)
     end
   end
 
@@ -889,8 +891,6 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          parent_comment_id,
          review_thread_id
        ) do
-    provider = comment_provider_metadata(comment, snapshot)
-
     existing =
       base_by_extension(
         operation,
@@ -899,6 +899,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         ReviewComment,
         comment.node_id
       )
+
+    provider = comment_provider_metadata(comment, snapshot, existing)
 
     result =
       SoftwareProving.upsert_provider_resource(operation, source, ReviewComment, existing, %{
@@ -946,11 +948,18 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     %{record: result.record, snapshot: comment, reference: reference, status: result.status}
   end
 
-  defp comment_provider_metadata(comment, snapshot) do
-    case provider_metadata(comment) do
-      {:ok, provider} -> provider
-      :missing -> derived_comment_provider_metadata(comment, snapshot)
-    end
+  defp comment_provider_metadata(comment, snapshot, existing) do
+    provider =
+      case provider_metadata(comment) do
+        {:ok, provider} -> provider
+        :missing -> derived_comment_provider_metadata(comment, snapshot)
+      end
+
+    restore_present_provider_metadata(
+      provider,
+      existing,
+      @review_comment_absence_version_prefix
+    )
   end
 
   defp derived_comment_provider_metadata(comment, snapshot) do
@@ -1028,13 +1037,16 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   end
 
   defp check_provider_metadata(check, snapshot, existing) do
-    case provider_metadata(check) do
-      {:ok, provider} ->
-        provider
+    provider =
+      case provider_metadata(check) do
+        {:ok, provider} ->
+          provider
 
-      :missing ->
-        derived_check_provider_metadata(check, snapshot, existing)
-    end
+        :missing ->
+          derived_check_provider_metadata(check, snapshot, existing)
+      end
+
+    restore_present_provider_metadata(provider, existing, @check_run_absence_version_prefix)
   end
 
   defp derived_check_provider_metadata(check, snapshot, existing) do
@@ -1061,6 +1073,21 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       updated_at: snapshot.provider_updated_at
     }
   end
+
+  defp restore_present_provider_metadata(
+         %Adapter.ProviderMetadata{sequence: sequence} = provider,
+         %{provider_version: existing_version, provider_sequence: existing_sequence},
+         absence_version_prefix
+       )
+       when is_integer(sequence) and is_integer(existing_sequence) and
+              is_binary(existing_version) and sequence < existing_sequence do
+    if String.starts_with?(existing_version, absence_version_prefix),
+      do: %{provider | sequence: existing_sequence},
+      else: provider
+  end
+
+  defp restore_present_provider_metadata(provider, _existing, _absence_version_prefix),
+    do: provider
 
   defp missing_product_references!(
          operation,
@@ -1100,7 +1127,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           %{
             state: "deleted",
             provider_version:
-              "office-graph:github:review-comment-absent:#{snapshot.provider_version}",
+              "#{@review_comment_absence_version_prefix}#{snapshot.provider_version}",
             provider_sequence: max(snapshot.provider_sequence, comment.provider_sequence || -1),
             provider_updated_at: snapshot.provider_updated_at || comment.provider_updated_at
           }
@@ -1117,7 +1144,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           CheckRun,
           check,
           %{
-            provider_version: "office-graph:github:check-run-absent:#{snapshot.provider_version}",
+            provider_version: "#{@check_run_absence_version_prefix}#{snapshot.provider_version}",
             provider_sequence: max(snapshot.provider_sequence, check.provider_sequence || -1),
             provider_updated_at: snapshot.provider_updated_at || check.provider_updated_at
           }

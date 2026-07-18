@@ -276,7 +276,8 @@ extension records.
   absence version for an absent check, MUST NOT create an open signal for
   first-seen non-actionable state, and MUST reopen the same signal identity if
   the provider item later becomes actionable again with an otherwise unchanged
-  provider version
+  provider version, even when the local absence version has a newer logical
+  sequence than that unchanged provider item
 
 #### Scenario: Office Graph-authored review reply is reconciled
 
@@ -483,6 +484,15 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   when the receipt event cannot carry that terminal state, and an existing
   in-scope receipt MUST transition to failed even if its delivery notification
   was already dispatched
+
+#### Scenario: Snapshot identity conflict is classified
+
+- **WHEN** snapshot persistence detects a deterministic provider-extension or
+  external-reference identity conflict
+- **THEN** reconciliation MUST roll back partial provider-neutral writes,
+  persist a terminal invalid-provider-response sync outcome, and terminalize
+  the webhook from that classified outcome instead of canceling it as an
+  invalid worker result
 
 #### Scenario: Outbound action terminates
 

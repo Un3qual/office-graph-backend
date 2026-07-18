@@ -573,5 +573,4 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   defp retry_budget(%Oban.Job{} = job), do: %{job | max_attempts: @max_attempts}
 
   defp safe_code(code) when is_atom(code), do: code
-  defp safe_code(_code), do: :invalid_worker_result
 end
