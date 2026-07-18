@@ -483,6 +483,96 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert %DateTime{} = terminal_action.completed_at
   end
 
+  test "exhausted action lookup retains terminalization when metadata staging fails", context do
+    attrs = reply_attrs(context, "Do not execute after terminal staging recovers.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:lookup-staging-failure", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    RecordLoaderTestAdapter.configure!(%{
+      OutboundAction => {:error, :database_unavailable}
+    })
+
+    Repo.query!("""
+    ALTER TABLE oban_jobs
+    ADD CONSTRAINT test_github_outbound_lookup_terminal_staging
+    CHECK (NOT (meta ? 'terminal_action_id'))
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(%{job | attempt: job.max_attempts})
+      after
+        Repo.query!("""
+        ALTER TABLE oban_jobs
+        DROP CONSTRAINT test_github_outbound_lookup_terminal_staging
+        """)
+
+        RecordLoaderTestAdapter.put(%{})
+      end
+
+    assert {:snooze, 5} = result
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_action_id")
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "must-not-send-after-exhaustion", version: "v1"}}
+    })
+
+    replay_job = %{
+      Repo.get!(Oban.Job, job.id)
+      | attempt: job.max_attempts + 1,
+        max_attempts: job.max_attempts + 1
+    }
+
+    assert {:cancel, "attempts_exhausted"} = OutboundWorker.perform(replay_job)
+    assert Provider.calls("review_reply_lookup", action.id) == 0
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    terminal_action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert terminal_action.state == "terminal"
+    assert terminal_action.failure_class == "terminal"
+    assert terminal_action.failure_code == "integration_storage_unavailable"
+  end
+
+  test "provider access waits for a durable action attempt marker", context do
+    attrs = reply_attrs(context, "Do not execute without durable attempt provenance.")
+    operation = command_operation!(context, :github_review_reply, "reply:attempt-marker", attrs)
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "must-not-send-without-attempt-marker", version: "v1"}}
+    })
+
+    Repo.query!("""
+    ALTER TABLE github_outbound_actions
+    ADD CONSTRAINT test_github_outbound_attempt_marker
+    CHECK (attempted_at IS NULL)
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job_for(action.id))
+      after
+        Repo.query!("""
+        ALTER TABLE github_outbound_actions
+        DROP CONSTRAINT test_github_outbound_attempt_marker
+        """)
+      end
+
+    assert {:error, "integration_storage_unavailable"} = result
+    assert Provider.calls("review_reply_lookup", action.id) == 0
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    pending_action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert pending_action.state == "pending"
+    assert is_nil(pending_action.attempted_at)
+  end
+
   test "terminal action writes stage intent before retrying persistence", context do
     attrs = reply_attrs(context, "Persist the terminal result after storage recovers.")
     operation = command_operation!(context, :github_review_reply, "reply:terminal-write", attrs)

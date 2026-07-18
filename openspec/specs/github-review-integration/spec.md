@@ -497,6 +497,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
 - **THEN** the worker MUST persist a terminalization phase, retry the action
   state transition after storage recovers, and MUST NOT cancel while the action
   remains pending
+- **AND** every provider access MUST follow a durable action-attempt marker, and
+  a replay beyond the fixed attempt budget without staged terminal metadata
+  MUST terminalize the local action without calling the provider
 
 #### Scenario: Outbound terminal result persistence is temporarily unavailable
 

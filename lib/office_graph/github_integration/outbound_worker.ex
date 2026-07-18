@@ -129,8 +129,25 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
+  defp perform_action(
+         %OutboundAction{state: state} = action,
+         %Oban.Job{attempt: attempt} = job
+       )
+       when state in ["pending", "retryable"] and attempt > @max_attempts do
+    failure_code = action.failure_code || "integration_storage_unavailable"
+
+    stage_and_persist_terminal_action(
+      job,
+      action,
+      "terminal",
+      safe_code(failure_code),
+      {:cancel, "attempts_exhausted"}
+    )
+  end
+
   defp perform_action(action, job) do
-    with {:ok, installation} <- active_installation(action),
+    with {:ok, action} <- mark_provider_attempt(action),
+         {:ok, installation} <- active_installation(action),
          {:ok, credential_id} <- credential_binding(installation.id),
          {:ok, credential} <-
            SecretStore.resolve(credential_id, %{
@@ -150,6 +167,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       {:error, reason} ->
         record_adapter_result({:error, reason}, action, job)
     end
+  end
+
+  defp mark_provider_attempt(action) do
+    update_action(action, %{attempted_at: DateTime.utc_now()})
   end
 
   defp action(action_id, organization_id, workspace_id) do
