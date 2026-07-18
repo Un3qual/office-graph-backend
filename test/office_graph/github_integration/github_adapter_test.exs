@@ -183,6 +183,12 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
 
     assert snapshot.provider_version == "2026-07-16T12:00:00Z"
     assert snapshot.repository.full_name == "Un3qual/office-graph-backend"
+    assert snapshot.repository.provider_version =~ "github-repository:v1:"
+
+    assert snapshot.repository.provider_sequence ==
+             DateTime.to_unix(~U[2026-07-16 10:00:00Z], :microsecond)
+
+    assert snapshot.repository.provider_updated_at == ~U[2026-07-16 10:00:00Z]
     assert snapshot.pull_request.node_id == "PR_live"
     assert [%{node_id: "PRRT_live", state: "open"}] = snapshot.review_threads
 
@@ -193,7 +199,14 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert comment.provider_sequence == DateTime.to_unix(~U[2026-07-16 11:31:00Z], :microsecond)
     assert comment.provider_updated_at == ~U[2026-07-16 11:31:00Z]
 
-    assert [%{node_id: "CR_live", status: "completed", conclusion: "failure"}] =
+    assert [
+             %{
+               node_id: "CR_live",
+               status: "completed",
+               conclusion: "failure",
+               current?: true
+             }
+           ] =
              snapshot.check_runs
 
     [token_request, resolve_request, snapshot_request] = HTTPClient.requests()
@@ -208,6 +221,50 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
           [resolve_request, snapshot_request] do
       assert request_headers["authorization"] == "Bearer installation-token"
     end
+  end
+
+  test "check freshness includes mutable persisted fields when timestamps tie", context do
+    changed_response =
+      put_in(
+        snapshot_response(),
+        [
+          "data",
+          "node",
+          "commits",
+          "nodes",
+          Access.at(0),
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "nodes",
+          Access.at(0),
+          "detailsUrl"
+        ],
+        "https://github.com/check/903/updated"
+      )
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(snapshot_response()),
+      json_response(changed_response)
+    ])
+
+    request = %{
+      object_type: "check_run",
+      object_id: "CR_live",
+      pull_request_id: "PR_live",
+      external_installation_id: 42,
+      credential: context.private_key
+    }
+
+    assert {:ok, first_snapshot} = GitHub.fetch(request)
+    assert {:ok, changed_snapshot} = GitHub.fetch(request)
+
+    [first_check] = first_snapshot.check_runs
+    [changed_check] = changed_snapshot.check_runs
+
+    assert first_check.provider_sequence == changed_check.provider_sequence
+    refute first_check.provider_version == changed_check.provider_version
   end
 
   test "check-run fetches use the webhook-selected pull request instead of an arbitrary first association",
@@ -273,8 +330,10 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
                credential: context.private_key
              })
 
-    assert %{status: "completed", conclusion: "failure"} =
+    assert %{status: "completed", conclusion: "failure", current?: false} =
              Enum.find(snapshot.check_runs, &(&1.node_id == "CR_historical"))
+
+    assert %{current?: true} = Enum.find(snapshot.check_runs, &(&1.node_id == "CR_live"))
 
     [_token_request, snapshot_request] = HTTPClient.requests()
     {_method, _url, _headers, encoded_body} = snapshot_request
@@ -674,6 +733,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
             "databaseId" => 101,
             "name" => "office-graph-backend",
             "nameWithOwner" => "Un3qual/office-graph-backend",
+            "updatedAt" => "2026-07-16T10:00:00Z",
             "visibility" => "PRIVATE",
             "url" => "https://github.com/Un3qual/office-graph-backend",
             "owner" => %{"login" => "Un3qual"},

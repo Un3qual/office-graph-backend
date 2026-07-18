@@ -122,6 +122,84 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Repo.aggregate(SyncOutcome, :count) == 2
   end
 
+  test "repository state advances independently of an unchanged pull request" do
+    context = reconciliation_context("repository-child-freshness")
+    pull_request_node_id = "PR_repository_child_freshness"
+    repository_node_id = "R_repository_child_freshness"
+    request = request(context, "pull_request", pull_request_node_id, "delivery-repository-child")
+
+    original_repository =
+      snapshot(2, "open", pull_request_node_id, repository_node_id).repository
+      |> Map.merge(%{
+        provider_version: "repository-v1",
+        provider_sequence: 10,
+        provider_updated_at: ~U[2026-07-14 12:01:00Z]
+      })
+
+    original_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:repository, original_repository)
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, original_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "repository-original"),
+               request
+             )
+
+    changed_repository =
+      original_repository
+      |> Map.merge(%{
+        name: "office-graph-renamed",
+        full_name: "Un3qual/office-graph-renamed",
+        default_ref_name: "trunk",
+        visibility: "public",
+        url: "https://github.com/Un3qual/office-graph-renamed",
+        provider_version: "repository-v2",
+        provider_sequence: 11,
+        provider_updated_at: ~U[2026-07-14 12:02:00Z]
+      })
+
+    changed_snapshot = %{original_snapshot | repository: changed_repository}
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, changed_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "repository-changed"),
+               request
+             )
+
+    repository = Repository |> Ash.read_one!(authorize?: false)
+    assert repository.name == "office-graph-renamed"
+    assert repository.full_name == "Un3qual/office-graph-renamed"
+    assert repository.default_ref_name == "trunk"
+    assert repository.visibility == "public"
+    assert repository.provider_version == "repository-v2"
+    assert repository.provider_sequence == 11
+
+    repository_external_id = "repository:#{repository_node_id}"
+
+    reference =
+      ExternalReference
+      |> Ash.Query.filter(external_id == ^repository_external_id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert reference.url == "https://github.com/Un3qual/office-graph-renamed"
+
+    Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, original_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "repository-older-replay"),
+               request
+             )
+
+    preserved = Ash.get!(Repository, repository.id, authorize?: false)
+    assert preserved.name == "office-graph-renamed"
+    assert preserved.provider_version == "repository-v2"
+  end
+
   test "a new requested child reconciles when its pull request version is already current" do
     context = reconciliation_context("current-parent-new-child")
     pull_request_node_id = "PR_current_parent_new_child"
@@ -248,6 +326,80 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
              CheckRun
              |> Ash.Query.filter(name == "Current-parent check")
              |> Ash.read_one!(authorize?: false)
+  end
+
+  test "a timestamp-less check change advances on a logical child clock" do
+    context = reconciliation_context("timestamp-less-check")
+    pull_request_node_id = "PR_timestamp_less_check"
+    repository_node_id = "R_timestamp_less_check"
+    check_node_id = "CR_timestamp_less_check"
+
+    request =
+      request(context, "check_run", check_node_id, "delivery-timestamp-less-check")
+
+    completed = %Adapter.CheckRunSnapshot{
+      node_id: check_node_id,
+      database_id: 710,
+      provider_version: "check-completed",
+      provider_sequence: 10,
+      provider_updated_at: ~U[2026-07-14 12:02:00Z],
+      name: "Timestamp-less check",
+      status: "completed",
+      conclusion: "failure",
+      details_url: "https://example.test/checks/timestamp-less",
+      started_at: ~U[2026-07-14 12:01:00Z],
+      completed_at: ~U[2026-07-14 12:02:00Z]
+    }
+
+    completed_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:check_runs, [completed])
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, completed_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-completed"),
+               request
+             )
+
+    queued = %{
+      completed
+      | provider_version: nil,
+        provider_sequence: nil,
+        provider_updated_at: nil,
+        status: "queued",
+        conclusion: nil,
+        started_at: nil,
+        completed_at: nil
+    }
+
+    queued_snapshot = %{completed_snapshot | check_runs: [queued]}
+    Provider.put(%{{"check_run", check_node_id} => {:ok, queued_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-queued"),
+               request
+             )
+
+    persisted = CheckRun |> Ash.read_one!(authorize?: false)
+    assert persisted.status == "queued"
+    assert persisted.conclusion == nil
+    assert persisted.provider_sequence == 11
+    assert persisted.provider_version =~ "github-check:v2:"
+
+    Provider.put(%{{"check_run", check_node_id} => {:ok, completed_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "check-older-replay"),
+               request
+             )
+
+    preserved = Ash.get!(CheckRun, persisted.id, authorize?: false)
+    assert preserved.status == "queued"
+    assert preserved.provider_sequence == 11
   end
 
   test "review-thread state advances when the pull request version is unchanged" do
@@ -1761,7 +1913,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     repositories =
       Repository
-      |> Ash.Query.filter(provider_version == "v1")
+      |> Ash.Query.filter(full_name == "Un3qual/office-graph-backend")
       |> Ash.read!(authorize?: false)
 
     assert Enum.sort(Enum.map(repositories, & &1.workspace_id)) ==

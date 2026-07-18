@@ -38,6 +38,9 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.RepositorySnapshot do
   defstruct [
     :node_id,
     :database_id,
+    :provider_version,
+    :provider_sequence,
+    :provider_updated_at,
     :name,
     :full_name,
     :owner_login,
@@ -113,6 +116,50 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.CheckRunSnapshot do
     :conclusion,
     :details_url,
     :started_at,
-    :completed_at
+    :completed_at,
+    current?: true
   ]
+end
+
+defmodule OfficeGraph.GitHubIntegration.Adapter.ProviderDigest do
+  @moduledoc false
+
+  alias OfficeGraph.GitHubIntegration.Adapter.{CheckRunSnapshot, RepositorySnapshot}
+
+  def repository(%RepositorySnapshot{} = repository) do
+    digest("github-repository:v1", [
+      repository.node_id,
+      repository.database_id,
+      repository.name,
+      repository.full_name,
+      repository.owner_login,
+      repository.default_ref_name,
+      repository.visibility,
+      repository.url
+    ])
+  end
+
+  def check_run(%CheckRunSnapshot{} = check) do
+    digest("github-check:v2", [
+      check.node_id,
+      check.database_id,
+      check.check_suite_database_id,
+      check.name,
+      check.status,
+      check.conclusion,
+      check.details_url,
+      check.started_at,
+      check.completed_at
+    ])
+  end
+
+  defp digest(prefix, values) do
+    digest =
+      values
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "#{prefix}:#{digest}"
+  end
 end

@@ -72,6 +72,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
           databaseId
           name
           nameWithOwner
+          updatedAt
           visibility
           url
           owner { login }
@@ -452,18 +453,23 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
          {:ok, name} <- required_nonblank(repository, "name"),
          {:ok, full_name} <- required_nonblank(repository, "nameWithOwner"),
          {:ok, owner_login} <- nested_nonblank(repository, ["owner", "login"]),
+         {:ok, updated_at_raw} <- required_nonblank(repository, "updatedAt"),
+         {:ok, updated_at} <- datetime(updated_at_raw),
          {:ok, visibility} <- enum_value(repository, "visibility", ~w(public private internal)) do
-      {:ok,
-       %Adapter.RepositorySnapshot{
-         node_id: node_id,
-         database_id: optional_positive_integer(repository["databaseId"]),
-         name: name,
-         full_name: full_name,
-         owner_login: owner_login,
-         default_ref_name: get_in(repository, ["defaultBranchRef", "name"]),
-         visibility: visibility,
-         url: optional_string(repository["url"])
-       }}
+      snapshot = %Adapter.RepositorySnapshot{
+        node_id: node_id,
+        database_id: optional_positive_integer(repository["databaseId"]),
+        provider_sequence: DateTime.to_unix(updated_at, :microsecond),
+        provider_updated_at: updated_at,
+        name: name,
+        full_name: full_name,
+        owner_login: owner_login,
+        default_ref_name: get_in(repository, ["defaultBranchRef", "name"]),
+        visibility: visibility,
+        url: optional_string(repository["url"])
+      }
+
+      {:ok, %{snapshot | provider_version: Adapter.ProviderDigest.repository(snapshot)}}
     end
   end
 
@@ -637,9 +643,9 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     with {:ok, head_checks} <-
            nodes
            |> Enum.filter(&(&1["__typename"] in [nil, "CheckRun"]))
-           |> map_results(&normalize_check/1),
+           |> map_results(&normalize_check(&1, true)),
          {:ok, requested_checks} <- normalize_requested_check(requested_check) do
-      {:ok, Enum.uniq_by(requested_checks ++ head_checks, & &1.node_id)}
+      {:ok, Enum.uniq_by(head_checks ++ requested_checks, & &1.node_id)}
     end
   end
 
@@ -652,13 +658,13 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   defp normalize_requested_check(nil), do: {:ok, []}
 
   defp normalize_requested_check(requested_check) when is_map(requested_check) do
-    case normalize_check(requested_check) do
+    case normalize_check(requested_check, false) do
       {:ok, check} -> {:ok, [check]}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp normalize_check(check) when is_map(check) do
+  defp normalize_check(check, current?) when is_map(check) and is_boolean(current?) do
     with {:ok, node_id} <- required_nonblank(check, "id"),
          {:ok, name} <- required_nonblank(check, "name"),
          {:ok, provider_status} <-
@@ -675,45 +681,39 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       conclusion =
         if status == "completed", do: downcase_string(check["conclusion"]), else: nil
 
-      provider = check_provider_metadata(node_id, status, conclusion, started_at, completed_at)
+      snapshot = %Adapter.CheckRunSnapshot{
+        node_id: node_id,
+        database_id: optional_positive_integer(check["databaseId"]),
+        check_suite_database_id:
+          optional_positive_integer(get_in(check, ["checkSuite", "databaseId"])),
+        name: name,
+        status: status,
+        conclusion: conclusion,
+        details_url: optional_string(check["detailsUrl"]),
+        started_at: started_at,
+        completed_at: completed_at,
+        current?: current?
+      }
+
+      provider = check_provider_metadata(snapshot)
 
       {:ok,
-       %Adapter.CheckRunSnapshot{
-         node_id: node_id,
-         database_id: optional_positive_integer(check["databaseId"]),
-         check_suite_database_id:
-           optional_positive_integer(get_in(check, ["checkSuite", "databaseId"])),
-         provider_version: provider.version,
-         provider_sequence: provider.sequence,
-         provider_updated_at: provider.updated_at,
-         name: name,
-         status: status,
-         conclusion: conclusion,
-         details_url: optional_string(check["detailsUrl"]),
-         started_at: started_at,
-         completed_at: completed_at
+       %{
+         snapshot
+         | provider_version: provider.version,
+           provider_sequence: provider.sequence,
+           provider_updated_at: provider.updated_at
        }}
     end
   end
 
-  defp normalize_check(_check), do: {:error, :invalid_provider_response}
+  defp normalize_check(_check, _current?), do: {:error, :invalid_provider_response}
 
-  defp check_provider_metadata(node_id, status, conclusion, started_at, completed_at) do
-    case completed_at || started_at do
+  defp check_provider_metadata(check) do
+    case check.completed_at || check.started_at do
       %DateTime{} = observed_at ->
         %Adapter.ProviderMetadata{
-          version:
-            Enum.join(
-              [
-                "github-check",
-                node_id,
-                status,
-                conclusion || "none",
-                datetime_version(started_at),
-                datetime_version(completed_at)
-              ],
-              ":"
-            ),
+          version: Adapter.ProviderDigest.check_run(check),
           sequence: DateTime.to_unix(observed_at, :microsecond),
           updated_at: observed_at
         }
@@ -722,9 +722,6 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
         %Adapter.ProviderMetadata{version: nil, sequence: nil, updated_at: nil}
     end
   end
-
-  defp datetime_version(nil), do: "none"
-  defp datetime_version(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   defp requested_check(response, "check_run") do
     case Map.get(response, "requestedObject") do

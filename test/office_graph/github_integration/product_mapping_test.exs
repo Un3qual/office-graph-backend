@@ -240,6 +240,69 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 2
   end
 
+  test "a requested check outside the current head is retained but non-actionable" do
+    context = context("requested-outside-current-head")
+
+    pull_request_request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-current-head-check"
+      })
+
+    failing = %{mapping_snapshot() | review_comments: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, failing}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(
+               operation!(context, pull_request_request, "current-head-check"),
+               pull_request_request
+             )
+
+    assert [signal_id] = first_outcome.signal_ids
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
+
+    [historical_check] = failing.check_runs
+
+    historical_check =
+      historical_check
+      |> Map.put(:current?, false)
+      |> Map.merge(%{
+        provider_version: "historical-check-v2",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z]
+      })
+
+    requested_snapshot = %{
+      failing
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        check_runs: [historical_check]
+    }
+
+    check_request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "check_run",
+        object_id: historical_check.node_id,
+        pull_request_id: "PR_mapping_44",
+        delivery_id: "delivery-historical-check"
+      })
+
+    Provider.put(%{{"check_run", historical_check.node_id} => {:ok, requested_snapshot}})
+
+    assert {:ok, historical_outcome} =
+             Reconciler.reconcile(
+               operation!(context, check_request, "historical-check"),
+               check_request
+             )
+
+    assert historical_outcome.signal_ids == []
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+  end
+
   test "authoritative-absence read outages remain retryable without closing signals" do
     context = context("missing-provider-work-read-unavailable")
 

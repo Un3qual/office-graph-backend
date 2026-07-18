@@ -153,8 +153,34 @@ extension records.
 
 - **WHEN** an authoritative check run advances while the containing pull
   request's provider version remains unchanged
-- **THEN** reconciliation MUST use the check run's timestamps and state to
-  advance that check without overwriting it from an older child snapshot
+- **THEN** reconciliation MUST use the check run's timestamps and a digest of
+  its persisted provider state to advance that check without overwriting it
+  from an older child snapshot
+
+#### Scenario: Timestamp-less check state changes
+
+- **WHEN** an authoritative current-head check changes to queued or in-progress
+  without a started or completed timestamp while its pull request version is
+  unchanged
+- **THEN** reconciliation MUST advance a check-specific logical version, MUST
+  treat an exact replay as stale, and MUST NOT allow an older timestamped child
+  snapshot to overwrite the new state
+
+#### Scenario: Repository freshness advances independently of its pull request
+
+- **WHEN** an authoritative repository read changes its name, default branch,
+  visibility, or URL while the containing pull request version is unchanged
+- **THEN** reconciliation MUST use the repository update timestamp and a digest
+  of its persisted provider state to refresh the provider-neutral repository
+  and external reference without accepting an older repository snapshot
+
+#### Scenario: Requested check is outside the current pull-request head
+
+- **WHEN** a check-run delivery requests a check that is absent from the
+  authoritative current-head rollup for its associated pull request
+- **THEN** reconciliation MUST retain the requested object for validation and
+  state reconciliation, MUST treat it as absent from the current head, and MUST
+  NOT create or retain actionable product work for that historical check
 
 #### Scenario: Review-comment freshness advances independently of its pull request
 

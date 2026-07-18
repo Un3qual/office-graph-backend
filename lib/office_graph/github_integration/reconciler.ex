@@ -328,6 +328,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp valid_repository?(%Adapter.RepositorySnapshot{} = repository) do
     nonblank_string?(repository.node_id) and optional_positive_integer?(repository.database_id) and
+      valid_optional_provider_metadata?(repository) and
       nonblank_string?(repository.name) and nonblank_string?(repository.full_name) and
       nonblank_string?(repository.owner_login) and optional_string?(repository.default_ref_name) and
       repository.visibility in @repository_visibilities and optional_string?(repository.url)
@@ -379,6 +380,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       optional_positive_integer?(check.check_suite_database_id) and nonblank_string?(check.name) and
       check.status in @check_statuses and valid_check_state?(check) and
       valid_optional_provider_metadata?(check) and
+      is_boolean(check.current?) and
       optional_string?(check.details_url) and optional_datetime?(check.started_at) and
       optional_datetime?(check.completed_at)
   end
@@ -626,15 +628,17 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         snapshot.repository.node_id
       )
 
+    provider = repository_provider_metadata(snapshot.repository, snapshot)
+
     result =
       SoftwareProving.upsert_provider_resource(operation, source, Repository, existing, %{
         name: snapshot.repository.name,
         full_name: snapshot.repository.full_name,
         default_ref_name: snapshot.repository.default_ref_name,
         visibility: snapshot.repository.visibility,
-        provider_version: snapshot.provider_version,
-        provider_sequence: snapshot.provider_sequence,
-        provider_updated_at: snapshot.provider_updated_at
+        provider_version: provider.version,
+        provider_sequence: provider.sequence,
+        provider_updated_at: provider.updated_at
       })
       |> unwrap!()
 
@@ -661,6 +665,20 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     )
 
     result
+  end
+
+  defp repository_provider_metadata(repository, snapshot) do
+    case provider_metadata(repository) do
+      {:ok, provider} ->
+        provider
+
+      :missing ->
+        %Adapter.ProviderMetadata{
+          version: Adapter.ProviderDigest.repository(repository),
+          sequence: snapshot.provider_sequence,
+          updated_at: snapshot.provider_updated_at
+        }
+    end
   end
 
   defp reconcile_pull_request!(operation, source, repository, snapshot) do
@@ -950,10 +968,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_checks!(operation, source, repository, pull_request, snapshot) do
     Enum.map(snapshot.check_runs, fn check ->
-      provider = check_provider_metadata(check, snapshot)
-
       existing =
         check_run_by_extension(operation, check.node_id, pull_request.id)
+
+      provider = check_provider_metadata(check, snapshot, existing)
 
       result =
         SoftwareProving.upsert_provider_resource(operation, source, CheckRun, existing, %{
@@ -997,18 +1015,39 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end)
   end
 
-  defp check_provider_metadata(check, snapshot) do
+  defp check_provider_metadata(check, snapshot, existing) do
     case provider_metadata(check) do
       {:ok, provider} ->
         provider
 
       :missing ->
-        %Adapter.ProviderMetadata{
-          version: snapshot.provider_version,
-          sequence: snapshot.provider_sequence,
-          updated_at: snapshot.provider_updated_at
-        }
+        derived_check_provider_metadata(check, snapshot, existing)
     end
+  end
+
+  defp derived_check_provider_metadata(check, snapshot, existing) do
+    version = Adapter.ProviderDigest.check_run(check)
+
+    sequence =
+      case existing do
+        nil ->
+          snapshot.provider_sequence
+
+        %{provider_version: ^version, provider_sequence: sequence} ->
+          sequence
+
+        %{provider_sequence: sequence} when check.status in ~w(queued in_progress) ->
+          max(snapshot.provider_sequence, (sequence || -1) + 1)
+
+        _existing ->
+          snapshot.provider_sequence
+      end
+
+    %Adapter.ProviderMetadata{
+      version: version,
+      sequence: sequence,
+      updated_at: snapshot.provider_updated_at
+    }
   end
 
   defp missing_product_references!(
@@ -1034,7 +1073,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         source,
         CheckRun,
         pull_request.id,
-        Enum.map(checks, & &1.record.id)
+        checks
+        |> Enum.filter(& &1.snapshot.current?)
+        |> Enum.map(& &1.record.id)
       )
 
     tombstoned_comments =
@@ -1180,7 +1221,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     check_signals =
       checks
       |> Enum.flat_map(fn item ->
-        if item.status == :stale do
+        if not item.snapshot.current? or item.status == :stale do
           []
         else
           actionable? = failing_check?(item.record)
