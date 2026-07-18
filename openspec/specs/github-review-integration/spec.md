@@ -412,6 +412,15 @@ the first GitHub integration.
 - **THEN** the worker MUST reject the stale action before provider access and
   persist a classified stale-provider-version outcome
 
+#### Scenario: Queued review reply becomes non-actionable
+
+- **WHEN** a review reply remains queued while its containing review thread
+  becomes resolved or outdated, or its pull request becomes closed or merged,
+  without changing the selected comment's provider version
+- **THEN** the worker MUST reconcile any ambiguously successful prior reply,
+  MUST reject a new provider reply before mutation, and MUST persist a
+  classified stale-provider-version outcome
+
 #### Scenario: Completed outbound action trace persistence is temporarily unavailable
 
 - **WHEN** an outbound action result is durably succeeded or terminal but its
@@ -480,6 +489,13 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   reported the installation as revoked
 - **THEN** Office Graph MUST retain the installation lifecycle, record the
   terminal invalid-credential outcome, and direct operators to rotate credentials
+
+#### Scenario: Installation credential binding disappears after operation start
+
+- **WHEN** an authorized reconciliation operation has started and its selected
+  private-key binding is removed before provider access
+- **THEN** Office Graph MUST record the same terminal invalid-credential outcome
+  and MUST NOT cancel the delivery as an unclassified worker result
 
 #### Scenario: Stored outbound secret is missing
 

@@ -7,6 +7,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
   @large_pull_request_database_id 4_294_967_296
   @large_review_comment_database_id 4_294_967_297
   @large_review_database_id 4_294_967_298
+  @large_check_run_database_id 4_294_967_299
 
   defmodule HTTPClient do
     @behaviour OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient
@@ -691,6 +692,43 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
            }
   end
 
+  test "check updates use full 64-bit database ids for the REST target", context do
+    check_context =
+      check_run_context()
+      |> update_in(["data", "node"], fn node ->
+        node
+        |> Map.delete("databaseId")
+        |> Map.put("fullDatabaseId", Integer.to_string(@large_check_run_database_id))
+      end)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(check_context),
+      json_response(%{
+        "id" => @large_check_run_database_id,
+        "node_id" => "CR_live",
+        "updated_at" => "2026-07-16T12:32:00Z"
+      })
+    ])
+
+    assert {:ok, %{id: "CR_live", version: "2026-07-16T12:32:00Z"}} =
+             GitHub.update_check(
+               %{
+                 target_node_id: "CR_live",
+                 external_installation_id: 42,
+                 status: "completed",
+                 conclusion: "success",
+                 details_url: "https://office-graph.test/checks/large"
+               },
+               context.private_key
+             )
+
+    expected_url =
+      "https://api.github.test/repos/Un3qual/office-graph-backend/check-runs/#{@large_check_run_database_id}"
+
+    assert {:patch, ^expected_url, _headers, _encoded_body} = List.last(HTTPClient.requests())
+  end
+
   defp installation_token_response do
     expires_at = DateTime.utc_now() |> DateTime.add(3_600) |> DateTime.to_iso8601()
 
@@ -721,7 +759,7 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     %{
       "data" => %{
         "node" => %{
-          "databaseId" => 903,
+          "fullDatabaseId" => "903",
           "checkSuite" => %{
             "repository" => %{"nameWithOwner" => "Un3qual/office-graph-backend"}
           }

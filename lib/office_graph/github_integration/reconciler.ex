@@ -236,7 +236,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         |> classify_credential_resolution()
 
       {:ok, _missing_or_invalid} ->
-        {:error, :forbidden}
+        {:error, {:provider, :invalid_credential}}
 
       {:error, _storage_error} ->
         {:error, :integration_storage_unavailable}

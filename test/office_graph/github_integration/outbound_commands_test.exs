@@ -31,7 +31,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.Integrations.IntegrationCredential
-  alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
+  alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment, ReviewThread}
   alias OfficeGraph.SoftwareProving.GitHub.{CheckRunExtension, ReviewCommentExtension}
 
   require Ash.Query
@@ -302,6 +302,41 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     })
 
     assert {:cancel, "stale_provider_version"} = OutboundWorker.perform(job_for(action.id))
+    assert Provider.calls("review_reply", "PRRC_outbound") == 0
+
+    action = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert action.state == "terminal"
+    assert action.failure_code == "stale_provider_version"
+  end
+
+  test "workers reject queued review replies after their thread becomes non-actionable",
+       context do
+    attrs = reply_attrs(context, "Do not send this after the thread resolves.")
+
+    operation =
+      command_operation!(context, :github_review_reply, "reply:resolved-thread", attrs)
+
+    assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
+
+    ReviewThread
+    |> Ash.get!(context.comment.review_thread_id, authorize?: false)
+    |> Ash.Changeset.for_update(:reconcile, %{
+      state: "resolved",
+      resolved_at: ~U[2026-07-14 16:01:00Z],
+      provider_version: "thread-v2",
+      provider_sequence: 2,
+      provider_updated_at: ~U[2026-07-14 16:01:00Z],
+      operation_id: context.comment.operation_id
+    })
+    |> Repo.ash_update!()
+
+    Provider.put(%{
+      {"review_reply", "PRRC_outbound"} =>
+        {:ok, %{id: "must-not-send-after-resolution", version: "v2"}}
+    })
+
+    assert {:cancel, "stale_provider_version"} = OutboundWorker.perform(job_for(action.id))
+    assert Provider.calls("review_reply_lookup", action.id) == 1
     assert Provider.calls("review_reply", "PRRC_outbound") == 0
 
     action = Ash.get!(OutboundAction, action.id, authorize?: false)

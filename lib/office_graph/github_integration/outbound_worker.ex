@@ -20,7 +20,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     StorageResult
   }
 
-  alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment}
+  alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, ReviewComment, ReviewThread}
 
   require Ash.Query
 
@@ -299,6 +299,41 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
+  defp require_current_review_actionability(action) do
+    with {:ok, comment} <- current_target(ReviewComment, action),
+         :ok <- require_actionable_review_comment(comment),
+         :ok <- require_open_review_thread(comment, action),
+         :ok <- require_open_pull_request(comment, action) do
+      :ok
+    end
+  end
+
+  defp require_actionable_review_comment(%ReviewComment{
+         state: "published",
+         parent_comment_id: nil
+       }),
+       do: :ok
+
+  defp require_actionable_review_comment(_comment), do: {:error, :stale_provider_version}
+
+  defp require_open_review_thread(%ReviewComment{review_thread_id: nil}, _action), do: :ok
+
+  defp require_open_review_thread(%ReviewComment{review_thread_id: thread_id}, action),
+    do: require_open_parent(ReviewThread, thread_id, action)
+
+  defp require_open_pull_request(%ReviewComment{pull_request_id: pull_request_id}, action),
+    do: require_open_parent(PullRequest, pull_request_id, action)
+
+  defp require_open_parent(resource, id, action) when is_binary(id) do
+    case current_target(resource, %{action | target_id: id}) do
+      {:ok, %{state: "open"}} -> :ok
+      {:ok, _non_actionable} -> {:error, :stale_provider_version}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp require_open_parent(_resource, _id, _action), do: {:error, :invalid_provider_response}
+
   defp call_adapter(action, installation, credential) do
     adapter = Application.fetch_env!(:office_graph, :github_adapter)
 
@@ -321,7 +356,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
        ) do
     case adapter.find_review_reply(request, credential) do
       {:ok, nil} ->
-        with :ok <- require_current_target_version(action) do
+        with :ok <- require_current_review_actionability(action),
+             :ok <- require_current_target_version(action) do
           adapter.reply_to_review(request, credential)
         end
 

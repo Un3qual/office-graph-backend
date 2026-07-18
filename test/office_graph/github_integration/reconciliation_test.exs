@@ -968,6 +968,37 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert outcome.failure_code == "provider_unavailable"
   end
 
+  test "a private-key binding removed after operation start records an invalid credential outcome" do
+    context = reconciliation_context("credential-binding-removed")
+
+    request =
+      request(
+        context,
+        "pull_request",
+        "PR_credential_binding_removed",
+        "delivery-credential-binding-removed"
+      )
+
+    operation = reconciliation_operation!(context, request, "credential-binding-removed")
+
+    Repo.query!(
+      "DELETE FROM github_installation_credentials WHERE installation_id = $1 AND purpose = 'app_private_key'",
+      [Ecto.UUID.dump!(context.installation.id)]
+    )
+
+    assert {:error, {:terminal, :invalid_credential}} =
+             Reconciler.reconcile(operation, request)
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "terminal"
+    assert outcome.failure_class == "terminal"
+    assert outcome.failure_code == "invalid_credential"
+  end
+
   test "provider failure outcome write outages remain retryable storage errors" do
     context = reconciliation_context("failure-outcome-write-unavailable")
 

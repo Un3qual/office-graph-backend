@@ -159,7 +159,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
         }
       }
       ... on CheckRun {
-        databaseId
+        fullDatabaseId
         checkSuite {
           repository { nameWithOwner }
         }
@@ -965,7 +965,7 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
   end
 
   defp normalize_outbound_context(node, :check_run) do
-    with {:ok, database_id} <- positive_integer(node, "databaseId"),
+    with {:ok, database_id} <- positive_database_id(node, "fullDatabaseId"),
          {:ok, repository} <- nested_nonblank(node, ["checkSuite", "repository", "nameWithOwner"]) do
       {:ok, %{database_id: database_id, repository: repository}}
     end
