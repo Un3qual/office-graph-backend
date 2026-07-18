@@ -186,8 +186,12 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
     assert snapshot.pull_request.node_id == "PR_live"
     assert [%{node_id: "PRRT_live", state: "open"}] = snapshot.review_threads
 
-    assert [%{node_id: "PRRC_live", review_thread_node_id: "PRRT_live"}] =
+    assert [%{node_id: "PRRC_live", review_thread_node_id: "PRRT_live"} = comment] =
              snapshot.review_comments
+
+    assert comment.provider_version =~ "github-review-comment:v1:"
+    assert comment.provider_sequence == DateTime.to_unix(~U[2026-07-16 11:31:00Z], :microsecond)
+    assert comment.provider_updated_at == ~U[2026-07-16 11:31:00Z]
 
     assert [%{node_id: "CR_live", status: "completed", conclusion: "failure"}] =
              snapshot.check_runs

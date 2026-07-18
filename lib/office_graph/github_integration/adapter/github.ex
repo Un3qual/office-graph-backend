@@ -548,20 +548,47 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
     with {:ok, node_id} <- required_nonblank(comment, "id"),
          {:ok, body} <- string_value(comment, "body"),
          {:ok, state} <- normalize_comment_state(comment),
-         {:ok, created_at} <- optional_datetime(comment["createdAt"]) do
+         {:ok, created_at} <- optional_datetime(comment["createdAt"]),
+         {:ok, updated_at} <- datetime(comment["updatedAt"]) do
+      database_id = optional_positive_integer(comment["databaseId"])
+
+      review_database_id =
+        optional_positive_integer(get_in(comment, ["pullRequestReview", "databaseId"]))
+
+      parent_comment_node_id = get_in(comment, ["replyTo", "id"])
+      author_label = get_in(comment, ["author", "login"])
+      url = optional_string(comment["url"])
+
+      normalized = %{
+        node_id: node_id,
+        database_id: database_id,
+        review_database_id: review_database_id,
+        review_thread_node_id: thread_node_id,
+        parent_comment_node_id: parent_comment_node_id,
+        body: body,
+        author_label: author_label,
+        state: state,
+        published_at: created_at,
+        url: url
+      }
+
+      provider = review_comment_provider_metadata(normalized, updated_at)
+
       {:ok,
        %Adapter.ReviewCommentSnapshot{
          node_id: node_id,
-         database_id: optional_positive_integer(comment["databaseId"]),
-         review_database_id:
-           optional_positive_integer(get_in(comment, ["pullRequestReview", "databaseId"])),
+         database_id: database_id,
+         review_database_id: review_database_id,
          review_thread_node_id: thread_node_id,
-         parent_comment_node_id: get_in(comment, ["replyTo", "id"]),
+         parent_comment_node_id: parent_comment_node_id,
+         provider_version: provider.version,
+         provider_sequence: provider.sequence,
+         provider_updated_at: provider.updated_at,
          body: body,
-         author_label: get_in(comment, ["author", "login"]),
+         author_label: author_label,
          state: state,
          published_at: created_at,
-         url: optional_string(comment["url"])
+         url: url
        }}
     end
   end
@@ -577,6 +604,31 @@ defmodule OfficeGraph.GitHubIntegration.Adapter.GitHub do
       "submitted" -> {:ok, "published"}
       _invalid -> {:error, :invalid_provider_response}
     end
+  end
+
+  defp review_comment_provider_metadata(comment, updated_at) do
+    digest =
+      [
+        comment.node_id,
+        comment.database_id,
+        comment.review_database_id,
+        comment.review_thread_node_id,
+        comment.parent_comment_node_id,
+        comment.body,
+        comment.author_label,
+        comment.state,
+        comment.published_at,
+        comment.url
+      ]
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    %Adapter.ProviderMetadata{
+      version: "github-review-comment:v1:#{digest}",
+      sequence: DateTime.to_unix(updated_at, :microsecond),
+      updated_at: updated_at
+    }
   end
 
   defp normalize_checks(%{"nodes" => [%{"commit" => commit} | _]}, requested_check) do

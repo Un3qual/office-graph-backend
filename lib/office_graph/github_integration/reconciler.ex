@@ -363,7 +363,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       optional_string?(comment.review_thread_node_id) and
       optional_string?(comment.parent_comment_node_id) and valid_review_comment_body?(comment) and
       optional_string?(comment.author_label) and comment.state in @review_comment_states and
-      optional_datetime?(comment.published_at) and optional_string?(comment.url)
+      valid_optional_provider_metadata?(comment) and optional_datetime?(comment.published_at) and
+      optional_string?(comment.url)
   end
 
   defp valid_review_comment?(_comment), do: false
@@ -393,21 +394,32 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp valid_check_state?(_check), do: false
 
-  defp valid_optional_provider_metadata?(%{
-         provider_version: nil,
-         provider_sequence: nil,
-         provider_updated_at: nil
-       }),
-       do: true
+  defp valid_optional_provider_metadata?(item),
+    do: provider_metadata(item) != :invalid
 
-  defp valid_optional_provider_metadata?(%{
-         provider_version: version,
-         provider_sequence: sequence,
-         provider_updated_at: updated_at
-       }),
-       do:
-         nonblank_string?(version) and is_integer(sequence) and sequence >= 0 and
-           optional_datetime?(updated_at)
+  defp provider_metadata(item) do
+    case {
+      Map.get(item, :provider_version),
+      Map.get(item, :provider_sequence),
+      Map.get(item, :provider_updated_at)
+    } do
+      {nil, nil, nil} ->
+        :missing
+
+      {version, sequence, updated_at} ->
+        if nonblank_string?(version) and is_integer(sequence) and sequence >= 0 and
+             optional_datetime?(updated_at) do
+          {:ok,
+           %Adapter.ProviderMetadata{
+             version: version,
+             sequence: sequence,
+             updated_at: updated_at
+           }}
+        else
+          :invalid
+        end
+    end
+  end
 
   defp valid_collection?(items, validator) when is_list(items), do: Enum.all?(items, validator)
   defp valid_collection?(_items, _validator), do: false
@@ -852,6 +864,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          parent_comment_id,
          review_thread_id
        ) do
+    provider = comment_provider_metadata(comment, snapshot)
+
     existing =
       base_by_extension(
         operation,
@@ -870,9 +884,9 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         author_label: comment.author_label,
         state: comment.state,
         published_at: comment.published_at,
-        provider_version: snapshot.provider_version,
-        provider_sequence: snapshot.provider_sequence,
-        provider_updated_at: snapshot.provider_updated_at
+        provider_version: provider.version,
+        provider_sequence: provider.sequence,
+        provider_updated_at: provider.updated_at
       })
       |> unwrap!()
 
@@ -900,6 +914,38 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       )
 
     %{record: result.record, snapshot: comment, reference: reference, status: result.status}
+  end
+
+  defp comment_provider_metadata(comment, snapshot) do
+    case provider_metadata(comment) do
+      {:ok, provider} -> provider
+      :missing -> derived_comment_provider_metadata(comment, snapshot)
+    end
+  end
+
+  defp derived_comment_provider_metadata(comment, snapshot) do
+    digest =
+      [
+        comment.node_id,
+        comment.database_id,
+        comment.review_database_id,
+        comment.review_thread_node_id,
+        comment.parent_comment_node_id,
+        comment.body,
+        comment.author_label,
+        comment.state,
+        comment.published_at,
+        comment.url
+      ]
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    %Adapter.ProviderMetadata{
+      version: "github-review-comment:v1:#{digest}",
+      sequence: snapshot.provider_sequence,
+      updated_at: snapshot.provider_updated_at
+    }
   end
 
   defp reconcile_checks!(operation, source, repository, pull_request, snapshot) do
@@ -951,23 +997,19 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end)
   end
 
-  defp check_provider_metadata(
-         %{
-           provider_version: version,
-           provider_sequence: sequence,
-           provider_updated_at: updated_at
-         },
-         _snapshot
-       )
-       when is_binary(version) and is_integer(sequence),
-       do: %Adapter.ProviderMetadata{version: version, sequence: sequence, updated_at: updated_at}
+  defp check_provider_metadata(check, snapshot) do
+    case provider_metadata(check) do
+      {:ok, provider} ->
+        provider
 
-  defp check_provider_metadata(_check, snapshot),
-    do: %Adapter.ProviderMetadata{
-      version: snapshot.provider_version,
-      sequence: snapshot.provider_sequence,
-      updated_at: snapshot.provider_updated_at
-    }
+      :missing ->
+        %Adapter.ProviderMetadata{
+          version: snapshot.provider_version,
+          sequence: snapshot.provider_sequence,
+          updated_at: snapshot.provider_updated_at
+        }
+    end
+  end
 
   defp missing_product_references!(
          operation,

@@ -314,6 +314,87 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     refute resolved_thread.provider_version == open_thread.provider_version
   end
 
+  test "review-comment state advances independently without accepting an older child snapshot" do
+    context = reconciliation_context("current-parent-updated-comment")
+    pull_request_node_id = "PR_current_parent_updated_comment"
+    repository_node_id = "R_current_parent_updated_comment"
+    comment_node_id = "PRRC_current_parent_updated_comment"
+
+    request =
+      request(
+        context,
+        "review_comment",
+        comment_node_id,
+        "delivery-current-parent-updated-comment"
+      )
+
+    original_updated_at = ~U[2026-07-14 12:01:00Z]
+    edited_updated_at = ~U[2026-07-14 12:02:00Z]
+
+    original_comment =
+      %Adapter.ReviewCommentSnapshot{
+        node_id: comment_node_id,
+        database_id: 709,
+        provider_version: "comment-v1",
+        provider_sequence: DateTime.to_unix(original_updated_at, :microsecond),
+        provider_updated_at: original_updated_at,
+        body: "Original review comment",
+        author_label: "review-bot",
+        state: "published",
+        published_at: ~U[2026-07-14 12:00:00Z]
+      }
+
+    original_snapshot =
+      snapshot(2, "open", pull_request_node_id, repository_node_id)
+      |> Map.put(:review_comments, [original_comment])
+
+    Provider.put(%{{"review_comment", comment_node_id} => {:ok, original_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "comment-original"),
+               request
+             )
+
+    edited_comment =
+      original_comment
+      |> Map.merge(%{
+        body: "Edited review comment",
+        state: "minimized",
+        provider_version: "comment-v2",
+        provider_sequence: DateTime.to_unix(edited_updated_at, :microsecond),
+        provider_updated_at: edited_updated_at
+      })
+
+    edited_snapshot = %{original_snapshot | review_comments: [edited_comment]}
+    Provider.put(%{{"review_comment", comment_node_id} => {:ok, edited_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "comment-edited"),
+               request
+             )
+
+    updated = ReviewComment |> Ash.read_one!(authorize?: false)
+    assert updated.body == "Edited review comment"
+    assert updated.state == "minimized"
+    assert updated.provider_version == "comment-v2"
+    assert updated.provider_sequence == DateTime.to_unix(edited_updated_at, :microsecond)
+
+    Provider.put(%{{"review_comment", comment_node_id} => {:ok, original_snapshot}})
+
+    assert {:ok, %{state: "reconciled"}} =
+             Reconciler.reconcile(
+               reconciliation_operation!(context, request, "comment-older-replay"),
+               request
+             )
+
+    preserved = Ash.get!(ReviewComment, updated.id, authorize?: false)
+    assert preserved.body == "Edited review comment"
+    assert preserved.state == "minimized"
+    assert preserved.provider_version == "comment-v2"
+  end
+
   test "a changed provider version advances a check when its sequence ties" do
     context = reconciliation_context("equal-sequence-updated-check")
     pull_request_node_id = "PR_equal_sequence_updated_check"

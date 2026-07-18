@@ -156,6 +156,14 @@ extension records.
 - **THEN** reconciliation MUST use the check run's timestamps and state to
   advance that check without overwriting it from an older child snapshot
 
+#### Scenario: Review-comment freshness advances independently of its pull request
+
+- **WHEN** an authoritative review comment changes while the containing pull
+  request's provider version remains unchanged
+- **THEN** reconciliation MUST use the comment's update timestamp and a digest
+  of its persisted provider state to apply the edit, minimize, or delete state
+  without accepting an older child snapshot over newer comment truth
+
 #### Scenario: One check run is associated with multiple pull requests
 
 - **WHEN** a GitHub check-run delivery identifies more than one associated pull
