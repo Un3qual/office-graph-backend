@@ -146,8 +146,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp perform_action(action, job) do
-    with {:ok, action} <- mark_provider_attempt(action),
-         {:ok, installation} <- active_installation(action),
+    with {:ok, action} <- mark_provider_attempt(action) do
+      action
+      |> reconciled_provider_result()
+      |> continue_or_record_provider_result(action, job)
+    else
+      {:error, reason} ->
+        record_adapter_result({:error, reason}, action, job)
+    end
+  end
+
+  defp continue_or_record_provider_result(:continue, action, job) do
+    with {:ok, installation} <- active_installation(action),
          {:ok, credential_id} <- credential_binding(installation.id),
          {:ok, credential} <-
            SecretStore.resolve(credential_id, %{
@@ -167,6 +177,32 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       {:error, reason} ->
         record_adapter_result({:error, reason}, action, job)
     end
+  end
+
+  defp continue_or_record_provider_result(result, action, job),
+    do: record_adapter_result(result, action, job)
+
+  defp reconciled_provider_result(%OutboundAction{action_kind: "check_update"} = action) do
+    with {:ok, request} <- normalize_input(action.input),
+         {:ok, target} <- current_target(CheckRun, action) do
+      cond do
+        target.provider_version == action.expected_provider_version ->
+          :continue
+
+        check_update_applied?(target, request) ->
+          {:ok, %{id: request.target_node_id, version: target.provider_version}}
+
+        true ->
+          {:error, :stale_provider_version}
+      end
+    end
+  end
+
+  defp reconciled_provider_result(_action), do: :continue
+
+  defp check_update_applied?(target, request) do
+    target.status == request.status and target.conclusion == request.conclusion and
+      target.details_url == request.details_url
   end
 
   defp mark_provider_attempt(action) do
@@ -235,6 +271,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp require_current_target_version(_action), do: {:error, :invalid_provider_response}
 
   defp require_current_target_version(resource, action) do
+    with {:ok, target} <- current_target(resource, action) do
+      if target.provider_version == action.expected_provider_version,
+        do: :ok,
+        else: {:error, :stale_provider_version}
+    end
+  end
+
+  defp current_target(resource, action) do
     case RecordLoader.get(resource, action.target_id,
            authorize?: false,
            not_found_error?: false
@@ -242,13 +286,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
       {:ok,
        %{
          organization_id: organization_id,
-         workspace_id: workspace_id,
-         provider_version: provider_version
-       }}
+         workspace_id: workspace_id
+       } = target}
       when organization_id == action.organization_id and workspace_id == action.workspace_id ->
-        if provider_version == action.expected_provider_version,
-          do: :ok,
-          else: {:error, :stale_provider_version}
+        {:ok, target}
 
       {:ok, _missing_or_cross_scope} ->
         {:error, :invalid_provider_response}

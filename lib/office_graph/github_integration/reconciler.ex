@@ -599,7 +599,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         end
 
       signal_ids =
-        map_product_work!(operation, comments, checks, threads, missing_references)
+        map_product_work!(
+          operation,
+          pull_request.record.state,
+          comments,
+          checks,
+          threads,
+          missing_references
+        )
 
       record_invalidation!(operation, pull_request.record, snapshot)
 
@@ -1021,16 +1028,30 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         }
       )
 
+      reference_node_id =
+        "#{check.node_id}:pull_request:#{snapshot.pull_request.node_id}"
+
       reference =
-        maybe_reference!(
-          operation,
-          source,
-          result.record,
-          "check_run",
-          "#{check.node_id}:pull_request:#{snapshot.pull_request.node_id}",
-          check.details_url,
-          result.status
-        )
+        case result.status do
+          :stale ->
+            existing_reference!(
+              operation,
+              source,
+              result.record,
+              "check_run",
+              reference_node_id
+            )
+
+          _current ->
+            maybe_reference!(
+              operation,
+              source,
+              result.record,
+              "check_run",
+              reference_node_id,
+              check.details_url
+            )
+        end
 
       %{record: result.record, snapshot: check, reference: reference, status: result.status}
     end)
@@ -1211,12 +1232,20 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp scope_query(query, workspace_id),
     do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
-  defp map_product_work!(operation, comments, checks, threads, missing_references) do
+  defp map_product_work!(
+         operation,
+         pull_request_state,
+         comments,
+         checks,
+         threads,
+         missing_references
+       ) do
     if is_nil(operation.workspace_id),
       do: [],
       else:
         map_workspace_product_work!(
           operation,
+          pull_request_state,
           comments,
           checks,
           threads,
@@ -1226,6 +1255,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp map_workspace_product_work!(
          operation,
+         pull_request_state,
          comments,
          checks,
          threads,
@@ -1242,10 +1272,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
     comment_signals =
       Enum.flat_map(comments, fn item ->
-        if skip_stale_comment_signal?(item, fresh_thread_ids) or is_nil(item.reference) do
+        if is_nil(item.reference) or
+             (pull_request_state == "open" and
+                skip_stale_comment_signal?(item, fresh_thread_ids)) do
           []
         else
-          actionable? = review_comment_actionable?(operation, item, thread_states)
+          actionable? =
+            pull_request_state == "open" and
+              review_comment_actionable?(operation, item, thread_states)
 
           result =
             WorkGraph.sync_integration_signal(
@@ -1266,10 +1300,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     check_signals =
       checks
       |> Enum.flat_map(fn item ->
-        if not item.snapshot.current? or item.status == :stale do
+        if is_nil(item.reference) or
+             (pull_request_state == "open" and
+                (not item.snapshot.current? or item.status == :stale)) do
           []
         else
-          actionable? = failing_check?(item.record)
+          actionable? = pull_request_state == "open" and failing_check?(item.record)
 
           result =
             WorkGraph.sync_integration_signal(

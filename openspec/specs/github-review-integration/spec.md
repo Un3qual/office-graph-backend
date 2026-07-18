@@ -258,6 +258,14 @@ extension records.
 - **THEN** Office Graph MUST reject the write before changing provider-neutral
   truth or creating graph state
 
+#### Scenario: User-authored signal shares a provider reference
+
+- **WHEN** a user-authored signal and an integration-authored signal both
+  reference the same provider external-reference graph item
+- **THEN** reconciliation MUST select only the relationship asserted by the
+  integration service principal, MUST update or close only that integration
+  signal, and MUST leave the user-authored signal and relationship unchanged
+
 #### Scenario: Sparse provider reference omits or blanks its URL
 
 - **WHEN** a later provider snapshot omits the optional URL or supplies a blank
@@ -276,8 +284,9 @@ extension records.
 
 - **WHEN** a newer reconciliation marks a review comment pending, minimized, or
   deleted, marks its containing review thread resolved or outdated, or marks a
-  previously failing check non-failing, or an authoritative current pull-request
-  snapshot no longer contains a previously mapped review comment or check
+  previously failing check non-failing, marks the pull request closed or merged,
+  or an authoritative current pull-request snapshot no longer contains a
+  previously mapped review comment or check
 - **THEN** Office Graph MUST close the existing mapped signal without deleting
   its provenance, MUST tombstone an absent review comment with a changed local
   provider version so outbound replies fail closed, MUST record a changed local
@@ -379,6 +388,16 @@ the first GitHub integration.
 - **THEN** the worker MUST reconcile the durable action identity before
   rejecting the stale target, MUST accept the matching existing provider reply,
   and MUST NOT create a duplicate reply
+
+#### Scenario: Ambiguous check-update success precedes a target version change
+
+- **WHEN** GitHub may have accepted a check update before Office Graph staged the
+  successful response, and authoritative reconciliation advances the local check
+  to the exact requested status, conclusion, and details URL
+- **THEN** the worker MUST accept the reconciled check identity and provider
+  version as successful durable evidence and MUST NOT call GitHub again
+- **AND** a newer check state that does not exactly match the requested update
+  MUST remain a classified stale-provider-version outcome
 
 #### Scenario: Selected installation does not own target provenance
 

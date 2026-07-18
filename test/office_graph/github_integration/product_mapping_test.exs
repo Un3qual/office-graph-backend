@@ -155,6 +155,92 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == 1
   end
 
+  test "integration signal sync ignores user-authored signals for the same reference" do
+    context = context("integration-owned-signal")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-integration-owned-signal"
+      })
+
+    failing = %{mapping_snapshot() | review_comments: []}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, failing}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "failing"), request)
+
+    assert [integration_signal_id] = first_outcome.signal_ids
+
+    check_reference =
+      ExternalReference
+      |> Ash.Query.filter(object_type == "check_run")
+      |> Ash.read_one!(authorize?: false)
+
+    reference_item =
+      GraphItem
+      |> Ash.Query.filter(
+        resource_type == "external_reference" and resource_id == ^check_reference.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    {:ok, signal_operation} =
+      Operations.start_operation(context.bootstrap.session, :proposed_change_apply)
+
+    assert {:ok, %{signal: user_signal}} =
+             WorkGraph.create_signal(context.bootstrap.session, signal_operation, %{
+               title: "User-owned follow-up",
+               body: "Keep this signal independent from GitHub reconciliation."
+             })
+
+    {:ok, relationship_operation} =
+      Operations.start_operation(context.bootstrap.session, :graph_relationship_create)
+
+    assert {:ok, user_relationship} =
+             WorkGraph.create_relationship(
+               context.bootstrap.session,
+               relationship_operation,
+               RelationshipRequest.new!(%{
+                 definition_key: "references_external",
+                 source_item_id: user_signal.graph_item_id,
+                 target_item_id: reference_item.id,
+                 workspace_id: context.bootstrap.workspace.id
+               })
+             )
+
+    [failed_check] = failing.check_runs
+
+    healthy = %{
+      failing
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        check_runs: [%{failed_check | conclusion: "success"}]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, healthy}})
+
+    assert {:ok, healthy_outcome} =
+             Reconciler.reconcile(operation!(context, request, "healthy"), request)
+
+    assert healthy_outcome.signal_ids == []
+    assert Ash.get!(Signal, integration_signal_id, authorize?: false).state == "closed"
+    assert Ash.get!(Signal, user_signal.id, authorize?: false).state == "open"
+
+    assert Ash.get!(GraphRelationship, user_relationship.id, authorize?: false).lifecycle ==
+             "active"
+  end
+
+  test "closed pull requests close mapped review and check signals" do
+    assert_non_open_pull_request_closes_signals("closed")
+  end
+
+  test "merged pull requests close mapped review and check signals" do
+    assert_non_open_pull_request_closes_signals("merged")
+  end
+
   test "signals close when provider work leaves the authoritative pull request snapshot" do
     context = context("missing-provider-work")
 
@@ -1144,6 +1230,52 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              WorkGraph.ensure_integration_signal(operation, %{id: reference.id}, attrs)
 
     assert Repo.aggregate(Signal, :count) == 0
+  end
+
+  defp assert_non_open_pull_request_closes_signals(pull_request_state) do
+    context = context("#{pull_request_state}-pull-request-signals")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-#{pull_request_state}-pull-request-signals"
+      })
+
+    open = mapping_snapshot()
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, open}})
+
+    assert {:ok, open_outcome} =
+             Reconciler.reconcile(operation!(context, request, "open"), request)
+
+    assert length(open_outcome.signal_ids) == 2
+
+    non_open = %{
+      open
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        pull_request: %{open.pull_request | state: pull_request_state}
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, non_open}})
+
+    assert {:ok, non_open_outcome} =
+             Reconciler.reconcile(
+               operation!(context, request, pull_request_state),
+               request
+             )
+
+    assert non_open_outcome.signal_ids == []
+
+    signal_states =
+      Enum.map(open_outcome.signal_ids, fn signal_id ->
+        Ash.get!(Signal, signal_id, authorize?: false).state
+      end)
+
+    assert signal_states == ["closed", "closed"],
+           "#{pull_request_state} pull request left signal states #{inspect(signal_states)}"
   end
 
   defp context(label, workspace_id \\ :session_workspace) do

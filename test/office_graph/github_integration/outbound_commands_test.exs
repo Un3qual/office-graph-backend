@@ -679,6 +679,68 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Provider.calls("check_update", "CR_outbound") == 1
   end
 
+  test "check update retries accept reconciled provider success after metadata staging fails",
+       context do
+    attrs = %{
+      installation_id: context.installation.id,
+      check_run_id: context.check.id,
+      status: "completed",
+      conclusion: "success",
+      details_url: "https://example.test/checks/reconciled-success",
+      expected_provider_version: context.check.provider_version
+    }
+
+    operation =
+      command_operation!(context, :github_check_update, "check:reconciled-success", attrs)
+
+    assert {:ok, action} = OutboundCommands.update_check(context.session, operation, attrs)
+    job = job_for(action.id)
+
+    Provider.put(%{
+      {"check_update", "CR_outbound"} => {:ok, %{id: "CR_outbound", version: "check-v2"}}
+    })
+
+    Repo.query!("""
+    ALTER TABLE oban_jobs
+    ADD CONSTRAINT test_github_outbound_success_staging
+    CHECK (NOT (meta ? 'successful_action_id'))
+    """)
+
+    result =
+      try do
+        OutboundWorker.perform(job)
+      after
+        Repo.query!("""
+        ALTER TABLE oban_jobs
+        DROP CONSTRAINT test_github_outbound_success_staging
+        """)
+      end
+
+    assert {:snooze, 5} = result
+    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "successful_action_id")
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+    assert Provider.calls("check_update", "CR_outbound") == 1
+
+    context.check
+    |> Ash.Changeset.for_update(:reconcile, %{
+      status: attrs.status,
+      conclusion: attrs.conclusion,
+      details_url: attrs.details_url,
+      provider_version: "check-v2",
+      provider_sequence: 2,
+      operation_id: context.check.operation_id
+    })
+    |> Repo.ash_update!()
+
+    assert :ok = OutboundWorker.perform(Repo.get!(Oban.Job, job.id))
+
+    succeeded = Ash.get!(OutboundAction, action.id, authorize?: false)
+    assert succeeded.state == "succeeded"
+    assert succeeded.provider_response_id == "CR_outbound"
+    assert succeeded.provider_response_version == "check-v2"
+    assert Provider.calls("check_update", "CR_outbound") == 1
+  end
+
   test "transient loaded-action dependency lookups remain retryable", context do
     RecordLoaderTestAdapter.configure!(%{})
 

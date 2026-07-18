@@ -52,7 +52,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
       |> then(&Support.ash_get_for_update(GraphItem, &1.id))
       |> Support.unwrap_ash()
 
-    case signal_for_reference(reference_item.id) do
+    case signal_for_reference(operation.principal_id, reference_item.id) do
       {:ok, nil} -> create_signal!(operation, reference_item, title, body)
       {:ok, signal} -> sync_existing_signal!(operation, signal, title, body)
       {:error, error} -> Repo.rollback(error)
@@ -65,7 +65,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         %{signal: nil, created?: false, state_changed?: false}
 
       reference_item ->
-        case signal_for_reference(reference_item.id) do
+        case signal_for_reference(operation.principal_id, reference_item.id) do
           {:ok, nil} -> %{signal: nil, created?: false, state_changed?: false}
           {:ok, signal} -> transition_signal!(operation, signal, "closed")
           {:error, error} -> Repo.rollback(error)
@@ -158,9 +158,14 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     end
   end
 
-  defp signal_for_reference(reference_item_id) do
+  defp signal_for_reference(asserting_principal_id, reference_item_id) do
     with {:ok, definition} <- RelationshipDefinitions.fetch_by_key("references_external"),
-         {:ok, relationship} <- active_reference_relationship(definition.id, reference_item_id) do
+         {:ok, relationship} <-
+           active_reference_relationship(
+             definition.id,
+             asserting_principal_id,
+             reference_item_id
+           ) do
       case relationship do
         nil -> {:ok, nil}
         relationship -> signal_by_graph_item(relationship.source_item_id)
@@ -168,11 +173,16 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     end
   end
 
-  defp active_reference_relationship(definition_id, reference_item_id) do
+  defp active_reference_relationship(
+         definition_id,
+         asserting_principal_id,
+         reference_item_id
+       ) do
     GraphRelationship
     |> Ash.Query.filter(
       definition_id == ^definition_id and target_item_id == ^reference_item_id and
-        lifecycle == "active" and source_item.resource_type == "signal"
+        asserting_principal_id == ^asserting_principal_id and lifecycle == "active" and
+        source_item.resource_type == "signal"
     )
     |> Ash.read_one(authorize?: false)
   end
