@@ -139,9 +139,16 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp continue_or_replay(operation, request, %SyncOutcome{state: "retryable"} = outcome) do
     case replay_outcome(outcome, request) do
-      {:error, {:retryable, _code}} -> reconcile_provider(operation, request)
-      {:error, {:retryable, _code, %DateTime{}}} -> reconcile_provider(operation, request)
-      error -> error
+      {:error, {:retryable, _code}} ->
+        reconcile_provider(operation, request)
+
+      {:error, {:retryable, _code, %DateTime{} = retry_at}} = error ->
+        if DateTime.compare(retry_at, DateTime.utc_now()) == :gt,
+          do: error,
+          else: reconcile_provider(operation, request)
+
+      error ->
+        error
     end
   end
 
@@ -568,8 +575,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         "skipped_stale"
       )
     else
-      thread_records = reconcile_threads!(operation, source, pull_request.record, snapshot)
-      thread_ids = Map.new(thread_records, fn {node_id, record} -> {node_id, record.id} end)
+      threads = reconcile_threads!(operation, source, pull_request.record, snapshot)
+      thread_ids = Map.new(threads, fn {node_id, item} -> {node_id, item.record.id} end)
       comments = reconcile_comments!(operation, source, pull_request.record, thread_ids, snapshot)
 
       checks =
@@ -590,7 +597,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         end
 
       signal_ids =
-        map_product_work!(operation, comments, checks, thread_records, missing_references)
+        map_product_work!(operation, comments, checks, threads, missing_references)
 
       record_invalidation!(operation, pull_request.record, snapshot)
 
@@ -768,7 +775,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         %{node_id: thread.node_id}
       )
 
-      {thread.node_id, result.record}
+      {thread.node_id, result}
     end)
   end
 
@@ -921,15 +928,20 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     )
 
     reference =
-      maybe_reference!(
-        operation,
-        source,
-        result.record,
-        "review_comment",
-        comment.node_id,
-        comment.url,
-        result.status
-      )
+      case result.status do
+        :stale ->
+          existing_reference!(operation, source, result.record, "review_comment", comment.node_id)
+
+        _current ->
+          maybe_reference!(
+            operation,
+            source,
+            result.record,
+            "review_comment",
+            comment.node_id,
+            comment.url
+          )
+      end
 
     %{record: result.record, snapshot: comment, reference: reference, status: result.status}
   end
@@ -1172,7 +1184,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp scope_query(query, workspace_id),
     do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
-  defp map_product_work!(operation, comments, checks, thread_records, missing_references) do
+  defp map_product_work!(operation, comments, checks, threads, missing_references) do
     if is_nil(operation.workspace_id),
       do: [],
       else:
@@ -1180,7 +1192,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           operation,
           comments,
           checks,
-          thread_records,
+          threads,
           missing_references
         )
   end
@@ -1189,15 +1201,21 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          operation,
          comments,
          checks,
-         thread_records,
+         threads,
          missing_references
        ) do
     thread_states =
-      Map.new(thread_records, fn {_node_id, record} -> {record.id, record.state} end)
+      Map.new(threads, fn {_node_id, item} -> {item.record.id, item.record.state} end)
+
+    fresh_thread_ids =
+      threads
+      |> Map.values()
+      |> Enum.reject(&(&1.status == :stale))
+      |> MapSet.new(& &1.record.id)
 
     comment_signals =
       Enum.flat_map(comments, fn item ->
-        if item.status == :stale do
+        if skip_stale_comment_signal?(item, fresh_thread_ids) or is_nil(item.reference) do
           []
         else
           actionable? = review_comment_actionable?(operation, item, thread_states)
@@ -1259,6 +1277,14 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       end
   end
 
+  defp skip_stale_comment_signal?(%{status: status}, _fresh_thread_ids)
+       when status != :stale,
+       do: false
+
+  defp skip_stale_comment_signal?(item, fresh_thread_ids) do
+    not MapSet.member?(fresh_thread_ids, item.record.review_thread_id)
+  end
+
   defp authenticated_own_reply?(operation, item) do
     case ReviewReplyMarker.action_id(item.record.body) do
       nil ->
@@ -1315,6 +1341,25 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       resource_id: record.id
     })
     |> unwrap!()
+  end
+
+  defp existing_reference!(operation, source, record, object_type, node_id) do
+    case ExternalRefs.read_provider_reference(operation, source, %{
+           provider: "github",
+           object_type: object_type,
+           external_id: "#{object_type}:#{node_id}",
+           resource_type: resource_type(record),
+           resource_id: record.id
+         }) do
+      {:ok, reference} ->
+        reference
+
+      {:error, :integration_storage_unavailable} ->
+        Repo.rollback(:integration_storage_unavailable)
+
+      {:error, _invalid_reference} ->
+        Repo.rollback(:provider_identity_conflict)
+    end
   end
 
   defp maybe_reference!(_operation, _source, _record, _object_type, _node_id, _url, :stale),

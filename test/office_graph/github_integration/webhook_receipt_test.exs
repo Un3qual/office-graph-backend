@@ -98,6 +98,36 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
            ]
   end
 
+  test "check-run deliveries without pull-request associations still enqueue reconciliation" do
+    context = installation_context("unscoped-check-run")
+    delivery_id = "delivery-#{Ecto.UUID.generate()}"
+
+    body =
+      Jason.encode!(%{
+        "action" => "completed",
+        "installation" => %{"id" => context.external_installation_id},
+        "check_run" => %{
+          "node_id" => "CR_unscoped",
+          "pull_requests" => []
+        }
+      })
+
+    headers = signed_headers(delivery_id, "check_run", body, context.webhook_secret)
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    jobs =
+      from(job in Oban.Job,
+        where:
+          job.worker == ^inspect(WebhookWorker) and
+            fragment("?->>'delivery_id'", job.args) == ^delivery_id
+      )
+      |> Repo.all()
+
+    assert [job] = jobs
+    refute Map.has_key?(job.args, "pull_request_id")
+  end
+
   test "replayed deliveries do not recreate webhook jobs after pruning" do
     context = installation_context("pruned-job-replay")
     delivery_id = "delivery-#{Ecto.UUID.generate()}"

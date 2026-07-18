@@ -889,7 +889,27 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         {:ok, snapshot(1, "open", "PR_node_failure", "R_node_failure")}
     })
 
-    assert {:ok, recovered} = Reconciler.reconcile(rate_limited_operation, request)
+    assert {:error, {:retryable, :provider_rate_limited, ^reset_at}} =
+             Reconciler.reconcile(rate_limited_operation, request)
+
+    expired_rate_limit_operation =
+      reconciliation_operation!(context, request, "expired-rate-limit")
+
+    expired_reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+
+    Provider.put(%{
+      {"pull_request", "PR_node_failure"} => {:error, {:rate_limited, expired_reset_at}}
+    })
+
+    assert {:error, {:retryable, :provider_rate_limited, ^expired_reset_at}} =
+             Reconciler.reconcile(expired_rate_limit_operation, request)
+
+    Provider.put(%{
+      {"pull_request", "PR_node_failure"} =>
+        {:ok, snapshot(1, "open", "PR_node_failure", "R_node_failure")}
+    })
+
+    assert {:ok, recovered} = Reconciler.reconcile(expired_rate_limit_operation, request)
     assert recovered.state == "reconciled"
 
     network_operation = reconciliation_operation!(context, request, "network-unavailable")

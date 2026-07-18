@@ -253,6 +253,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
       else: {:error, :invalid_delivery_payload}
   end
 
+  defp validate_pull_request_scope("check_run", payload, nil) do
+    case get_in(payload, ["check_run", "pull_requests"]) do
+      [] -> {:ok, nil}
+      _associated_or_invalid -> {:error, :invalid_delivery_payload}
+    end
+  end
+
   defp validate_pull_request_scope("check_run", _payload, _pull_request_id),
     do: {:error, :invalid_delivery_payload}
 

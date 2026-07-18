@@ -198,7 +198,10 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
          %{"pull_requests" => pull_requests} when is_list(pull_requests) <-
            Map.get(payload, "check_run"),
          {:ok, identities} <- map_pull_request_identities(pull_requests) do
-      {:ok, Enum.uniq(identities)}
+      case Enum.uniq(identities) do
+        [] -> {:ok, [nil]}
+        identities -> {:ok, identities}
+      end
     else
       _invalid -> {:error, :invalid_delivery}
     end

@@ -189,6 +189,14 @@ extension records.
   state reconciliation, MUST treat it as absent from the current head, and MUST
   NOT create or retain actionable product work for that historical check
 
+#### Scenario: Check-run delivery has no pull-request associations
+
+- **WHEN** GitHub sends a check-run delivery with an empty pull-request
+  association list
+- **THEN** Office Graph MUST enqueue one unscoped reconciliation so the adapter
+  can resolve an authoritative association or durably classify the provider
+  response, and MUST NOT silently accept the delivery without work
+
 #### Scenario: Review-comment freshness advances independently of its pull request
 
 - **WHEN** an authoritative review comment changes while the containing pull
@@ -196,6 +204,14 @@ extension records.
 - **THEN** reconciliation MUST use the comment's update timestamp and a digest
   of its persisted provider state to apply the edit, minimize, or delete state
   without accepting an older child snapshot over newer comment truth
+
+#### Scenario: Review-thread state advances without a comment edit
+
+- **WHEN** an authoritative review thread becomes resolved or outdated while a
+  contained comment retains its existing provider version
+- **THEN** reconciliation MUST evaluate the stored comment against the fresh
+  thread state and close its product signal, while a stale thread view MUST NOT
+  change signal actionability
 
 #### Scenario: One check run is associated with multiple pull requests
 
@@ -418,6 +434,9 @@ authorization, configuration, rate-limit, or stale-version outcomes.
   MUST expose a safe rate-limit state
 - **AND** a temporary failure to persist the local retryable action state MUST
   NOT replace the provider-derived snooze with an earlier generic retry
+- **AND** replaying a persisted rate-limit outcome before its retry time MUST
+  return the same bounded retry without calling GitHub, and reconciliation MAY
+  refetch only after that retry time has passed
 
 #### Scenario: Installation is revoked
 

@@ -93,6 +93,54 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert event.subject_version == live_provider_sequence
   end
 
+  test "check-run deliveries without pull-request associations still reconcile the provider object" do
+    context = worker_context("unscoped-check-run")
+
+    body =
+      Jason.encode!(%{
+        "action" => "completed",
+        "installation" => %{"id" => context.external_installation_id},
+        "check_run" => %{
+          "node_id" => "CR_worker_unscoped",
+          "pull_requests" => []
+        }
+      })
+
+    headers = %{
+      "x-github-delivery" => "delivery-worker-unscoped-check-run",
+      "x-github-event" => "check_run",
+      "x-hub-signature-256" => signature(body, context.webhook_secret)
+    }
+
+    assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
+
+    provider_snapshot = %{
+      snapshot()
+      | check_runs: [
+          %Adapter.CheckRunSnapshot{
+            node_id: "CR_worker_unscoped",
+            name: "CI",
+            status: "completed",
+            conclusion: "success",
+            current?: false
+          }
+        ]
+    }
+
+    Provider.put(%{{"check_run", "CR_worker_unscoped"} => {:ok, provider_snapshot}})
+
+    assert :ok = WebhookWorker.perform(webhook_job("delivery-worker-unscoped-check-run"))
+
+    outcome =
+      SyncOutcome
+      |> Ash.Query.filter(installation_id == ^context.installation.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert outcome.state == "reconciled"
+    assert outcome.object_type == "check_run"
+    assert outcome.object_id == "CR_worker_unscoped"
+  end
+
   test "review deliveries reconcile the pull request represented by the snapshot" do
     context = worker_context("review")
 

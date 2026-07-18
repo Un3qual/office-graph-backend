@@ -41,6 +41,47 @@ defmodule OfficeGraph.ExternalRefs do
 
   def upsert_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
+  def read_provider_reference(operation, source, attrs)
+      when is_map(operation) and is_map(source) and is_map(attrs) do
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+         :ok <- validate_source(source),
+         {:ok, external_id} <- required_string(attrs, :external_id),
+         {:ok, resource_type} <- required_string(attrs, :resource_type),
+         {:ok, resource_id} <- required_uuid(attrs, :resource_id),
+         {:ok, object_type} <- required_string(attrs, :object_type),
+         {:ok, provider} <- required_string(attrs, :provider) do
+      lookup = [
+        organization_id: operation.organization_id,
+        workspace_id: operation.workspace_id,
+        source_id: source.id,
+        external_id: external_id
+      ]
+
+      identity = %{
+        external_id: external_id,
+        resource_type: resource_type,
+        resource_id: resource_id,
+        object_type: object_type,
+        provider: provider
+      }
+
+      case reference_by_lookup(ExternalReference, lookup) do
+        {:ok, nil} ->
+          {:ok, nil}
+
+        {:ok, reference} ->
+          if matching_reference?(reference, operation, identity),
+            do: {:ok, reference},
+            else: {:error, :forbidden}
+
+        {:error, _storage_error} ->
+          {:error, :integration_storage_unavailable}
+      end
+    end
+  end
+
+  def read_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
+
   defp persist_reference(operation, source, identity) do
     reference_id = Ecto.UUID.generate()
 
@@ -85,12 +126,7 @@ defmodule OfficeGraph.ExternalRefs do
   end
 
   defp reconcile_reference(operation, existing, identity) do
-    if existing.organization_id == operation.organization_id and
-         existing.workspace_id == operation.workspace_id and
-         existing.provider == identity.provider and
-         existing.resource_type == identity.resource_type and
-         existing.resource_id == identity.resource_id and
-         existing.object_type == identity.object_type do
+    if matching_reference?(existing, operation, identity) do
       reference =
         existing
         |> Ash.Changeset.for_update(:reconcile, %{
@@ -105,6 +141,15 @@ defmodule OfficeGraph.ExternalRefs do
     else
       {:error, :forbidden}
     end
+  end
+
+  defp matching_reference?(reference, operation, identity) do
+    reference.organization_id == operation.organization_id and
+      reference.workspace_id == operation.workspace_id and
+      reference.provider == identity.provider and
+      reference.resource_type == identity.resource_type and
+      reference.resource_id == identity.resource_id and
+      reference.object_type == identity.object_type
   end
 
   defp reference_by_lookup(ExternalReference, lookup) do

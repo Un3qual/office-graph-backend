@@ -524,6 +524,55 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert Repo.aggregate(Signal, :count) == signal_count
   end
 
+  test "fresh thread state closes signals when the provider comment is unchanged" do
+    context = context("thread-only-signal-lifecycle")
+
+    request =
+      ReconciliationRequest.new!(%{
+        installation_id: context.installation.id,
+        object_type: "pull_request",
+        object_id: "PR_mapping_44",
+        delivery_id: "delivery-thread-only-signal-lifecycle"
+      })
+
+    initial = %{mapping_snapshot() | check_runs: []}
+    [comment] = initial.review_comments
+
+    unchanged_comment = %{
+      comment
+      | provider_version: "comment-v1",
+        provider_sequence: 3,
+        provider_updated_at: ~U[2026-07-14 13:00:00Z]
+    }
+
+    initial = %{initial | review_comments: [unchanged_comment]}
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, initial}})
+
+    assert {:ok, first_outcome} =
+             Reconciler.reconcile(operation!(context, request, "thread-open"), request)
+
+    assert [signal_id] = first_outcome.signal_ids
+    [thread] = initial.review_threads
+
+    resolved = %{
+      initial
+      | provider_version: "v4",
+        provider_sequence: 4,
+        provider_updated_at: ~U[2026-07-14 13:01:00Z],
+        review_threads: [
+          %{thread | state: "resolved", resolved_at: ~U[2026-07-14 13:01:00Z]}
+        ]
+    }
+
+    Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, resolved}})
+
+    assert {:ok, resolved_outcome} =
+             Reconciler.reconcile(operation!(context, request, "thread-resolved"), request)
+
+    assert resolved_outcome.signal_ids == []
+    assert Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
+  end
+
   test "stale open thread snapshots cannot reopen signals closed by newer thread state" do
     context = context("stale-thread-actionability")
 
