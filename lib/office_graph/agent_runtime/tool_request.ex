@@ -30,8 +30,8 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
     attribute :state, :string, allow_nil?: false, public?: true
     attribute :sensitivity, :string, allow_nil?: false, public?: true
     attribute :external_write, :boolean, allow_nil?: false, default: false, public?: true
-    attribute :timeout_ms, :integer, allow_nil?: false, public?: true
-    attribute :budget_units, :integer, allow_nil?: false, public?: true
+    attribute :timeout_ms, :integer, allow_nil?: false, constraints: [min: 1], public?: true
+    attribute :budget_units, :integer, allow_nil?: false, constraints: [min: 1], public?: true
     attribute :input_hash, :string, allow_nil?: false, public?: true
     attribute :output_hash, :string, public?: true
     attribute :output_classification, :string, public?: true

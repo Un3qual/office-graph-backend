@@ -39,7 +39,7 @@ defmodule OfficeGraph.Repo.Migrations.CreateAgentRuntimeFoundation do
       add :id, :binary_id, primary_key: true
       add :definition_id, references(:agent_definitions, type: :binary_id), null: false
       add :organization_id, references(:organizations, type: :binary_id), null: false
-      add :workspace_id, references(:workspaces, type: :binary_id)
+      add :workspace_id, references(:workspaces, type: :binary_id), null: false
       add :agent_principal_id, references(:principals, type: :binary_id), null: false
       add :bound_by_principal_id, references(:principals, type: :binary_id), null: false
       add :lifecycle_state, :text, null: false
@@ -48,12 +48,16 @@ defmodule OfficeGraph.Repo.Migrations.CreateAgentRuntimeFoundation do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:agent_organization_bindings, [:definition_id, :organization_id],
-             name: :agent_organization_bindings_definition_organization_index
+    create unique_index(
+             :agent_organization_bindings,
+             [:definition_id, :organization_id, :workspace_id],
+             name: :agent_org_bindings_definition_org_workspace_index
            )
 
-    create unique_index(:agent_organization_bindings, [:organization_id, :agent_principal_id],
-             name: :agent_organization_bindings_organization_principal_index
+    create unique_index(
+             :agent_organization_bindings,
+             [:organization_id, :workspace_id, :agent_principal_id],
+             name: :agent_org_bindings_org_workspace_principal_index
            )
 
     create unique_index(:agent_organization_bindings, [:operation_id],

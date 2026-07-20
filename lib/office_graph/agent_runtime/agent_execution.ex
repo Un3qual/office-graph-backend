@@ -2,6 +2,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
   @moduledoc false
 
   @lifecycle_states ~w(queued running waiting_approval waiting_context retry_scheduled completed failed cancelled)
+  @non_terminal_states ~w(queued running waiting_approval waiting_context retry_scheduled)
 
   use Ash.Resource,
     domain: OfficeGraph.AgentRuntime.Domain,
@@ -33,9 +34,21 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
     attribute :requested_outcome, :string, allow_nil?: false, public?: true
     attribute :autonomy_mode, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
-    attribute :state_version, :integer, allow_nil?: false, default: 1, public?: true
+
+    attribute :state_version, :integer,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1],
+      public?: true
+
     attribute :current_step_key, :string, public?: true
-    attribute :attempt_count, :integer, allow_nil?: false, default: 0, public?: true
+
+    attribute :attempt_count, :integer,
+      allow_nil?: false,
+      default: 0,
+      constraints: [min: 0],
+      public?: true
+
     attribute :idempotency_key, :string, allow_nil?: false, public?: true
     attribute :failure_code, :string, public?: true
     attribute :started_at, :utc_datetime_usec, public?: true
@@ -87,10 +100,10 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
 
     update :transition do
       public? false
+      require_atomic? false
 
       accept [
         :state,
-        :state_version,
         :current_step_key,
         :attempt_count,
         :failure_code,
@@ -99,7 +112,9 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
         :cancelled_at
       ]
 
+      validate data_one_of(:state, @non_terminal_states)
       validate one_of(:state, @lifecycle_states)
+      change optimistic_lock(:state_version)
     end
   end
 

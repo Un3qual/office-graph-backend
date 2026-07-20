@@ -25,7 +25,7 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
     attribute :posture, :string, allow_nil?: false, public?: true
     attribute :rationale_code, :string, allow_nil?: false, public?: true
     attribute :content_hash, :string, public?: true
-    attribute :ordinal, :integer, allow_nil?: false, public?: true
+    attribute :ordinal, :integer, allow_nil?: false, constraints: [min: 0], public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
   end

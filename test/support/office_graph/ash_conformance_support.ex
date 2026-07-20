@@ -248,8 +248,12 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]},
     OfficeGraph.AgentRuntime.AgentDefinition => %{unique_key: [:key]},
     OfficeGraph.AgentRuntime.OrganizationBinding => %{
-      unique_definition_organization: [:definition_id, :organization_id],
-      unique_organization_principal: [:organization_id, :agent_principal_id],
+      unique_definition_organization_workspace: [:definition_id, :organization_id, :workspace_id],
+      unique_organization_workspace_principal: [
+        :organization_id,
+        :workspace_id,
+        :agent_principal_id
+      ],
       unique_operation: [:operation_id]
     },
     OfficeGraph.AgentRuntime.AgentExecution => %{

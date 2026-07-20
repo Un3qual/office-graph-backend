@@ -35,9 +35,20 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
     attribute :capability_key, :string, public?: true
     attribute :reason, :string, allow_nil?: false, public?: true
     attribute :sensitivity, :string, allow_nil?: false, public?: true
-    attribute :expected_duration_seconds, :integer, allow_nil?: false, public?: true
+
+    attribute :expected_duration_seconds, :integer,
+      allow_nil?: false,
+      constraints: [min: 1],
+      public?: true
+
     attribute :state, :string, allow_nil?: false, public?: true
-    attribute :version, :integer, allow_nil?: false, default: 1, public?: true
+
+    attribute :version, :integer,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1],
+      public?: true
+
     attribute :expires_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :resolution_reason, :string, public?: true
     attribute :resolved_at, :utc_datetime_usec, public?: true

@@ -29,8 +29,8 @@ defmodule OfficeGraph.AgentRuntime.ModelRequest do
     attribute :model_family, :string, allow_nil?: false, public?: true
     attribute :idempotency_key, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
-    attribute :timeout_ms, :integer, allow_nil?: false, public?: true
-    attribute :token_budget, :integer, allow_nil?: false, public?: true
+    attribute :timeout_ms, :integer, allow_nil?: false, constraints: [min: 1], public?: true
+    attribute :token_budget, :integer, allow_nil?: false, constraints: [min: 1], public?: true
     attribute :input_hash, :string, allow_nil?: false, public?: true
     attribute :output_hash, :string, public?: true
     attribute :output_classification, :string, public?: true

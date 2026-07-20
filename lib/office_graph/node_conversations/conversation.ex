@@ -24,7 +24,13 @@ defmodule OfficeGraph.NodeConversations.Conversation do
     attribute :purpose, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
-    attribute :state_version, :integer, allow_nil?: false, default: 1, public?: true
+
+    attribute :state_version, :integer,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1],
+      public?: true
+
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -58,8 +64,10 @@ defmodule OfficeGraph.NodeConversations.Conversation do
 
     update :set_lifecycle_state do
       public? false
-      accept [:state, :state_version]
+      require_atomic? false
+      accept [:state]
       validate one_of(:state, ~w(active closed archived))
+      change optimistic_lock(:state_version)
     end
   end
 

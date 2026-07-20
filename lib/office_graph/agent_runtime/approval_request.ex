@@ -34,7 +34,13 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
     attribute :sensitivity, :string, allow_nil?: false, public?: true
     attribute :external_write, :boolean, allow_nil?: false, default: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
-    attribute :version, :integer, allow_nil?: false, default: 1, public?: true
+
+    attribute :version, :integer,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1],
+      public?: true
+
     attribute :expires_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :resolution_reason, :string, public?: true
     attribute :resolved_at, :utc_datetime_usec, public?: true

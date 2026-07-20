@@ -56,7 +56,13 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert constraint_exists?("conversation_messages_source_valid")
 
     assert index_exists?("agent_definitions_key_index")
-    assert index_exists?("agent_organization_bindings_definition_organization_index")
+    refute column_nullable?("agent_organization_bindings", "workspace_id")
+
+    assert index_exists?("agent_org_bindings_definition_org_workspace_index")
+
+    assert index_columns("agent_org_bindings_definition_org_workspace_index") ==
+             ["definition_id", "organization_id", "workspace_id"]
+
     assert index_exists?("agent_executions_scope_state_index")
     assert index_exists?("agent_executions_operation_index")
     assert index_exists?("agent_authority_snapshots_execution_version_index")

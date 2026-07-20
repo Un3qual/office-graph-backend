@@ -55,6 +55,13 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
       validate one_of(:source, ~w(human agent system))
       validate one_of(:visibility, ~w(run_participants workspace))
+      validate present(:author_principal_id), where: [attribute_equals(:source, "human")]
+      validate absent(:execution_id), where: [attribute_equals(:source, "human")]
+
+      validate present([:author_principal_id, :execution_id, :context_package_id]),
+        where: [attribute_equals(:source, "agent")]
+
+      validate absent(:execution_id), where: [attribute_equals(:source, "system")]
     end
   end
 

@@ -3,7 +3,9 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
 
   alias OfficeGraph.{AgentRuntime, Authorization, Foundation, Repo}
   alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding}
-  alias OfficeGraph.Identity.Principal
+  alias OfficeGraph.Authorization.RoleAssignment
+  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
+  alias OfficeGraph.Tenancy.Workspace
 
   import OfficeGraph.SessionCaseHelpers
 
@@ -133,5 +135,113 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     assert first_binding.binding.organization_id == first.organization.id
     assert second_binding.binding.organization_id == second.organization.id
     assert Repo.aggregate(OrganizationBinding, :count) == 2
+  end
+
+  test "workspaces in one organization receive isolated bindings and scoped authority" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    second_session = create_workspace_session!(bootstrap)
+
+    assert {:ok, first} =
+             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-same-organization"
+             })
+
+    assert {:ok, second} =
+             AgentRuntime.bind_openspec_review_agent(second_session, %{
+               idempotency_key: "bind-same-organization"
+             })
+
+    refute first.binding.id == second.binding.id
+    assert first.principal.id == second.principal.id
+    assert first.binding.organization_id == second.binding.organization_id
+    refute first.binding.workspace_id == second.binding.workspace_id
+
+    assert :ok =
+             Authorization.authorize_system_principal(
+               second.principal.id,
+               second_session.organization_id,
+               second_session.workspace_id,
+               :agent_runtime_execute
+             )
+
+    assert Repo.aggregate(OrganizationBinding, :count) == 2
+  end
+
+  test "binding lifecycle updates keep disabled timestamps consistent" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, result} =
+             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-lifecycle"
+             })
+
+    assert {:ok, disabled} =
+             result.binding
+             |> Ash.Changeset.for_update(:set_lifecycle_state, %{lifecycle_state: "disabled"})
+             |> Ash.update(authorize?: false)
+
+    assert disabled.lifecycle_state == "disabled"
+    assert %DateTime{} = disabled.disabled_at
+
+    assert {:ok, active} =
+             disabled
+             |> Ash.Changeset.for_update(:set_lifecycle_state, %{lifecycle_state: "active"})
+             |> Ash.update(authorize?: false)
+
+    assert active.lifecycle_state == "active"
+    assert is_nil(active.disabled_at)
+  end
+
+  defp create_workspace_session!(bootstrap) do
+    suffix = System.unique_integer([:positive])
+
+    workspace =
+      Ash.create!(
+        Workspace,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: bootstrap.organization.id,
+          name: "Agent Runtime Workspace #{suffix}",
+          slug: "agent-runtime-workspace-#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    session =
+      Ash.create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: bootstrap.principal.id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: workspace.id,
+          purpose: "agent-runtime-workspace-#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: bootstrap.principal.id,
+        role_id: bootstrap.role_assignment.role_id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: workspace.id
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    %SessionContext{
+      principal_id: bootstrap.principal.id,
+      session_id: session.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: workspace.id,
+      capabilities: bootstrap.session.capabilities,
+      trusted?: bootstrap.session.trusted?
+    }
   end
 end

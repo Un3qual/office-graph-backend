@@ -1,32 +1,12 @@
 defmodule OfficeGraph.AgentRuntime.PersistenceResourceTest do
-  use OfficeGraph.DataCase, async: false
+  use OfficeGraph.TestSupport.AshConformanceSupport
 
-  @resources [
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AgentDefinition,
-     "agent_definitions"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.OrganizationBinding,
-     "agent_organization_bindings"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AgentExecution,
-     "agent_executions"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AuthoritySnapshot,
-     "agent_authority_snapshots"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextPackage,
-     "agent_context_packages"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextEntry,
-     "agent_context_entries"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ModelRequest,
-     "agent_model_requests"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ToolRequest,
-     "agent_tool_requests"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ApprovalRequest,
-     "agent_approval_requests"},
-    {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextExpansionRequest,
-     "agent_context_expansion_requests"},
-    {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation,
-     "conversations"},
-    {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage,
-     "conversation_messages"}
-  ]
+  @resources for {table, {domain, resource}} <- @expected_resources,
+                 domain in [
+                   OfficeGraph.AgentRuntime.Domain,
+                   OfficeGraph.NodeConversations.Domain
+                 ],
+                 do: {domain, resource, table}
 
   test "each runtime table has one canonical AshPostgres resource in its owning domain" do
     for {domain, resource, table} <- @resources do

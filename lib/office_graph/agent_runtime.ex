@@ -20,24 +20,18 @@ defmodule OfficeGraph.AgentRuntime do
   require Ash.Query
 
   alias OfficeGraph.{Authorization, Identity, Operations, Repo}
-  alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding}
+  alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding, StorageResult}
   alias OfficeGraph.Identity.Principal
 
   @canonical_definition_key "openspec-review"
   @agent_capabilities [:agent_runtime_execute, :skeleton_read]
 
-  @storage_exceptions [
-    Ash.Error.Forbidden,
-    Ash.Error.Framework,
-    Ash.Error.Invalid,
-    Ash.Error.Unknown,
-    DBConnection.ConnectionError,
-    Ecto.ConstraintError,
-    Ecto.StaleEntryError,
-    Postgrex.Error,
-    RuntimeError
-  ]
+  @doc """
+  Binds the migration-owned OpenSpec review definition in the caller's workspace.
 
+  The command is authorized and idempotent, and it provisions only the scoped
+  backend agent authority required by the canonical definition.
+  """
   def bind_openspec_review_agent(session_context, attrs)
       when is_map(session_context) and is_map(attrs) do
     with {:ok, idempotency_key, command_input} <- normalize_binding_input(session_context, attrs),
@@ -90,14 +84,18 @@ defmodule OfficeGraph.AgentRuntime do
   end
 
   defp persist_binding(session_context, operation) do
-    with_storage_boundary(fn ->
+    StorageResult.run(fn ->
       Repo.transaction(fn ->
         with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
-          lock_binding_scope!(session_context.organization_id)
+          lock_binding_scope!(session_context.organization_id, session_context.workspace_id)
 
           definition = canonical_definition!()
 
-          case binding_for_organization(definition.id, session_context.organization_id) do
+          case binding_for_scope(
+                 definition.id,
+                 session_context.organization_id,
+                 session_context.workspace_id
+               ) do
             nil -> create_binding!(session_context, operation, definition)
             binding -> replay_binding!(session_context, operation, definition, binding)
           end
@@ -163,9 +161,12 @@ defmodule OfficeGraph.AgentRuntime do
     end
   end
 
-  defp binding_for_organization(definition_id, organization_id) do
+  defp binding_for_scope(definition_id, organization_id, workspace_id) do
     OrganizationBinding
-    |> Ash.Query.filter(definition_id == ^definition_id and organization_id == ^organization_id)
+    |> Ash.Query.filter(
+      definition_id == ^definition_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id
+    )
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one!(authorize?: false)
   end
@@ -200,9 +201,9 @@ defmodule OfficeGraph.AgentRuntime do
     }
   end
 
-  defp lock_binding_scope!(organization_id) do
+  defp lock_binding_scope!(organization_id, workspace_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "agent-runtime:openspec-review:#{organization_id}"
+      "agent-runtime:openspec-review:#{organization_id}:#{workspace_id}"
     ])
   end
 
@@ -220,13 +221,5 @@ defmodule OfficeGraph.AgentRuntime do
       _other ->
         {:error, {:invalid_field, key}}
     end
-  end
-
-  defp with_storage_boundary(fun) do
-    fun.()
-  rescue
-    _error in @storage_exceptions -> {:error, :integration_storage_unavailable}
-  catch
-    :exit, _reason -> {:error, :integration_storage_unavailable}
   end
 end
