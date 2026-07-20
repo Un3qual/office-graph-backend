@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add failing migration/resource tests for agent definitions/bindings, executions, authority snapshots, context packages/entries, model/tool requests, approval/expansion requests, conversations, and messages.
 - [x] 1.2 Add focused AgentRuntime and NodeConversations resources/domains/migrations, indexes, lifecycle constraints, ownership/API ledgers, and migration-owned OpenSpec-review definition.
-- [ ] 1.3 Add failing tests and implement the authorized organization-binding command for the OpenSpec-review definition and backend agent principal.
+- [x] 1.3 Add failing tests and implement the authorized organization-binding command for the OpenSpec-review definition and backend agent principal.
 
 ## 2. Model And Tool Adapter Contracts
 
