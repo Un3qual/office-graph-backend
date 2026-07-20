@@ -11,7 +11,7 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
       end)
       |> Enum.filter(fn {_resource, tables} -> length(tables) > 1 end)
 
-    assert map_size(@expected_resources) == 49
+    assert map_size(@expected_resources) == 68
     assert duplicate_resources == []
     assert migration_tables() == expected_tables
   end

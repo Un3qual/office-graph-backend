@@ -36,11 +36,17 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_supersede: "graph_relationship.supersede",
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
+    github_installation_bind: "github.installation.bind",
+    github_review_reply: "github.review.reply",
+    github_check_update: "github.check.update",
     verification_waive: "verification.waive"
   }
 
   @restricted_capabilities %{
-    graph_relationship_cross_workspace: "graph_relationship.cross_workspace"
+    graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    integration_reconcile: "integration.reconcile",
+    provider_webhook_receive: "provider.webhook.receive",
+    system_conformance: "system.conformance"
   }
 
   @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
@@ -125,6 +131,107 @@ defmodule OfficeGraph.Authorization do
 
   def authorize(_session_context, _action, _opts), do: {:error, :forbidden}
 
+  def authorize_system_principal(principal_id, organization_id, workspace_id, action)
+      when is_binary(principal_id) and is_binary(organization_id) do
+    with {:ok, required} <- Map.fetch(@recognized_capabilities, action),
+         {:ok, true} <- Identity.active_system_principal(principal_id),
+         {:ok, true} <-
+           granted_capability_for_principal(
+             principal_id,
+             organization_id,
+             workspace_id,
+             required
+           ) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _other -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_system_principal(_principal_id, _organization_id, _workspace_id, _action),
+    do: {:error, :forbidden}
+
+  def ensure_system_role(
+        %{id: principal_id},
+        %{organization_id: organization_id, workspace_id: workspace_id},
+        actions
+      )
+      when is_binary(principal_id) and is_binary(organization_id) and
+             (is_nil(workspace_id) or is_binary(workspace_id)) and is_list(actions) do
+    with {:ok, true} <- Identity.active_system_principal(principal_id),
+         {:ok, capability_keys} <- system_capability_keys(actions) do
+      persist_system_role(principal_id, organization_id, workspace_id, capability_keys)
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _error -> {:error, :forbidden}
+    end
+  end
+
+  def ensure_system_role(_principal, _scope, _actions), do: {:error, :forbidden}
+
+  defp persist_system_role(principal_id, organization_id, workspace_id, capability_keys) do
+    Repo.transaction(fn ->
+      role_key = system_role_key(principal_id, workspace_id)
+
+      role =
+        get_or_create!(
+          Role,
+          [organization_id: organization_id, key: role_key],
+          %{
+            organization_id: organization_id,
+            key: role_key,
+            name: system_role_name(principal_id, workspace_id)
+          }
+        )
+
+      Enum.each(capability_keys, fn capability_key ->
+        capability = ensure_capability!(capability_key)
+
+        get_or_create!(
+          RoleCapability,
+          [role_id: role.id, capability_id: capability.id],
+          %{role_id: role.id, capability_id: capability.id}
+        )
+      end)
+
+      get_or_create!(
+        RoleAssignment,
+        [
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        ],
+        %{
+          principal_id: principal_id,
+          role_id: role.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id
+        }
+      )
+
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, :integration_storage_unavailable} -> {:error, :integration_storage_unavailable}
+      {:error, _reason} -> {:error, :forbidden}
+    end
+  end
+
+  defp system_role_key(principal_id, nil),
+    do: "system:#{principal_id}:organization"
+
+  defp system_role_key(principal_id, workspace_id),
+    do: "system:#{principal_id}:workspace:#{workspace_id}"
+
+  defp system_role_name(principal_id, nil),
+    do: "System principal #{principal_id} (organization)"
+
+  defp system_role_name(principal_id, workspace_id),
+    do: "System principal #{principal_id} (workspace #{workspace_id})"
+
   def authorize_projection(session_context, action, opts \\ [])
 
   def authorize_projection(
@@ -167,13 +274,16 @@ defmodule OfficeGraph.Authorization do
         {:error, :forbidden}
       end
 
-    case operation_matches? do
-      true ->
+    case {operation_matches?, authorization_result} do
+      {true, {:error, :integration_storage_unavailable}} ->
+        authorization_result
+
+      {true, _authorization_result} ->
         with :ok <- record_decision(session_context, operation, action_name, decision, reason) do
           result
         end
 
-      false ->
+      {false, _authorization_result} ->
         # Mismatched operations are refused before audit persistence so a forged
         # request cannot attach decisions to an operation it does not own.
         result
@@ -183,6 +293,8 @@ defmodule OfficeGraph.Authorization do
   def authorize_operation(_session_context, _operation, _action, _opts), do: {:error, :forbidden}
 
   defp evaluate_authorization(session_context, organization_id, action, opts) do
+    requested_workspace_id = Keyword.get(opts, :workspace_id, session_context.workspace_id)
+
     case Map.fetch(@recognized_capabilities, action) do
       {:ok, required} ->
         cond do
@@ -192,11 +304,12 @@ defmodule OfficeGraph.Authorization do
           organization_id != opts[:organization_id] ->
             deny(required, "scope_mismatch")
 
-          not granted_capability?(session_context, required) ->
-            deny(required, "missing_capability")
-
           true ->
-            {:ok, {required, "allow", nil}}
+            evaluate_capability(
+              session_context,
+              requested_workspace_id,
+              required
+            )
         end
 
       :error ->
@@ -227,6 +340,19 @@ defmodule OfficeGraph.Authorization do
   end
 
   defp deny(action, reason), do: {{:error, :forbidden}, {action, "deny", reason}}
+
+  defp unavailable(action),
+    do:
+      {{:error, :integration_storage_unavailable},
+       {action, "deny", "integration_storage_unavailable"}}
+
+  defp evaluate_capability(session_context, requested_workspace_id, required) do
+    case granted_capability?(session_context, requested_workspace_id, required) do
+      {:ok, true} -> {:ok, {required, "allow", nil}}
+      {:ok, false} -> deny(required, "missing_capability")
+      {:error, :integration_storage_unavailable} -> unavailable(required)
+    end
+  end
 
   defp record_decision(session_context, operation, action, decision, reason) do
     attrs = %{
@@ -260,14 +386,40 @@ defmodule OfficeGraph.Authorization do
   defp recorded_action_name(action) when is_binary(action), do: action
   defp recorded_action_name(action), do: inspect(action)
 
-  defp granted_capability?(session_context, required) do
-    with {:ok, %Capability{id: capability_id}} <-
-           Ash.get(Capability, %{key: required}, authorize?: false),
-         role_ids when role_ids != [] <-
-           role_ids_for_capability(capability_id, session_context.organization_id) do
-      role_assignment_exists?(session_context, role_ids)
-    else
-      _ -> false
+  defp granted_capability?(session_context, requested_workspace_id, required) do
+    case granted_capability_for_principal(
+           session_context.principal_id,
+           session_context.organization_id,
+           requested_workspace_id,
+           required
+         ) do
+      {:ok, granted?} -> {:ok, granted?}
+      {:error, :integration_storage_unavailable} = error -> error
+    end
+  end
+
+  defp granted_capability_for_principal(
+         principal_id,
+         organization_id,
+         workspace_id,
+         required
+       ) do
+    case Ash.get(Capability, %{key: required},
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok, %Capability{id: capability_id}} ->
+        with {:ok, role_ids} <- role_ids_for_capability(capability_id, organization_id),
+             {:ok, granted?} <-
+               role_assignment_exists(principal_id, organization_id, workspace_id, role_ids) do
+          {:ok, granted?}
+        end
+
+      {:ok, nil} ->
+        {:ok, false}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -282,34 +434,70 @@ defmodule OfficeGraph.Authorization do
   defp trusted_capability?(_session_context, _required), do: false
 
   defp role_ids_for_capability(capability_id, organization_id) do
-    role_ids =
-      RoleCapability
-      |> Ash.Query.filter(capability_id == ^capability_id)
-      |> Ash.read!(authorize?: false)
-      |> Enum.map(& &1.role_id)
+    case RoleCapability
+         |> Ash.Query.filter(capability_id == ^capability_id)
+         |> Ash.read(authorize?: false) do
+      {:ok, role_capabilities} ->
+        role_capabilities
+        |> Enum.map(& &1.role_id)
+        |> role_ids_in_organization(organization_id)
 
-    case role_ids do
-      [] ->
-        []
-
-      role_ids ->
-        Role
-        |> Ash.Query.filter(id in ^role_ids and organization_id == ^organization_id)
-        |> Ash.read!(authorize?: false)
-        |> Enum.map(& &1.id)
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
     end
   end
 
-  defp role_assignment_exists?(session_context, role_ids) do
+  defp role_ids_in_organization([], _organization_id), do: {:ok, []}
+
+  defp role_ids_in_organization(role_ids, organization_id) do
+    case Role
+         |> Ash.Query.filter(id in ^role_ids and organization_id == ^organization_id)
+         |> Ash.read(authorize?: false) do
+      {:ok, roles} -> {:ok, Enum.map(roles, & &1.id)}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp role_assignment_exists(_principal_id, _organization_id, _workspace_id, []),
+    do: {:ok, false}
+
+  defp role_assignment_exists(principal_id, organization_id, nil, role_ids) do
     RoleAssignment
     |> Ash.Query.filter(
-      principal_id == ^session_context.principal_id and
-        organization_id == ^session_context.organization_id and
+      principal_id == ^principal_id and
+        organization_id == ^organization_id and
         role_id in ^role_ids and
-        (is_nil(workspace_id) or workspace_id == ^session_context.workspace_id)
+        is_nil(workspace_id)
     )
-    |> Ash.exists?(authorize?: false)
+    |> Ash.exists(authorize?: false)
+    |> normalize_exists_result()
   end
+
+  defp role_assignment_exists(
+         principal_id,
+         organization_id,
+         requested_workspace_id,
+         role_ids
+       )
+       when is_binary(requested_workspace_id) do
+    RoleAssignment
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and
+        organization_id == ^organization_id and
+        role_id in ^role_ids and
+        (is_nil(workspace_id) or workspace_id == ^requested_workspace_id)
+    )
+    |> Ash.exists(authorize?: false)
+    |> normalize_exists_result()
+  end
+
+  defp role_assignment_exists(_principal_id, _organization_id, _workspace_id, _role_ids),
+    do: {:ok, false}
+
+  defp normalize_exists_result({:ok, exists?}), do: {:ok, exists?}
+
+  defp normalize_exists_result({:error, _storage_error}),
+    do: {:error, :integration_storage_unavailable}
 
   defp ensure_capability!(key) do
     get_or_create!(
@@ -319,8 +507,21 @@ defmodule OfficeGraph.Authorization do
     )
   end
 
+  defp system_capability_keys(actions) do
+    actions
+    |> Enum.reduce_while({:ok, []}, fn action, {:ok, keys} ->
+      case Map.fetch(@restricted_capabilities, action) do
+        {:ok, key} -> {:cont, {:ok, [key | keys]}}
+        :error -> {:halt, {:error, :forbidden}}
+      end
+    end)
+  end
+
   defp get_or_create!(resource, lookup, attrs) do
-    Repo.get_or_insert!(resource, lookup, attrs, &insert_contract!/2)
+    case Repo.get_or_insert(resource, lookup, attrs, &insert_contract!/2) do
+      {:ok, record} -> record
+      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+    end
   end
 
   defp insert_contract!(Capability, _attrs), do: {"capabilities", [:key], [:id]}

@@ -52,8 +52,47 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "raw_archives" => {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.RawArchive},
     "normalized_intake_events" =>
       {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.NormalizedIntakeEvent},
+    "integration_credentials" =>
+      {OfficeGraph.Integrations.Domain, OfficeGraph.Integrations.IntegrationCredential},
     "external_references" =>
       {OfficeGraph.ExternalRefs.Domain, OfficeGraph.ExternalRefs.ExternalReference},
+    "repositories" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Repository},
+    "repository_refs" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.RepositoryRef},
+    "commits" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Commit},
+    "pull_requests" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.PullRequest},
+    "review_threads" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewThread},
+    "review_comments" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewComment},
+    "check_runs" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.CheckRun},
+    "github_repositories" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.GitHub.RepositoryExtension},
+    "github_pull_requests" =>
+      {OfficeGraph.SoftwareProving.Domain,
+       OfficeGraph.SoftwareProving.GitHub.PullRequestExtension},
+    "github_review_threads" =>
+      {OfficeGraph.SoftwareProving.Domain,
+       OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension},
+    "github_review_comments" =>
+      {OfficeGraph.SoftwareProving.Domain,
+       OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension},
+    "github_check_runs" =>
+      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.GitHub.CheckRunExtension},
+    "github_installations" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.Installation},
+    "github_permission_snapshots" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.PermissionSnapshot},
+    "github_permission_entries" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.PermissionEntry},
+    "github_installation_credentials" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.InstallationCredential},
+    "github_sync_outcomes" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.SyncOutcome},
+    "github_outbound_actions" =>
+      {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.OutboundAction},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
     "relationship_definitions" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},
@@ -105,18 +144,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation},
     "conversation_messages" =>
       {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage},
-    "repositories" =>
-      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Repository},
-    "repository_refs" =>
-      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.RepositoryRef},
-    "commits" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Commit},
-    "pull_requests" =>
-      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.PullRequest},
-    "review_threads" =>
-      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewThread},
-    "review_comments" =>
-      {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ReviewComment},
-    "check_runs" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.CheckRun},
     "issues" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Issue},
     "observability_issues" =>
       {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ObservabilityIssue},
@@ -141,13 +168,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   }
 
   @accepted_software_proving_planned_tables MapSet.new([
-                                              "repositories",
-                                              "repository_refs",
-                                              "commits",
-                                              "pull_requests",
-                                              "review_threads",
-                                              "review_comments",
-                                              "check_runs",
                                               "issues",
                                               "observability_issues",
                                               "observability_events"
@@ -185,6 +205,12 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
+    OfficeGraph.Integrations.RawArchive => %{
+      provider_delivery: %{
+        keys: [:source_id, :external_delivery_id],
+        where: "not is_nil(external_delivery_id)"
+      }
+    },
     OfficeGraph.Identity.Session => %{
       unique_context: %{
         keys: [:principal_id, :organization_id, :workspace_id, :purpose],
@@ -212,7 +238,106 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
           :idempotency_key
         ],
         where: "not is_nil(idempotency_key)"
+      },
+      unique_system_idempotency: %{
+        keys: [
+          :organization_id,
+          :workspace_id,
+          :principal_id,
+          :action,
+          :idempotency_scope,
+          :idempotency_key
+        ],
+        where: ~s(operation_kind == "system")
       }
+    },
+    OfficeGraph.SoftwareProving.RepositoryRef => %{
+      unique_repository_name: [:repository_id, :name]
+    },
+    OfficeGraph.SoftwareProving.Commit => %{
+      unique_repository_oid: [:repository_id, :oid]
+    },
+    OfficeGraph.SoftwareProving.PullRequest => %{
+      unique_repository_number: [:repository_id, :number]
+    },
+    OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
+      unique_workspace_node_id: %{
+        keys: [:organization_id, :workspace_id, :node_id, :pull_request_id],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_node_id: %{
+        keys: [:organization_id, :node_id, :pull_request_id],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.Integrations.IntegrationCredential => %{
+      unique_workspace_reference: %{
+        keys: [:organization_id, :workspace_id, :kind, :secret_reference],
+        where: "not is_nil(workspace_id)"
+      },
+      unique_organization_reference: %{
+        keys: [:organization_id, :kind, :secret_reference],
+        where: "is_nil(workspace_id)"
+      }
+    },
+    OfficeGraph.GitHubIntegration.Installation => %{
+      unique_external_installation: [:external_installation_id],
+      unique_operation: [:operation_id]
+    },
+    OfficeGraph.GitHubIntegration.PermissionSnapshot => %{
+      unique_installation_version: [:installation_id, :version]
+    },
+    OfficeGraph.GitHubIntegration.PermissionEntry => %{
+      unique_snapshot_name: [:permission_snapshot_id, :name]
+    },
+    OfficeGraph.GitHubIntegration.InstallationCredential => %{
+      unique_installation_purpose: [:installation_id, :purpose]
+    },
+    OfficeGraph.GitHubIntegration.SyncOutcome => %{
+      unique_operation: [:operation_id]
+    },
+    OfficeGraph.GitHubIntegration.OutboundAction => %{
+      unique_operation: [:operation_id]
     },
     OfficeGraph.DurableDelivery.DomainEvent => %{event_key: [:event_key]},
     OfficeGraph.Content.DocumentBlock => %{

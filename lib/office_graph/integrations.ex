@@ -11,7 +11,7 @@ defmodule OfficeGraph.Integrations do
       OfficeGraph.ProposedChanges,
       OfficeGraph.Repo
     ],
-    exports: []
+    exports: [IntegrationCredential]
 
   require Ash.Query
 
@@ -23,6 +23,129 @@ defmodule OfficeGraph.Integrations do
   alias OfficeGraph.Repo
 
   @manual_intake_action "manual_intake.submit"
+
+  def ensure_provider_source(key, name)
+      when is_binary(key) and byte_size(key) in 1..255 and is_binary(name) and
+             byte_size(name) in 1..255 do
+    case Repo.get_or_insert(
+           ExternalSource,
+           [kind: "provider", key: key],
+           %{key: key, name: name, kind: "provider"},
+           &provider_source_insert_contract/2
+         ) do
+      {:ok, source} ->
+        if source.kind == "provider",
+          do: {:ok, source},
+          else: {:error, :source_identity_conflict}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def ensure_provider_source(_key, _name), do: {:error, :invalid_provider_source}
+
+  def archive_system_delivery(operation, source, attrs)
+      when is_map(operation) and is_map(source) and is_map(attrs) do
+    with :ok <- validate_system_archive_scope(operation, source),
+         :ok <- validate_required_string(attrs, :external_delivery_id),
+         :ok <- validate_required_string(attrs, :body) do
+      archive_id = Ecto.UUID.generate()
+      body = Map.fetch!(attrs, :body)
+
+      archive_attrs = %{
+        id: archive_id,
+        organization_id: operation.organization_id,
+        workspace_id: operation.workspace_id,
+        source_id: source.id,
+        operation_id: operation.id,
+        content_hash: content_hash(body),
+        archive_kind: "provider_delivery",
+        external_delivery_id: Map.fetch!(attrs, :external_delivery_id),
+        body: body,
+        metadata: Map.get(attrs, :metadata, %{})
+      }
+
+      case Repo.get_or_insert(
+             RawArchive,
+             [
+               source_id: source.id,
+               external_delivery_id: archive_attrs.external_delivery_id
+             ],
+             archive_attrs,
+             &provider_archive_insert_contract/2,
+             &fetch_provider_archive/2
+           ) do
+        {:ok, archive} ->
+          if archive.content_hash == archive_attrs.content_hash and
+               archive.operation_id == operation.id and
+               archive.organization_id == operation.organization_id and
+               archive.workspace_id == operation.workspace_id do
+            {:ok, archive, if(archive.id == archive_id, do: :created, else: :replayed)}
+          else
+            {:error, :delivery_identity_conflict}
+          end
+
+        {:error, _storage_error} ->
+          {:error, :integration_storage_unavailable}
+      end
+    end
+  end
+
+  def archive_system_delivery(_operation, _source, _attrs),
+    do: {:error, :invalid_provider_delivery}
+
+  def provider_delivery_archive(
+        organization_id,
+        workspace_id,
+        archive_id,
+        delivery_id,
+        opts \\ []
+      )
+
+  def provider_delivery_archive(
+        organization_id,
+        workspace_id,
+        archive_id,
+        delivery_id,
+        opts
+      )
+      when is_binary(organization_id) and (is_binary(workspace_id) or is_nil(workspace_id)) and
+             is_binary(archive_id) and is_binary(delivery_id) and is_list(opts) do
+    RawArchive
+    |> Ash.Query.filter(
+      id == ^archive_id and organization_id == ^organization_id and
+        archive_kind == "provider_delivery" and external_delivery_id == ^delivery_id
+    )
+    |> scope_archive_query(workspace_id)
+    |> read_provider_delivery_archive(opts)
+    |> case do
+      {:ok, nil} -> {:error, :invalid_delivery_archive}
+      {:ok, archive} -> {:ok, archive}
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def provider_delivery_archive(
+        _organization_id,
+        _workspace_id,
+        _archive_id,
+        _delivery_id,
+        _opts
+      ),
+      do: {:error, :invalid_delivery_archive}
+
+  defp scope_archive_query(query, nil), do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp scope_archive_query(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
+  defp read_provider_delivery_archive(query, opts) do
+    case Keyword.get(opts, :record_loader) do
+      nil -> Ash.read_one(query, authorize?: false)
+      loader -> loader.read_one(RawArchive, query, authorize?: false)
+    end
+  end
 
   def submit_manual_intake(session_context, operation, attrs) do
     with :ok <- validate_manual_intake_attrs(attrs),
@@ -240,8 +363,38 @@ defmodule OfficeGraph.Integrations do
     |> Base.encode16(case: :lower)
   end
 
+  defp validate_system_archive_scope(operation, source) do
+    valid? =
+      operation.operation_kind == "system" and is_binary(operation.organization_id) and
+        (is_binary(operation.workspace_id) or is_nil(operation.workspace_id)) and
+        source.kind == "provider"
+
+    if valid?, do: :ok, else: {:error, :forbidden}
+  end
+
+  defp provider_source_insert_contract(ExternalSource, _attrs) do
+    {"external_sources", [:kind, :key], [:id]}
+  end
+
+  defp provider_archive_insert_contract(RawArchive, _attrs) do
+    {"raw_archives",
+     {:unsafe_fragment,
+      "(source_id, external_delivery_id) WHERE external_delivery_id IS NOT NULL"},
+     [:id, :organization_id, :workspace_id, :source_id, :operation_id]}
+  end
+
+  defp fetch_provider_archive(RawArchive, lookup) do
+    lookup = Map.new(lookup)
+
+    RawArchive
+    |> Ash.Query.filter(
+      source_id == ^lookup.source_id and external_delivery_id == ^lookup.external_delivery_id
+    )
+    |> Ash.read_one(authorize?: false)
+  end
+
   defp get_or_create_source(source_identity) do
-    case Ash.get(ExternalSource, %{key: source_identity},
+    case Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
            authorize?: false,
            not_found_error?: false
          ) do
@@ -272,7 +425,7 @@ defmodule OfficeGraph.Integrations do
         }
       ],
       on_conflict: :nothing,
-      conflict_target: [:key]
+      conflict_target: [:kind, :key]
     )
 
     case fetch_source(source_identity) do
@@ -282,7 +435,7 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp fetch_source(source_identity) do
-    Ash.get(ExternalSource, %{key: source_identity},
+    Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
       authorize?: false,
       not_found_error?: false
     )

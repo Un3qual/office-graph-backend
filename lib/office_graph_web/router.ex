@@ -21,6 +21,12 @@ defmodule OfficeGraphWeb.Router do
   end
 
   scope "/api", OfficeGraphWeb do
+    pipe_through :api
+
+    post "/v1/webhooks/github", GitHubWebhookController, :create
+  end
+
+  scope "/api", OfficeGraphWeb do
     pipe_through [:api, :generated_json_api]
 
     get "/v1/graph-items/:item_id/relationships",
@@ -30,6 +36,22 @@ defmodule OfficeGraphWeb.Router do
     post "/v1/commands/submit-manual-intake",
          JsonApi.OperatorCommands.IntakeController,
          :submit_manual_intake
+
+    post "/v1/commands/bind-github-installation",
+         JsonApi.OperatorCommands.GitHubController,
+         :bind_installation
+
+    post "/v1/commands/reply-to-github-review",
+         JsonApi.OperatorCommands.GitHubController,
+         :reply_to_review
+
+    post "/v1/commands/update-github-check",
+         JsonApi.OperatorCommands.GitHubController,
+         :update_check
+
+    get "/v1/github/installations/:installation_id/health",
+        JsonApi.GitHubHealthController,
+        :show
 
     post "/v1/commands/apply-proposed-changes",
          JsonApi.OperatorCommands.IntakeController,

@@ -3,14 +3,26 @@ defmodule OfficeGraph.Operations do
   Public boundary for operation correlation and mutation context.
   """
 
-  use Boundary, deps: [OfficeGraph.Identity], exports: []
+  use Boundary, deps: [OfficeGraph.Authorization, OfficeGraph.Identity], exports: []
 
   require Ash.Query
 
   alias OfficeGraph.Identity
-  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Operations.{OperationCorrelation, SystemOperationRequest}
 
-  @actions %{
+  @storage_exceptions [
+    Ash.Error.Forbidden,
+    Ash.Error.Framework,
+    Ash.Error.Invalid,
+    Ash.Error.Unknown,
+    DBConnection.ConnectionError,
+    Ecto.ConstraintError,
+    Ecto.StaleEntryError,
+    Postgrex.Error,
+    RuntimeError
+  ]
+
+  @human_actions %{
     manual_intake_submit: "manual_intake.submit",
     proposed_change_apply: "proposed_change.apply",
     evidence_link: "evidence.link",
@@ -26,23 +38,81 @@ defmodule OfficeGraph.Operations do
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    github_installation_bind: "github.installation.bind",
+    github_review_reply: "github.review.reply",
+    github_check_update: "github.check.update",
     integration_reconcile: "integration.reconcile",
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"
   }
 
+  @system_actions %{
+    integration_reconcile: "integration.reconcile",
+    provider_webhook_receive: "provider.webhook.receive",
+    system_conformance: "system.conformance"
+  }
+
+  def new_system_operation_request(attrs) do
+    SystemOperationRequest.new(attrs, @system_actions)
+  end
+
+  def start_system_operation(%SystemOperationRequest{} = request) do
+    with_operation_storage_boundary(fn ->
+      with :ok <-
+             OfficeGraph.Authorization.authorize_system_principal(
+               request.principal_id,
+               request.organization_id,
+               request.workspace_id,
+               request.action
+             ),
+           {:ok, operation} <- find_or_create_system_operation(request),
+           :ok <- validate_system_replay(operation, request) do
+        {:ok, operation}
+      end
+    end)
+  end
+
+  def start_system_operation(_request), do: {:error, :invalid_system_operation_request}
+
+  def validate_system_operation(operation, action) when is_map(operation) and is_atom(action) do
+    with {:ok, expected_action} <- Map.fetch(@system_actions, action),
+         true <- operation.operation_kind == "system",
+         true <- operation.action == expected_action,
+         true <- is_binary(operation.organization_id),
+         true <- is_binary(operation.principal_id),
+         true <- is_binary(operation.authority_basis),
+         true <- is_binary(operation.causation_key),
+         true <- is_binary(operation.idempotency_scope),
+         :ok <-
+           OfficeGraph.Authorization.authorize_system_principal(
+             operation.principal_id,
+             operation.organization_id,
+             operation.workspace_id,
+             action
+           ) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _invalid -> {:error, :forbidden}
+    end
+  end
+
+  def validate_system_operation(_operation, _action), do: {:error, :forbidden}
+
   def start_command(session_context, action, idempotency_key, input)
       when is_binary(idempotency_key) and idempotency_key != "" do
     digest = command_input_digest(input)
 
-    with {:ok, operation} <-
-           start_operation(session_context, action,
-             idempotency_key: idempotency_key,
-             metadata: %{"command_input_digest" => digest}
-           ),
-         :ok <- validate_command_replay(operation, input) do
-      {:ok, operation}
-    end
+    with_operation_storage_boundary(fn ->
+      with {:ok, operation} <-
+             start_operation(session_context, action,
+               idempotency_key: idempotency_key,
+               metadata: %{"command_input_digest" => digest}
+             ),
+           :ok <- validate_command_replay(operation, input) do
+        {:ok, operation}
+      end
+    end)
   end
 
   def validate_command_replay(operation, input) when is_map(operation) do
@@ -105,10 +175,26 @@ defmodule OfficeGraph.Operations do
   end
 
   def lock_operation(operation_id) do
-    OperationCorrelation
-    |> Ash.Query.filter(id == ^operation_id)
+    operation_id
+    |> operation_query()
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
+    |> operation_read_result(operation_id)
+  end
+
+  def read_operation(operation_id) do
+    operation_id
+    |> operation_query()
+    |> Ash.read_one(authorize?: false)
+    |> operation_read_result(operation_id)
+  end
+
+  defp operation_query(operation_id) do
+    Ash.Query.filter(OperationCorrelation, id == ^operation_id)
+  end
+
+  defp operation_read_result(result, operation_id) do
+    result
     |> case do
       {:ok, nil} -> {:error, {:not_found, OperationCorrelation, operation_id}}
       {:ok, operation} -> {:ok, operation}
@@ -117,7 +203,7 @@ defmodule OfficeGraph.Operations do
   end
 
   def start_operation(session_context, action, attrs \\ []) do
-    action_name = Map.fetch!(@actions, action)
+    action_name = Map.fetch!(@human_actions, action)
     correlation_id = Keyword.get_lazy(attrs, :correlation_id, &Ecto.UUID.generate/0)
     idempotency_key = attrs[:idempotency_key]
 
@@ -133,6 +219,105 @@ defmodule OfficeGraph.Operations do
           {:error, error}
       end
     end
+  end
+
+  defp find_or_create_system_operation(request) do
+    case existing_system_operation(request) do
+      {:ok, nil} -> create_system_operation(request)
+      {:ok, operation} -> {:ok, operation}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp existing_system_operation(request) do
+    OperationCorrelation
+    |> Ash.Query.filter(
+      operation_kind == "system" and
+        organization_id == ^request.organization_id and
+        principal_id == ^request.principal_id and
+        action == ^request.action_name and
+        idempotency_scope == ^request.idempotency_scope and
+        idempotency_key == ^request.idempotency_key
+    )
+    |> scope_system_operation_workspace(request.workspace_id)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp scope_system_operation_workspace(query, nil),
+    do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp scope_system_operation_workspace(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
+  defp create_system_operation(request) do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      operation_kind: "system",
+      principal_id: request.principal_id,
+      session_id: nil,
+      organization_id: request.organization_id,
+      workspace_id: request.workspace_id,
+      action: request.action_name,
+      correlation_id: Ecto.UUID.generate(),
+      idempotency_key: request.idempotency_key,
+      authority_basis: request.authority_basis,
+      causation_key: request.causation_key,
+      idempotency_scope: request.idempotency_scope,
+      credential_id: request.credential_id,
+      subject_kind: request.subject_kind,
+      subject_id: request.subject_id,
+      subject_version: request.subject_version,
+      metadata: %{}
+    }
+
+    OperationCorrelation
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(
+      authorize?: false,
+      return_notifications?: true,
+      upsert?: true,
+      upsert_identity: :unique_system_idempotency,
+      upsert_fields: []
+    )
+    |> case do
+      {:ok, operation, _notifications} -> {:ok, operation}
+      {:ok, operation} -> {:ok, operation}
+      {:error, error} -> refetch_system_operation_after_conflict(request, error)
+    end
+  end
+
+  defp refetch_system_operation_after_conflict(request, error) do
+    case existing_system_operation(request) do
+      {:ok, nil} -> {:error, error}
+      {:ok, operation} -> {:ok, operation}
+      {:error, _refetch_error} -> {:error, error}
+    end
+  end
+
+  defp validate_system_replay(operation, request) do
+    matching? =
+      Enum.all?(
+        [
+          {:operation_kind, "system"},
+          {:principal_id, request.principal_id},
+          {:organization_id, request.organization_id},
+          {:workspace_id, request.workspace_id},
+          {:action, request.action_name},
+          {:authority_basis, request.authority_basis},
+          {:causation_key, request.causation_key},
+          {:idempotency_scope, request.idempotency_scope},
+          {:idempotency_key, request.idempotency_key},
+          {:credential_id, request.credential_id},
+          {:subject_kind, request.subject_kind},
+          {:subject_id, request.subject_id},
+          {:subject_version, request.subject_version}
+        ],
+        fn {field, expected} -> Map.get(operation, field) == expected end
+      )
+
+    if matching?,
+      do: :ok,
+      else: {:error, {:system_idempotency_conflict, operation.id}}
   end
 
   defp existing_operation(_session_context, _action_name, nil), do: {:ok, nil}
@@ -236,4 +421,35 @@ defmodule OfficeGraph.Operations do
   defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
 
   defp command_digest_from_metadata(_metadata), do: nil
+
+  defp with_operation_storage_boundary(fun) do
+    fun.()
+    |> normalize_operation_storage_result()
+  rescue
+    _error in @storage_exceptions -> unavailable()
+  catch
+    :exit, _reason -> unavailable()
+  end
+
+  defp normalize_operation_storage_result({:ok, operation}), do: {:ok, operation}
+
+  defp normalize_operation_storage_result({:error, reason} = error)
+       when reason in [:forbidden, :integration_storage_unavailable],
+       do: error
+
+  defp normalize_operation_storage_result(
+         {:error, {:system_idempotency_conflict, operation_id}} = error
+       )
+       when is_binary(operation_id),
+       do: error
+
+  defp normalize_operation_storage_result(
+         {:error, {:command_idempotency_conflict, operation_id}} = error
+       )
+       when is_binary(operation_id),
+       do: error
+
+  defp normalize_operation_storage_result({:error, _storage_error}), do: unavailable()
+
+  defp unavailable, do: {:error, :integration_storage_unavailable}
 end

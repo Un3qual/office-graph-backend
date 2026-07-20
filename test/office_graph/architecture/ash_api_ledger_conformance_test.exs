@@ -237,7 +237,7 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       |> Path.wildcard()
       |> Enum.sort()
 
-    assert length(resolver_paths) == 4
+    assert length(resolver_paths) == 5
 
     for path <- resolver_paths do
       source = File.read!(path)

@@ -37,6 +37,19 @@ The app connects to `localhost:55432` with:
 Production runtime config enables Postgres TLS by default. Set
 `DATABASE_SSL=false` only for an explicitly trusted private database network.
 
+## GitHub App Runtime
+
+Development and production use the live GitHub App adapter. Set
+`GITHUB_APP_ID` to the numeric App ID before processing GitHub reconciliation or
+outbound jobs. Installation binding stores only credential references; with the
+environment secret store, point those references at variables such as
+`env:GITHUB_APP_PRIVATE_KEY` and `env:GITHUB_WEBHOOK_SECRET`.
+
+GitHub.com uses `https://api.github.com` by default. GitHub Enterprise Server
+deployments can set `GITHUB_API_URL` and `GITHUB_GRAPHQL_URL` explicitly. Normal
+tests replace the live adapter and secret store with deterministic in-memory
+implementations and require no GitHub credentials or network access.
+
 Stop Postgres:
 
 ```sh

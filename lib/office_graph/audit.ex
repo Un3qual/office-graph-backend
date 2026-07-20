@@ -28,6 +28,19 @@ defmodule OfficeGraph.Audit do
     |> record_without_notifications()
   end
 
+  def record_once!(operation, action, resource_type, resource_id, sensitive? \\ true) do
+    AuditRecord
+    |> Ash.Query.filter(
+      operation_id == ^operation.id and action == ^action and
+        resource_type == ^resource_type and resource_id == ^resource_id
+    )
+    |> Ash.read_one!(authorize?: false)
+    |> case do
+      nil -> record!(operation, action, resource_type, resource_id, sensitive?)
+      record -> record
+    end
+  end
+
   def count_for_operation(operation_id) do
     AuditRecord
     |> Ash.Query.filter(operation_id == ^operation_id)

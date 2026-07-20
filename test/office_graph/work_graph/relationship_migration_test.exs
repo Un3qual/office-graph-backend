@@ -1,6 +1,8 @@
 defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
   use OfficeGraph.DataCase, async: false
 
+  import OfficeGraph.TestSupport.PostgresCatalog
+
   alias OfficeGraph.{Foundation, Operations, Repo}
 
   @typed_migration_version 20_260_713_101_000
@@ -361,39 +363,5 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
       ])
 
     resource_id
-  end
-
-  defp column_exists?(table, column) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = $1
-            AND column_name = $2
-        )
-        """,
-        [table, column]
-      )
-
-    exists?
-  end
-
-  defp constraint_exists?(constraint) do
-    %{rows: [[exists?]]} =
-      Repo.query!(
-        """
-        SELECT EXISTS (
-          SELECT 1
-          FROM pg_constraint
-          WHERE conname = $1
-        )
-        """,
-        [constraint]
-      )
-
-    exists?
   end
 end

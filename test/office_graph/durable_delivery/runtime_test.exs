@@ -1,6 +1,8 @@
 defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   use OfficeGraph.DataCase, async: false
 
+  import OfficeGraph.TestSupport.PostgresCatalog
+
   alias OfficeGraph.Repo
 
   test "Oban is configured as the Postgres-backed durable runtime" do
@@ -31,7 +33,7 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     assert table_exists?("oban_jobs")
     assert table_exists?("domain_events")
 
-    assert MapSet.new(domain_event_columns()) ==
+    assert MapSet.new(columns("domain_events")) ==
              MapSet.new([
                "id",
                "organization_id",
@@ -40,6 +42,8 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
                "causation_event_id",
                "event_key",
                "event_kind",
+               "operation_kind",
+               "event_scope",
                "subject_kind",
                "subject_id",
                "subject_version",
@@ -56,39 +60,5 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     assert index_exists?("domain_events_scope_state_occurred_at_index")
     assert index_exists?("domain_events_operation_id_index")
     assert index_exists?("domain_events_subject_index")
-  end
-
-  defp table_exists?(table_name) do
-    %{rows: [[exists?]]} =
-      Ecto.Adapters.SQL.query!(Repo, "SELECT to_regclass($1) IS NOT NULL", [table_name])
-
-    exists?
-  end
-
-  defp domain_event_columns do
-    %{rows: rows} =
-      Ecto.Adapters.SQL.query!(
-        Repo,
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'domain_events'
-        ORDER BY ordinal_position
-        """,
-        []
-      )
-
-    Enum.map(rows, fn [column] -> column end)
-  end
-
-  defp index_exists?(index_name) do
-    %{rows: [[exists?]]} =
-      Ecto.Adapters.SQL.query!(
-        Repo,
-        "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1)",
-        [index_name]
-      )
-
-    exists?
   end
 end

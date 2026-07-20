@@ -16,7 +16,8 @@ defmodule OfficeGraph.Application do
         OfficeGraphWeb.Telemetry,
         OfficeGraph.Repo,
         {DNSCluster, query: Application.get_env(:office_graph, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: OfficeGraph.PubSub}
+        {Phoenix.PubSub, name: OfficeGraph.PubSub},
+        OfficeGraph.GitHubIntegration.Adapter.GitHub.TokenCache
       ] ++
         OfficeGraph.DurableDelivery.subscription_children() ++
         [

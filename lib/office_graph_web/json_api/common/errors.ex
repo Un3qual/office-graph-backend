@@ -26,6 +26,7 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
   end
 
   defp status(%{category: :authorization}, _opts), do: :forbidden
+  defp status(%{category: :availability}, _opts), do: :service_unavailable
   defp status(%{category: :conflict}, _opts), do: :conflict
 
   defp status(%{category: :not_found, metadata: %{normalized_event_id: _id}}, opts) do

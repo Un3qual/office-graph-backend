@@ -1,0 +1,872 @@
+defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
+  use ExUnit.Case, async: false
+
+  alias OfficeGraph.GitHubIntegration.Adapter
+  alias OfficeGraph.GitHubIntegration.Adapter.GitHub
+
+  @large_pull_request_database_id 4_294_967_296
+  @large_review_comment_database_id 4_294_967_297
+  @large_review_database_id 4_294_967_298
+  @large_check_run_database_id 4_294_967_299
+
+  defmodule HTTPClient do
+    @behaviour OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient
+
+    def put(responses) do
+      Process.put({__MODULE__, :responses}, responses)
+      Process.put({__MODULE__, :requests}, [])
+    end
+
+    def requests do
+      Process.get({__MODULE__, :requests}, []) |> Enum.reverse()
+    end
+
+    @impl true
+    def request(method, url, headers, body) do
+      requests = Process.get({__MODULE__, :requests}, [])
+      Process.put({__MODULE__, :requests}, [{method, url, headers, body} | requests])
+
+      case Process.get({__MODULE__, :responses}, []) do
+        [response | remaining] ->
+          Process.put({__MODULE__, :responses}, remaining)
+          response
+
+        [] ->
+          {:error, :unexpected_http_request}
+      end
+    end
+  end
+
+  setup_all do
+    private_key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem_entry = :public_key.pem_entry_encode(:RSAPrivateKey, private_key)
+    {:ok, private_key: :public_key.pem_encode([pem_entry])}
+  end
+
+  setup do
+    configured = %{
+      app_id: Application.get_env(:office_graph, :github_app_id),
+      api_url: Application.get_env(:office_graph, :github_api_url),
+      client: Application.get_env(:office_graph, :github_http_client)
+    }
+
+    Application.put_env(:office_graph, :github_app_id, "12345")
+    Application.put_env(:office_graph, :github_api_url, "https://api.github.test")
+    Application.put_env(:office_graph, :github_http_client, HTTPClient)
+    GitHub.clear_token_cache()
+
+    on_exit(fn ->
+      restore_env(:github_app_id, configured.app_id)
+      restore_env(:github_api_url, configured.api_url)
+      restore_env(:github_http_client, configured.client)
+      GitHub.clear_token_cache()
+    end)
+
+    :ok
+  end
+
+  test "non-test configuration selects the live GitHub adapter" do
+    config = Config.Reader.read!("config/config.exs", env: :prod, target: :host)
+
+    assert config[:office_graph][:github_adapter] == GitHub
+  end
+
+  test "missing App identity fails as configuration before provider access", context do
+    Application.delete_env(:office_graph, :github_app_id)
+    HTTPClient.put([])
+
+    assert {:error, :adapter_unavailable} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert HTTPClient.requests() == []
+  end
+
+  test "installation token not-found responses classify the binding as revoked", context do
+    HTTPClient.put([
+      error_response(404, %{"message" => "Not Found"})
+    ])
+
+    assert {:error, :installation_revoked} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_revoked",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert length(HTTPClient.requests()) == 1
+  end
+
+  test "GraphQL forbidden errors preserve the permission-denied classification", context do
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{
+        "data" => %{"node" => nil},
+        "errors" => [%{"type" => "FORBIDDEN", "message" => "Resource not accessible"}]
+      })
+    ])
+
+    assert {:error, :permission_denied} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_forbidden",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+  end
+
+  test "GraphQL rate limits honor the provider reset header", context do
+    reset_at = DateTime.add(DateTime.utc_now(), 15, :minute)
+    reset_epoch = DateTime.to_unix(reset_at)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(
+        %{
+          "data" => %{"node" => nil},
+          "errors" => [%{"type" => "RATE_LIMITED", "message" => "API rate limit exceeded"}]
+        },
+        200,
+        %{"x-ratelimit-reset" => Integer.to_string(reset_epoch)}
+      )
+    ])
+
+    assert {:error, {:rate_limited, provider_reset_at}} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_graphql_rate_limited",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert DateTime.to_unix(provider_reset_at) == reset_epoch
+  end
+
+  test "secondary rate-limit responses remain retryable when primary quota remains", context do
+    HTTPClient.put([
+      installation_token_response(),
+      error_response(
+        403,
+        %{"message" => "You have exceeded a secondary rate limit."},
+        %{"retry-after" => "30", "x-ratelimit-remaining" => "4999"}
+      )
+    ])
+
+    before = DateTime.utc_now()
+
+    assert {:error, {:rate_limited, reset_at}} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_secondary_rate_limit",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert DateTime.diff(reset_at, before, :second) in 29..31
+  end
+
+  test "fetch authenticates as the app and normalizes authoritative pull request state",
+       context do
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{"data" => %{"node" => %{"id" => "PR_live"}}}),
+      json_response(snapshot_response())
+    ])
+
+    assert {:ok, %Adapter.ReconciliationSnapshot{} = snapshot} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert snapshot.provider_version == "2026-07-16T12:00:00Z"
+    assert snapshot.repository.full_name == "Un3qual/office-graph-backend"
+    assert snapshot.repository.provider_version =~ "github-repository:v1:"
+
+    assert snapshot.repository.provider_sequence ==
+             DateTime.to_unix(~U[2026-07-16 10:00:00Z], :microsecond)
+
+    assert snapshot.repository.provider_updated_at == ~U[2026-07-16 10:00:00Z]
+    assert snapshot.pull_request.node_id == "PR_live"
+    assert snapshot.pull_request.database_id == @large_pull_request_database_id
+    assert [%{node_id: "PRRT_live", state: "open"}] = snapshot.review_threads
+
+    assert [%{node_id: "PRRC_live", review_thread_node_id: "PRRT_live"} = comment] =
+             snapshot.review_comments
+
+    assert comment.database_id == @large_review_comment_database_id
+    assert comment.review_database_id == @large_review_database_id
+    assert comment.provider_version =~ "github-review-comment:v1:"
+    assert comment.provider_sequence == DateTime.to_unix(~U[2026-07-16 11:31:00Z], :microsecond)
+    assert comment.provider_updated_at == ~U[2026-07-16 11:31:00Z]
+
+    assert [
+             %{
+               node_id: "CR_live",
+               status: "completed",
+               conclusion: "failure",
+               current?: true
+             }
+           ] =
+             snapshot.check_runs
+
+    [token_request, resolve_request, snapshot_request] = HTTPClient.requests()
+
+    assert {:post, "https://api.github.test/app/installations/42/access_tokens", headers, "{}"} =
+             token_request
+
+    assert "Bearer " <> jwt = Map.fetch!(headers, "authorization")
+    assert length(String.split(jwt, ".")) == 3
+
+    for {_method, "https://api.github.test/graphql", request_headers, _body} <-
+          [resolve_request, snapshot_request] do
+      assert request_headers["authorization"] == "Bearer installation-token"
+    end
+  end
+
+  test "check freshness includes mutable persisted fields when timestamps tie", context do
+    changed_response =
+      put_in(
+        snapshot_response(),
+        [
+          "data",
+          "node",
+          "commits",
+          "nodes",
+          Access.at(0),
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "nodes",
+          Access.at(0),
+          "detailsUrl"
+        ],
+        "https://github.com/check/903/updated"
+      )
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(snapshot_response()),
+      json_response(changed_response)
+    ])
+
+    request = %{
+      object_type: "check_run",
+      object_id: "CR_live",
+      pull_request_id: "PR_live",
+      external_installation_id: 42,
+      credential: context.private_key
+    }
+
+    assert {:ok, first_snapshot} = GitHub.fetch(request)
+    assert {:ok, changed_snapshot} = GitHub.fetch(request)
+
+    [first_check] = first_snapshot.check_runs
+    [changed_check] = changed_snapshot.check_runs
+
+    assert first_check.provider_sequence == changed_check.provider_sequence
+    refute first_check.provider_version == changed_check.provider_version
+  end
+
+  test "check-run fetches use the webhook-selected pull request instead of an arbitrary first association",
+       context do
+    second_pull_request =
+      snapshot_response()
+      |> put_in(["data", "node", "id"], "PR_live_second")
+      |> put_in(["data", "node", "fullDatabaseId"], "4294967295")
+      |> put_in(["data", "node", "number"], 25)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(second_pull_request)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_live",
+               pull_request_id: "PR_live_second",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert snapshot.pull_request.node_id == "PR_live_second"
+
+    [_token_request, snapshot_request] = HTTPClient.requests()
+    {_method, _url, _headers, encoded_body} = snapshot_request
+
+    assert Jason.decode!(encoded_body)["variables"] == %{
+             "id" => "PR_live_second",
+             "requestedObjectId" => "CR_live"
+           }
+  end
+
+  test "check-run fetches include the requested run when it is outside the head commit",
+       context do
+    historical_check = %{
+      "id" => "CR_historical",
+      "databaseId" => 906,
+      "checkSuite" => %{"databaseId" => 79},
+      "name" => "historical verify",
+      "status" => "COMPLETED",
+      "conclusion" => "FAILURE",
+      "detailsUrl" => "https://github.com/check/906",
+      "startedAt" => "2026-07-15T11:40:00Z",
+      "completedAt" => "2026-07-15T11:50:00Z"
+    }
+
+    response = put_in(snapshot_response(), ["data", "requestedObject"], historical_check)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(response)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_historical",
+               pull_request_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert %{status: "completed", conclusion: "failure", current?: false} =
+             Enum.find(snapshot.check_runs, &(&1.node_id == "CR_historical"))
+
+    assert %{current?: true} = Enum.find(snapshot.check_runs, &(&1.node_id == "CR_live"))
+
+    [_token_request, snapshot_request] = HTTPClient.requests()
+    {_method, _url, _headers, encoded_body} = snapshot_request
+
+    assert Jason.decode!(encoded_body)["variables"] == %{
+             "id" => "PR_live",
+             "requestedObjectId" => "CR_historical"
+           }
+  end
+
+  test "numeric check-run pull request resolution follows every association page", context do
+    third_pull_request =
+      snapshot_response()
+      |> put_in(["data", "node", "id"], "PR_live_third")
+      |> put_in(
+        ["data", "node", "fullDatabaseId"],
+        Integer.to_string(@large_pull_request_database_id)
+      )
+      |> put_in(["data", "node", "number"], 26)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{
+        "data" => %{
+          "node" => %{
+            "checkSuite" => %{
+              "pullRequests" => %{
+                "nodes" => [
+                  %{"id" => "PR_live_first", "fullDatabaseId" => "4294967294"},
+                  %{"id" => "PR_live_second", "fullDatabaseId" => "4294967295"}
+                ],
+                "pageInfo" => %{
+                  "hasNextPage" => true,
+                  "endCursor" => "pull-request-cursor-1"
+                }
+              }
+            }
+          }
+        }
+      }),
+      json_response(%{
+        "data" => %{
+          "node" => %{
+            "checkSuite" => %{
+              "pullRequests" => %{
+                "nodes" => [
+                  %{
+                    "id" => "PR_live_third",
+                    "fullDatabaseId" => Integer.to_string(@large_pull_request_database_id)
+                  }
+                ],
+                "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+              }
+            }
+          }
+        }
+      }),
+      json_response(third_pull_request)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "check_run",
+               object_id: "CR_live",
+               pull_request_id: Integer.to_string(@large_pull_request_database_id),
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert snapshot.pull_request.node_id == "PR_live_third"
+    assert snapshot.pull_request.database_id == @large_pull_request_database_id
+
+    [_token_request, _resolve_request, association_page_request, snapshot_request] =
+      HTTPClient.requests()
+
+    {_method, _url, _headers, association_page_body} = association_page_request
+
+    assert Jason.decode!(association_page_body)["variables"] == %{
+             "id" => "CR_live",
+             "cursor" => "pull-request-cursor-1"
+           }
+
+    {_method, _url, _headers, snapshot_body} = snapshot_request
+
+    assert Jason.decode!(snapshot_body)["variables"] == %{
+             "id" => "PR_live_third",
+             "requestedObjectId" => "CR_live"
+           }
+  end
+
+  test "fetch follows authoritative review-thread pages instead of truncating the snapshot",
+       context do
+    first_page =
+      put_in(
+        snapshot_response(),
+        ["data", "node", "reviewThreads", "pageInfo"],
+        %{"hasNextPage" => true, "endCursor" => "thread-cursor-1"}
+      )
+
+    second_page = %{
+      "data" => %{
+        "node" => %{
+          "reviewThreads" => %{
+            "nodes" => [
+              %{
+                "id" => "PRRT_live_2",
+                "isResolved" => true,
+                "isOutdated" => false,
+                "path" => "lib/second.ex",
+                "line" => 9,
+                "diffSide" => "RIGHT",
+                "comments" => %{
+                  "nodes" => [],
+                  "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                }
+              }
+            ],
+            "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+          }
+        }
+      }
+    }
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{"data" => %{"node" => %{"id" => "PR_live"}}}),
+      json_response(first_page),
+      json_response(second_page)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert Enum.map(snapshot.review_threads, & &1.node_id) == ["PRRT_live", "PRRT_live_2"]
+  end
+
+  test "fetch follows nested comment and check-run pages", context do
+    first_page =
+      snapshot_response()
+      |> put_in(
+        [
+          "data",
+          "node",
+          "reviewThreads",
+          "nodes",
+          Access.at(0),
+          "comments",
+          "pageInfo"
+        ],
+        %{"hasNextPage" => true, "endCursor" => "comment-cursor-1"}
+      )
+      |> put_in(
+        [
+          "data",
+          "node",
+          "commits",
+          "nodes",
+          Access.at(0),
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "pageInfo"
+        ],
+        %{"hasNextPage" => true, "endCursor" => "check-cursor-1"}
+      )
+
+    comment_page = %{
+      "data" => %{
+        "node" => %{
+          "comments" => %{
+            "nodes" => [
+              %{
+                "id" => "PRRC_live_reply",
+                "fullDatabaseId" => "4294967300",
+                "body" => "Follow-up",
+                "state" => "SUBMITTED",
+                "isMinimized" => false,
+                "createdAt" => "2026-07-16T11:32:00Z",
+                "updatedAt" => "2026-07-16T11:33:00Z",
+                "url" => "https://github.com/comment/904",
+                "author" => %{"login" => "reviewer"},
+                "replyTo" => %{"id" => "PRRC_live"},
+                "pullRequestReview" => %{"fullDatabaseId" => "4294967301"}
+              }
+            ],
+            "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+          }
+        }
+      }
+    }
+
+    check_page = %{
+      "data" => %{
+        "node" => %{
+          "commits" => %{
+            "nodes" => [
+              %{
+                "commit" => %{
+                  "statusCheckRollup" => %{
+                    "contexts" => %{
+                      "nodes" => [
+                        %{
+                          "__typename" => "CheckRun",
+                          "id" => "CR_live_2",
+                          "databaseId" => 905,
+                          "checkSuite" => %{"databaseId" => 78},
+                          "name" => "frontend verify",
+                          "status" => "COMPLETED",
+                          "conclusion" => "SUCCESS",
+                          "detailsUrl" => "https://github.com/check/905",
+                          "startedAt" => "2026-07-16T11:51:00Z",
+                          "completedAt" => "2026-07-16T11:59:00Z"
+                        }
+                      ],
+                      "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(%{"data" => %{"node" => %{"id" => "PR_live"}}}),
+      json_response(first_page),
+      json_response(comment_page),
+      json_response(check_page)
+    ])
+
+    assert {:ok, snapshot} =
+             GitHub.fetch(%{
+               object_type: "pull_request",
+               object_id: "PR_live",
+               external_installation_id: 42,
+               credential: context.private_key
+             })
+
+    assert Enum.map(snapshot.review_comments, & &1.node_id) == [
+             "PRRC_live",
+             "PRRC_live_reply"
+           ]
+
+    assert Enum.map(snapshot.check_runs, & &1.node_id) == ["CR_live", "CR_live_2"]
+  end
+
+  test "review reply callbacks reconcile the durable marker only for the target parent",
+       context do
+    marker = "<!-- office-graph-action:action-42 -->"
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(review_comment_context(@large_review_comment_database_id)),
+      json_response([
+        %{
+          "id" => 900,
+          "node_id" => "PRRC_unrelated_reply",
+          "in_reply_to_id" => 899,
+          "body" => "Copied marker\n\n#{marker}",
+          "updated_at" => "2026-07-16T12:29:00Z"
+        },
+        %{
+          "id" => 902,
+          "node_id" => "PRRC_existing_reply",
+          "in_reply_to_id" => @large_review_comment_database_id,
+          "body" => "Already sent\n\n#{marker}",
+          "updated_at" => "2026-07-16T12:30:00Z"
+        }
+      ])
+    ])
+
+    request = %{
+      target_node_id: "PRRC_live",
+      idempotency_key: "action-42",
+      external_installation_id: 42,
+      body: "Please address this.",
+      expected_provider_version: "2026-07-16T12:00:00Z"
+    }
+
+    assert {:ok, %{id: "PRRC_existing_reply", version: "2026-07-16T12:30:00Z"}} =
+             GitHub.find_review_reply(request, context.private_key)
+
+    assert length(HTTPClient.requests()) == 3
+
+    GitHub.clear_token_cache()
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(review_comment_context(@large_review_comment_database_id)),
+      json_response(%{
+        "id" => 902,
+        "node_id" => "PRRC_created_reply",
+        "updated_at" => "2026-07-16T12:31:00Z"
+      })
+    ])
+
+    assert {:ok, %{id: "PRRC_created_reply", version: "2026-07-16T12:31:00Z"}} =
+             GitHub.reply_to_review(request, context.private_key)
+
+    expected_url =
+      "https://api.github.test/repos/Un3qual/office-graph-backend/pulls/24/comments/#{@large_review_comment_database_id}/replies"
+
+    assert {:post, ^expected_url, _headers, encoded_body} = List.last(HTTPClient.requests())
+
+    assert Jason.decode!(encoded_body) == %{
+             "body" => "Please address this.\n\n#{marker}"
+           }
+  end
+
+  test "check updates resolve the repository and patch the selected check run", context do
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(check_run_context()),
+      json_response(%{
+        "id" => 903,
+        "node_id" => "CR_live",
+        "updated_at" => "2026-07-16T12:32:00Z"
+      })
+    ])
+
+    assert {:ok, %{id: "CR_live", version: "2026-07-16T12:32:00Z"}} =
+             GitHub.update_check(
+               %{
+                 target_node_id: "CR_live",
+                 external_installation_id: 42,
+                 status: "completed",
+                 conclusion: "success",
+                 details_url: "https://office-graph.test/checks/903"
+               },
+               context.private_key
+             )
+
+    assert {:patch, "https://api.github.test/repos/Un3qual/office-graph-backend/check-runs/903",
+            _headers, encoded_body} = List.last(HTTPClient.requests())
+
+    assert Jason.decode!(encoded_body) == %{
+             "status" => "completed",
+             "conclusion" => "success",
+             "details_url" => "https://office-graph.test/checks/903"
+           }
+  end
+
+  test "check updates use full 64-bit database ids for the REST target", context do
+    check_context =
+      check_run_context()
+      |> update_in(["data", "node"], fn node ->
+        node
+        |> Map.delete("databaseId")
+        |> Map.put("fullDatabaseId", Integer.to_string(@large_check_run_database_id))
+      end)
+
+    HTTPClient.put([
+      installation_token_response(),
+      json_response(check_context),
+      json_response(%{
+        "id" => @large_check_run_database_id,
+        "node_id" => "CR_live",
+        "updated_at" => "2026-07-16T12:32:00Z"
+      })
+    ])
+
+    assert {:ok, %{id: "CR_live", version: "2026-07-16T12:32:00Z"}} =
+             GitHub.update_check(
+               %{
+                 target_node_id: "CR_live",
+                 external_installation_id: 42,
+                 status: "completed",
+                 conclusion: "success",
+                 details_url: "https://office-graph.test/checks/large"
+               },
+               context.private_key
+             )
+
+    expected_url =
+      "https://api.github.test/repos/Un3qual/office-graph-backend/check-runs/#{@large_check_run_database_id}"
+
+    assert {:patch, ^expected_url, _headers, _encoded_body} = List.last(HTTPClient.requests())
+  end
+
+  defp installation_token_response do
+    expires_at = DateTime.utc_now() |> DateTime.add(3_600) |> DateTime.to_iso8601()
+
+    json_response(
+      %{
+        "token" => "installation-token",
+        "expires_at" => expires_at
+      },
+      201
+    )
+  end
+
+  defp review_comment_context(database_id) do
+    %{
+      "data" => %{
+        "node" => %{
+          "fullDatabaseId" => Integer.to_string(database_id),
+          "pullRequest" => %{
+            "number" => 24,
+            "repository" => %{"nameWithOwner" => "Un3qual/office-graph-backend"}
+          }
+        }
+      }
+    }
+  end
+
+  defp check_run_context do
+    %{
+      "data" => %{
+        "node" => %{
+          "fullDatabaseId" => "903",
+          "checkSuite" => %{
+            "repository" => %{"nameWithOwner" => "Un3qual/office-graph-backend"}
+          }
+        }
+      }
+    }
+  end
+
+  defp snapshot_response do
+    %{
+      "data" => %{
+        "node" => %{
+          "id" => "PR_live",
+          "fullDatabaseId" => Integer.to_string(@large_pull_request_database_id),
+          "number" => 24,
+          "title" => "Live GitHub adapter",
+          "body" => "Normalize authoritative state.",
+          "state" => "OPEN",
+          "isDraft" => false,
+          "updatedAt" => "2026-07-16T12:00:00Z",
+          "createdAt" => "2026-07-16T11:00:00Z",
+          "closedAt" => nil,
+          "mergedAt" => nil,
+          "url" => "https://github.com/Un3qual/office-graph-backend/pull/24",
+          "author" => %{"login" => "reviewer"},
+          "repository" => %{
+            "id" => "R_live",
+            "databaseId" => 101,
+            "name" => "office-graph-backend",
+            "nameWithOwner" => "Un3qual/office-graph-backend",
+            "updatedAt" => "2026-07-16T10:00:00Z",
+            "visibility" => "PRIVATE",
+            "url" => "https://github.com/Un3qual/office-graph-backend",
+            "owner" => %{"login" => "Un3qual"},
+            "defaultBranchRef" => %{"name" => "main"}
+          },
+          "reviewThreads" => %{
+            "nodes" => [
+              %{
+                "id" => "PRRT_live",
+                "isResolved" => false,
+                "isOutdated" => false,
+                "path" => "lib/example.ex",
+                "line" => 42,
+                "diffSide" => "RIGHT",
+                "comments" => %{
+                  "nodes" => [
+                    %{
+                      "id" => "PRRC_live",
+                      "fullDatabaseId" => Integer.to_string(@large_review_comment_database_id),
+                      "body" => "Fix the root cause.",
+                      "state" => "SUBMITTED",
+                      "createdAt" => "2026-07-16T11:30:00Z",
+                      "updatedAt" => "2026-07-16T11:31:00Z",
+                      "url" => "https://github.com/comment/901",
+                      "author" => %{"login" => "review-bot"},
+                      "replyTo" => nil,
+                      "pullRequestReview" => %{
+                        "fullDatabaseId" => Integer.to_string(@large_review_database_id)
+                      }
+                    }
+                  ],
+                  "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                }
+              }
+            ],
+            "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+          },
+          "commits" => %{
+            "nodes" => [
+              %{
+                "commit" => %{
+                  "statusCheckRollup" => %{
+                    "contexts" => %{
+                      "nodes" => [
+                        %{
+                          "id" => "CR_live",
+                          "databaseId" => 903,
+                          "checkSuite" => %{"databaseId" => 77},
+                          "name" => "mix verify",
+                          "status" => "COMPLETED",
+                          "conclusion" => "FAILURE",
+                          "detailsUrl" => "https://github.com/check/903",
+                          "startedAt" => "2026-07-16T11:40:00Z",
+                          "completedAt" => "2026-07-16T11:50:00Z"
+                        }
+                      ],
+                      "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  end
+
+  defp json_response(body, status \\ 200, headers \\ %{}) do
+    {:ok, %{status: status, headers: headers, body: Jason.encode!(body)}}
+  end
+
+  defp error_response(status, body, headers \\ %{}) do
+    {:ok, %{status: status, headers: headers, body: Jason.encode!(body)}}
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
+  defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
+end

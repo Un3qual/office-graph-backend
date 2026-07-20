@@ -27,6 +27,19 @@ defmodule OfficeGraph.Revisions do
     |> record_without_notifications()
   end
 
+  def record_once!(operation, resource_type, resource_id, revision_type, summary) do
+    Revision
+    |> Ash.Query.filter(
+      operation_id == ^operation.id and resource_type == ^resource_type and
+        resource_id == ^resource_id and revision_type == ^revision_type
+    )
+    |> Ash.read_one!(authorize?: false)
+    |> case do
+      nil -> record!(operation, resource_type, resource_id, revision_type, summary)
+      revision -> revision
+    end
+  end
+
   def count_for_operation(operation_id) do
     Revision
     |> Ash.Query.filter(operation_id == ^operation_id)

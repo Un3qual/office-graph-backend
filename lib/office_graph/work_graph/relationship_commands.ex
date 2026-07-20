@@ -64,6 +64,48 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
     {:error, {:invalid_relationship_request, :request}}
   end
 
+  def create_system(operation, %RelationshipRequest{} = request) do
+    session_context = %{
+      principal_id: operation.principal_id,
+      organization_id: operation.organization_id,
+      workspace_id: operation.workspace_id
+    }
+
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+         true <- is_binary(operation.workspace_id),
+         :ok <- RelationshipRequest.validate(request),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- validate_provenance_scope(session_context, request),
+         :ok <- authorize_system_cross_workspace(operation, endpoints) do
+      Support.transaction(fn ->
+        RelationshipCyclePolicy.lock_and_validate!(
+          definition,
+          session_context.organization_id,
+          request
+        )
+
+        relationship =
+          persist_active_relationship!(session_context, operation, definition, request, nil)
+
+        Support.trace!(
+          operation,
+          "graph_relationship.create",
+          "graph_relationship",
+          relationship.id
+        )
+
+        relationship
+      end)
+    else
+      false -> {:error, :forbidden}
+      error -> error
+    end
+  end
+
+  def create_system(_operation, _request), do: {:error, :forbidden}
+
   def supersede(
         session_context,
         operation,
@@ -376,6 +418,20 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
         operation,
         :graph_relationship_cross_workspace,
         organization_id: session_context.organization_id
+      )
+    end
+  end
+
+  defp authorize_system_cross_workspace(operation, endpoints) do
+    if endpoints.source.workspace_id == operation.workspace_id and
+         endpoints.target.workspace_id == operation.workspace_id do
+      :ok
+    else
+      Authorization.authorize_system_principal(
+        operation.principal_id,
+        operation.organization_id,
+        operation.workspace_id,
+        :graph_relationship_cross_workspace
       )
     end
   end

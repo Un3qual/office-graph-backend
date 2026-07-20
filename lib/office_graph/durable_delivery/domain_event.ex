@@ -15,15 +15,17 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :operation_kind, :string, allow_nil?: false, default: "human", public?: true
+    attribute :event_scope, :string, allow_nil?: false, default: "workspace", public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :workspace_id, :uuid, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :causation_event_id, :uuid, public?: true
     attribute :event_key, :string, allow_nil?: false, public?: true
     attribute :event_kind, :string, allow_nil?: false, public?: true
-    attribute :subject_kind, :string, allow_nil?: false, public?: true
-    attribute :subject_id, :uuid, allow_nil?: false, public?: true
-    attribute :subject_version, :integer, allow_nil?: false, public?: true
+    attribute :subject_kind, :string, public?: true
+    attribute :subject_id, :uuid, public?: true
+    attribute :subject_version, :integer, public?: true
     attribute :delivery_state, :string, allow_nil?: false, default: "pending", public?: true
     attribute :failure_code, :string, public?: true
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
@@ -43,6 +45,8 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
     create :create do
       accept [
         :id,
+        :operation_kind,
+        :event_scope,
         :organization_id,
         :workspace_id,
         :operation_id,

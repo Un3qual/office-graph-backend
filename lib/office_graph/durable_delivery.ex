@@ -18,7 +18,9 @@ defmodule OfficeGraph.DurableDelivery do
     EventRequest,
     ProjectionInvalidation,
     Subscriptions,
-    TerminalJob
+    SystemEventRequest,
+    TerminalJob,
+    WorkerResult
   }
 
   alias OfficeGraph.Repo
@@ -29,6 +31,12 @@ defmodule OfficeGraph.DurableDelivery do
 
   def record_and_enqueue(session_context, operation, attrs) do
     with {:ok, request} <- EventRequest.new(session_context, operation, attrs) do
+      transaction(fn -> record_and_enqueue_request(request) end)
+    end
+  end
+
+  def record_system_and_enqueue(operation, attrs) do
+    with {:ok, request} <- SystemEventRequest.new(operation, attrs) do
       transaction(fn -> record_and_enqueue_request(request) end)
     end
   end
@@ -56,7 +64,8 @@ defmodule OfficeGraph.DurableDelivery do
           [job],
           job.state in ["cancelled", "discarded"] and
             fragment("?->>'organization_id'", job.args) == ^session_context.organization_id and
-            fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id
+            (fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id or
+               fragment("?->>'workspace_id' IS NULL", job.args))
         )
         |> order_by([job],
           desc:
@@ -77,7 +86,7 @@ defmodule OfficeGraph.DurableDelivery do
       {:ok,
        Enum.map(jobs, fn job ->
          failure_code =
-           Map.get(failure_codes, normalized_event_id(job.args["event_id"])) ||
+           Map.get(failure_codes, terminal_event_scope(job)) ||
              terminal_failure_code(job)
 
          %TerminalJob{
@@ -109,11 +118,35 @@ defmodule OfficeGraph.DurableDelivery do
         event_id,
         %{organization_id: organization_id, workspace_id: workspace_id} = scope
       )
-      when is_binary(event_id) and is_binary(organization_id) and is_binary(workspace_id) do
+      when is_binary(event_id) and is_binary(organization_id) and
+             (is_binary(workspace_id) or is_nil(workspace_id)) do
     dispatch_validated(event_id, scope, Subscriptions)
   end
 
   def dispatch(_event_id, _broadcaster), do: {:error, {:terminal, :invalid_event_id}}
+
+  def normalize_worker_result(result, job), do: WorkerResult.normalize(result, job)
+
+  @doc false
+  def stage_terminal_failure(%Oban.Job{} = job, failure_code) do
+    failure_code = WorkerResult.safe_code(failure_code, "terminal_failure")
+    meta = Map.put(job.meta || %{}, "terminal_failure_code", failure_code)
+
+    case Oban.update_job(job, %{meta: meta}) do
+      {:ok, _updated_job} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  rescue
+    error in [
+      DBConnection.ConnectionError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      Postgrex.Error
+    ] ->
+      {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
 
   defp dispatch_validated(event_id, expected_scope, broadcaster) do
     if valid_event_id?(event_id) do
@@ -154,11 +187,21 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   def mark_failed(event_id, expected_scope, failure_code) do
+    mark_failure(event_id, expected_scope, failure_code, ["pending"])
+  end
+
+  def mark_processing_failed(event_id, expected_scope, failure_code) do
+    mark_failure(event_id, expected_scope, failure_code, ["pending", "dispatched"])
+  end
+
+  defp mark_failure(event_id, expected_scope, failure_code, allowed_states) do
     failure_code =
       OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
 
     if valid_event_id?(event_id) do
-      case transaction(fn -> mark_failed_locked(event_id, expected_scope, failure_code) end) do
+      case transaction(fn ->
+             mark_failed_locked(event_id, expected_scope, failure_code, allowed_states)
+           end) do
         {:ok, result} -> result
         {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
       end
@@ -169,10 +212,10 @@ defmodule OfficeGraph.DurableDelivery do
     _kind, _reason -> {:error, {:retryable, :event_failure_transition_crashed}}
   end
 
-  defp mark_failed_locked(event_id, expected_scope, failure_code) do
+  defp mark_failed_locked(event_id, expected_scope, failure_code, allowed_states) do
     case read_event_for_transition(event_id) do
-      {:ok, %{delivery_state: "pending"} = event} ->
-        if event_in_scope?(event, expected_scope) do
+      {:ok, %{delivery_state: state} = event} ->
+        if state in allowed_states and event_in_scope?(event, expected_scope) do
           mark_event_failed(event, failure_code)
         else
           :ok
@@ -212,7 +255,7 @@ defmodule OfficeGraph.DurableDelivery do
 
   defp create_or_replay_event(request) do
     DomainEvent
-    |> Ash.Changeset.for_create(:create, EventRequest.to_attrs(request))
+    |> Ash.Changeset.for_create(:create, event_attrs(request))
     |> Ash.create(
       upsert?: true,
       upsert_identity: :event_key,
@@ -241,6 +284,11 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
+  defp event_attrs(%EventRequest{} = request), do: EventRequest.to_attrs(request)
+
+  defp event_attrs(%SystemEventRequest{} = request),
+    do: SystemEventRequest.to_attrs(request)
+
   defp validate_replay(event, request) do
     matching? =
       Enum.all?(
@@ -250,6 +298,8 @@ defmodule OfficeGraph.DurableDelivery do
           :subject_kind,
           :subject_id,
           :subject_version,
+          :operation_kind,
+          :event_scope,
           :organization_id,
           :workspace_id,
           :operation_id,
@@ -318,10 +368,10 @@ defmodule OfficeGraph.DurableDelivery do
       |> Ash.Query.filter(
         id in ^event_ids and
           organization_id == ^session_context.organization_id and
-          workspace_id == ^session_context.workspace_id
+          (workspace_id == ^session_context.workspace_id or is_nil(workspace_id))
       )
       |> Ash.read!()
-      |> Map.new(&{&1.id, &1.failure_code})
+      |> Map.new(&{{&1.id, &1.organization_id, &1.workspace_id}, &1.failure_code})
     end
   end
 
@@ -335,6 +385,23 @@ defmodule OfficeGraph.DurableDelivery do
     case Ecto.UUID.cast(event_id) do
       {:ok, normalized} -> normalized
       :error -> nil
+    end
+  end
+
+  defp terminal_event_scope(%Oban.Job{args: args}) do
+    {
+      normalized_event_id(args["event_id"]),
+      normalized_scope_id(args["organization_id"]),
+      normalized_scope_id(args["workspace_id"])
+    }
+  end
+
+  defp normalized_scope_id(nil), do: nil
+
+  defp normalized_scope_id(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, normalized} -> normalized
+      :error -> :invalid_scope
     end
   end
 

@@ -776,6 +776,7 @@ interface Node {
 
 type RootQueryType {
   health: String!
+  githubIntegrationHealth(installationId: ID!, limit: Int): GithubIntegrationHealth!
   graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
@@ -863,6 +864,9 @@ type RootQueryType {
 }
 
 type RootMutationType {
+  bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
+  replyToGithubReview(input: ReplyToGithubReviewInput!): GithubOutboundActionPayload!
+  updateGithubCheck(input: UpdateGithubCheckInput!): GithubOutboundActionPayload!
   submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
   applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
   createWorkPacket(input: CreateWorkPacketInput!): CreateWorkPacketPayload!
@@ -881,6 +885,101 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+input GithubInstallationPermissionInput {
+  name: String!
+  accessLevel: String!
+}
+
+input BindGithubInstallationInput {
+  idempotencyKey: String!
+  workspaceId: ID
+  externalInstallationId: String!
+  appSlug: String!
+  accountLogin: String!
+  accountType: String!
+  servicePrincipalEmail: String!
+  webhookPrincipalEmail: String!
+  webhookSecretReference: String!
+  appPrivateKeyReference: String!
+  permissions: [GithubInstallationPermissionInput!]!
+}
+
+type GithubInstallationCommandResult {
+  id: ID!
+  organizationId: ID!
+  workspaceId: ID
+  externalInstallationId: String!
+  lifecycleState: String!
+  servicePrincipalId: ID!
+  webhookPrincipalId: ID!
+}
+
+type GithubPermissionSnapshotCommandResult {
+  id: ID!
+  version: Int!
+}
+
+type GithubPermissionCommandResult {
+  name: String!
+  accessLevel: String!
+}
+
+type GithubCredentialCommandResult {
+  id: ID!
+  purpose: String!
+  kind: String!
+  status: String!
+}
+
+type BindGithubInstallationPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  installation: GithubInstallationCommandResult!
+  permissionSnapshot: GithubPermissionSnapshotCommandResult!
+  permissions: [GithubPermissionCommandResult!]!
+  credentials: [GithubCredentialCommandResult!]!
+}
+
+input ReplyToGithubReviewInput {
+  idempotencyKey: String!
+  installationId: ID!
+  reviewCommentId: ID!
+  body: String!
+  expectedProviderVersion: String!
+}
+
+input UpdateGithubCheckInput {
+  idempotencyKey: String!
+  installationId: ID!
+  checkRunId: ID!
+  status: String!
+  conclusion: String
+  detailsUrl: String!
+  expectedProviderVersion: String!
+}
+
+type GithubOutboundActionCommandResult {
+  id: ID!
+  installationId: ID!
+  actionKind: String!
+  targetType: String!
+  targetId: ID!
+  expectedProviderVersion: String!
+  state: String!
+  providerResponseId: String
+  providerResponseVersion: String
+  failureClass: String
+  failureCode: String
+}
+
+type GithubOutboundActionPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  action: GithubOutboundActionCommandResult!
+}
 
 input SubmitManualIntakeInput {
   idempotencyKey: String!
@@ -1561,6 +1660,38 @@ type OperatorVerificationOutcome {
   run: OperatorRunRef!
   verificationResults: [OperatorVerificationResult!]!
   missingEvidence: [OperatorMissingEvidence!]!
+}
+
+type GithubIntegrationPermissionHealth {
+  name: String!
+  accessLevel: String!
+}
+
+type GithubIntegrationCredentialHealth {
+  purpose: String!
+  status: String
+}
+
+type GithubIntegrationFailureHealth {
+  kind: String!
+  class: String!
+  code: String!
+  occurredAt: DateTime!
+}
+
+type GithubIntegrationHealth {
+  installationId: ID!
+  lifecycle: String!
+  accountLogin: String!
+  permissionPosture: String!
+  permissions: [GithubIntegrationPermissionHealth!]!
+  credentialPosture: String!
+  credentials: [GithubIntegrationCredentialHealth!]!
+  lastSuccessAt: DateTime
+  retryableCount: Int!
+  terminalCount: Int!
+  remediationCode: String
+  recentFailures: [GithubIntegrationFailureHealth!]!
 }
 
 input OperatorPacketReadinessInput {

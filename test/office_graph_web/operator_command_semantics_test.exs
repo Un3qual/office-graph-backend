@@ -81,6 +81,8 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
 
       cases = [
         {:forbidden, :authorization, "forbidden", "The action is not authorized.", %{}, 403},
+        {:integration_storage_unavailable, :availability, "integration_storage_unavailable",
+         "Integration storage is temporarily unavailable.", %{}, 503},
         {{:missing_proposed_change, id}, :validation, "missing_proposed_change",
          "A proposed change could not be found.", %{proposed_change_id: id}, 422},
         {{:invalid_proposed_change_status, id}, :conflict, "invalid_proposed_change_status",

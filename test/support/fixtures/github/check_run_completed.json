@@ -1,0 +1,6 @@
+{
+  "action": "completed",
+  "installation": {"id": 9001},
+  "repository": {"node_id": "R_fixture", "full_name": "Un3qual/office-graph-backend"},
+  "check_run": {"node_id": "CR_fixture", "conclusion": "failure"}
+}

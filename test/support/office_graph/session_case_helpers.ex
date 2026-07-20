@@ -82,4 +82,19 @@ defmodule OfficeGraph.SessionCaseHelpers do
       trusted?: Keyword.get(opts, :trusted?, false)
     }
   end
+
+  def grant_organization_role_assignment!(bootstrap) do
+    Ash.create!(
+      RoleAssignment,
+      %{
+        id: Ecto.UUID.generate(),
+        principal_id: bootstrap.principal.id,
+        role_id: bootstrap.role_assignment.role_id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: nil
+      },
+      action: :create,
+      authorize?: false
+    )
+  end
 end

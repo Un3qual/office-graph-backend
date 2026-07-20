@@ -1,8 +1,23 @@
 defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, Integrations, Operations, WorkGraph}
-  alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest}
+  alias OfficeGraph.{
+    Authorization,
+    Foundation,
+    GitHubIntegration,
+    Integrations,
+    Operations,
+    WorkGraph
+  }
+
+  alias OfficeGraph.Identity.Principal
+
+  alias OfficeGraph.WorkGraph.{
+    GraphItem,
+    GraphRelationship,
+    RelationshipCommands,
+    RelationshipRequest
+  }
 
   import OfficeGraph.TestSupport.WorkPacketCommandLoopSupport,
     only: [create_ready_run: 2, create_required_verification_check: 1]
@@ -182,6 +197,75 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
     assert view.governing_workspace_id == privileged_session.workspace_id
     assert view.source.visibility == :visible
     assert view.target == %{visibility: :redacted}
+  end
+
+  test "system relationship creation requires the restricted cross-workspace capability",
+       context do
+    other_scope = bootstrap_other_workspace!(context, "System relationship authorization")
+    remote_item = insert_graph_item!(other_scope, "task", "System cross-workspace target")
+    suffix = System.unique_integer([:positive])
+
+    assert {:ok, bound} =
+             GitHubIntegration.bind_installation(context.session, %{
+               idempotency_key: "bind-system-relationship-#{suffix}",
+               external_installation_id: suffix,
+               workspace_id: context.session.workspace_id,
+               app_slug: "office-graph",
+               account_login: "Un3qual",
+               account_type: "organization",
+               service_principal_email:
+                 "github-service-system-relationship-#{suffix}@office-graph.local",
+               webhook_principal_email:
+                 "github-webhook-system-relationship-#{suffix}@office-graph.local",
+               webhook_secret_reference:
+                 "test-secret://github/system-relationship/#{suffix}/webhook",
+               app_private_key_reference:
+                 "test-secret://github/system-relationship/#{suffix}/private-key",
+               permissions: [%{name: "pull_requests", access_level: "write"}]
+             })
+
+    credential = Enum.find(bound.credentials, &(&1.purpose == "app_private_key"))
+
+    assert {:ok, system_request} =
+             Operations.new_system_operation_request(%{
+               organization_id: context.bootstrap.organization.id,
+               workspace_id: context.session.workspace_id,
+               principal_id: bound.installation.service_principal_id,
+               action: :integration_reconcile,
+               authority_basis: "github_installation:#{bound.installation.id}",
+               causation_key: "github_delivery:system-relationship-#{suffix}",
+               idempotency_scope: "github:object",
+               idempotency_key: "system-relationship-#{suffix}",
+               credential_id: credential.credential_id
+             })
+
+    assert {:ok, operation} = Operations.start_system_operation(system_request)
+
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: remote_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    assert {:error, :forbidden} = RelationshipCommands.create_system(operation, request)
+
+    principal =
+      Ash.get!(Principal, bound.installation.service_principal_id, authorize?: false)
+
+    assert :ok =
+             Authorization.ensure_system_role(
+               principal,
+               %{
+                 organization_id: context.bootstrap.organization.id,
+                 workspace_id: context.session.workspace_id
+               },
+               [:graph_relationship_cross_workspace]
+             )
+
+    assert {:ok, relationship} = RelationshipCommands.create_system(operation, request)
+    assert relationship.target_item_id == remote_item.id
   end
 
   test "an active edge cannot replay under a different governing workspace", context do

@@ -1,0 +1,6 @@
+{
+  "action": "opened",
+  "installation": {"id": 9001},
+  "repository": {"node_id": "R_fixture", "full_name": "Un3qual/office-graph-backend"},
+  "pull_request": {"node_id": "PR_fixture", "number": 24}
+}

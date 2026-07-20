@@ -9,6 +9,23 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   alias OfficeGraphWeb.RequestSession
 
   object :operator_workflow_queries do
+    field :github_integration_health, non_null(:github_integration_health) do
+      arg(:installation_id, non_null(:id))
+      arg(:limit, :integer)
+
+      resolve(fn args, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, health} <-
+               Projections.integration_health(session_context, args.installation_id,
+                 limit: Map.get(args, :limit, 20)
+               ) do
+          {:ok, health}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :graph_relationships, non_null(list_of(non_null(:graph_relationship_view))) do
       arg(:item_id, non_null(:id))
       arg(:direction, :string)

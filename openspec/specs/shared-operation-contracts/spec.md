@@ -112,3 +112,47 @@ that requested them and with a causal event when one exists.
 - **WHEN** a dispatched event requests another operation or durable job
 - **THEN** the later record MUST preserve the causation event identity without
   merging separate operations or duplicating their data
+
+### Requirement: System Operations Use A Separate Authenticated Envelope
+Office Graph SHALL create non-human system operations from a request that names
+organization, service or webhook principal, authority basis, action, causation,
+idempotency scope, optional governing workspace, optional subject/version, and
+credential reference when required.
+
+#### Scenario: Webhook source starts an operation
+- **WHEN** a verified active installation webhook starts supported processing
+- **THEN** Office Graph MUST create or replay a system operation bound to the
+  installation source principal and organization without fabricating a session
+
+#### Scenario: System idempotency key is reused across governing workspaces
+- **WHEN** one organization, principal, action, idempotency scope, and key are
+  used under two different governing workspaces
+- **THEN** Office Graph MUST create independent system operations for the exact
+  workspace scopes while replaying the same operation within either workspace
+  or within the organization scope where workspace is absent
+
+#### Scenario: Unsupported system action is requested
+- **WHEN** a service principal requests an action outside its capabilities,
+  installation scope, or declared job kinds
+- **THEN** Office Graph MUST deny it before operation or job creation
+
+### Requirement: Human And System Operation Invariants Remain Distinct
+Office Graph SHALL prevent system-operation optional fields from weakening
+human operation validation.
+
+#### Scenario: Human mutation starts an operation
+- **WHEN** GraphQL or JSON API handles a human product command
+- **THEN** it MUST continue to require the authenticated principal, session,
+  organization, workspace, and command-specific subject data
+
+#### Scenario: Worker receives malformed system operation
+- **WHEN** a worker receives missing authority basis, principal, organization, or
+  idempotency scope
+- **THEN** it MUST fail closed with a safe terminal classification
+
+#### Scenario: Worker cannot start or revalidate a valid system operation during a storage outage
+- **WHEN** a valid system worker request cannot read authorization or operation
+  state while starting or revalidating its operation because storage is
+  temporarily unavailable
+- **THEN** it MUST retain a retryable storage classification and MUST NOT
+  misclassify the request as malformed, forbidden, or terminal

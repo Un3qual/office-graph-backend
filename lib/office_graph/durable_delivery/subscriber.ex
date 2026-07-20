@@ -25,6 +25,7 @@ defmodule OfficeGraph.DurableDelivery.Subscriber do
     workspace_id = Keyword.fetch!(opts, :workspace_id)
 
     :ok = Subscriptions.subscribe_topic(organization_id, workspace_id)
+    :ok = Subscriptions.subscribe_organization_topic(organization_id)
 
     {:ok,
      %{
@@ -46,6 +47,25 @@ defmodule OfficeGraph.DurableDelivery.Subscriber do
         {:projection_invalidated, %{organization_id: organization_id, workspace_id: workspace_id}} =
           message,
         %{organization_id: organization_id, workspace_id: workspace_id} = state
+      ) do
+    case Subscriptions.authorize(
+           state.session_context,
+           state.organization_id,
+           state.workspace_id
+         ) do
+      :ok ->
+        send(state.owner, message)
+        {:noreply, state}
+
+      {:error, :forbidden} ->
+        {:stop, :normal, state}
+    end
+  end
+
+  def handle_info(
+        {:projection_invalidated, %{organization_id: organization_id, workspace_id: nil}} =
+          message,
+        %{organization_id: organization_id} = state
       ) do
     case Subscriptions.authorize(
            state.session_context,

@@ -50,7 +50,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   ]
 
   @type classification :: %{
-          category: :authorization | :conflict | :not_found | :validation,
+          category: :authorization | :availability | :conflict | :not_found | :validation,
           code: String.t(),
           detail: String.t(),
           fields: [map()],
@@ -62,6 +62,20 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   def classify(:forbidden) do
     result(:authorization, "forbidden", "The action is not authorized.")
+  end
+
+  def classify({:authorization, _safe_code}), do: classify(:forbidden)
+
+  def classify(:integration_storage_unavailable) do
+    result(
+      :availability,
+      "integration_storage_unavailable",
+      "Integration storage is temporarily unavailable."
+    )
+  end
+
+  def classify({:stale_version, :provider_version}) do
+    result(:conflict, "stale_provider_version", "The provider object version is stale.")
   end
 
   def classify(%Ash.Error.Forbidden{}), do: classify(:forbidden)

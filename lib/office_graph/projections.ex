@@ -7,6 +7,7 @@ defmodule OfficeGraph.Projections do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.GitHubIntegration,
       OfficeGraph.Integrations,
       OfficeGraph.ProposedChanges,
       OfficeGraph.Revisions,
@@ -49,6 +50,9 @@ defmodule OfficeGraph.Projections do
     as: :command_option_page
 
   defdelegate verification_outcome(session_context, run_id), to: RunState
+
+  defdelegate integration_health(session_context, installation_id, opts \\ []),
+    to: OfficeGraph.GitHubIntegration
 
   def graphql_node_type(value) do
     WorkGraph.graphql_node_type(value) ||

@@ -23,6 +23,18 @@ end
 config :office_graph, OfficeGraphWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if github_app_id = System.get_env("GITHUB_APP_ID") do
+  config :office_graph, :github_app_id, github_app_id
+end
+
+if github_api_url = System.get_env("GITHUB_API_URL") do
+  config :office_graph, :github_api_url, github_api_url
+end
+
+if github_graphql_url = System.get_env("GITHUB_GRAPHQL_URL") do
+  config :office_graph, :github_graphql_url, github_graphql_url
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

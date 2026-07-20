@@ -20,6 +20,8 @@ config :office_graph,
     OfficeGraph.Content.Domain,
     OfficeGraph.Integrations.Domain,
     OfficeGraph.ExternalRefs.Domain,
+    OfficeGraph.SoftwareProving.Domain,
+    OfficeGraph.GitHubIntegration.Domain,
     OfficeGraph.ProposedChanges.Domain,
     OfficeGraph.WorkGraph.Domain,
     OfficeGraph.WorkPackets.Domain,
@@ -28,6 +30,24 @@ config :office_graph,
   allow_local_api_owner_bootstrap: false,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
+
+config :office_graph,
+       :github_secret_store,
+       OfficeGraph.GitHubIntegration.SecretStore.Environment
+
+config :office_graph,
+       :github_adapter,
+       OfficeGraph.GitHubIntegration.Adapter.GitHub
+
+config :office_graph,
+       :github_http_client,
+       OfficeGraph.GitHubIntegration.Adapter.GitHub.HTTPClient.Httpc
+
+config :office_graph, :github_api_url, "https://api.github.com"
+
+config :office_graph,
+       :github_record_loader,
+       OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter
 
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,

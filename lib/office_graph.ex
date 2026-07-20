@@ -4,6 +4,7 @@ defmodule OfficeGraph do
     exports: [
       ApiSupport,
       DurableDelivery,
+      GitHubIntegration,
       Identity.SessionContext,
       Integrations,
       Operations,
