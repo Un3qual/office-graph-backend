@@ -129,8 +129,8 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
     case AdapterState.claim(@state_namespace, replay_key(input), input.request_id, fingerprint) do
       :claimed -> invoke_new(input, fingerprint)
       {:replay, result} -> result
-      :cancelled -> {:error, {:cancelled, :cancelled}}
-      :conflict -> {:error, {:terminal, :idempotency_conflict}}
+      :cancelled -> retain_state_failure(input, {:error, {:cancelled, :cancelled}})
+      :conflict -> retain_state_failure(input, {:error, {:terminal, :idempotency_conflict}})
     end
   end
 
@@ -231,6 +231,11 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
       failure_code: failure_code,
       safe_summary: safe_failure_summary(failure_code)
     })
+  end
+
+  defp retain_state_failure(input, result) do
+    retain(input.request_id, result)
+    result
   end
 
   defp safe_failure_summary(:malformed_model_output),

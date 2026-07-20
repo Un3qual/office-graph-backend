@@ -260,6 +260,32 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:ok, ^output} = DeterministicModel.invoke(input)
   end
 
+  test "distinct cancellation and conflict results retain only safe failure metadata", %{
+    input: input
+  } do
+    assert {:ok, _output} = DeterministicModel.invoke(input)
+    successful = DeterministicModel.retained_request!(input.request_id)
+
+    conflicting = %{input | request_id: uuid(), token_budget: 101}
+
+    assert {:error, {:terminal, :idempotency_conflict}} =
+             DeterministicModel.invoke(conflicting)
+
+    assert %{classification: :terminal, failure_code: :idempotency_conflict} =
+             DeterministicModel.retained_request!(conflicting.request_id)
+
+    cancelled = %{input | request_id: uuid(), idempotency_key: "cancelled-state"}
+    :ok = DeterministicModel.register_request(cancelled.request_id)
+    :ok = DeterministicModel.cancel(cancelled.request_id)
+
+    assert {:error, {:cancelled, :cancelled}} = DeterministicModel.invoke(cancelled)
+
+    assert %{classification: :cancelled, failure_code: :cancelled} =
+             DeterministicModel.retained_request!(cancelled.request_id)
+
+    assert successful == DeterministicModel.retained_request!(input.request_id)
+  end
+
   test "model concurrent same and conflicting replays are coherent", %{input: input} do
     same = for _ <- 1..6, do: Task.async(fn -> DeterministicModel.invoke(input) end)
     assert Enum.all?(same, &match?({:ok, %ModelOutput{}}, Task.await(&1)))

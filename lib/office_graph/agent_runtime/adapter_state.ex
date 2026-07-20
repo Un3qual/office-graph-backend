@@ -27,6 +27,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     do: GenServer.call(__MODULE__, {:retained, namespace, request_id})
 
   def entry_count(namespace), do: GenServer.call(__MODULE__, {:entry_count, namespace})
+  def state_counts(namespace), do: GenServer.call(__MODULE__, {:state_counts, namespace})
   def retention_limit, do: @retention_limit
 
   @impl true
@@ -40,10 +41,11 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     runtime = runtime(state, namespace)
 
     runtime =
-      put_in(
-        runtime.requests[request_id],
-        Map.get(runtime.requests, request_id, %{status: :unclaimed})
-      )
+      if active_request?(runtime, request_id) or Map.has_key?(runtime.requests, request_id) do
+        runtime
+      else
+        put_record(runtime, request_id, %{status: :unclaimed})
+      end
 
     {:reply, :ok, put_runtime(state, namespace, runtime)}
   end
@@ -51,87 +53,113 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   def handle_call({:claim, namespace, key, request_id, fingerprint}, from, state) do
     runtime = runtime(state, namespace)
 
-    case Map.get(runtime.requests, request_id) do
-      %{status: :cancelled} ->
-        {:reply, :cancelled, state}
+    if match?(%{status: :cancelled}, Map.get(runtime.requests, request_id)) do
+      {:reply, :cancelled, state}
+    else
+      case Map.get(runtime.pending, key) do
+        nil ->
+          claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace)
 
-      _request ->
-        claim_entry(runtime, key, request_id, fingerprint, from, state, namespace)
+        %{fingerprint: ^fingerprint} = pending ->
+          runtime = add_waiter(runtime, key, pending, request_id, from)
+          {:noreply, put_runtime(state, namespace, runtime)}
+
+        _pending ->
+          runtime = terminalize_request(runtime, request_id, :conflict)
+          {:reply, :conflict, put_runtime(state, namespace, runtime)}
+      end
     end
   end
 
-  def handle_call({:complete, namespace, key, fingerprint, result}, _from, state) do
+  def handle_call({:complete, namespace, key, fingerprint, result}, from, state) do
     runtime = runtime(state, namespace)
+    caller = caller_pid(from)
 
-    case Map.get(runtime.entries, key) do
-      %{status: :pending, fingerprint: ^fingerprint} = entry ->
-        completed = %{entry | status: :completed, result: result, waiters: []}
-        Enum.each(entry.waiters, &GenServer.reply(&1, {:replay, result}))
+    case Map.get(runtime.pending, key) do
+      %{fingerprint: ^fingerprint, owner: ^caller} = pending ->
+        Enum.each(pending.waiters, &reply_waiter(&1, {:replay, result}))
+        demonitor_pending(pending)
+
+        completed = %{
+          fingerprint: fingerprint,
+          request_id: pending.request_id,
+          result: result,
+          status: :completed
+        }
 
         runtime = %{
           runtime
-          | entries: Map.put(runtime.entries, key, completed),
-            order: [key | runtime.order]
+          | pending: Map.delete(runtime.pending, key),
+            entries: Map.put(runtime.entries, key, completed)
         }
 
-        runtime = put_in(runtime.requests[entry.request_id], %{status: :completed, key: key})
-        runtime = prune(runtime)
+        runtime = put_record(runtime, pending.request_id, %{status: :completed, key: key})
         {:reply, {:completed, result}, put_runtime(state, namespace, runtime)}
 
-      %{status: :cancelled} ->
-        {:reply, :cancelled, state}
-
-      %{status: :completed, fingerprint: ^fingerprint, result: completed_result} ->
-        {:reply, {:replay, completed_result}, state}
-
-      _entry ->
+      %{fingerprint: ^fingerprint} ->
         {:reply, :conflict, state}
+
+      _pending ->
+        case Map.get(runtime.entries, key) do
+          %{fingerprint: ^fingerprint, status: :completed, result: completed_result} ->
+            {:reply, {:replay, completed_result}, state}
+
+          %{fingerprint: ^fingerprint, status: :cancelled} ->
+            {:reply, :cancelled, state}
+
+          _entry ->
+            {:reply, :conflict, state}
+        end
     end
   end
 
   def handle_call({:cancel, namespace, request_id}, _from, state) do
     runtime = runtime(state, namespace)
 
-    case Map.get(runtime.requests, request_id) do
-      nil ->
-        {:reply, {:error, :not_found}, state}
-
-      %{status: :completed} ->
-        {:reply, :ok, state}
-
-      %{status: :cancelled} ->
-        {:reply, :ok, state}
-
-      %{status: :pending, key: key} ->
-        entry = Map.fetch!(runtime.entries, key)
-        Enum.each(entry.waiters, &GenServer.reply(&1, :cancelled))
-        cancelled = %{entry | status: :cancelled, result: nil, waiters: []}
-
-        runtime = %{
-          runtime
-          | entries: Map.put(runtime.entries, key, cancelled),
-            order: [key | runtime.order]
-        }
-
-        runtime = put_in(runtime.requests[request_id], %{status: :cancelled, key: key})
-        runtime = prune(runtime)
+    case pending_request(runtime, request_id) do
+      {:owner, key, pending} ->
+        runtime = cancel_pending(runtime, key, pending)
         {:reply, :ok, put_runtime(state, namespace, runtime)}
 
-      %{status: :unclaimed} ->
-        runtime = put_in(runtime.requests[request_id], %{status: :cancelled})
+      {:waiter, key, pending, waiter} ->
+        GenServer.reply(waiter.from, :cancelled)
+        Process.demonitor(waiter.monitor, [:flush])
+        remaining_waiters = List.delete(pending.waiters, waiter)
+        runtime = put_in(runtime.pending[key].waiters, remaining_waiters)
+        runtime = terminalize_request(runtime, request_id, :cancelled)
         {:reply, :ok, put_runtime(state, namespace, runtime)}
+
+      :none ->
+        case Map.get(runtime.requests, request_id) do
+          nil ->
+            {:reply, {:error, :not_found}, state}
+
+          %{status: :completed} ->
+            {:reply, :ok, state}
+
+          %{status: :cancelled} ->
+            {:reply, :ok, state}
+
+          _record ->
+            runtime = terminalize_request(runtime, request_id, :cancelled)
+            {:reply, :ok, put_runtime(state, namespace, runtime)}
+        end
     end
   end
 
   def handle_call({:put_retained, namespace, request_id, retained}, _from, state) do
     runtime = runtime(state, namespace)
 
-    if Map.has_key?(runtime.requests, request_id) do
-      runtime = put_in(runtime.retained[request_id], retained)
-      {:reply, :ok, put_runtime(state, namespace, runtime)}
-    else
-      {:reply, :ok, state}
-    end
+    runtime =
+      case Map.get(runtime.requests, request_id) do
+        %{status: status} when status in [:completed, :cancelled, :conflict] ->
+          %{runtime | retained: Map.put_new(runtime.retained, request_id, retained)}
+
+        _record ->
+          runtime
+      end
+
+    {:reply, :ok, put_runtime(state, namespace, runtime)}
   end
 
   def handle_call({:retained, namespace, request_id}, _from, state) do
@@ -147,62 +175,240 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     {:reply, map_size(runtime(state, namespace).entries), state}
   end
 
-  defp claim_entry(runtime, key, request_id, fingerprint, from, state, namespace) do
-    case Map.get(runtime.entries, key) do
-      nil ->
-        entry = %{
-          status: :pending,
-          fingerprint: fingerprint,
-          request_id: request_id,
-          result: nil,
-          waiters: []
-        }
+  def handle_call({:state_counts, namespace}, _from, state) do
+    runtime = runtime(state, namespace)
 
-        runtime = put_in(runtime.entries[key], entry)
-        runtime = put_in(runtime.requests[request_id], %{status: :pending, key: key})
-        {:reply, :claimed, put_runtime(state, namespace, runtime)}
+    {:reply,
+     %{
+       pending: map_size(runtime.pending),
+       terminal: map_size(runtime.entries),
+       records: map_size(runtime.requests),
+       retained: map_size(runtime.retained),
+       total: map_size(runtime.pending) + map_size(runtime.requests)
+     }, state}
+  end
 
-      %{fingerprint: ^fingerprint, status: :completed, result: result} ->
-        {:reply, {:replay, result}, state}
+  @impl true
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    {namespace, key, pending, role} = pending_monitor(state, monitor)
 
-      %{fingerprint: ^fingerprint, status: :cancelled} ->
-        {:reply, :cancelled, state}
-
-      %{fingerprint: ^fingerprint, status: :pending} = entry ->
-        runtime = put_in(runtime.entries[key], %{entry | waiters: [from | entry.waiters]})
+    case role do
+      :owner ->
+        runtime = runtime(state, namespace)
+        runtime = recover_owner(runtime, key, pending)
         {:noreply, put_runtime(state, namespace, runtime)}
 
-      _entry ->
-        {:reply, :conflict, state}
+      {:waiter, waiter} ->
+        runtime = runtime(state, namespace)
+        runtime = put_in(runtime.pending[key].waiters, List.delete(pending.waiters, waiter))
+        {:noreply, put_runtime(state, namespace, runtime)}
+
+      :none ->
+        {:noreply, state}
     end
   end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace) do
+    case Map.get(runtime.entries, key) do
+      %{fingerprint: ^fingerprint, status: :completed, result: result} = entry ->
+        runtime = record_replay(runtime, request_id, entry.request_id)
+        {:reply, {:replay, result}, put_runtime(state, namespace, runtime)}
+
+      %{fingerprint: ^fingerprint, status: :cancelled} ->
+        runtime = terminalize_request(runtime, request_id, :cancelled)
+        {:reply, :cancelled, put_runtime(state, namespace, runtime)}
+
+      %{} ->
+        runtime = terminalize_request(runtime, request_id, :conflict)
+        {:reply, :conflict, put_runtime(state, namespace, runtime)}
+
+      nil ->
+        case Map.get(runtime.requests, request_id) do
+          %{status: :cancelled} ->
+            {:reply, :cancelled, state}
+
+          _record ->
+            {owner, owner_monitor} = monitor_caller(from)
+
+            pending = %{
+              fingerprint: fingerprint,
+              owner: owner,
+              owner_monitor: owner_monitor,
+              request_id: request_id,
+              waiters: []
+            }
+
+            runtime = %{
+              runtime
+              | pending: Map.put(runtime.pending, key, pending),
+                requests: Map.delete(runtime.requests, request_id),
+                order: List.delete(runtime.order, request_id)
+            }
+
+            {:reply, :claimed, put_runtime(state, namespace, runtime)}
+        end
+    end
+  end
+
+  defp add_waiter(runtime, key, pending, request_id, from) do
+    {pid, monitor} = monitor_caller(from)
+    waiter = %{from: from, monitor: monitor, pid: pid, request_id: request_id}
+
+    runtime = %{
+      runtime
+      | requests: Map.delete(runtime.requests, request_id),
+        order: List.delete(runtime.order, request_id)
+    }
+
+    put_in(runtime.pending[key].waiters, [waiter | pending.waiters])
+  end
+
+  defp cancel_pending(runtime, key, pending) do
+    Enum.each(pending.waiters, &reply_waiter(&1, :cancelled))
+    demonitor_pending(pending)
+
+    cancelled = %{
+      fingerprint: pending.fingerprint,
+      request_id: pending.request_id,
+      result: nil,
+      status: :cancelled
+    }
+
+    runtime = %{
+      runtime
+      | pending: Map.delete(runtime.pending, key),
+        entries: Map.put(runtime.entries, key, cancelled)
+    }
+
+    runtime = put_record(runtime, pending.request_id, %{status: :cancelled, key: key})
+
+    Enum.reduce(pending.waiters, runtime, fn waiter, current ->
+      terminalize_request(current, waiter.request_id, :cancelled)
+    end)
+  end
+
+  defp recover_owner(runtime, key, pending) do
+    case pending.waiters do
+      [waiter | remaining_waiters] ->
+        GenServer.reply(waiter.from, :claimed)
+
+        promoted = %{
+          pending
+          | owner: waiter.pid,
+            owner_monitor: waiter.monitor,
+            request_id: waiter.request_id,
+            waiters: remaining_waiters
+        }
+
+        runtime = put_in(runtime.pending[key], promoted)
+        terminalize_request(runtime, pending.request_id, :abandoned)
+
+      [] ->
+        runtime = %{runtime | pending: Map.delete(runtime.pending, key)}
+        terminalize_request(runtime, pending.request_id, :abandoned)
+    end
+  end
+
+  defp terminalize_request(runtime, request_id, status) do
+    put_record(runtime, request_id, %{status: status})
+  end
+
+  defp record_replay(runtime, request_id, request_id), do: runtime
+
+  defp record_replay(runtime, request_id, _owner_request_id) do
+    put_record(runtime, request_id, %{status: :replayed})
+  end
+
+  defp put_record(runtime, request_id, record) do
+    runtime = %{
+      runtime
+      | requests: Map.put(runtime.requests, request_id, record),
+        order: [request_id | List.delete(runtime.order, request_id)]
+    }
+
+    prune(runtime)
+  end
+
+  defp prune(runtime) when map_size(runtime.requests) <= @retention_limit, do: runtime
 
   defp prune(runtime) do
-    if map_size(runtime.entries) <= @retention_limit do
+    request_id = List.last(runtime.order)
+    record = Map.fetch!(runtime.requests, request_id)
+
+    runtime = %{
       runtime
-    else
-      key = List.last(runtime.order)
-      order = List.delete_at(runtime.order, -1)
-      entry = Map.fetch!(runtime.entries, key)
-      runtime = %{runtime | entries: Map.delete(runtime.entries, key), order: order}
+      | requests: Map.delete(runtime.requests, request_id),
+        retained: Map.delete(runtime.retained, request_id),
+        order: List.delete_at(runtime.order, -1)
+    }
 
-      runtime =
-        if get_in(runtime, [:requests, entry.request_id, :key]) == key do
-          %{
-            runtime
-            | requests: Map.delete(runtime.requests, entry.request_id),
-              retained: Map.delete(runtime.retained, entry.request_id)
-          }
-        else
-          runtime
-        end
+    runtime =
+      case record do
+        %{key: key} -> %{runtime | entries: Map.delete(runtime.entries, key)}
+        _record -> runtime
+      end
 
-      prune(runtime)
-    end
+    prune(runtime)
   end
 
-  defp runtime(state, namespace),
-    do: Map.get(state, namespace, %{entries: %{}, requests: %{}, retained: %{}, order: []})
+  defp pending_request(runtime, request_id) do
+    Enum.find_value(runtime.pending, :none, fn {key, pending} ->
+      cond do
+        pending.request_id == request_id ->
+          {:owner, key, pending}
+
+        waiter = Enum.find(pending.waiters, &(&1.request_id == request_id)) ->
+          {:waiter, key, pending, waiter}
+
+        true ->
+          false
+      end
+    end)
+  end
+
+  defp active_request?(runtime, request_id), do: pending_request(runtime, request_id) != :none
+
+  defp pending_monitor(state, monitor) do
+    Enum.find_value(state, {nil, nil, nil, :none}, fn {namespace, runtime} ->
+      Enum.find_value(runtime.pending, fn {key, pending} ->
+        cond do
+          pending.owner_monitor == monitor ->
+            {namespace, key, pending, :owner}
+
+          waiter = Enum.find(pending.waiters, &(&1.monitor == monitor)) ->
+            {namespace, key, pending, {:waiter, waiter}}
+
+          true ->
+            false
+        end
+      end)
+    end)
+  end
+
+  defp monitor_caller(from) do
+    pid = caller_pid(from)
+    {pid, Process.monitor(pid)}
+  end
+
+  defp caller_pid({pid, _tag}), do: pid
+  defp reply_waiter(waiter, result), do: GenServer.reply(waiter.from, result)
+
+  defp demonitor_pending(pending) do
+    Process.demonitor(pending.owner_monitor, [:flush])
+    Enum.each(pending.waiters, &Process.demonitor(&1.monitor, [:flush]))
+  end
+
+  defp runtime(state, namespace) do
+    Map.get(state, namespace, %{
+      entries: %{},
+      order: [],
+      pending: %{},
+      requests: %{},
+      retained: %{}
+    })
+  end
 
   defp put_runtime(state, namespace, runtime), do: Map.put(state, namespace, runtime)
 end

@@ -190,6 +190,27 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert {:ok, ^output} = DeterministicTool.invoke(input)
   end
 
+  test "tool cancellation and conflict results retain safe classified metadata", %{input: input} do
+    assert {:ok, _output} = DeterministicTool.invoke(input)
+
+    conflicting = %{input | request_id: uuid(), budget_units: 11}
+
+    assert {:error, {:terminal, :idempotency_conflict}} =
+             DeterministicTool.invoke(conflicting)
+
+    assert %{classification: :terminal, failure_code: :idempotency_conflict} =
+             DeterministicTool.retained_request!(conflicting.request_id)
+
+    cancelled = %{input | request_id: uuid(), idempotency_key: "cancelled-state"}
+    :ok = DeterministicTool.register_request(cancelled.request_id)
+    :ok = DeterministicTool.cancel(cancelled.request_id)
+
+    assert {:error, {:cancelled, :cancelled}} = DeterministicTool.invoke(cancelled)
+
+    assert %{classification: :cancelled, failure_code: :cancelled} =
+             DeterministicTool.retained_request!(cancelled.request_id)
+  end
+
   defp tool_input(fixture_id) do
     %ToolInput{
       request_id: uuid(),
