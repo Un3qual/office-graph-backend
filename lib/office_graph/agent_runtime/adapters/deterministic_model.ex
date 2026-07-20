@@ -14,14 +14,54 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
 
   @state_namespace __MODULE__
   @required_capability "agent.model.generate"
+  @content_schemas %{
+    proposal: %{
+      required: ["intent"],
+      fields: %{"intent" => {:string, 1_000}},
+      max_serialized_bytes: 16_384
+    },
+    finding: %{
+      required: ["summary"],
+      fields: %{"summary" => {:string, 1_000}},
+      max_serialized_bytes: 16_384
+    },
+    evidence_candidate: %{
+      required: ["check"],
+      fields: %{"check" => {:string, 1_000}},
+      max_serialized_bytes: 16_384
+    },
+    message: %{
+      required: ["body"],
+      fields: %{"body" => {:string, 1_000}},
+      max_serialized_bytes: 16_384
+    },
+    observation: %{
+      required: ["subject"],
+      fields: %{"subject" => {:string, 1_000}},
+      max_serialized_bytes: 16_384
+    }
+  }
 
   @impl true
   def manifest do
     %ModelManifest{
       key: "deterministic",
       version: "1",
-      input_schema: %{fixture_id: :string, capability_keys: {:list, :string}},
-      output_schema: %{classification: ModelOutput.classifications(), safe_summary: :string},
+      input_schema: %{
+        required: [:fixture_id],
+        fields: %{fixture_id: :string},
+        max_serialized_bytes: 16_384
+      },
+      output_schema: %{
+        required: [:classification, :safe_summary, :structured_content],
+        fields: %{
+          classification: {:enum, ModelOutput.classifications()},
+          safe_summary: {:string, 1_000},
+          structured_content: :classified_content
+        },
+        content_schemas: @content_schemas,
+        max_serialized_bytes: 16_384
+      },
       capability_keys: [@required_capability],
       credential_kinds: [],
       sensitivity: :internal,
@@ -131,14 +171,16 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
        })
        when is_binary(classification) do
     with {:ok, classification} <- output_classification(classification) do
-      AdapterResult.normalize(
-        {:ok,
-         %ModelOutput{
-           classification: classification,
-           safe_summary: safe_summary,
-           structured_content: content
-         }}
-      )
+      output = %ModelOutput{
+        classification: classification,
+        safe_summary: safe_summary,
+        structured_content: content
+      }
+
+      case AdapterContract.validate_model_output(manifest(), output) do
+        :ok -> AdapterResult.normalize({:ok, output})
+        error -> error
+      end
     else
       :error -> {:error, {:terminal, :malformed_model_output}}
     end

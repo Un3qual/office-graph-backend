@@ -11,10 +11,16 @@ defmodule OfficeGraph.AgentRuntime.InvalidManifestModel do
   def cancel(_request_id), do: {:error, :not_found}
 end
 
-defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
-  use ExUnit.Case, async: false
+defmodule OfficeGraph.AgentRuntime.CallbackOnlyModel do
+  def manifest, do: OfficeGraph.AgentRuntime.Adapters.DeterministicModel.manifest()
+  def invoke(_input), do: {:error, {:terminal, :invalid_model_input}}
+  def cancel(_request_id), do: {:error, :not_found}
+end
 
-  alias OfficeGraph.AgentRuntime.{AdapterRegistry, ModelAdapter, ToolAdapter}
+defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
+  use OfficeGraph.DataCase, async: false
+
+  alias OfficeGraph.AgentRuntime.{AdapterRegistry, AgentDefinition, ModelAdapter, ToolAdapter}
   alias OfficeGraph.AgentRuntime.Adapters.{DeterministicModel, DeterministicTool}
 
   test "resolves configured model and tool adapters by their manifest key" do
@@ -37,6 +43,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
                models: %{"invalid" => OfficeGraph.AgentRuntime.InvalidManifestModel},
                tools: %{}
              })
+
+    assert {:error, {:model, :invalid_adapter_module}} =
+             AdapterRegistry.validate(%{
+               models: %{"deterministic" => OfficeGraph.AgentRuntime.CallbackOnlyModel},
+               tools: %{}
+             })
+  end
+
+  test "resolves the migrated OpenSpec-review definition through its stored model adapter key" do
+    definition = Ash.get!(AgentDefinition, %{key: "openspec-review"}, authorize?: false)
+
+    assert {:ok, DeterministicModel} = AdapterRegistry.model(definition.model_adapter_key)
   end
 
   test "behaviors require their typed contract callbacks" do

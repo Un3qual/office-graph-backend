@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
   use ExUnit.Case, async: false
 
-  alias OfficeGraph.AgentRuntime.{ToolInput, ToolManifest}
+  alias OfficeGraph.AgentRuntime.{ToolInput, ToolManifest, ToolOutput}
   alias OfficeGraph.AgentRuntime.AdapterContract
   alias OfficeGraph.AgentRuntime.Adapters.DeterministicTool
 
@@ -20,6 +20,16 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert manifest.version != ""
     assert is_map(manifest.input_schema)
     assert is_map(manifest.output_schema)
+    assert manifest.input_schema.required == [:fixture_id]
+    assert manifest.input_schema.fields.fixture_id == :string
+
+    assert manifest.output_schema.required == [
+             :classification,
+             :safe_summary,
+             :structured_content
+           ]
+
+    assert manifest.output_schema.fields.structured_content == :classified_content
     assert manifest.timeout_ms in 1_000..120_000
     assert manifest.budget_units > 0
     assert length(manifest.capability_keys) > 0
@@ -143,6 +153,18 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
                | credential_kinds: [:api_token],
                  sensitivity: :confidential
              })
+  end
+
+  test "tool output schema rejects a classification shape that does not match its manifest" do
+    assert {:error, {:terminal, :malformed_tool_output}} =
+             AdapterContract.validate_tool_output(
+               DeterministicTool.manifest(),
+               %ToolOutput{
+                 classification: :evidence_candidate,
+                 safe_summary: "Wrong nested type",
+                 structured_content: %{"evidence_candidate" => %{"check" => 1}}
+               }
+             )
   end
 
   defp tool_input(fixture_id) do

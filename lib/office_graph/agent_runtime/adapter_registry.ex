@@ -61,9 +61,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
     validate_adapter(key, adapter, ToolAdapter, &AdapterContract.valid_tool_manifest?/1)
   end
 
-  defp validate_adapter(key, adapter, _behaviour, valid_manifest?)
+  defp validate_adapter(key, adapter, behaviour, valid_manifest?)
        when is_binary(key) and is_atom(adapter) do
     with true <- Code.ensure_loaded?(adapter),
+         true <- declares_behaviour?(adapter, behaviour),
          true <- required_callbacks?(adapter) do
       validate_manifest_key(key, adapter.manifest(), valid_manifest?)
     else
@@ -88,6 +89,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
     Enum.all?([{:manifest, 0}, {:invoke, 1}, {:cancel, 1}], fn {function, arity} ->
       function_exported?(adapter, function, arity)
     end)
+  end
+
+  defp declares_behaviour?(adapter, behaviour) do
+    behaviour in (adapter.module_info(:attributes)[:behaviour] || [])
   end
 
   defp configured, do: Application.get_env(:office_graph, :agent_runtime_adapters, %{})

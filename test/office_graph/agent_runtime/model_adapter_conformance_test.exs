@@ -26,6 +26,16 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert manifest.version != ""
     assert is_map(manifest.input_schema)
     assert is_map(manifest.output_schema)
+    assert manifest.input_schema.required == [:fixture_id]
+    assert manifest.input_schema.fields.fixture_id == :string
+
+    assert manifest.output_schema.required == [
+             :classification,
+             :safe_summary,
+             :structured_content
+           ]
+
+    assert manifest.output_schema.fields.structured_content == :classified_content
     assert manifest.timeout_ms in 1_000..120_000
     assert manifest.token_budget > 0
     assert length(manifest.capability_keys) > 0
@@ -157,6 +167,42 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
   test "adapter result rejects outputs outside the typed contract" do
     assert {:error, {:terminal, :invalid_adapter_result}} = AdapterResult.normalize(%{})
+  end
+
+  test "model output schema rejects missing content, wrong nested types, and oversized content" do
+    manifest = DeterministicModel.manifest()
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             AdapterContract.validate_model_output(
+               manifest,
+               struct(ModelOutput,
+                 classification: :proposal,
+                 safe_summary: "Missing content",
+                 structured_content: nil
+               )
+             )
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             AdapterContract.validate_model_output(
+               manifest,
+               %ModelOutput{
+                 classification: :proposal,
+                 safe_summary: "Wrong nested type",
+                 structured_content: %{"proposal" => %{"intent" => true}}
+               }
+             )
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             AdapterContract.validate_model_output(
+               manifest,
+               %ModelOutput{
+                 classification: :proposal,
+                 safe_summary: "Oversized content",
+                 structured_content: %{
+                   "proposal" => %{"intent" => String.duplicate("x", 16_385)}
+                 }
+               }
+             )
   end
 
   test "adapter state survives the caller process that created the replay entry", %{input: input} do
