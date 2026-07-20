@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.ModelAdapter do
   @moduledoc false
 
-  alias OfficeGraph.AgentRuntime.{ModelInput, ModelManifest, ModelOutput}
+  alias OfficeGraph.AgentRuntime.{AdapterResult, ModelInput, ModelManifest, ModelOutput}
 
   @callback manifest() :: ModelManifest.t()
   @callback invoke(ModelInput.t()) :: {:ok, ModelOutput.t()} | {:error, AdapterResult.failure()}

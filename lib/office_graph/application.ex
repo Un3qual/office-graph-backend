@@ -17,6 +17,7 @@ defmodule OfficeGraph.Application do
         OfficeGraph.Repo,
         {DNSCluster, query: Application.get_env(:office_graph, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: OfficeGraph.PubSub},
+        OfficeGraph.AgentRuntime.AdapterState,
         OfficeGraph.GitHubIntegration.Adapter.GitHub.TokenCache
       ] ++
         OfficeGraph.DurableDelivery.subscription_children() ++

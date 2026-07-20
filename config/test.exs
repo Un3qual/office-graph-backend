@@ -5,7 +5,7 @@ config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.Secret
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 
 config :office_graph, :agent_runtime_adapters,
-  models: %{"deterministic-model" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
+  models: %{"deterministic" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
   tools: %{"deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool}
 
 # Configure your database

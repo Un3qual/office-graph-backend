@@ -1,7 +1,14 @@
 defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   use ExUnit.Case, async: false
 
-  alias OfficeGraph.AgentRuntime.{AdapterResult, ModelInput, ModelOutput}
+  alias OfficeGraph.AgentRuntime.{
+    AdapterContract,
+    AdapterResult,
+    ModelInput,
+    ModelManifest,
+    ModelOutput
+  }
+
   alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
 
   setup do
@@ -32,12 +39,20 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     input: input
   } do
     assert {:ok,
-            %ModelOutput{classification: :proposal, safe_summary: "Propose a bounded follow-up"}} =
+            output = %ModelOutput{
+              classification: :proposal,
+              safe_summary: "Propose a bounded follow-up"
+            }} =
              DeterministicModel.invoke(input)
 
     retained = DeterministicModel.retained_request!(input.request_id)
     assert retained.classification == :proposal
     assert retained.safe_summary == "Propose a bounded follow-up"
+
+    assert retained.output_hash ==
+             :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content))
+
+    refute Map.has_key?(retained, :structured_content)
     refute inspect(retained) =~ "fixture"
   end
 
@@ -70,8 +85,15 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   end
 
   test "enforces manifest limits and idempotency without reinvoking the fixture", %{input: input} do
+    shorter_timeout = %{input | timeout_ms: 500, idempotency_key: "short-timeout"}
+    assert {:ok, _output} = DeterministicModel.invoke(shorter_timeout)
+
     assert {:error, {:terminal, :timeout_exceeded}} =
-             DeterministicModel.invoke(%{input | timeout_ms: 1, idempotency_key: "timeout-step"})
+             DeterministicModel.invoke(%{
+               input
+               | timeout_ms: 1_001,
+                 idempotency_key: "timeout-step"
+             })
 
     assert {:error, {:terminal, :token_budget_exceeded}} =
              DeterministicModel.invoke(%{
@@ -84,6 +106,36 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:ok, ^output} = DeterministicModel.invoke(input)
   end
 
+  test "validates authority before replay and rejects a mismatched replay", %{input: input} do
+    assert {:ok, _output} = DeterministicModel.invoke(input)
+
+    assert {:error, {:terminal, :missing_capability}} =
+             DeterministicModel.invoke(%{input | capability_keys: []})
+
+    assert {:error, {:terminal, :idempotency_conflict}} =
+             DeterministicModel.invoke(%{input | token_budget: 101})
+  end
+
+  test "shared contracts reject missing credential and approval authority before adapter execution",
+       %{input: input} do
+    manifest = %ModelManifest{
+      DeterministicModel.manifest()
+      | credential_kinds: [:api_token],
+        sensitivity: :confidential,
+        approval_required: true
+    }
+
+    assert {:error, {:terminal, :missing_credential}} =
+             AdapterContract.validate_model_input(manifest, %{input | sensitivity: :confidential})
+
+    assert {:error, {:terminal, :approval_required}} =
+             AdapterContract.validate_model_input(manifest, %{
+               input
+               | credential_kinds: [:api_token],
+                 sensitivity: :confidential
+             })
+  end
+
   test "rejects malformed typed input before reading a fixture", %{input: input} do
     assert {:error, {:terminal, :invalid_model_input}} =
              DeterministicModel.invoke(%{
@@ -91,6 +143,9 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
                | capability_keys: nil,
                  idempotency_key: "invalid-input"
              })
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             DeterministicModel.invoke(%{input | request_id: nil, idempotency_key: "nil-request"})
   end
 
   test "cancelled requests do not invoke fixtures", %{input: input} do
@@ -104,6 +159,16 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:terminal, :invalid_adapter_result}} = AdapterResult.normalize(%{})
   end
 
+  test "adapter state survives the caller process that created the replay entry", %{input: input} do
+    parent = self()
+    request = %{input | idempotency_key: "cross-process"}
+
+    spawn(fn -> send(parent, {:invoked, DeterministicModel.invoke(request)}) end)
+
+    assert_receive {:invoked, {:ok, output}}
+    assert {:ok, ^output} = DeterministicModel.invoke(request)
+  end
+
   defp model_input(fixture_id) do
     %ModelInput{
       request_id: uuid(),
@@ -111,10 +176,13 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
       context_package_id: uuid(),
       authority_snapshot_id: uuid(),
       operation_id: uuid(),
-      adapter_key: "deterministic-model",
+      adapter_key: "deterministic",
       adapter_version: "1",
       idempotency_key: "model-step-1",
       capability_keys: ["agent.model.generate"],
+      credential_kinds: [],
+      sensitivity: :internal,
+      approval_granted?: false,
       timeout_ms: 1_000,
       token_budget: 100,
       fixture_id: fixture_id

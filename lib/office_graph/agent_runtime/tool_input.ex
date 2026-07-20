@@ -11,10 +11,12 @@ defmodule OfficeGraph.AgentRuntime.ToolInput do
     :adapter_version,
     :idempotency_key,
     :capability_keys,
+    :credential_kinds,
     :timeout_ms,
     :budget_units,
     :sensitivity,
     :external_write,
+    :approval_granted?,
     :fixture_id
   ]
   defstruct @enforce_keys
@@ -29,10 +31,12 @@ defmodule OfficeGraph.AgentRuntime.ToolInput do
           adapter_version: String.t(),
           idempotency_key: String.t(),
           capability_keys: [String.t()],
+          credential_kinds: [atom()],
           timeout_ms: pos_integer(),
           budget_units: pos_integer(),
           sensitivity: atom(),
           external_write: boolean(),
+          approval_granted?: boolean(),
           fixture_id: String.t()
         }
 end

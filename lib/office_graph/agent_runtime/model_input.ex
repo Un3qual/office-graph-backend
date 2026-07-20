@@ -11,6 +11,9 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
     :adapter_version,
     :idempotency_key,
     :capability_keys,
+    :credential_kinds,
+    :sensitivity,
+    :approval_granted?,
     :timeout_ms,
     :token_budget,
     :fixture_id
@@ -27,6 +30,9 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
           adapter_version: String.t(),
           idempotency_key: String.t(),
           capability_keys: [String.t()],
+          credential_kinds: [atom()],
+          sensitivity: :public | :internal | :confidential | :restricted,
+          approval_granted?: boolean(),
           timeout_ms: pos_integer(),
           token_budget: pos_integer(),
           fixture_id: String.t()

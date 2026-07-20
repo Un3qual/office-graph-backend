@@ -3,9 +3,16 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
 
   @behaviour OfficeGraph.AgentRuntime.ToolAdapter
 
-  alias OfficeGraph.AgentRuntime.{AdapterResult, ToolInput, ToolManifest, ToolOutput}
+  alias OfficeGraph.AgentRuntime.{
+    AdapterContract,
+    AdapterResult,
+    AdapterState,
+    ToolInput,
+    ToolManifest,
+    ToolOutput
+  }
 
-  @table __MODULE__
+  @state_namespace __MODULE__
   @required_capability "agent.tool.read"
 
   @impl true
@@ -23,7 +30,8 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
       budget_units: 1_000,
       output_classifications: ToolOutput.classifications(),
       idempotency_supported: true,
-      raw_retention: false
+      raw_retention: false,
+      approval_required: false
     }
   end
 
@@ -39,25 +47,17 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
     end
   end
 
-  def reset do
-    ensure_table!()
-    :ets.delete_all_objects(@table)
-    :ok
-  end
+  def reset, do: AdapterState.reset(@state_namespace)
 
   @impl true
   def invoke(%ToolInput{} = input) do
-    register_request(input.request_id)
+    with :ok <- AdapterContract.validate_tool_input(manifest(), input) do
+      register_request(input.request_id)
 
-    case check_cancelled(input.request_id) do
-      {:error, _failure} = result ->
-        result
-
-      :ok ->
-        case lookup({:result, input.idempotency_key}) do
-          {:ok, result} -> result
-          :error -> invoke_new(input)
-        end
+      case check_cancelled(input.request_id) do
+        {:error, _failure} = result -> result
+        :ok -> replay_or_invoke(input)
+      end
     end
   end
 
@@ -77,76 +77,30 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
 
   def cancel(_request_id), do: {:error, :not_found}
 
-  defp invoke_new(input) do
+  defp replay_or_invoke(input) do
+    fingerprint = AdapterContract.fingerprint(input)
+
+    case lookup(replay_key(input)) do
+      {:ok, %{fingerprint: ^fingerprint, result: result}} -> result
+      {:ok, _cached} -> {:error, {:terminal, :idempotency_conflict}}
+      :error -> invoke_new(input, fingerprint)
+    end
+  end
+
+  defp invoke_new(input, fingerprint) do
     result =
-      with :ok <- validate_input(input),
-           :ok <- check_cancelled(input.request_id),
-           {:ok, fixture} <- fetch_fixture(input.fixture_id),
+      with :ok <- check_cancelled(input.request_id),
+           {:ok, fixture} <- deterministic_fixture(input.fixture_id),
            result <- normalize_fixture(fixture) do
         result
       end
 
     retain(input.request_id, result)
-    put({:result, input.idempotency_key}, result)
+    put(replay_key(input), %{fingerprint: fingerprint, result: result})
     result
   end
 
-  defp validate_input(input) do
-    manifest = manifest()
-
-    cond do
-      not valid_input_fields?(input) ->
-        {:error, {:terminal, :invalid_tool_input}}
-
-      input.tool_key != manifest.key ->
-        {:error, {:terminal, :invalid_tool_input}}
-
-      input.adapter_version != manifest.version ->
-        {:error, {:terminal, :invalid_tool_input}}
-
-      input.external_write ->
-        {:error, {:terminal, :external_write_forbidden}}
-
-      not is_binary(input.fixture_id) ->
-        {:error, {:terminal, :invalid_tool_input}}
-
-      not Enum.all?(manifest.capability_keys, &(&1 in input.capability_keys)) ->
-        {:error, {:terminal, :missing_capability}}
-
-      input.timeout_ms < manifest.timeout_ms ->
-        {:error, {:terminal, :timeout_exceeded}}
-
-      input.budget_units > manifest.budget_units ->
-        {:error, {:terminal, :budget_exceeded}}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp valid_input_fields?(input) do
-    Enum.all?(
-      [
-        input.request_id,
-        input.execution_id,
-        input.context_package_id,
-        input.authority_snapshot_id,
-        input.operation_id
-      ],
-      &match?({:ok, _uuid}, Ecto.UUID.cast(&1))
-    ) and
-      Enum.all?(
-        [input.tool_key, input.adapter_version, input.idempotency_key, input.fixture_id],
-        &nonempty_string?/1
-      ) and
-      is_list(input.capability_keys) and Enum.all?(input.capability_keys, &nonempty_string?/1) and
-      is_integer(input.timeout_ms) and input.timeout_ms > 0 and
-      is_integer(input.budget_units) and input.budget_units > 0 and
-      input.sensitivity in [:public, :internal, :confidential, :restricted] and
-      is_boolean(input.external_write)
-  end
-
-  defp nonempty_string?(value), do: is_binary(value) and value != ""
+  defp replay_key(input), do: {:result, input.execution_id, input.idempotency_key}
 
   defp check_cancelled(request_id) do
     if lookup({:cancelled, request_id}) == {:ok, true},
@@ -154,12 +108,13 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
       else: :ok
   end
 
-  defp fetch_fixture(fixture_id) do
-    deterministic_fixture(fixture_id)
-  end
-
   defp deterministic_fixture("evidence_candidate") do
-    {:ok, %{"classification" => "evidence_candidate", "safe_summary" => "Static check completed"}}
+    {:ok,
+     %{
+       "classification" => "evidence_candidate",
+       "safe_summary" => "Static check completed",
+       "structured_content" => %{"evidence_candidate" => %{"check" => "static"}}
+     }}
   end
 
   defp deterministic_fixture("retryable"), do: {:ok, {:error, {:retryable, :tool_busy}}}
@@ -167,11 +122,20 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
   defp deterministic_fixture("malformed"), do: {:ok, %{"unknown" => true}}
   defp deterministic_fixture(_fixture_id), do: {:error, {:terminal, :fixture_not_found}}
 
-  defp normalize_fixture(%{"classification" => classification, "safe_summary" => safe_summary})
+  defp normalize_fixture(%{
+         "classification" => classification,
+         "safe_summary" => safe_summary,
+         "structured_content" => content
+       })
        when is_binary(classification) do
     with {:ok, classification} <- output_classification(classification) do
       AdapterResult.normalize(
-        {:ok, %ToolOutput{classification: classification, safe_summary: safe_summary}}
+        {:ok,
+         %ToolOutput{
+           classification: classification,
+           safe_summary: safe_summary,
+           structured_content: content
+         }}
       )
     else
       :error -> {:error, {:terminal, :malformed_tool_output}}
@@ -201,6 +165,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
   defp retain(request_id, {:ok, %ToolOutput{} = output}) do
     put({:retained, request_id}, %{
       classification: output.classification,
+      output_hash: :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content)),
       safe_summary: output.safe_summary
     })
   end
@@ -219,31 +184,6 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
   defp safe_failure_summary(:cancelled), do: "Adapter request was cancelled."
   defp safe_failure_summary(_failure_code), do: "Adapter request did not complete."
 
-  defp lookup(key) do
-    ensure_table!()
-
-    case :ets.lookup(@table, key) do
-      [{^key, value}] -> {:ok, value}
-      [] -> :error
-    end
-  end
-
-  defp put(key, value) do
-    ensure_table!()
-    :ets.insert(@table, {key, value})
-  end
-
-  defp ensure_table! do
-    case :ets.whereis(@table) do
-      :undefined ->
-        try do
-          :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-        rescue
-          ArgumentError -> @table
-        end
-
-      table ->
-        table
-    end
-  end
+  defp lookup(key), do: AdapterState.get(@state_namespace, key)
+  defp put(key, value), do: AdapterState.put(@state_namespace, key, value)
 end

@@ -14,7 +14,8 @@ defmodule OfficeGraph.AgentRuntime.ModelManifest do
     :token_budget,
     :output_classifications,
     :idempotency_supported,
-    :raw_retention
+    :raw_retention,
+    :approval_required
   ]
   defstruct @enforce_keys
 
@@ -31,6 +32,7 @@ defmodule OfficeGraph.AgentRuntime.ModelManifest do
           token_budget: pos_integer(),
           output_classifications: [atom()],
           idempotency_supported: boolean(),
-          raw_retention: false
+          raw_retention: false,
+          approval_required: boolean()
         }
 end

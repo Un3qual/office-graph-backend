@@ -1,7 +1,8 @@
 defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
   use ExUnit.Case, async: false
 
-  alias OfficeGraph.AgentRuntime.ToolInput
+  alias OfficeGraph.AgentRuntime.{ToolInput, ToolManifest}
+  alias OfficeGraph.AgentRuntime.AdapterContract
   alias OfficeGraph.AgentRuntime.Adapters.DeterministicTool
 
   setup do
@@ -29,11 +30,20 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
   end
 
   test "returns classified evidence candidates without retaining fixture content", %{input: input} do
-    assert {:ok, %{classification: :evidence_candidate, safe_summary: "Static check completed"}} =
+    assert {:ok,
+            output = %{
+              classification: :evidence_candidate,
+              safe_summary: "Static check completed"
+            }} =
              DeterministicTool.invoke(input)
 
     retained = DeterministicTool.retained_request!(input.request_id)
     assert retained.classification == :evidence_candidate
+
+    assert retained.output_hash ==
+             :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content))
+
+    refute Map.has_key?(retained, :structured_content)
     refute inspect(retained) =~ "fixture"
   end
 
@@ -70,8 +80,19 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
 
     refute DeterministicTool.retained_request!(malformed.request_id).safe_summary =~ "fixture"
 
+    assert {:ok, _output} =
+             DeterministicTool.invoke(%{
+               input
+               | timeout_ms: 500,
+                 idempotency_key: "short-timeout"
+             })
+
     assert {:error, {:terminal, :timeout_exceeded}} =
-             DeterministicTool.invoke(%{input | timeout_ms: 1, idempotency_key: "timeout-step"})
+             DeterministicTool.invoke(%{
+               input
+               | timeout_ms: 1_001,
+                 idempotency_key: "timeout-step"
+             })
 
     assert {:error, {:terminal, :budget_exceeded}} =
              DeterministicTool.invoke(%{
@@ -99,6 +120,29 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
                | capability_keys: nil,
                  idempotency_key: "invalid-input"
              })
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             DeterministicTool.invoke(%{input | request_id: nil, idempotency_key: "nil-request"})
+  end
+
+  test "shared contracts reject missing credential and approval authority before adapter execution",
+       %{input: input} do
+    manifest = %ToolManifest{
+      DeterministicTool.manifest()
+      | credential_kinds: [:api_token],
+        sensitivity: :confidential,
+        approval_required: true
+    }
+
+    assert {:error, {:terminal, :missing_credential}} =
+             AdapterContract.validate_tool_input(manifest, %{input | sensitivity: :confidential})
+
+    assert {:error, {:terminal, :approval_required}} =
+             AdapterContract.validate_tool_input(manifest, %{
+               input
+               | credential_kinds: [:api_token],
+                 sensitivity: :confidential
+             })
   end
 
   defp tool_input(fixture_id) do
@@ -112,10 +156,12 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
       adapter_version: "1",
       idempotency_key: "tool-step-1",
       capability_keys: ["agent.tool.read"],
+      credential_kinds: [],
       timeout_ms: 1_000,
       budget_units: 10,
       sensitivity: :internal,
       external_write: false,
+      approval_granted?: false,
       fixture_id: fixture_id
     }
   end
