@@ -151,7 +151,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
         completed_result
 
       :cancelled ->
-        {:error, {:cancelled, :cancelled}}
+        retain_state_failure(input, {:error, {:cancelled, :cancelled}})
 
       :conflict ->
         {:error, {:terminal, :idempotency_conflict}}

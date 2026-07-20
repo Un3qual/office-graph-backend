@@ -102,11 +102,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
 
   defp safe_manifest(adapter, key, valid_manifest?) do
     validate_manifest_key(key, adapter.manifest(), valid_manifest?)
-  rescue
-    _exception -> {:error, :invalid_manifest}
   catch
+    :error, _reason -> {:error, :invalid_manifest}
     :exit, _reason -> {:error, :invalid_manifest}
-    _kind, _reason -> {:error, :invalid_manifest}
+    :throw, _reason -> {:error, :invalid_manifest}
   end
 
   defp configured, do: Application.get_env(:office_graph, :agent_runtime_adapters, %{})

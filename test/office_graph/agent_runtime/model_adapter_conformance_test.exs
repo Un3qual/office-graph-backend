@@ -4,6 +4,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   alias OfficeGraph.AgentRuntime.{
     AdapterContract,
     AdapterResult,
+    AdapterState,
     ModelInput,
     ModelManifest,
     ModelOutput
@@ -95,7 +96,13 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   end
 
   test "enforces manifest limits and idempotency without reinvoking the fixture", %{input: input} do
-    shorter_timeout = %{input | timeout_ms: 500, idempotency_key: "short-timeout"}
+    shorter_timeout = %{
+      input
+      | request_id: uuid(),
+        timeout_ms: 500,
+        idempotency_key: "short-timeout"
+    }
+
     assert {:ok, _output} = DeterministicModel.invoke(shorter_timeout)
 
     assert {:error, {:terminal, :timeout_exceeded}} =
@@ -292,6 +299,25 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     conflicting = %{input | token_budget: 101}
     assert {:error, {:terminal, :idempotency_conflict}} = DeterministicModel.invoke(conflicting)
+  end
+
+  test "adapter registration before claim keeps all retention stores bounded", %{input: input} do
+    for sequence <- 1..(AdapterState.retention_limit() + 1) do
+      assert {:ok, %ModelOutput{}} =
+               DeterministicModel.invoke(%{
+                 input
+                 | request_id: uuid(),
+                   idempotency_key: "capacity-#{sequence}"
+               })
+    end
+
+    assert %{pending: 0, terminal: terminal, records: records, retained: retained, total: total} =
+             AdapterState.state_counts(DeterministicModel)
+
+    assert terminal == AdapterState.retention_limit()
+    assert records == AdapterState.retention_limit()
+    assert retained == AdapterState.retention_limit()
+    assert total == terminal + records + retained
   end
 
   test "adapter state survives the caller process that created the replay entry", %{input: input} do

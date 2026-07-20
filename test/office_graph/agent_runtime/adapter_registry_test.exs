@@ -273,7 +273,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
 
     assert records <= AdapterState.retention_limit()
     assert retained <= AdapterState.retention_limit()
-    assert total <= AdapterState.retention_limit()
+    assert total == records + retained
 
     assert :error = AdapterState.retained(namespace, "registered-1")
 
@@ -305,9 +305,104 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert terminal <= AdapterState.retention_limit()
     assert records <= AdapterState.retention_limit()
     assert retained <= AdapterState.retention_limit()
-    assert total == records + 1
+    assert total == records + retained + 1
     assert :error = AdapterState.retained(namespace, "conflict-1")
     assert :ok = AdapterState.cancel(namespace, "owner")
+  end
+
+  test "a request id is bound to one active and terminal replay identity" do
+    namespace = {:request_binding, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :first, "request", "first-fingerprint")
+
+    assert :conflict =
+             AdapterState.claim(namespace, :second, "request", "second-fingerprint")
+
+    assert {:completed, {:ok, :first}} =
+             AdapterState.complete(namespace, :first, "first-fingerprint", {:ok, :first})
+
+    assert {:replay, {:ok, :first}} =
+             AdapterState.claim(namespace, :first, "request", "first-fingerprint")
+
+    assert :conflict =
+             AdapterState.claim(namespace, :second, "request", "second-fingerprint")
+
+    assert {:replay, {:ok, :first}} =
+             AdapterState.claim(namespace, :first, "request", "first-fingerprint")
+
+    assert %{pending: 0, terminal: 1, records: 1, retained: 0, total: 2} =
+             AdapterState.state_counts(namespace)
+  end
+
+  test "pruning a distinct conflict preserves the original terminal replay" do
+    namespace = {:conflict_pruning, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :shared, "original", "original-fingerprint")
+
+    assert {:completed, {:ok, :original}} =
+             AdapterState.complete(namespace, :shared, "original-fingerprint", {:ok, :original})
+
+    assert :conflict =
+             AdapterState.claim(namespace, :shared, "conflict", "conflict-fingerprint")
+
+    assert {:replay, {:ok, :original}} =
+             AdapterState.claim(namespace, :shared, "original", "original-fingerprint")
+
+    for sequence <- 1..(AdapterState.retention_limit() - 1) do
+      request_id = "cancelled-#{sequence}"
+      assert :ok = AdapterState.register(namespace, request_id)
+      assert :ok = AdapterState.cancel(namespace, request_id)
+    end
+
+    assert {:replay, {:ok, :original}} =
+             AdapterState.claim(namespace, :shared, "original", "original-fingerprint")
+  end
+
+  test "reset cancels blocked waiters and drops active state" do
+    namespace = {:reset, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    {owner, _sequence} =
+      start_claim_owner(namespace, :shared, "owner-request", "shared-fingerprint")
+
+    assert_receive {:claim_owner, 1, :claimed}
+
+    waiter =
+      Task.async(fn ->
+        AdapterState.claim(namespace, :shared, "waiter-request", "shared-fingerprint")
+      end)
+
+    assert nil == Task.yield(waiter, 50)
+    assert :ok = AdapterState.reset(namespace)
+    assert :cancelled = Task.await(waiter, 500)
+
+    send(owner, {:complete, {:ok, :after_reset}})
+    assert_receive {:claim_owner_complete, :conflict}
+
+    assert %{pending: 0, terminal: 0, records: 0, retained: 0, total: 0} =
+             AdapterState.state_counts(namespace)
+  end
+
+  test "active-owner cancellation permits only safe retained metadata" do
+    namespace = {:owner_cancellation, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    {owner, _sequence} =
+      start_claim_owner(namespace, :shared, "owner-request", "shared-fingerprint")
+
+    assert_receive {:claim_owner, 1, :claimed}
+    assert :ok = AdapterState.cancel(namespace, "owner-request")
+
+    assert :ok =
+             AdapterState.put_retained(namespace, "owner-request", %{failure_code: :cancelled})
+
+    send(owner, {:complete, {:ok, :late}})
+    assert_receive {:claim_owner_complete, :cancelled}
+
+    assert {:ok, %{failure_code: :cancelled}} =
+             AdapterState.retained(namespace, "owner-request")
   end
 
   test "owner death promotes one waiting claimant and rejects non-owner completion" do

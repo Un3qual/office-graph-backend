@@ -34,8 +34,16 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   def init(state), do: {:ok, state}
 
   @impl true
-  def handle_call({:reset, namespace}, _from, state),
-    do: {:reply, :ok, Map.delete(state, namespace)}
+  def handle_call({:reset, namespace}, _from, state) do
+    runtime = runtime(state, namespace)
+
+    Enum.each(runtime.pending, fn {_key, pending} ->
+      Enum.each(pending.waiters, &reply_waiter(&1, :cancelled))
+      demonitor_pending(pending)
+    end)
+
+    {:reply, :ok, Map.delete(state, namespace)}
+  end
 
   def handle_call({:register, namespace, request_id}, _from, state) do
     runtime = runtime(state, namespace)
@@ -53,21 +61,19 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   def handle_call({:claim, namespace, key, request_id, fingerprint}, from, state) do
     runtime = runtime(state, namespace)
 
-    if match?(%{status: :cancelled}, Map.get(runtime.requests, request_id)) do
-      {:reply, :cancelled, state}
-    else
-      case Map.get(runtime.pending, key) do
-        nil ->
-          claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace)
+    case request_binding(runtime, request_id) do
+      {:bound, ^key, ^fingerprint} ->
+        claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace)
 
-        %{fingerprint: ^fingerprint} = pending ->
-          runtime = add_waiter(runtime, key, pending, request_id, from)
-          {:noreply, put_runtime(state, namespace, runtime)}
+      {:bound, _bound_key, _bound_fingerprint} ->
+        {:reply, :conflict, state}
 
-        _pending ->
-          runtime = terminalize_request(runtime, request_id, :conflict)
-          {:reply, :conflict, put_runtime(state, namespace, runtime)}
-      end
+      :unbound ->
+        if match?(%{status: :cancelled}, Map.get(runtime.requests, request_id)) do
+          {:reply, :cancelled, state}
+        else
+          claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace)
+        end
     end
   end
 
@@ -93,7 +99,19 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
             entries: Map.put(runtime.entries, key, completed)
         }
 
-        runtime = put_record(runtime, pending.request_id, %{status: :completed, key: key})
+        runtime =
+          put_record(runtime, pending.request_id, %{
+            status: :completed,
+            entry_key: key,
+            replay_key: key,
+            fingerprint: fingerprint
+          })
+
+        runtime =
+          Enum.reduce(pending.waiters, runtime, fn waiter, current ->
+            record_replay(current, waiter.request_id, pending.request_id, key, fingerprint)
+          end)
+
         {:reply, {:completed, result}, put_runtime(state, namespace, runtime)}
 
       %{fingerprint: ^fingerprint} ->
@@ -126,7 +144,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         Process.demonitor(waiter.monitor, [:flush])
         remaining_waiters = List.delete(pending.waiters, waiter)
         runtime = put_in(runtime.pending[key].waiters, remaining_waiters)
-        runtime = terminalize_request(runtime, request_id, :cancelled)
+        runtime = terminalize_request(runtime, request_id, :cancelled, key, pending.fingerprint)
         {:reply, :ok, put_runtime(state, namespace, runtime)}
 
       :none ->
@@ -184,8 +202,26 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
        terminal: map_size(runtime.entries),
        records: map_size(runtime.requests),
        retained: map_size(runtime.retained),
-       total: map_size(runtime.pending) + map_size(runtime.requests)
+       waiters: waiter_count(runtime),
+       total:
+         map_size(runtime.pending) + waiter_count(runtime) + map_size(runtime.entries) +
+           map_size(runtime.requests) + map_size(runtime.retained)
      }, state}
+  end
+
+  defp claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace) do
+    case Map.get(runtime.pending, key) do
+      nil ->
+        claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace)
+
+      %{fingerprint: ^fingerprint} = pending ->
+        runtime = add_waiter(runtime, key, pending, request_id, from)
+        {:noreply, put_runtime(state, namespace, runtime)}
+
+      _pending ->
+        runtime = terminalize_request(runtime, request_id, :conflict, key, fingerprint)
+        {:reply, :conflict, put_runtime(state, namespace, runtime)}
+    end
   end
 
   @impl true
@@ -213,15 +249,15 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   defp claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace) do
     case Map.get(runtime.entries, key) do
       %{fingerprint: ^fingerprint, status: :completed, result: result} = entry ->
-        runtime = record_replay(runtime, request_id, entry.request_id)
+        runtime = record_replay(runtime, request_id, entry.request_id, key, fingerprint)
         {:reply, {:replay, result}, put_runtime(state, namespace, runtime)}
 
       %{fingerprint: ^fingerprint, status: :cancelled} ->
-        runtime = terminalize_request(runtime, request_id, :cancelled)
+        runtime = terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
         {:reply, :cancelled, put_runtime(state, namespace, runtime)}
 
       %{} ->
-        runtime = terminalize_request(runtime, request_id, :conflict)
+        runtime = terminalize_request(runtime, request_id, :conflict, key, fingerprint)
         {:reply, :conflict, put_runtime(state, namespace, runtime)}
 
       nil ->
@@ -282,10 +318,16 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         entries: Map.put(runtime.entries, key, cancelled)
     }
 
-    runtime = put_record(runtime, pending.request_id, %{status: :cancelled, key: key})
+    runtime =
+      put_record(runtime, pending.request_id, %{
+        status: :cancelled,
+        entry_key: key,
+        replay_key: key,
+        fingerprint: pending.fingerprint
+      })
 
     Enum.reduce(pending.waiters, runtime, fn waiter, current ->
-      terminalize_request(current, waiter.request_id, :cancelled)
+      terminalize_request(current, waiter.request_id, :cancelled, key, pending.fingerprint)
     end)
   end
 
@@ -303,22 +345,37 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         }
 
         runtime = put_in(runtime.pending[key], promoted)
-        terminalize_request(runtime, pending.request_id, :abandoned)
+        terminalize_request(runtime, pending.request_id, :abandoned, key, pending.fingerprint)
 
       [] ->
         runtime = %{runtime | pending: Map.delete(runtime.pending, key)}
-        terminalize_request(runtime, pending.request_id, :abandoned)
+        terminalize_request(runtime, pending.request_id, :abandoned, key, pending.fingerprint)
     end
   end
 
-  defp terminalize_request(runtime, request_id, status) do
-    put_record(runtime, request_id, %{status: status})
+  defp terminalize_request(runtime, request_id, status, replay_key \\ nil, fingerprint \\ nil) do
+    existing = Map.get(runtime.requests, request_id, %{})
+
+    record =
+      %{status: status}
+      |> preserve_binding(existing, :replay_key)
+      |> preserve_binding(existing, :fingerprint)
+      |> bind(:replay_key, replay_key)
+      |> bind(:fingerprint, fingerprint)
+
+    put_record(runtime, request_id, record)
   end
 
-  defp record_replay(runtime, request_id, request_id), do: runtime
+  defp record_replay(runtime, request_id, request_id, _key, _fingerprint) do
+    put_record(runtime, request_id, Map.fetch!(runtime.requests, request_id))
+  end
 
-  defp record_replay(runtime, request_id, _owner_request_id) do
-    put_record(runtime, request_id, %{status: :replayed})
+  defp record_replay(runtime, request_id, _owner_request_id, key, fingerprint) do
+    put_record(runtime, request_id, %{
+      status: :replayed,
+      replay_key: key,
+      fingerprint: fingerprint
+    })
   end
 
   defp put_record(runtime, request_id, record) do
@@ -341,16 +398,16 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
       runtime
       | requests: Map.delete(runtime.requests, request_id),
         retained: Map.delete(runtime.retained, request_id),
-        order: List.delete_at(runtime.order, -1)
+        order: List.delete(runtime.order, request_id)
     }
 
     runtime =
       case record do
-        %{key: key} -> %{runtime | entries: Map.delete(runtime.entries, key)}
+        %{entry_key: entry_key} -> %{runtime | entries: Map.delete(runtime.entries, entry_key)}
         _record -> runtime
       end
 
-    prune(runtime)
+    runtime
   end
 
   defp pending_request(runtime, request_id) do
@@ -369,6 +426,31 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   defp active_request?(runtime, request_id), do: pending_request(runtime, request_id) != :none
+
+  defp request_binding(runtime, request_id) do
+    case pending_request(runtime, request_id) do
+      {:owner, key, pending} ->
+        {:bound, key, pending.fingerprint}
+
+      {:waiter, key, pending, _waiter} ->
+        {:bound, key, pending.fingerprint}
+
+      :none ->
+        case Map.get(runtime.requests, request_id) do
+          %{replay_key: replay_key, fingerprint: fingerprint} ->
+            {:bound, replay_key, fingerprint}
+
+          _record ->
+            :unbound
+        end
+    end
+  end
+
+  defp waiter_count(runtime) do
+    Enum.reduce(runtime.pending, 0, fn {_key, pending}, count ->
+      count + length(pending.waiters)
+    end)
+  end
 
   defp pending_monitor(state, monitor) do
     Enum.find_value(state, {nil, nil, nil, :none}, fn {namespace, runtime} ->
@@ -399,6 +481,16 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     Process.demonitor(pending.owner_monitor, [:flush])
     Enum.each(pending.waiters, &Process.demonitor(&1.monitor, [:flush]))
   end
+
+  defp preserve_binding(record, existing, field) do
+    case Map.fetch(existing, field) do
+      {:ok, value} -> Map.put(record, field, value)
+      :error -> record
+    end
+  end
+
+  defp bind(record, _field, nil), do: record
+  defp bind(record, field, value), do: Map.put(record, field, value)
 
   defp runtime(state, namespace) do
     Map.get(state, namespace, %{
