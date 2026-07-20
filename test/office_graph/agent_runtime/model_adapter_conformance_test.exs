@@ -93,6 +93,24 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              })
   end
 
+  test "retains safe metadata for retryable attempts", %{input: input} do
+    retryable = %{
+      input
+      | adapter_payload: %{fixture_id: "retryable"},
+        request_id: uuid(),
+        idempotency_key: "retained-retry-step"
+    }
+
+    assert {:error, {:retryable, :provider_unavailable}} =
+             DeterministicModel.invoke(retryable)
+
+    assert %{
+             classification: :retryable,
+             failure_code: :provider_unavailable,
+             safe_summary: "Adapter request did not complete."
+           } = DeterministicModel.retained_request!(retryable.request_id)
+  end
+
   test "malformed output is terminal and retained only as safe metadata", %{input: input} do
     malformed = %{input | adapter_payload: %{fixture_id: "malformed"}}
 
@@ -136,6 +154,9 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     replay = %{input | request_id: uuid()}
 
     assert {:ok, ^output} = DeterministicModel.invoke(replay)
+
+    assert DeterministicModel.retained_request!(replay.request_id) ==
+             DeterministicModel.retained_request!(input.request_id)
   end
 
   test "validates authority before replay and rejects a mismatched replay", %{input: input} do

@@ -279,6 +279,36 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert AdapterState.entry_count(namespace) == 2
   end
 
+  test "pruning the original request preserves replay while retained replays reference it" do
+    namespace = {:replay_reference_retention, make_ref()}
+    configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)
+
+    on_exit(fn ->
+      if configured do
+        Application.put_env(:office_graph, :agent_runtime_retention_limit, configured)
+      else
+        Application.delete_env(:office_graph, :agent_runtime_retention_limit)
+      end
+    end)
+
+    Application.put_env(:office_graph, :agent_runtime_retention_limit, 2)
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :shared, "owner", "fingerprint")
+
+    assert {:completed, {:ok, :done}} =
+             AdapterState.complete(namespace, :shared, "fingerprint", {:ok, :done})
+
+    assert {:replay, {:ok, :done}} =
+             AdapterState.claim(namespace, :shared, "replay-1", "fingerprint")
+
+    assert {:replay, {:ok, :done}} =
+             AdapterState.claim(namespace, :shared, "replay-2", "fingerprint")
+
+    assert {:replay, {:ok, :done}} =
+             AdapterState.claim(namespace, :shared, "replay-3", "fingerprint")
+  end
+
   test "adapter state cancels pending work without changing completed replay semantics" do
     namespace = __MODULE__
     :ok = AdapterState.reset(namespace)
@@ -476,6 +506,41 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
 
     assert %{pending: 0, terminal: 0, records: 0, retained: 0, total: 0} =
              AdapterState.state_counts(namespace)
+  end
+
+  test "cancelled replay waiters cannot rejoin the pending claim" do
+    namespace = {:cancelled_waiter, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    {owner, _sequence} =
+      start_claim_owner(namespace, :shared, "owner-request", "shared-fingerprint")
+
+    assert_receive {:claim_owner, 1, :claimed}
+
+    waiter =
+      Task.async(fn ->
+        AdapterState.claim(namespace, :shared, "waiter-request", "shared-fingerprint")
+      end)
+
+    assert nil == Task.yield(waiter, 50)
+    assert :ok = AdapterState.cancel(namespace, "waiter-request")
+    assert :cancelled = Task.await(waiter, 500)
+
+    reclaim =
+      Task.async(fn ->
+        AdapterState.claim(
+          namespace,
+          :shared,
+          "waiter-request",
+          "shared-fingerprint",
+          1_000
+        )
+      end)
+
+    assert {:ok, :cancelled} = Task.yield(reclaim, 100)
+
+    send(owner, {:complete, {:ok, :done}})
+    assert_receive {:claim_owner_complete, {:completed, {:ok, :done}}}
   end
 
   test "active-owner cancellation permits only safe retained metadata" do

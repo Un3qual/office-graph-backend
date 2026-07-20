@@ -109,16 +109,16 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
         invoke_new(input, replay_key, fingerprint, configuration)
 
       {:replay, result} ->
-        result
+        retain_result(input, result, configuration)
 
       :cancelled ->
-        retain_state_failure(input, {:error, {:cancelled, :cancelled}}, configuration)
+        retain_result(input, {:error, {:cancelled, :cancelled}}, configuration)
 
       :identity_conflict ->
         {:error, {:terminal, :idempotency_conflict}}
 
       :conflict ->
-        retain_state_failure(input, {:error, {:terminal, :idempotency_conflict}}, configuration)
+        retain_result(input, {:error, {:terminal, :idempotency_conflict}}, configuration)
     end
   end
 
@@ -139,14 +139,13 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
            result
          ) do
       {:completed, completed_result} ->
-        retain(input.request_id, completed_result, configuration)
-        completed_result
+        retain_result(input, completed_result, configuration)
 
       {:replay, completed_result} ->
-        completed_result
+        retain_result(input, completed_result, configuration)
 
       :cancelled ->
-        retain_state_failure(input, {:error, {:cancelled, :cancelled}}, configuration)
+        retain_result(input, {:error, {:cancelled, :cancelled}}, configuration)
 
       :conflict ->
         {:error, {:terminal, :idempotency_conflict}}
@@ -217,7 +216,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     })
   end
 
-  defp retain_state_failure(input, result, configuration) do
+  defp retain_result(input, result, configuration) do
     retain(input.request_id, result, configuration)
     result
   end
