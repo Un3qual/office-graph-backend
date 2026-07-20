@@ -23,6 +23,7 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.Verification,
     OfficeGraph.ProposedChanges,
     OfficeGraph.AgentRuntime,
+    OfficeGraph.NodeConversations,
     OfficeGraph.Projections,
     OfficeGraph.ApiSupport
   ]

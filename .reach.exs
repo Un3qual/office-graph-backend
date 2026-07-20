@@ -6,6 +6,7 @@
     domain: [
       "OfficeGraph",
       "OfficeGraph.AgentRuntime",
+      "OfficeGraph.AgentRuntime.*",
       "OfficeGraph.ApiSupport",
       "OfficeGraph.Audit",
       "OfficeGraph.Audit.*",
@@ -23,6 +24,8 @@
       "OfficeGraph.Identity.*",
       "OfficeGraph.Integrations",
       "OfficeGraph.Integrations.*",
+      "OfficeGraph.NodeConversations",
+      "OfficeGraph.NodeConversations.*",
       "OfficeGraph.Operations",
       "OfficeGraph.Operations.*",
       "OfficeGraph.OrderedPlacement",

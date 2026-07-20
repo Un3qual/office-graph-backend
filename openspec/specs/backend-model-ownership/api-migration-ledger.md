@@ -4,6 +4,10 @@ This is the canonical inventory of hand-written GraphQL and JSON surfaces. Each
 entry documents why the surface remains outside generated Ash APIs and the proof
 required before it can be retired.
 
+Persistence-only AgentRuntime and NodeConversations resources do not add ledger
+rows until a GraphQL or JSON surface exists. Their first generated and focused
+command surfaces are tracked by the active internal-agent-runtime change.
+
 | Surface ID | Owner | Capability | Current surface | Exception class | Reason | Replacement target | Safety/parity tests | Retirement condition |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `graphql.query.health` | `OfficeGraphWeb` | GraphQL liveness | `OfficeGraphWeb.GraphQL.Common.Queries.health` | compatibility endpoint | Health is not a resource read. | Dedicated health endpoint. | GraphQL schema tests. | Product clients no longer consume schema health. |

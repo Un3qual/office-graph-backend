@@ -123,7 +123,31 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "execution_observations" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.ExecutionObservation},
     "run_events" => {OfficeGraph.Runs.Domain, OfficeGraph.Runs.RunEvent},
     "proposed_graph_changes" =>
-      {OfficeGraph.ProposedChanges.Domain, OfficeGraph.ProposedChanges.ProposedGraphChange}
+      {OfficeGraph.ProposedChanges.Domain, OfficeGraph.ProposedChanges.ProposedGraphChange},
+    "agent_definitions" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AgentDefinition},
+    "agent_organization_bindings" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.OrganizationBinding},
+    "agent_executions" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AgentExecution},
+    "agent_authority_snapshots" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.AuthoritySnapshot},
+    "agent_context_packages" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextPackage},
+    "agent_context_entries" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextEntry},
+    "agent_model_requests" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ModelRequest},
+    "agent_tool_requests" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ToolRequest},
+    "agent_approval_requests" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ApprovalRequest},
+    "agent_context_expansion_requests" =>
+      {OfficeGraph.AgentRuntime.Domain, OfficeGraph.AgentRuntime.ContextExpansionRequest},
+    "conversations" =>
+      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation},
+    "conversation_messages" =>
+      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage}
   }
 
   @work_graph_resources [
@@ -140,10 +164,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "requirements" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Requirement},
     "questions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Question},
     "decisions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Decision},
-    "conversations" =>
-      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.Conversation},
-    "conversation_messages" =>
-      {OfficeGraph.NodeConversations.Domain, OfficeGraph.NodeConversations.ConversationMessage},
     "issues" => {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.Issue},
     "observability_issues" =>
       {OfficeGraph.SoftwareProving.Domain, OfficeGraph.SoftwareProving.ObservabilityIssue},
@@ -226,6 +246,53 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_assignment: [:principal_id, :role_id, :organization_id, :workspace_id]
     },
     OfficeGraph.Authorization.PolicyBundle => %{unique_version: [:organization_id, :version]},
+    OfficeGraph.AgentRuntime.AgentDefinition => %{unique_key: [:key]},
+    OfficeGraph.AgentRuntime.OrganizationBinding => %{
+      unique_definition_organization: [:definition_id, :organization_id],
+      unique_organization_principal: [:organization_id, :agent_principal_id],
+      unique_operation: [:operation_id]
+    },
+    OfficeGraph.AgentRuntime.AgentExecution => %{
+      unique_operation: [:operation_id],
+      unique_binding_run_idempotency: [:organization_binding_id, :run_id, :idempotency_key]
+    },
+    OfficeGraph.AgentRuntime.AuthoritySnapshot => %{
+      unique_execution_version: [:execution_id, :version]
+    },
+    OfficeGraph.AgentRuntime.ContextPackage => %{
+      unique_execution_version: [:execution_id, :version]
+    },
+    OfficeGraph.AgentRuntime.ContextEntry => %{
+      unique_package_ordinal: [:context_package_id, :ordinal]
+    },
+    OfficeGraph.AgentRuntime.ModelRequest => %{
+      unique_execution_step_idempotency: [:execution_id, :step_key, :idempotency_key]
+    },
+    OfficeGraph.AgentRuntime.ToolRequest => %{
+      unique_execution_step_idempotency: [:execution_id, :step_key, :idempotency_key]
+    },
+    OfficeGraph.AgentRuntime.ApprovalRequest => %{
+      unique_pending_step: %{
+        keys: [:execution_id, :step_key],
+        where: ~s(state == "pending")
+      }
+    },
+    OfficeGraph.AgentRuntime.ContextExpansionRequest => %{
+      unique_pending_step: %{
+        keys: [:execution_id, :step_key],
+        where: ~s(state == "pending")
+      }
+    },
+    OfficeGraph.NodeConversations.Conversation => %{
+      unique_run_graph_item: [
+        :organization_id,
+        :workspace_id,
+        :run_id,
+        :graph_item_id,
+        :purpose
+      ]
+    },
+    OfficeGraph.NodeConversations.ConversationMessage => %{unique_operation: [:operation_id]},
     OfficeGraph.Operations.OperationCorrelation => %{
       unique_correlation_id: [:organization_id, :workspace_id, :correlation_id],
       unique_idempotency_key: %{

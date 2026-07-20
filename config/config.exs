@@ -25,7 +25,9 @@ config :office_graph,
     OfficeGraph.ProposedChanges.Domain,
     OfficeGraph.WorkGraph.Domain,
     OfficeGraph.WorkPackets.Domain,
-    OfficeGraph.Runs.Domain
+    OfficeGraph.Runs.Domain,
+    OfficeGraph.AgentRuntime.Domain,
+    OfficeGraph.NodeConversations.Domain
   ],
   allow_local_api_owner_bootstrap: false,
   ecto_repos: [OfficeGraph.Repo],

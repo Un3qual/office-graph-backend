@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 68 tables.
+Derived from committed migrations; expected count: 80 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -74,12 +74,24 @@ Derived from committed migrations; expected count: 68 tables.
 | `execution_observations` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.ExecutionObservation` |
 | `run_events` | `OfficeGraph.Runs.Domain` | `OfficeGraph.Runs.RunEvent` |
 | `proposed_graph_changes` | `OfficeGraph.ProposedChanges.Domain` | `OfficeGraph.ProposedChanges.ProposedGraphChange` |
+| `agent_definitions` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.AgentDefinition` |
+| `agent_organization_bindings` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.OrganizationBinding` |
+| `agent_executions` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.AgentExecution` |
+| `agent_authority_snapshots` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.AuthoritySnapshot` |
+| `agent_context_packages` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ContextPackage` |
+| `agent_context_entries` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ContextEntry` |
+| `agent_model_requests` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ModelRequest` |
+| `agent_tool_requests` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ToolRequest` |
+| `agent_approval_requests` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ApprovalRequest` |
+| `agent_context_expansion_requests` | `OfficeGraph.AgentRuntime.Domain` | `OfficeGraph.AgentRuntime.ContextExpansionRequest` |
+| `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` |
+| `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` |
 
 ## Planned MVP Resource Inventory
 
 These resources are accepted or active design commitments that are not yet
 implemented in committed migrations. They remain separate from the implemented
-68-table inventory so the architecture gate does not treat the walking skeleton
+80-table inventory so the architecture gate does not treat the walking skeleton
 as the complete MVP persistence model.
 
 | Table | Owning domain | Canonical Ash resource | Source | Implementation status |
@@ -87,8 +99,6 @@ as the complete MVP persistence model.
 | `requirements` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Requirement` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
 | `questions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Question` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
 | `decisions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.Decision` | `openspec/specs/graph-items/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `conversations` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.Conversation` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
-| `conversation_messages` | `OfficeGraph.NodeConversations.Domain` | `OfficeGraph.NodeConversations.ConversationMessage` | `openspec/specs/graph-items/spec.md`; `openspec/specs/node-conversations/spec.md`; `openspec/specs/mvp-persistence-inventory/spec.md` | Planned - not implemented |
 | `issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.Issue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
 | `observability_issues` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityIssue` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
 | `observability_events` | `OfficeGraph.SoftwareProving.Domain` | `OfficeGraph.SoftwareProving.ObservabilityEvent` | `openspec/specs/mvp-persistence-inventory/spec.md`; `openspec/specs/domain-attachments/spec.md` | Planned - not implemented |
