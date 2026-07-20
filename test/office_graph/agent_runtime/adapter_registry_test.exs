@@ -17,6 +17,27 @@ defmodule OfficeGraph.AgentRuntime.CallbackOnlyModel do
   def cancel(_request_id), do: {:error, :not_found}
 end
 
+defmodule OfficeGraph.AgentRuntime.AuxiliaryAdapterBehaviour do
+  @callback auxiliary_callback() :: :ok
+end
+
+defmodule OfficeGraph.AgentRuntime.MultiBehaviourModel do
+  @behaviour OfficeGraph.AgentRuntime.AuxiliaryAdapterBehaviour
+  @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+  @impl true
+  def auxiliary_callback, do: :ok
+
+  @impl true
+  def manifest, do: OfficeGraph.AgentRuntime.Adapters.DeterministicModel.manifest()
+
+  @impl true
+  def invoke(_input), do: {:error, {:terminal, :invalid_model_input}}
+
+  @impl true
+  def cancel(_request_id), do: {:error, :not_found}
+end
+
 defmodule OfficeGraph.AgentRuntime.MalformedSchemaModel do
   @behaviour OfficeGraph.AgentRuntime.ModelAdapter
 
@@ -24,7 +45,7 @@ defmodule OfficeGraph.AgentRuntime.MalformedSchemaModel do
   def manifest do
     %OfficeGraph.AgentRuntime.ModelManifest{
       OfficeGraph.AgentRuntime.Adapters.DeterministicModel.manifest()
-      | input_schema: %{required: [:fixture_id], fields: nil, max_serialized_bytes: 16_384}
+      | input_schema: %{required: [:adapter_payload], fields: nil, max_serialized_bytes: 16_384}
     }
   end
 
@@ -114,6 +135,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
                tools: %{}
              })
 
+    assert :ok =
+             AdapterRegistry.validate(%{
+               models: %{"deterministic" => OfficeGraph.AgentRuntime.MultiBehaviourModel},
+               tools: %{}
+             })
+
     assert {:error, {:model, :invalid_manifest}} =
              AdapterRegistry.validate(%{
                models: %{"deterministic" => OfficeGraph.AgentRuntime.MalformedSchemaModel},
@@ -184,6 +211,72 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
 
     assert :claimed =
              AdapterState.claim(namespace, {:step, 1}, "replacement", "replacement-fingerprint")
+  end
+
+  test "adapter state releases retryable outcomes for a later attempt" do
+    namespace = {:retryable_release, make_ref()}
+    :ok = AdapterState.reset(namespace)
+    retryable = {:error, {:retryable, :provider_unavailable}}
+
+    assert :claimed = AdapterState.claim(namespace, :step, "first-request", "fingerprint")
+
+    assert {:completed, ^retryable} =
+             AdapterState.complete(namespace, :step, "fingerprint", retryable)
+
+    assert :claimed = AdapterState.claim(namespace, :step, "retry-request", "fingerprint")
+  end
+
+  test "adapter state accepts an explicit replay-wait timeout" do
+    namespace = {:claim_timeout, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :step, "owner-request", "fingerprint")
+
+    waiter =
+      Task.async(fn ->
+        AdapterState.claim(namespace, :step, "waiter-request", "fingerprint", 1_000)
+      end)
+
+    assert nil == Task.yield(waiter, 25)
+
+    assert {:completed, {:ok, :done}} =
+             AdapterState.complete(namespace, :step, "fingerprint", {:ok, :done})
+
+    assert {:replay, {:ok, :done}} = Task.await(waiter)
+  end
+
+  test "adapter state retention limit is configurable with a safe default" do
+    namespace = {:configured_retention, make_ref()}
+    configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)
+
+    on_exit(fn ->
+      if configured do
+        Application.put_env(:office_graph, :agent_runtime_retention_limit, configured)
+      else
+        Application.delete_env(:office_graph, :agent_runtime_retention_limit)
+      end
+    end)
+
+    :ok = AdapterState.reset(namespace)
+
+    for sequence <- 1..4 do
+      key = {:step, sequence}
+      fingerprint = "fingerprint-#{sequence}"
+      assert :claimed = AdapterState.claim(namespace, key, "request-#{sequence}", fingerprint)
+
+      assert {:completed, {:ok, ^sequence}} =
+               AdapterState.complete(namespace, key, fingerprint, {:ok, sequence})
+    end
+
+    Application.put_env(:office_graph, :agent_runtime_retention_limit, 2)
+
+    assert :claimed = AdapterState.claim(namespace, {:step, 5}, "request-5", "fingerprint-5")
+
+    assert {:completed, {:ok, 5}} =
+             AdapterState.complete(namespace, {:step, 5}, "fingerprint-5", {:ok, 5})
+
+    assert AdapterState.retention_limit() == 2
+    assert AdapterState.entry_count(namespace) == 2
   end
 
   test "adapter state cancels pending work without changing completed replay semantics" do

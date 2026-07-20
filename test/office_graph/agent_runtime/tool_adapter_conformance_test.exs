@@ -20,8 +20,9 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert manifest.version != ""
     assert is_map(manifest.input_schema)
     assert is_map(manifest.output_schema)
-    assert manifest.input_schema.required == [:fixture_id]
-    assert manifest.input_schema.fields.fixture_id == :string
+    assert manifest.input_schema.required == [:adapter_payload]
+    assert {:map, adapter_payload_schema} = manifest.input_schema.fields.adapter_payload
+    assert adapter_payload_schema.fields.fixture_id == :string
 
     assert manifest.output_schema.required == [
              :classification,
@@ -37,6 +38,13 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert manifest.external_write == false
     assert manifest.raw_retention == false
     assert manifest.idempotency_supported == true
+  end
+
+  test "keeps deterministic fixture selection inside the adapter-specific payload" do
+    fields = ToolInput.__struct__() |> Map.keys()
+
+    assert :adapter_payload in fields
+    refute :fixture_id in fields
   end
 
   test "returns classified evidence candidates without retaining fixture content", %{input: input} do
@@ -66,7 +74,7 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert {:error, {:retryable, :tool_busy}} =
              DeterministicTool.invoke(%{
                input
-               | fixture_id: "retryable",
+               | adapter_payload: %{fixture_id: "retryable"},
                  request_id: uuid(),
                  idempotency_key: "retry-step"
              })
@@ -74,14 +82,14 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert {:error, {:terminal, :forbidden}} =
              DeterministicTool.invoke(%{
                input
-               | fixture_id: "terminal",
+               | adapter_payload: %{fixture_id: "terminal"},
                  request_id: uuid(),
                  idempotency_key: "terminal-step"
              })
 
     malformed = %{
       input
-      | fixture_id: "malformed",
+      | adapter_payload: %{fixture_id: "malformed"},
         request_id: uuid(),
         idempotency_key: "malformed-step"
     }
@@ -121,6 +129,13 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert :ok = DeterministicTool.cancel(cancelled.request_id)
     assert {:error, {:cancelled, :cancelled}} = DeterministicTool.invoke(cancelled)
     assert {:error, :not_found} = DeterministicTool.cancel(uuid())
+  end
+
+  test "replays the same semantic request under a new request id", %{input: input} do
+    assert {:ok, output} = DeterministicTool.invoke(input)
+    replay = %{input | request_id: uuid()}
+
+    assert {:ok, ^output} = DeterministicTool.invoke(replay)
   end
 
   test "rejects malformed typed input before reading a fixture", %{input: input} do
@@ -228,7 +243,7 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
       sensitivity: :internal,
       external_write: false,
       approval_granted?: false,
-      fixture_id: fixture_id
+      adapter_payload: %{fixture_id: fixture_id}
     }
   end
 

@@ -17,7 +17,7 @@ defmodule OfficeGraph.AgentRuntime.ToolInput do
     :sensitivity,
     :external_write,
     :approval_granted?,
-    :fixture_id
+    :adapter_payload
   ]
   defstruct @enforce_keys
 
@@ -37,6 +37,6 @@ defmodule OfficeGraph.AgentRuntime.ToolInput do
           sensitivity: atom(),
           external_write: boolean(),
           approval_granted?: boolean(),
-          fixture_id: String.t()
+          adapter_payload: map()
         }
 end

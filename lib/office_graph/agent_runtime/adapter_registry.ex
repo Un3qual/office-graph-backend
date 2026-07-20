@@ -97,7 +97,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
   end
 
   defp declares_behaviour?(adapter, behaviour) do
-    behaviour in (adapter.module_info(:attributes)[:behaviour] || [])
+    behaviours =
+      adapter.module_info(:attributes)
+      |> Keyword.get_values(:behaviour)
+      |> List.flatten()
+
+    behaviour in behaviours
   end
 
   defp safe_manifest(adapter, key, valid_manifest?) do

@@ -45,6 +45,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   def fingerprint(input) when is_struct(input) do
     input
     |> Map.from_struct()
+    |> Map.delete(:request_id)
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
   end
@@ -64,22 +65,36 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   end
 
   defp validate_input(manifest, input, kind) do
-    with true <- valid_manifest?(manifest, kind),
-         true <- valid_input_fields?(input, kind),
-         true <- schema_accepts?(manifest.input_schema, Map.from_struct(input)),
-         true <- adapter_key(input, kind) == manifest.key,
-         true <- input.adapter_version == manifest.version,
-         true <- Enum.all?(manifest.capability_keys, &(&1 in input.capability_keys)),
-         true <- Enum.all?(manifest.credential_kinds, &(&1 in input.credential_kinds)),
-         true <- sensitivity_allowed?(input.sensitivity, manifest.sensitivity),
-         true <- not manifest.approval_required or input.approval_granted?,
-         true <- input.timeout_ms <= manifest.timeout_ms,
-         true <- budget(input, kind) <= manifest_budget(manifest, kind),
-         true <- kind != :tool or input.external_write == false do
-      :ok
-    else
-      false -> input_failure(manifest, input, kind)
-    end
+    Enum.reduce_while(input_checks(manifest, input, kind), :ok, fn {check, failure_code}, :ok ->
+      if check.() do
+        {:cont, :ok}
+      else
+        {:halt, {:error, {:terminal, failure_code}}}
+      end
+    end)
+  end
+
+  defp input_checks(manifest, input, kind) do
+    invalid_input = invalid_input_code(kind)
+
+    [
+      {fn -> valid_manifest?(manifest, kind) end, invalid_input},
+      {fn -> valid_input_fields?(input, kind) end, invalid_input},
+      {fn -> schema_accepts?(manifest.input_schema, Map.from_struct(input)) end, invalid_input},
+      {fn -> adapter_key(input, kind) == manifest.key end, invalid_input},
+      {fn -> input.adapter_version == manifest.version end, invalid_input},
+      {fn -> Enum.all?(manifest.capability_keys, &(&1 in input.capability_keys)) end,
+       :missing_capability},
+      {fn -> Enum.all?(manifest.credential_kinds, &(&1 in input.credential_kinds)) end,
+       :missing_credential},
+      {fn -> sensitivity_allowed?(input.sensitivity, manifest.sensitivity) end,
+       :sensitivity_not_allowed},
+      {fn -> not manifest.approval_required or input.approval_granted? end, :approval_required},
+      {fn -> input.timeout_ms <= manifest.timeout_ms end, :timeout_exceeded},
+      {fn -> budget(input, kind) <= manifest_budget(manifest, kind) end,
+       budget_failure_code(kind)},
+      {fn -> kind != :tool or input.external_write == false end, :external_write_forbidden}
+    ]
   end
 
   defp validate_output(manifest, output, kind) do
@@ -92,53 +107,11 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
     if valid?, do: :ok, else: malformed_output(kind)
   end
 
-  defp input_failure(manifest, input, kind) do
-    cond do
-      not valid_manifest?(manifest, kind) ->
-        {:error, {:terminal, invalid_input_code(kind)}}
-
-      not valid_input_fields?(input, kind) ->
-        {:error, {:terminal, invalid_input_code(kind)}}
-
-      not schema_accepts?(manifest.input_schema, Map.from_struct(input)) ->
-        {:error, {:terminal, invalid_input_code(kind)}}
-
-      adapter_key(input, kind) != manifest.key ->
-        {:error, {:terminal, invalid_input_code(kind)}}
-
-      input.adapter_version != manifest.version ->
-        {:error, {:terminal, invalid_input_code(kind)}}
-
-      not Enum.all?(manifest.capability_keys, &(&1 in input.capability_keys)) ->
-        {:error, {:terminal, :missing_capability}}
-
-      not Enum.all?(manifest.credential_kinds, &(&1 in input.credential_kinds)) ->
-        {:error, {:terminal, :missing_credential}}
-
-      not sensitivity_allowed?(input.sensitivity, manifest.sensitivity) ->
-        {:error, {:terminal, :sensitivity_not_allowed}}
-
-      manifest.approval_required and not input.approval_granted? ->
-        {:error, {:terminal, :approval_required}}
-
-      input.timeout_ms > manifest.timeout_ms ->
-        {:error, {:terminal, :timeout_exceeded}}
-
-      budget(input, kind) > manifest_budget(manifest, kind) ->
-        {:error, {:terminal, budget_failure_code(kind)}}
-
-      kind == :tool and input.external_write ->
-        {:error, {:terminal, :external_write_forbidden}}
-    end
-  end
-
   defp valid_input_fields?(input, kind) do
     Enum.all?(request_identifiers(input), &match?({:ok, _uuid}, Ecto.UUID.cast(&1))) and
       valid_string_list?(input.capability_keys) and valid_atom_list?(input.credential_kinds) and
-      Enum.all?(
-        [input.adapter_version, input.idempotency_key, input.fixture_id],
-        &nonempty_string?/1
-      ) and
+      Enum.all?([input.adapter_version, input.idempotency_key], &nonempty_string?/1) and
+      is_map(input.adapter_payload) and
       nonempty_string?(adapter_key(input, kind)) and input.sensitivity in @sensitivities and
       is_boolean(input.approval_granted?) and is_integer(input.timeout_ms) and
       input.timeout_ms > 0 and

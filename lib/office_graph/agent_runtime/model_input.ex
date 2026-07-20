@@ -16,7 +16,7 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
     :approval_granted?,
     :timeout_ms,
     :token_budget,
-    :fixture_id
+    :adapter_payload
   ]
   defstruct @enforce_keys
 
@@ -35,6 +35,6 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
           approval_granted?: boolean(),
           timeout_ms: pos_integer(),
           token_budget: pos_integer(),
-          fixture_id: String.t()
+          adapter_payload: map()
         }
 end

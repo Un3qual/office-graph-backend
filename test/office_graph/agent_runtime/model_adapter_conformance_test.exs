@@ -27,8 +27,9 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert manifest.version != ""
     assert is_map(manifest.input_schema)
     assert is_map(manifest.output_schema)
-    assert manifest.input_schema.required == [:fixture_id]
-    assert manifest.input_schema.fields.fixture_id == :string
+    assert manifest.input_schema.required == [:adapter_payload]
+    assert {:map, adapter_payload_schema} = manifest.input_schema.fields.adapter_payload
+    assert adapter_payload_schema.fields.fixture_id == :string
 
     assert manifest.output_schema.required == [
              :classification,
@@ -44,6 +45,13 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert manifest.external_write == false
     assert manifest.raw_retention == false
     assert manifest.idempotency_supported == true
+  end
+
+  test "keeps deterministic fixture selection inside the adapter-specific payload" do
+    fields = ModelInput.__struct__() |> Map.keys()
+
+    assert :adapter_payload in fields
+    refute :fixture_id in fields
   end
 
   test "returns a classified structured proposal without retaining fixture content", %{
@@ -71,7 +79,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:retryable, :provider_unavailable}} =
              DeterministicModel.invoke(%{
                input
-               | fixture_id: "retryable",
+               | adapter_payload: %{fixture_id: "retryable"},
                  request_id: uuid(),
                  idempotency_key: "retry-step"
              })
@@ -79,14 +87,14 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:terminal, :invalid_request}} =
              DeterministicModel.invoke(%{
                input
-               | fixture_id: "terminal",
+               | adapter_payload: %{fixture_id: "terminal"},
                  request_id: uuid(),
                  idempotency_key: "terminal-step"
              })
   end
 
   test "malformed output is terminal and retained only as safe metadata", %{input: input} do
-    malformed = %{input | fixture_id: "malformed"}
+    malformed = %{input | adapter_payload: %{fixture_id: "malformed"}}
 
     assert {:error, {:terminal, :malformed_model_output}} = DeterministicModel.invoke(malformed)
 
@@ -121,6 +129,13 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert {:ok, output} = DeterministicModel.invoke(input)
     assert {:ok, ^output} = DeterministicModel.invoke(input)
+  end
+
+  test "replays the same semantic request under a new request id", %{input: input} do
+    assert {:ok, output} = DeterministicModel.invoke(input)
+    replay = %{input | request_id: uuid()}
+
+    assert {:ok, ^output} = DeterministicModel.invoke(replay)
   end
 
   test "validates authority before replay and rejects a mismatched replay", %{input: input} do
@@ -396,7 +411,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
       approval_granted?: false,
       timeout_ms: 1_000,
       token_budget: 100,
-      fixture_id: fixture_id
+      adapter_payload: %{fixture_id: fixture_id}
     }
   end
 

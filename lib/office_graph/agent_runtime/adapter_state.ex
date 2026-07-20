@@ -1,9 +1,17 @@
 defmodule OfficeGraph.AgentRuntime.AdapterState do
-  @moduledoc false
+  @moduledoc """
+  Coordinates bounded, in-VM replay claims for read-only adapter calls.
+
+  This process deliberately does not provide cross-restart durability. Durable
+  execution steps own persisted outcomes and retry recovery; this state only
+  prevents duplicate work among callers in the current runtime. Adapter
+  contracts enforce a no-external-write posture while this ephemeral
+  coordinator is in use.
+  """
 
   use GenServer
 
-  @retention_limit 32
+  @default_retention_limit 32
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def reset(namespace), do: GenServer.call(__MODULE__, {:reset, namespace})
@@ -12,7 +20,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     do: GenServer.call(__MODULE__, {:register, namespace, request_id})
 
   def claim(namespace, key, request_id, fingerprint),
-    do: GenServer.call(__MODULE__, {:claim, namespace, key, request_id, fingerprint})
+    do: claim(namespace, key, request_id, fingerprint, :infinity)
+
+  def claim(namespace, key, request_id, fingerprint, :infinity),
+    do: GenServer.call(__MODULE__, {:claim, namespace, key, request_id, fingerprint}, :infinity)
+
+  def claim(namespace, key, request_id, fingerprint, timeout)
+      when is_integer(timeout) and timeout > 0,
+      do: GenServer.call(__MODULE__, {:claim, namespace, key, request_id, fingerprint}, timeout)
 
   def complete(namespace, key, fingerprint, result),
     do: GenServer.call(__MODULE__, {:complete, namespace, key, fingerprint, result})
@@ -28,7 +43,17 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   def entry_count(namespace), do: GenServer.call(__MODULE__, {:entry_count, namespace})
   def state_counts(namespace), do: GenServer.call(__MODULE__, {:state_counts, namespace})
-  def retention_limit, do: @retention_limit
+
+  def retention_limit do
+    case Application.get_env(
+           :office_graph,
+           :agent_runtime_retention_limit,
+           @default_retention_limit
+         ) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _invalid -> @default_retention_limit
+    end
+  end
 
   @impl true
   def init(state), do: {:ok, state}
@@ -86,31 +111,39 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         Enum.each(pending.waiters, &reply_waiter(&1, {:replay, result}))
         demonitor_pending(pending)
 
-        completed = %{
-          fingerprint: fingerprint,
-          request_id: pending.request_id,
-          result: result,
-          status: :completed
-        }
-
-        runtime = %{
-          runtime
-          | pending: Map.delete(runtime.pending, key),
-            entries: Map.put(runtime.entries, key, completed)
-        }
+        runtime = %{runtime | pending: Map.delete(runtime.pending, key)}
 
         runtime =
-          put_record(runtime, pending.request_id, %{
-            status: :completed,
-            entry_key: key,
-            replay_key: key,
-            fingerprint: fingerprint
-          })
+          if retryable_result?(result) do
+            runtime
+            |> put_record(pending.request_id, %{
+              status: :retryable,
+              replay_key: key,
+              fingerprint: fingerprint
+            })
+            |> record_retryable_waiters(pending.waiters, key, fingerprint)
+          else
+            completed = %{
+              fingerprint: fingerprint,
+              request_id: pending.request_id,
+              result: result,
+              status: :completed
+            }
 
-        runtime =
-          Enum.reduce(pending.waiters, runtime, fn waiter, current ->
-            record_replay(current, waiter.request_id, pending.request_id, key, fingerprint)
-          end)
+            runtime = %{runtime | entries: Map.put(runtime.entries, key, completed)}
+
+            runtime =
+              put_record(runtime, pending.request_id, %{
+                status: :completed,
+                entry_key: key,
+                replay_key: key,
+                fingerprint: fingerprint
+              })
+
+            Enum.reduce(pending.waiters, runtime, fn waiter, current ->
+              record_replay(current, waiter.request_id, pending.request_id, key, fingerprint)
+            end)
+          end
 
         {:reply, {:completed, result}, put_runtime(state, namespace, runtime)}
 
@@ -388,27 +421,42 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     prune(runtime)
   end
 
-  defp prune(runtime) when map_size(runtime.requests) <= @retention_limit, do: runtime
-
   defp prune(runtime) do
-    request_id = List.last(runtime.order)
-    record = Map.fetch!(runtime.requests, request_id)
-
-    runtime = %{
+    if map_size(runtime.requests) <= retention_limit() do
       runtime
-      | requests: Map.delete(runtime.requests, request_id),
-        retained: Map.delete(runtime.retained, request_id),
-        order: List.delete(runtime.order, request_id)
-    }
+    else
+      request_id = List.last(runtime.order)
+      record = Map.fetch!(runtime.requests, request_id)
 
-    runtime =
-      case record do
-        %{entry_key: entry_key} -> %{runtime | entries: Map.delete(runtime.entries, entry_key)}
-        _record -> runtime
-      end
+      runtime = %{
+        runtime
+        | requests: Map.delete(runtime.requests, request_id),
+          retained: Map.delete(runtime.retained, request_id),
+          order: List.delete(runtime.order, request_id)
+      }
 
-    runtime
+      runtime =
+        case record do
+          %{entry_key: entry_key} -> %{runtime | entries: Map.delete(runtime.entries, entry_key)}
+          _record -> runtime
+        end
+
+      prune(runtime)
+    end
   end
+
+  defp record_retryable_waiters(runtime, waiters, key, fingerprint) do
+    Enum.reduce(waiters, runtime, fn waiter, current ->
+      put_record(current, waiter.request_id, %{
+        status: :retryable,
+        replay_key: key,
+        fingerprint: fingerprint
+      })
+    end)
+  end
+
+  defp retryable_result?({:error, {:retryable, _failure_code}}), do: true
+  defp retryable_result?(_result), do: false
 
   defp pending_request(runtime, request_id) do
     Enum.find_value(runtime.pending, :none, fn {key, pending} ->

@@ -4,10 +4,6 @@ config :office_graph, allow_local_api_owner_bootstrap: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 
-config :office_graph, :agent_runtime_adapters,
-  models: %{"deterministic" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
-  tools: %{"deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool}
-
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
