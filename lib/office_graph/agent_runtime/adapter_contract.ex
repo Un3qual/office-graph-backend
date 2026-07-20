@@ -189,7 +189,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   defp schema_accepts?(schema, value) when is_map(value) do
     serialized_size(value) <= schema.max_serialized_bytes and
       Enum.all?(schema.required, &(Map.get(value, &1) != nil)) and
-      Enum.all?(schema.fields, fn {field, type} -> valid_value?(Map.get(value, field), type) end)
+      Enum.all?(Map.keys(value), &Map.has_key?(schema.fields, &1)) and
+      Enum.all?(schema.fields, fn {field, type} ->
+        not Map.has_key?(value, field) or valid_value?(Map.get(value, field), type)
+      end)
   end
 
   defp schema_accepts?(_schema, _value), do: false

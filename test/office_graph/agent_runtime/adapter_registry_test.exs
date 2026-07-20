@@ -35,10 +35,30 @@ defmodule OfficeGraph.AgentRuntime.MalformedSchemaModel do
   def cancel(_request_id), do: {:error, :not_found}
 end
 
+defmodule OfficeGraph.AgentRuntime.RaisingManifestModel do
+  @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+  @impl true
+  def manifest, do: raise("provider detail")
+
+  @impl true
+  def invoke(_input), do: {:error, {:terminal, :invalid_model_input}}
+
+  @impl true
+  def cancel(_request_id), do: {:error, :not_found}
+end
+
 defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.AgentRuntime.{AdapterRegistry, AgentDefinition, ModelAdapter, ToolAdapter}
+  alias OfficeGraph.AgentRuntime.{
+    AdapterRegistry,
+    AdapterState,
+    AgentDefinition,
+    ModelAdapter,
+    ToolAdapter
+  }
+
   alias OfficeGraph.AgentRuntime.Adapters.{DeterministicModel, DeterministicTool}
 
   test "resolves configured model and tool adapters by their manifest key" do
@@ -73,6 +93,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
                models: %{"deterministic" => OfficeGraph.AgentRuntime.MalformedSchemaModel},
                tools: %{}
              })
+
+    assert {:error, {:registry, :invalid_configuration}} = AdapterRegistry.validate([:invalid])
+
+    assert {:error, {:model, :invalid_manifest}} =
+             AdapterRegistry.validate(%{
+               models: %{"deterministic" => OfficeGraph.AgentRuntime.RaisingManifestModel},
+               tools: %{}
+             })
   end
 
   test "resolves the migrated OpenSpec-review definition through its stored model adapter key" do
@@ -93,5 +121,67 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
              {:invoke, 1},
              {:manifest, 0}
            ]
+  end
+
+  test "adapter state atomically bounds completed replay retention" do
+    namespace = __MODULE__
+    :ok = AdapterState.reset(namespace)
+
+    for sequence <- 1..(AdapterState.retention_limit() + 1) do
+      key = {:step, sequence}
+
+      assert :claimed =
+               AdapterState.claim(
+                 namespace,
+                 key,
+                 "request-#{sequence}",
+                 "fingerprint-#{sequence}"
+               )
+
+      assert {:completed, {:ok, ^sequence}} =
+               AdapterState.complete(namespace, key, "fingerprint-#{sequence}", {:ok, sequence})
+    end
+
+    assert AdapterState.entry_count(namespace) <= AdapterState.retention_limit()
+
+    assert :claimed =
+             AdapterState.claim(namespace, {:step, 1}, "replacement", "replacement-fingerprint")
+  end
+
+  test "adapter state cancels pending work without changing completed replay semantics" do
+    namespace = __MODULE__
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed =
+             AdapterState.claim(namespace, :pending, "pending-request", "pending-fingerprint")
+
+    assert :conflict =
+             AdapterState.claim(namespace, :pending, "other-request", "other-fingerprint")
+
+    assert :ok = AdapterState.cancel(namespace, "pending-request")
+
+    assert :cancelled =
+             AdapterState.complete(namespace, :pending, "pending-fingerprint", {:ok, :late})
+
+    assert :claimed =
+             AdapterState.claim(
+               namespace,
+               :completed,
+               "completed-request",
+               "completed-fingerprint"
+             )
+
+    assert {:completed, {:ok, :done}} =
+             AdapterState.complete(namespace, :completed, "completed-fingerprint", {:ok, :done})
+
+    assert :ok = AdapterState.cancel(namespace, "completed-request")
+
+    assert {:replay, {:ok, :done}} =
+             AdapterState.claim(
+               namespace,
+               :completed,
+               "completed-request",
+               "completed-fingerprint"
+             )
   end
 end

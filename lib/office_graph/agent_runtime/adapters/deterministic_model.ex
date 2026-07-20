@@ -14,6 +14,27 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
 
   @state_namespace __MODULE__
   @required_capability "agent.model.generate"
+  @input_schema %{
+    required: [:fixture_id],
+    fields: %{
+      request_id: :uuid,
+      execution_id: :uuid,
+      context_package_id: :uuid,
+      authority_snapshot_id: :uuid,
+      operation_id: :uuid,
+      adapter_key: :string,
+      adapter_version: :string,
+      idempotency_key: :string,
+      capability_keys: {:list, :string},
+      credential_kinds: {:list, :atom},
+      sensitivity: {:enum, [:public, :internal, :confidential, :restricted]},
+      approval_granted?: :boolean,
+      timeout_ms: :positive_integer,
+      token_budget: :positive_integer,
+      fixture_id: :string
+    },
+    max_serialized_bytes: 16_384
+  }
   @content_schemas %{
     proposal: %{
       required: ["intent"],
@@ -47,11 +68,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
     %ModelManifest{
       key: "deterministic",
       version: "1",
-      input_schema: %{
-        required: [:fixture_id],
-        fields: %{fixture_id: :string},
-        max_serialized_bytes: 16_384
-      },
+      input_schema: @input_schema,
       output_schema: %{
         required: [:classification, :safe_summary, :structured_content],
         fields: %{
@@ -71,17 +88,17 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
       output_classifications: ModelOutput.classifications(),
       idempotency_supported: true,
       raw_retention: false,
-      approval_required: false
+      approval_required:
+        Application.get_env(:office_graph, :deterministic_model_approval_required, false)
     }
   end
 
   def register_request(request_id) when is_binary(request_id) do
-    put({:known, request_id}, true)
-    :ok
+    AdapterState.register(@state_namespace, request_id)
   end
 
   def retained_request!(request_id) when is_binary(request_id) do
-    case lookup({:retained, request_id}) do
+    case AdapterState.retained(@state_namespace, request_id) do
       {:ok, retained} -> retained
       :error -> raise KeyError, key: request_id, term: :deterministic_model_retention
     end
@@ -93,11 +110,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
   def invoke(%ModelInput{} = input) do
     with :ok <- AdapterContract.validate_model_input(manifest(), input) do
       register_request(input.request_id)
-
-      case check_cancelled(input.request_id) do
-        {:error, _failure} = result -> result
-        :ok -> replay_or_invoke(input)
-      end
+      replay_or_invoke(input)
     end
   end
 
@@ -105,14 +118,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
 
   @impl true
   def cancel(request_id) when is_binary(request_id) do
-    case lookup({:known, request_id}) do
-      {:ok, true} ->
-        put({:cancelled, request_id}, true)
-        :ok
-
-      :error ->
-        {:error, :not_found}
-    end
+    AdapterState.cancel(@state_namespace, request_id)
   end
 
   def cancel(_request_id), do: {:error, :not_found}
@@ -120,33 +126,38 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
   defp replay_or_invoke(input) do
     fingerprint = AdapterContract.fingerprint(input)
 
-    case lookup(replay_key(input)) do
-      {:ok, %{fingerprint: ^fingerprint, result: result}} -> result
-      {:ok, _cached} -> {:error, {:terminal, :idempotency_conflict}}
-      :error -> invoke_new(input, fingerprint)
+    case AdapterState.claim(@state_namespace, replay_key(input), input.request_id, fingerprint) do
+      :claimed -> invoke_new(input, fingerprint)
+      {:replay, result} -> result
+      :cancelled -> {:error, {:cancelled, :cancelled}}
+      :conflict -> {:error, {:terminal, :idempotency_conflict}}
     end
   end
 
   defp invoke_new(input, fingerprint) do
     result =
-      with :ok <- check_cancelled(input.request_id),
-           {:ok, fixture} <- deterministic_fixture(input.fixture_id),
+      with {:ok, fixture} <- deterministic_fixture(input.fixture_id),
            result <- normalize_fixture(fixture) do
         result
       end
 
-    retain(input.request_id, result)
-    put(replay_key(input), %{fingerprint: fingerprint, result: result})
-    result
+    case AdapterState.complete(@state_namespace, replay_key(input), fingerprint, result) do
+      {:completed, completed_result} ->
+        retain(input.request_id, completed_result)
+        completed_result
+
+      {:replay, completed_result} ->
+        completed_result
+
+      :cancelled ->
+        {:error, {:cancelled, :cancelled}}
+
+      :conflict ->
+        {:error, {:terminal, :idempotency_conflict}}
+    end
   end
 
   defp replay_key(input), do: {:result, input.execution_id, input.idempotency_key}
-
-  defp check_cancelled(request_id) do
-    if lookup({:cancelled, request_id}) == {:ok, true},
-      do: {:error, {:cancelled, :cancelled}},
-      else: :ok
-  end
 
   defp deterministic_fixture("proposal") do
     {:ok,
@@ -207,7 +218,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
   end
 
   defp retain(request_id, {:ok, %ModelOutput{} = output}) do
-    put({:retained, request_id}, %{
+    AdapterState.put_retained(@state_namespace, request_id, %{
       classification: output.classification,
       output_hash: :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content)),
       safe_summary: output.safe_summary
@@ -215,7 +226,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
   end
 
   defp retain(request_id, {:error, {classification, failure_code}}) do
-    put({:retained, request_id}, %{
+    AdapterState.put_retained(@state_namespace, request_id, %{
       classification: classification,
       failure_code: failure_code,
       safe_summary: safe_failure_summary(failure_code)
@@ -227,7 +238,4 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
 
   defp safe_failure_summary(:cancelled), do: "Adapter request was cancelled."
   defp safe_failure_summary(_failure_code), do: "Adapter request did not complete."
-
-  defp lookup(key), do: AdapterState.get(@state_namespace, key)
-  defp put(key, value), do: AdapterState.put(@state_namespace, key, value)
 end

@@ -205,6 +205,69 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              )
   end
 
+  test "model output schemas reject undeclared provider fields while allowing declared optional fields" do
+    manifest = DeterministicModel.manifest()
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             AdapterContract.validate_model_output(
+               manifest,
+               %ModelOutput{
+                 classification: :proposal,
+                 safe_summary: "Raw fields are forbidden",
+                 structured_content: %{
+                   "proposal" => %{
+                     "intent" => "follow_up",
+                     "raw_provider_payload" => "secret"
+                   }
+                 }
+               }
+             )
+
+    optional_manifest =
+      put_in(manifest.output_schema.content_schemas.proposal.fields["note"], :string)
+
+    assert :ok =
+             AdapterContract.validate_model_output(
+               optional_manifest,
+               %ModelOutput{
+                 classification: :proposal,
+                 safe_summary: "Optional fields may be omitted",
+                 structured_content: %{"proposal" => %{"intent" => "follow_up"}}
+               }
+             )
+  end
+
+  test "model invocation fails closed for sensitivity and approval before fixture execution", %{
+    input: input
+  } do
+    assert {:error, {:terminal, :sensitivity_not_allowed}} =
+             DeterministicModel.invoke(%{input | sensitivity: :confidential})
+
+    configured = Application.get_env(:office_graph, :deterministic_model_approval_required, false)
+    Application.put_env(:office_graph, :deterministic_model_approval_required, true)
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :deterministic_model_approval_required, configured)
+    end)
+
+    assert {:error, {:terminal, :approval_required}} = DeterministicModel.invoke(input)
+    assert {:ok, %ModelOutput{}} = DeterministicModel.invoke(%{input | approval_granted?: true})
+  end
+
+  test "model completed replays remain completed after cancellation", %{input: input} do
+    assert {:ok, output} = DeterministicModel.invoke(input)
+    assert :ok = DeterministicModel.cancel(input.request_id)
+    assert {:ok, ^output} = DeterministicModel.invoke(input)
+  end
+
+  test "model concurrent same and conflicting replays are coherent", %{input: input} do
+    same = for _ <- 1..6, do: Task.async(fn -> DeterministicModel.invoke(input) end)
+    assert Enum.all?(same, &match?({:ok, %ModelOutput{}}, Task.await(&1)))
+
+    conflicting = %{input | token_budget: 101}
+    assert {:error, {:terminal, :idempotency_conflict}} = DeterministicModel.invoke(conflicting)
+  end
+
   test "adapter state survives the caller process that created the replay entry", %{input: input} do
     parent = self()
     request = %{input | idempotency_key: "cross-process"}

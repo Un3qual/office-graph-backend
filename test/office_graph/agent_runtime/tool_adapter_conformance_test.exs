@@ -167,6 +167,29 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
              )
   end
 
+  test "tool invocation fails closed for sensitivity and approval before fixture execution", %{
+    input: input
+  } do
+    assert {:error, {:terminal, :sensitivity_not_allowed}} =
+             DeterministicTool.invoke(%{input | sensitivity: :confidential})
+
+    configured = Application.get_env(:office_graph, :deterministic_tool_approval_required, false)
+    Application.put_env(:office_graph, :deterministic_tool_approval_required, true)
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :deterministic_tool_approval_required, configured)
+    end)
+
+    assert {:error, {:terminal, :approval_required}} = DeterministicTool.invoke(input)
+    assert {:ok, %ToolOutput{}} = DeterministicTool.invoke(%{input | approval_granted?: true})
+  end
+
+  test "tool completed replays remain completed after cancellation", %{input: input} do
+    assert {:ok, output} = DeterministicTool.invoke(input)
+    assert :ok = DeterministicTool.cancel(input.request_id)
+    assert {:ok, ^output} = DeterministicTool.invoke(input)
+  end
+
   defp tool_input(fixture_id) do
     %ToolInput{
       request_id: uuid(),

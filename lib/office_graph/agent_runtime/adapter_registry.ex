@@ -34,8 +34,13 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
 
   defp resolve(_kind, _key), do: {:error, :adapter_not_found}
 
-  defp normalize_configuration(configuration) when is_list(configuration),
-    do: normalize_configuration(Map.new(configuration))
+  defp normalize_configuration(configuration) when is_list(configuration) do
+    if Enum.all?(configuration, &match?({_, _}, &1)) do
+      normalize_configuration(Map.new(configuration))
+    else
+      {:error, {:registry, :invalid_configuration}}
+    end
+  end
 
   defp normalize_configuration(%{models: models, tools: tools})
        when is_map(models) and is_map(tools) do
@@ -66,7 +71,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
     with true <- Code.ensure_loaded?(adapter),
          true <- declares_behaviour?(adapter, behaviour),
          true <- required_callbacks?(adapter) do
-      validate_manifest_key(key, adapter.manifest(), valid_manifest?)
+      safe_manifest(adapter, key, valid_manifest?)
     else
       false -> {:error, :invalid_adapter_module}
     end
@@ -93,6 +98,15 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
 
   defp declares_behaviour?(adapter, behaviour) do
     behaviour in (adapter.module_info(:attributes)[:behaviour] || [])
+  end
+
+  defp safe_manifest(adapter, key, valid_manifest?) do
+    validate_manifest_key(key, adapter.manifest(), valid_manifest?)
+  rescue
+    _exception -> {:error, :invalid_manifest}
+  catch
+    :exit, _reason -> {:error, :invalid_manifest}
+    _kind, _reason -> {:error, :invalid_manifest}
   end
 
   defp configured, do: Application.get_env(:office_graph, :agent_runtime_adapters, %{})
