@@ -36,6 +36,7 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_supersede: "graph_relationship.supersede",
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
+    agent_definition_bind: "agent.definition.bind",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
@@ -44,12 +45,17 @@ defmodule OfficeGraph.Authorization do
 
   @restricted_capabilities %{
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    agent_runtime_execute: "agent.runtime.execute",
     integration_reconcile: "integration.reconcile",
     provider_webhook_receive: "provider.webhook.receive",
     system_conformance: "system.conformance"
   }
 
   @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
+  @system_capabilities Map.merge(
+                         @restricted_capabilities,
+                         Map.take(@owner_capabilities, [:skeleton_read])
+                       )
 
   def ensure_owner_role(principal, tenant) do
     Repo.transaction(fn ->
@@ -510,7 +516,7 @@ defmodule OfficeGraph.Authorization do
   defp system_capability_keys(actions) do
     actions
     |> Enum.reduce_while({:ok, []}, fn action, {:ok, keys} ->
-      case Map.fetch(@restricted_capabilities, action) do
+      case Map.fetch(@system_capabilities, action) do
         {:ok, key} -> {:cont, {:ok, [key | keys]}}
         :error -> {:halt, {:error, :forbidden}}
       end

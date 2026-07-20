@@ -104,7 +104,7 @@ defmodule OfficeGraph.Identity do
            not_found_error?: false
          ) do
       {:ok, %Principal{kind: kind, status: "active"}}
-      when kind in ["integration", "service", "webhook"] ->
+      when kind in ["agent", "integration", "service", "webhook"] ->
         {:ok, true}
 
       {:ok, _missing_or_inactive} ->
@@ -118,7 +118,7 @@ defmodule OfficeGraph.Identity do
   def active_system_principal(_principal_id), do: {:ok, false}
 
   def ensure_system_principal(email, kind)
-      when is_binary(email) and kind in ["service", "webhook"] do
+      when is_binary(email) and kind in ["agent", "service", "webhook"] do
     principal =
       get_or_create!(
         Principal,

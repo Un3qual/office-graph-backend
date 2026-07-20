@@ -38,6 +38,7 @@ defmodule OfficeGraph.Operations do
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
+    agent_definition_bind: "agent.definition.bind",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
@@ -48,6 +49,7 @@ defmodule OfficeGraph.Operations do
 
   @system_actions %{
     integration_reconcile: "integration.reconcile",
+    agent_runtime_execute: "agent.runtime.execute",
     provider_webhook_receive: "provider.webhook.receive",
     system_conformance: "system.conformance"
   }

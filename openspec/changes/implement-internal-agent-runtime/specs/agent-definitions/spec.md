@@ -14,7 +14,8 @@ allowlist, and default autonomy envelope.
 #### Scenario: Definition is bound to an organization
 - **WHEN** an authorized local owner invokes the narrow binding command
 - **THEN** Office Graph MUST bind the definition and backend agent principal to
-  that organization without exposing a generic agent-admin mutation
+  that organization and current workspace without exposing a generic
+  agent-admin mutation
 
 #### Scenario: Inactive definition is invoked
 - **WHEN** a definition or organization binding is disabled or revoked
