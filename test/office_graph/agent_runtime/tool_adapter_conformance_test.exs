@@ -32,7 +32,7 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert manifest.output_schema.fields.structured_content == :classified_content
     assert manifest.timeout_ms in 1_000..120_000
     assert manifest.budget_units > 0
-    assert length(manifest.capability_keys) > 0
+    assert [_ | _] = manifest.capability_keys
     assert manifest.credential_kinds == []
     assert manifest.external_write == false
     assert manifest.raw_retention == false
