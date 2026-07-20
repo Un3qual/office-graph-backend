@@ -179,7 +179,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   end
 
   defp valid_schema?(%{required: required, fields: fields, max_serialized_bytes: max_bytes}) do
-    is_list(required) and Enum.all?(required, &Map.has_key?(fields, &1)) and is_map(fields) and
+    is_list(required) and is_map(fields) and Enum.all?(required, &Map.has_key?(fields, &1)) and
       is_integer(max_bytes) and max_bytes in 1..16_384 and
       Enum.all?(fields, fn {field, type} -> valid_field?(field) and valid_type?(type) end)
   end

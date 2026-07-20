@@ -17,6 +17,24 @@ defmodule OfficeGraph.AgentRuntime.CallbackOnlyModel do
   def cancel(_request_id), do: {:error, :not_found}
 end
 
+defmodule OfficeGraph.AgentRuntime.MalformedSchemaModel do
+  @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+  @impl true
+  def manifest do
+    %OfficeGraph.AgentRuntime.ModelManifest{
+      OfficeGraph.AgentRuntime.Adapters.DeterministicModel.manifest()
+      | input_schema: %{required: [:fixture_id], fields: nil, max_serialized_bytes: 16_384}
+    }
+  end
+
+  @impl true
+  def invoke(_input), do: {:error, {:terminal, :invalid_model_input}}
+
+  @impl true
+  def cancel(_request_id), do: {:error, :not_found}
+end
+
 defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
   use OfficeGraph.DataCase, async: false
 
@@ -47,6 +65,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert {:error, {:model, :invalid_adapter_module}} =
              AdapterRegistry.validate(%{
                models: %{"deterministic" => OfficeGraph.AgentRuntime.CallbackOnlyModel},
+               tools: %{}
+             })
+
+    assert {:error, {:model, :invalid_manifest}} =
+             AdapterRegistry.validate(%{
+               models: %{"deterministic" => OfficeGraph.AgentRuntime.MalformedSchemaModel},
                tools: %{}
              })
   end
