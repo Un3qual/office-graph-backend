@@ -110,7 +110,6 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
   @impl true
   def invoke(%ToolInput{} = input) do
     with :ok <- AdapterContract.validate_tool_input(manifest(), input) do
-      register_request(input.request_id)
       replay_or_invoke(input)
     end
   end
@@ -131,6 +130,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicTool do
       :claimed -> invoke_new(input, fingerprint)
       {:replay, result} -> result
       :cancelled -> retain_state_failure(input, {:error, {:cancelled, :cancelled}})
+      :identity_conflict -> {:error, {:terminal, :idempotency_conflict}}
       :conflict -> retain_state_failure(input, {:error, {:terminal, :idempotency_conflict}})
     end
   end

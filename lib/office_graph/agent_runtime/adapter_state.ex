@@ -66,7 +66,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace)
 
       {:bound, _bound_key, _bound_fingerprint} ->
-        {:reply, :conflict, state}
+        {:reply, :identity_conflict, state}
 
       :unbound ->
         if match?(%{status: :cancelled}, Map.get(runtime.requests, request_id)) do

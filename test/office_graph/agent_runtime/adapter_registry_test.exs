@@ -316,7 +316,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
 
     assert :claimed = AdapterState.claim(namespace, :first, "request", "first-fingerprint")
 
-    assert :conflict =
+    assert :identity_conflict =
              AdapterState.claim(namespace, :second, "request", "second-fingerprint")
 
     assert {:completed, {:ok, :first}} =
@@ -325,7 +325,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert {:replay, {:ok, :first}} =
              AdapterState.claim(namespace, :first, "request", "first-fingerprint")
 
-    assert :conflict =
+    assert :identity_conflict =
              AdapterState.claim(namespace, :second, "request", "second-fingerprint")
 
     assert {:replay, {:ok, :first}} =

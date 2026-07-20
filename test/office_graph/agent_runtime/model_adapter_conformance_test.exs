@@ -301,7 +301,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:terminal, :idempotency_conflict}} = DeterministicModel.invoke(conflicting)
   end
 
-  test "adapter registration before claim keeps all retention stores bounded", %{input: input} do
+  test "adapter atomic claims keep all retention stores bounded", %{input: input} do
     for sequence <- 1..(AdapterState.retention_limit() + 1) do
       assert {:ok, %ModelOutput{}} =
                DeterministicModel.invoke(%{
@@ -318,6 +318,56 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert records == AdapterState.retention_limit()
     assert retained == AdapterState.retention_limit()
     assert total == terminal + records + retained
+  end
+
+  test "a stopped caller before atomic claim cannot evict a full replay window", %{input: input} do
+    anchor = %{input | idempotency_key: "anchor"}
+    assert {:ok, output} = DeterministicModel.invoke(anchor)
+
+    for sequence <- 1..(AdapterState.retention_limit() - 1) do
+      assert {:ok, %ModelOutput{}} =
+               DeterministicModel.invoke(%{
+                 input
+                 | request_id: uuid(),
+                   idempotency_key: "full-window-#{sequence}"
+               })
+    end
+
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, :ready_to_claim)
+
+        receive do
+          :claim -> DeterministicModel.invoke(%{input | request_id: uuid()})
+        end
+      end)
+
+    assert_receive :ready_to_claim
+    Process.exit(caller, :kill)
+    assert {:ok, ^output} = DeterministicModel.invoke(anchor)
+  end
+
+  test "same-id invocation cannot retain a conflict before success retention is written", %{
+    input: input
+  } do
+    key = {:result, input.execution_id, input.idempotency_key}
+    fingerprint = AdapterContract.fingerprint(input)
+    success = {:ok, :completed_before_retention}
+    success_metadata = %{classification: :proposal, output_hash: <<0>>, safe_summary: "Success"}
+
+    assert :claimed = AdapterState.claim(DeterministicModel, key, input.request_id, fingerprint)
+
+    assert {:completed, ^success} =
+             AdapterState.complete(DeterministicModel, key, fingerprint, success)
+
+    assert {:error, {:terminal, :idempotency_conflict}} =
+             DeterministicModel.invoke(%{input | token_budget: 101})
+
+    assert :error = AdapterState.retained(DeterministicModel, input.request_id)
+    assert :ok = AdapterState.put_retained(DeterministicModel, input.request_id, success_metadata)
+    assert {:ok, ^success_metadata} = AdapterState.retained(DeterministicModel, input.request_id)
   end
 
   test "adapter state survives the caller process that created the replay entry", %{input: input} do
