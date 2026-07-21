@@ -251,7 +251,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         Process.demonitor(waiter.monitor, [:flush])
         remaining_waiters = List.delete(pending.waiters, waiter)
         runtime = put_in(runtime.pending[key].waiters, remaining_waiters)
-        runtime = terminalize_request(runtime, request_id, :cancelled, key, pending.fingerprint)
+
+        runtime =
+          put_record(
+            runtime,
+            request_id,
+            request_record(:cancelled, key, pending.fingerprint, waiter.claim_ref)
+          )
+
         {:reply, :ok, put_runtime(state, namespace, runtime)}
 
       :none ->
@@ -553,7 +560,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   defp terminalize_timed_out_delivery(runtime, key, request_id, fingerprint, claim_ref) do
     case Map.get(runtime.requests, request_id) do
       %{status: status, replay_key: ^key, fingerprint: ^fingerprint, claim_ref: ^claim_ref}
-      when status in [:replayed, :retryable] ->
+      when status in [:cancelled, :replayed, :retryable] ->
         terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
 
       _record ->
@@ -586,7 +593,11 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
       )
 
     Enum.reduce(pending.waiters, runtime, fn waiter, current ->
-      terminalize_request(current, waiter.request_id, :cancelled, key, pending.fingerprint)
+      put_record(
+        current,
+        waiter.request_id,
+        request_record(:cancelled, key, pending.fingerprint, waiter.claim_ref)
+      )
     end)
   end
 

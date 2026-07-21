@@ -588,6 +588,96 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert :ok = AdapterState.cancel(namespace, "later-request")
   end
 
+  test "a waiter remains timed out when owner cancellation is queued before cleanup" do
+    namespace = {:timeout_cancellation_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    parent = self()
+
+    owner =
+      Task.async(fn ->
+        assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+        send(parent, :cancellation_owner_claimed)
+
+        receive do
+          :stop -> :stopped
+        end
+      end)
+
+    assert_receive :cancellation_owner_claimed
+    :ok = :sys.suspend(AdapterState)
+
+    {waiter, cancellation} =
+      try do
+        waiter =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "waiter", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        cancellation = Task.async(fn -> AdapterState.cancel(namespace, "owner") end)
+        assert_server_queue_length(2)
+        assert_server_queue_length(3)
+        {waiter, cancellation}
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(waiter, 500)
+    assert :ok = Task.await(cancellation, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "waiter", fingerprint)
+
+    send(owner.pid, :stop)
+    assert :stopped = Task.await(owner, 500)
+  end
+
+  test "a waiter remains timed out when its cancellation is queued before cleanup" do
+    namespace = {:timeout_waiter_cancellation_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    parent = self()
+
+    owner =
+      Task.async(fn ->
+        assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+        send(parent, :waiter_cancellation_owner_claimed)
+
+        receive do
+          :stop -> :stopped
+        end
+      end)
+
+    assert_receive :waiter_cancellation_owner_claimed
+    :ok = :sys.suspend(AdapterState)
+
+    {waiter, cancellation} =
+      try do
+        waiter =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "waiter", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        cancellation = Task.async(fn -> AdapterState.cancel(namespace, "waiter") end)
+        assert_server_queue_length(2)
+        assert_server_queue_length(3)
+        {waiter, cancellation}
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(waiter, 500)
+    assert :ok = Task.await(cancellation, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "waiter", fingerprint)
+
+    send(owner.pid, :stop)
+    assert :stopped = Task.await(owner, 500)
+  end
+
   test "replays the same semantic request under a new request id", %{input: input} do
     assert {:ok, output} = DeterministicModel.invoke(input)
     replay = %{input | request_id: uuid()}
