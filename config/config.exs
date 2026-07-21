@@ -47,6 +47,12 @@ config :office_graph,
 
 config :office_graph, :github_api_url, "https://api.github.com"
 
+config :office_graph, :agent_runtime_adapters,
+  models: %{"deterministic" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
+  tools: %{"deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool}
+
+config :office_graph, :agent_runtime_retention_limit, 32
+
 config :office_graph,
        :github_record_loader,
        OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter

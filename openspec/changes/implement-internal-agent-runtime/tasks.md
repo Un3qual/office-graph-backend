@@ -6,8 +6,8 @@
 
 ## 2. Model And Tool Adapter Contracts
 
-- [ ] 2.1 Add adapter conformance tests for manifests, typed input/output, capabilities, credentials, sensitivity, external-write denial, limits, idempotency, success, retry, terminal, malformed output, and cancellation.
-- [ ] 2.2 Implement provider-neutral model/tool behaviors, registry, deterministic adapters, classified results, and safe metadata retention without raw prompt/tool payload storage.
+- [x] 2.1 Add adapter conformance tests for manifests, typed input/output, capabilities, credentials, sensitivity, external-write denial, limits, idempotency, success, retry, terminal, malformed output, and cancellation.
+- [x] 2.2 Implement provider-neutral model/tool behaviors, registry, deterministic adapters, classified results, and safe metadata retention without raw prompt/tool payload storage.
 
 ## 3. Invocation, Authority, And Context
 
