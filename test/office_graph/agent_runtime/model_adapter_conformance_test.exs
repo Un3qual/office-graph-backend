@@ -71,7 +71,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert retained.output_hash ==
              output.structured_content
-             |> :erlang.term_to_binary()
+             |> :erlang.term_to_binary([:deterministic])
              |> then(&:crypto.hash(:sha256, &1))
              |> Base.encode16(case: :lower)
 
@@ -79,6 +79,51 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     refute Map.has_key?(retained, :structured_content)
     refute inspect(retained) =~ "fixture"
+  end
+
+  test "retained output hashes use canonical structured-content encoding", %{input: input} do
+    namespace = {:canonical_output_hash, make_ref()}
+    fields = Map.new(1..40, &{"field-#{&1}", :string})
+    content = Map.new(1..40, &{"field-#{&1}", "value-#{&1}"})
+    structured_content = %{"proposal" => content}
+
+    manifest =
+      put_in(
+        DeterministicModel.manifest().output_schema.content_schemas.proposal,
+        %{
+          required: Map.keys(fields),
+          fields: fields,
+          max_serialized_bytes: 16_384
+        }
+      )
+
+    request = %{input | request_id: uuid(), idempotency_key: "canonical-output-hash"}
+
+    output = %ModelOutput{
+      classification: :proposal,
+      safe_summary: "Canonical content",
+      structured_content: structured_content
+    }
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id -> {:ok, {:ok, output}} end,
+      malformed_output_code: :malformed_model_output,
+      manifest: manifest,
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    assert {:ok, %ModelOutput{}} = DeterministicRuntime.invoke(request, configuration)
+    assert {:ok, retained} = AdapterState.retained(namespace, request.request_id)
+
+    expected_hash =
+      structured_content
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    assert retained.output_hash == expected_hash
   end
 
   test "classifies declared retryable and terminal fixtures", %{input: input} do
@@ -460,6 +505,13 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
   test "adapter result rejects outputs outside the typed contract" do
     assert {:error, {:terminal, :invalid_adapter_result}} = AdapterResult.normalize(%{})
+  end
+
+  test "adapter result rejects classified failures without a failure code" do
+    for classification <- [:retryable, :terminal, :cancelled] do
+      assert {:error, {:terminal, :invalid_adapter_result}} =
+               AdapterResult.normalize({:error, {classification, nil}})
+    end
   end
 
   test "direct typed model outputs still pass through manifest validation", %{input: input} do

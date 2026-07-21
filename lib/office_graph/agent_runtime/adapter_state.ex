@@ -256,6 +256,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           %{status: :cancelled} ->
             {:reply, :ok, state}
 
+          %{status: :retryable, replay_key: key, fingerprint: fingerprint} ->
+            runtime = cancel_retryable(runtime, request_id, key, fingerprint)
+            {:reply, :ok, put_runtime(state, namespace, runtime)}
+
           _record ->
             runtime = terminalize_request(runtime, request_id, :cancelled)
             {:reply, :ok, put_runtime(state, namespace, runtime)}
@@ -552,6 +556,22 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     Enum.reduce(pending.waiters, runtime, fn waiter, current ->
       terminalize_request(current, waiter.request_id, :cancelled, key, pending.fingerprint)
     end)
+  end
+
+  defp cancel_retryable(runtime, request_id, key, fingerprint) do
+    runtime =
+      case {Map.get(runtime.pending, key), Map.get(runtime.entries, key)} do
+        {%{fingerprint: ^fingerprint} = pending, _entry} ->
+          cancel_pending(runtime, key, pending)
+
+        {_pending, %Entry{fingerprint: ^fingerprint, status: :retryable}} ->
+          put_entry(runtime, key, fingerprint, :cancelled)
+
+        _state ->
+          runtime
+      end
+
+    terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
   end
 
   defp recover_owner(runtime, key, pending) do

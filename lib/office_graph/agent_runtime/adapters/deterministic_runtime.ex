@@ -248,7 +248,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
 
   defp output_hash(structured_content) do
     structured_content
-    |> :erlang.term_to_binary()
+    |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end

@@ -226,6 +226,25 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert :claimed = AdapterState.claim(namespace, :step, "retry-request", "fingerprint")
   end
 
+  test "cancelling a retryable outcome prevents a later attempt for the replay key" do
+    namespace = {:retryable_cancellation, make_ref()}
+    :ok = AdapterState.reset(namespace)
+    retryable = {:error, {:retryable, :provider_unavailable}}
+
+    assert :claimed = AdapterState.claim(namespace, :step, "first-request", "fingerprint")
+
+    assert {:completed, ^retryable} =
+             AdapterState.complete(namespace, :step, "fingerprint", retryable)
+
+    assert :ok = AdapterState.cancel(namespace, "first-request")
+
+    assert :cancelled =
+             AdapterState.claim(namespace, :step, "later-request", "fingerprint")
+
+    assert :conflict =
+             AdapterState.claim(namespace, :step, "conflicting-request", "different-fingerprint")
+  end
+
   test "adapter state accepts an explicit replay-wait timeout" do
     namespace = {:claim_timeout, make_ref()}
     :ok = AdapterState.reset(namespace)
