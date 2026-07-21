@@ -678,6 +678,35 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert :stopped = Task.await(owner, 500)
   end
 
+  test "an owner remains timed out when cancellation is queued before timeout cleanup" do
+    namespace = {:timeout_owner_cancellation_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    :ok = :sys.suspend(AdapterState)
+
+    {owner, cancellation} =
+      try do
+        owner =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "owner", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        cancellation = Task.async(fn -> AdapterState.cancel(namespace, "owner") end)
+        assert_server_queue_length(2)
+        assert_server_queue_length(3)
+        {owner, cancellation}
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(owner, 500)
+    assert :ok = Task.await(cancellation, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "owner", fingerprint)
+  end
+
   test "replays the same semantic request under a new request id", %{input: input} do
     assert {:ok, output} = DeterministicModel.invoke(input)
     replay = %{input | request_id: uuid()}
@@ -960,6 +989,16 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   test "model manifests reject input schemas too small for a typed request", %{input: input} do
     undersized_manifest =
       put_in(DeterministicModel.manifest().input_schema.max_serialized_bytes, 1)
+
+    refute AdapterContract.valid_model_manifest?(undersized_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(undersized_manifest, input)
+  end
+
+  test "model manifests reject output schemas too small for a typed result", %{input: input} do
+    undersized_manifest =
+      put_in(DeterministicModel.manifest().output_schema.max_serialized_bytes, 1)
 
     refute AdapterContract.valid_model_manifest?(undersized_manifest)
 

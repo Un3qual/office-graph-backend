@@ -185,8 +185,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       is_map(content_schemas) and
       valid_classifications?(classifications, kind) and
       Enum.all?(classifications, fn classification ->
-        Map.has_key?(content_schemas, classification) and
-          valid_schema?(content_schemas[classification])
+        with {:ok, content_schema} <- Map.fetch(content_schemas, classification) do
+          valid_schema?(content_schema) and
+            minimum_output_envelope_fits?(schema, classification, content_schema)
+        else
+          :error -> false
+        end
       end)
   end
 
@@ -300,6 +304,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
 
       :tool ->
         Map.merge(common, %{tool_key: manifest.key, budget_units: 1, external_write: false})
+    end
+  end
+
+  defp minimum_output_envelope_fits?(schema, classification, content_schema) do
+    with {:ok, content} <- minimum_schema_value(content_schema) do
+      schema_accepts?(schema, %{
+        classification: classification,
+        safe_summary: "x",
+        structured_content: %{Atom.to_string(classification) => content}
+      })
+    else
+      :error -> false
     end
   end
 

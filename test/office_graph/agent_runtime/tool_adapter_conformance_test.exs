@@ -96,6 +96,16 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
              AdapterContract.validate_tool_input(undersized_manifest, input)
   end
 
+  test "tool manifests reject output schemas too small for a typed result", %{input: input} do
+    undersized_manifest =
+      put_in(DeterministicTool.manifest().output_schema.max_serialized_bytes, 1)
+
+    refute AdapterContract.valid_tool_manifest?(undersized_manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(undersized_manifest, input)
+  end
+
   test "tool manifests require idempotent replay support", %{input: input} do
     manifest = %{DeterministicTool.manifest() | idempotency_supported: false}
 

@@ -589,7 +589,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
       put_record(
         runtime,
         pending.request_id,
-        request_record(:cancelled, key, pending.fingerprint)
+        request_record(:cancelled, key, pending.fingerprint, pending.owner_claim_ref)
       )
 
     Enum.reduce(pending.waiters, runtime, fn waiter, current ->
