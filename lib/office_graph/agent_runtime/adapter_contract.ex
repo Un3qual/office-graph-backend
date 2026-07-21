@@ -11,6 +11,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   }
 
   @sensitivities [:public, :internal, :confidential, :restricted]
+  @minimum_uuid "00000000-0000-0000-0000-000000000000"
   @common_input_field_types %{
     request_id: :uuid,
     execution_id: :uuid,
@@ -76,7 +77,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   defp valid_manifest?(manifest, kind) do
     is_binary(manifest.key) and manifest.key != "" and
       is_binary(manifest.version) and manifest.version != "" and
-      valid_input_schema?(manifest.input_schema, kind) and
+      valid_input_schema?(manifest.input_schema, manifest, kind) and
       valid_output_schema?(manifest.output_schema, manifest.output_classifications, kind) and
       valid_string_list?(manifest.capability_keys) and
       valid_credential_kind_list?(manifest.credential_kinds) and
@@ -164,11 +165,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
     end
   end
 
-  defp valid_input_schema?(%{fields: fields} = schema, kind) when is_map(fields) do
-    valid_schema?(schema) and input_field_types_compatible?(fields, kind)
+  defp valid_input_schema?(%{fields: fields} = schema, manifest, kind) when is_map(fields) do
+    valid_schema?(schema) and input_field_types_compatible?(fields, kind) and
+      minimum_input_envelope_fits?(schema, manifest, kind)
   end
 
-  defp valid_input_schema?(_schema, _kind), do: false
+  defp valid_input_schema?(_schema, _manifest, _kind), do: false
 
   defp valid_output_schema?(schema, classifications, kind) when is_map(schema) do
     content_schemas = Map.get(schema, :content_schemas)
@@ -264,6 +266,70 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       _incompatible -> false
     end
   end
+
+  defp minimum_input_envelope_fits?(schema, manifest, kind) do
+    with {:ok, {:map, payload_schema}} <- Map.fetch(schema.fields, :adapter_payload),
+         {:ok, adapter_payload} <- minimum_schema_value(payload_schema) do
+      schema_accepts?(schema, minimum_input_envelope(manifest, adapter_payload, kind))
+    else
+      _invalid_or_uninhabitable_schema -> false
+    end
+  end
+
+  defp minimum_input_envelope(manifest, adapter_payload, kind) do
+    common = %{
+      request_id: @minimum_uuid,
+      execution_id: @minimum_uuid,
+      step_key: "x",
+      context_package_id: @minimum_uuid,
+      authority_snapshot_id: @minimum_uuid,
+      operation_id: @minimum_uuid,
+      adapter_version: manifest.version,
+      idempotency_key: "x",
+      capability_keys: manifest.capability_keys,
+      credential_kinds: manifest.credential_kinds,
+      sensitivity: :public,
+      approval_granted?: true,
+      timeout_ms: 1,
+      adapter_payload: adapter_payload
+    }
+
+    case kind do
+      :model ->
+        Map.merge(common, %{adapter_key: manifest.key, token_budget: 1})
+
+      :tool ->
+        Map.merge(common, %{tool_key: manifest.key, budget_units: 1, external_write: false})
+    end
+  end
+
+  defp minimum_schema_value(%{required: required, fields: fields} = schema) do
+    required
+    |> Enum.reduce_while({:ok, %{}}, fn field, {:ok, value} ->
+      with {:ok, type} <- Map.fetch(fields, field),
+           {:ok, minimum} <- minimum_value(type) do
+        {:cont, {:ok, Map.put(value, field, minimum)}}
+      else
+        _invalid_type -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, value} -> if schema_accepts?(schema, value), do: {:ok, value}, else: :error
+      :error -> :error
+    end
+  end
+
+  defp minimum_value(:string), do: {:ok, ""}
+  defp minimum_value(:atom), do: {:ok, :value}
+  defp minimum_value(:boolean), do: {:ok, false}
+  defp minimum_value(:uuid), do: {:ok, @minimum_uuid}
+  defp minimum_value(:positive_integer), do: {:ok, 1}
+  defp minimum_value(:classified_content), do: {:ok, %{}}
+  defp minimum_value({:string, _max_bytes}), do: {:ok, ""}
+  defp minimum_value({:enum, [value | _values]}), do: {:ok, value}
+  defp minimum_value({:list, _type}), do: {:ok, []}
+  defp minimum_value({:map, schema}), do: minimum_schema_value(schema)
+  defp minimum_value(_type), do: :error
 
   defp provider_neutral_field_types(:model) do
     Map.merge(@common_input_field_types, %{

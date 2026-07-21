@@ -365,6 +365,41 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.retained(namespace, request.request_id)
   end
 
+  test "owned adapter work stops when the owning caller exits", %{input: input} do
+    parent = self()
+    namespace = {:owned_work_caller_exit, make_ref()}
+    request = %{input | request_id: uuid(), idempotency_key: "owned-work-caller-exit"}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, {:caller_owned_fixture_started, self()})
+
+        receive do
+          :release -> {:error, {:terminal, :released_after_owner_exit}}
+        end
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    caller = spawn(fn -> DeterministicRuntime.invoke(request, configuration) end)
+
+    assert_receive {:caller_owned_fixture_started, fixture_pid}, 500
+
+    on_exit(fn ->
+      if Process.alive?(fixture_pid), do: Process.exit(fixture_pid, :kill)
+    end)
+
+    fixture_monitor = Process.monitor(fixture_pid)
+    Process.exit(caller, :kill)
+
+    assert_receive {:DOWN, ^fixture_monitor, :process, ^fixture_pid, _reason}, 500
+    assert_pending_count(namespace, 0)
+  end
+
   test "unclassified fixture loader failures fail closed and replay safely", %{input: input} do
     parent = self()
 
@@ -626,10 +661,11 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:terminal, :invalid_adapter_result}} = AdapterResult.normalize(%{})
   end
 
-  test "adapter result rejects classified failures without a failure code" do
-    for classification <- [:retryable, :terminal, :cancelled] do
+  test "adapter result rejects sentinel classified failure codes" do
+    for classification <- [:retryable, :terminal, :cancelled],
+        failure_code <- [nil, false, true] do
       assert {:error, {:terminal, :invalid_adapter_result}} =
-               AdapterResult.normalize({:error, {classification, nil}})
+               AdapterResult.normalize({:error, {classification, failure_code}})
     end
   end
 
@@ -779,6 +815,16 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterContract.validate_model_input(incompatible_manifest, input)
   end
 
+  test "model manifests reject input schemas too small for a typed request", %{input: input} do
+    undersized_manifest =
+      put_in(DeterministicModel.manifest().input_schema.max_serialized_bytes, 1)
+
+    refute AdapterContract.valid_model_manifest?(undersized_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(undersized_manifest, input)
+  end
+
   test "model manifests require idempotent replay support", %{input: input} do
     manifest = %{DeterministicModel.manifest() | idempotency_supported: false}
 
@@ -892,6 +938,52 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert {:completed, {:ok, :recovered}} =
              AdapterState.complete(namespace, key, "same-input", {:ok, :recovered})
+  end
+
+  test "completed retries remain replayable when a stale restartable attempt is cancelled" do
+    for restartable_status <- [:retryable, :abandoned] do
+      namespace = {:stale_restartable_cancellation, restartable_status, make_ref()}
+      key = :shared_result
+      fingerprint = "same-input"
+      stale_request_id = "stale-#{restartable_status}"
+
+      case restartable_status do
+        :retryable ->
+          assert :claimed = AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+
+          assert {:completed, {:error, {:retryable, :provider_unavailable}}} =
+                   AdapterState.complete(
+                     namespace,
+                     key,
+                     fingerprint,
+                     {:error, {:retryable, :provider_unavailable}}
+                   )
+
+        :abandoned ->
+          parent = self()
+
+          owner =
+            spawn(fn ->
+              result = AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+              send(parent, {:stale_owner_claimed, result})
+              Process.sleep(:infinity)
+            end)
+
+          assert_receive {:stale_owner_claimed, :claimed}
+          Process.exit(owner, :kill)
+          assert_pending_count(namespace, 0)
+      end
+
+      assert :claimed = AdapterState.claim(namespace, key, "recovered", fingerprint)
+
+      assert {:completed, {:ok, :recovered}} =
+               AdapterState.complete(namespace, key, fingerprint, {:ok, :recovered})
+
+      assert :ok = AdapterState.cancel(namespace, stale_request_id)
+
+      assert {:replay, {:ok, :recovered}} =
+               AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+    end
   end
 
   test "cancellation preserves an existing idempotency conflict" do

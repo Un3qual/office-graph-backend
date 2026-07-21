@@ -560,20 +560,26 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   defp cancel_restartable(runtime, request_id, key, fingerprint) do
-    runtime =
-      case {Map.get(runtime.pending, key), Map.get(runtime.entries, key)} do
-        {%{fingerprint: ^fingerprint} = pending, _entry} ->
-          cancel_pending(runtime, key, pending)
+    case Map.get(runtime.entries, key) do
+      %Entry{fingerprint: ^fingerprint, status: :completed} ->
+        runtime
 
-        {_pending, %Entry{fingerprint: ^fingerprint, status: status}}
-        when status in [:retryable, :abandoned] ->
-          put_entry(runtime, key, fingerprint, :cancelled)
+      _restartable_entry ->
+        runtime =
+          case {Map.get(runtime.pending, key), Map.get(runtime.entries, key)} do
+            {%{fingerprint: ^fingerprint} = pending, _entry} ->
+              cancel_pending(runtime, key, pending)
 
-        _state ->
-          runtime
-      end
+            {_pending, %Entry{fingerprint: ^fingerprint, status: status}}
+            when status in [:retryable, :abandoned] ->
+              put_entry(runtime, key, fingerprint, :cancelled)
 
-    terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
+            _state ->
+              runtime
+          end
+
+        terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
+    end
   end
 
   defp recover_owner(runtime, key, pending) do

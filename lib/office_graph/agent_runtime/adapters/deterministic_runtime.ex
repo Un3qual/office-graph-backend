@@ -136,10 +136,12 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
         timeout_error()
 
       timeout ->
+        owner = self()
+
         task =
           Task.Supervisor.async_nolink(
             OfficeGraph.AgentRuntime.AdapterTaskSupervisor,
-            fn -> load_and_normalize(input, configuration) end
+            fn -> load_while_owner_alive(owner, input, configuration) end
           )
 
         case Task.yield(task, timeout) do
@@ -153,6 +155,75 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
             Task.shutdown(task, :brutal_kill)
             timeout_error()
         end
+    end
+  end
+
+  defp load_while_owner_alive(owner, input, configuration) do
+    owner_monitor = Process.monitor(owner)
+
+    receive do
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
+        malformed_output(configuration)
+    after
+      0 ->
+        Process.flag(:trap_exit, true)
+        guardian = self()
+        result_ref = make_ref()
+
+        loader =
+          spawn_link(fn ->
+            result = load_and_normalize(input, configuration)
+            send(guardian, {result_ref, result})
+          end)
+
+        await_owned_loader(owner, owner_monitor, loader, result_ref, configuration)
+    end
+  end
+
+  defp await_owned_loader(owner, owner_monitor, loader, result_ref, configuration) do
+    receive do
+      {^result_ref, result} ->
+        await_loader_exit(owner, owner_monitor, loader, result, configuration)
+
+      {:EXIT, ^loader, _reason} ->
+        Process.demonitor(owner_monitor, [:flush])
+        malformed_output(configuration)
+
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
+        stop_loader(loader)
+        malformed_output(configuration)
+
+      {:EXIT, _linked_process, reason} ->
+        stop_loader(loader)
+        exit(reason)
+    end
+  end
+
+  defp await_loader_exit(owner, owner_monitor, loader, result, configuration) do
+    receive do
+      {:EXIT, ^loader, :normal} ->
+        Process.demonitor(owner_monitor, [:flush])
+        result
+
+      {:EXIT, ^loader, _reason} ->
+        Process.demonitor(owner_monitor, [:flush])
+        malformed_output(configuration)
+
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
+        stop_loader(loader)
+        malformed_output(configuration)
+
+      {:EXIT, _linked_process, reason} ->
+        stop_loader(loader)
+        exit(reason)
+    end
+  end
+
+  defp stop_loader(loader) do
+    Process.exit(loader, :kill)
+
+    receive do
+      {:EXIT, ^loader, _reason} -> :ok
     end
   end
 

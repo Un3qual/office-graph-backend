@@ -16,11 +16,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterResult do
   end
 
   def normalize({:error, {classification, code}})
-      when classification in [:retryable, :terminal, :cancelled] and is_atom(code) and
-             not is_nil(code),
-      do: {:error, {classification, code}}
+      when classification in [:retryable, :terminal, :cancelled] do
+    if valid_failure_code?(code),
+      do: {:error, {classification, code}},
+      else: invalid_result()
+  end
 
   def normalize(_result), do: invalid_result()
 
+  defp valid_failure_code?(code), do: is_atom(code) and code not in [nil, false, true]
   defp invalid_result, do: {:error, {:terminal, :invalid_adapter_result}}
 end
