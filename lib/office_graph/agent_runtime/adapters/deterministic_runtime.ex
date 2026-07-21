@@ -87,7 +87,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
         invoke_new(input, replay_key, fingerprint, deadline, configuration)
 
       {:replay, result} ->
-        retain_result(input, result, configuration)
+        result
 
       :cancelled ->
         retain_result(input, {:error, {:cancelled, :cancelled}}, configuration)
@@ -113,14 +113,16 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     case AdapterState.complete(
            configuration.state_namespace,
            replay_key,
+           input.request_id,
            fingerprint,
-           result
+           result,
+           retained_metadata(result, configuration)
          ) do
       {:completed, completed_result} ->
-        retain_result(input, completed_result, configuration)
+        completed_result
 
       {:replay, completed_result} ->
-        retain_result(input, completed_result, configuration)
+        completed_result
 
       :cancelled ->
         retain_result(input, {:error, {:cancelled, :cancelled}}, configuration)
@@ -135,7 +137,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
       0 ->
         timeout_error()
 
-      timeout ->
+      _timeout ->
         owner = self()
         cancel_ref = make_ref()
 
@@ -145,13 +147,45 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
             fn -> load_while_owner_alive(owner, input, configuration, cancel_ref) end
           )
 
-        AdapterState.attach_cancel_target(
-          configuration.state_namespace,
-          input.request_id,
-          task.pid,
-          cancel_ref
-        )
+        case attach_cancel_target(task, input, cancel_ref, deadline, configuration) do
+          :attached -> await_owned_task(task, deadline, configuration)
+          :timed_out -> timeout_error()
+        end
+    end
+  end
 
+  defp attach_cancel_target(task, input, cancel_ref, deadline, configuration) do
+    case remaining_timeout(deadline) do
+      0 ->
+        Task.shutdown(task, :brutal_kill)
+        :timed_out
+
+      timeout ->
+        try do
+          AdapterState.attach_cancel_target(
+            configuration.state_namespace,
+            input.request_id,
+            task.pid,
+            cancel_ref,
+            timeout
+          )
+
+          :attached
+        catch
+          :exit, {:timeout, _call} ->
+            Task.shutdown(task, :brutal_kill)
+            :timed_out
+        end
+    end
+  end
+
+  defp await_owned_task(task, deadline, configuration) do
+    case remaining_timeout(deadline) do
+      0 ->
+        Task.shutdown(task, :brutal_kill)
+        timeout_error()
+
+      timeout ->
         case Task.yield(task, timeout) do
           {:ok, result} ->
             result
@@ -330,22 +364,30 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     ArgumentError -> :error
   end
 
-  defp retain(request_id, {:ok, output}, configuration) do
+  defp retain(request_id, {:error, {_classification, _failure_code}} = result, configuration) do
+    AdapterState.put_retained(
+      configuration.state_namespace,
+      request_id,
+      retained_metadata(result, configuration)
+    )
+  end
+
+  defp retained_metadata({:ok, output}, configuration) do
     if is_struct(output, configuration.output_module) do
-      AdapterState.put_retained(configuration.state_namespace, request_id, %{
+      %{
         classification: output.classification,
         output_hash: output_hash(output.structured_content),
         safe_summary: output.safe_summary
-      })
+      }
     end
   end
 
-  defp retain(request_id, {:error, {classification, failure_code}}, configuration) do
-    AdapterState.put_retained(configuration.state_namespace, request_id, %{
+  defp retained_metadata({:error, {classification, failure_code}}, configuration) do
+    %{
       classification: classification,
       failure_code: failure_code,
       safe_summary: safe_failure_summary(failure_code, configuration.malformed_output_code)
-    })
+    }
   end
 
   defp retain_result(input, result, configuration) do

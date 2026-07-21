@@ -15,7 +15,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     @moduledoc false
 
     @enforce_keys [:fingerprint, :status]
-    defstruct [:fingerprint, :result, :status]
+    defstruct [:fingerprint, :result, :retained, :status]
   end
 
   @default_retention_limit 32
@@ -60,16 +60,32 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   def complete(namespace, key, fingerprint, result),
-    do: GenServer.call(__MODULE__, {:complete, namespace, key, fingerprint, result})
+    do: complete(namespace, key, nil, fingerprint, result, nil)
+
+  def complete(namespace, key, fingerprint, result, retained),
+    do: complete(namespace, key, nil, fingerprint, result, retained)
+
+  def complete(namespace, key, request_id, fingerprint, result, retained),
+    do:
+      GenServer.call(
+        __MODULE__,
+        {:complete, namespace, key, request_id, fingerprint, result, retained}
+      )
 
   def cancel(namespace, request_id),
     do: GenServer.call(__MODULE__, {:cancel, namespace, request_id})
 
   def attach_cancel_target(namespace, request_id, target, cancel_ref)
       when is_pid(target) and is_reference(cancel_ref) do
+    attach_cancel_target(namespace, request_id, target, cancel_ref, 5_000)
+  end
+
+  def attach_cancel_target(namespace, request_id, target, cancel_ref, timeout)
+      when is_pid(target) and is_reference(cancel_ref) and is_integer(timeout) and timeout > 0 do
     GenServer.call(
       __MODULE__,
-      {:attach_cancel_target, namespace, request_id, target, cancel_ref}
+      {:attach_cancel_target, namespace, request_id, target, cancel_ref},
+      timeout
     )
   end
 
@@ -127,7 +143,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
     case Map.get(runtime.requests, request_id) do
       %{status: :cancelled} ->
-        {:reply, :cancelled, state}
+        runtime =
+          terminalize_request(runtime, request_id, :cancelled, key, fingerprint, claim_ref)
+
+        {:reply, :cancelled, put_runtime(state, namespace, runtime)}
 
       %{status: :timed_out} ->
         {:reply, timeout_error(), state}
@@ -174,7 +193,11 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     {:reply, timeout_error(), put_runtime(state, namespace, runtime)}
   end
 
-  def handle_call({:complete, namespace, key, fingerprint, result}, from, state) do
+  def handle_call(
+        {:complete, namespace, key, request_id, fingerprint, result, retained},
+        from,
+        state
+      ) do
     runtime = runtime(state, namespace)
     caller = caller_pid(from)
 
@@ -187,21 +210,32 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
         runtime =
           if retryable_result?(result) do
-            retryable = %Entry{fingerprint: fingerprint, result: nil, status: :retryable}
+            retryable = %Entry{
+              fingerprint: fingerprint,
+              result: nil,
+              retained: retained,
+              status: :retryable
+            }
 
             runtime
             |> then(&%{&1 | entries: Map.put(&1.entries, key, retryable)})
-            |> put_record(pending.request_id, request_record(:retryable, key, fingerprint))
+            |> put_record(
+              pending.request_id,
+              request_record(:retryable, key, fingerprint),
+              retained
+            )
             |> record_retryable_waiters(
               pending.waiters,
               pending.request_id,
               key,
-              fingerprint
+              fingerprint,
+              retained
             )
           else
             completed = %Entry{
               fingerprint: fingerprint,
               result: result,
+              retained: retained,
               status: :completed
             }
 
@@ -211,11 +245,19 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
               put_record(
                 runtime,
                 pending.request_id,
-                request_record(:completed, key, fingerprint)
+                request_record(:completed, key, fingerprint),
+                retained
               )
 
             Enum.reduce(pending.waiters, runtime, fn waiter, current ->
-              record_replay(current, waiter.request_id, key, fingerprint, waiter.claim_ref)
+              record_replay(
+                current,
+                waiter.request_id,
+                key,
+                fingerprint,
+                waiter.claim_ref,
+                retained
+              )
             end)
           end
 
@@ -226,8 +268,27 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
       _pending ->
         case Map.get(runtime.entries, key) do
-          %Entry{fingerprint: ^fingerprint, status: :completed, result: completed_result} ->
-            {:reply, {:replay, completed_result}, state}
+          %Entry{
+            fingerprint: ^fingerprint,
+            status: :completed,
+            result: completed_result,
+            retained: completed_retained
+          } ->
+            runtime =
+              if is_nil(request_id) do
+                runtime
+              else
+                record_replay(
+                  runtime,
+                  request_id,
+                  key,
+                  fingerprint,
+                  nil,
+                  completed_retained
+                )
+              end
+
+            {:reply, {:replay, completed_result}, put_runtime(state, namespace, runtime)}
 
           %Entry{fingerprint: ^fingerprint, status: :cancelled} ->
             {:reply, :cancelled, state}
@@ -419,8 +480,13 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
          namespace
        ) do
     case Map.get(runtime.entries, key) do
-      %Entry{fingerprint: ^fingerprint, status: :completed, result: result} ->
-        runtime = record_replay(runtime, request_id, key, fingerprint, claim_ref)
+      %Entry{
+        fingerprint: ^fingerprint,
+        status: :completed,
+        result: result,
+        retained: retained
+      } ->
+        runtime = record_replay(runtime, request_id, key, fingerprint, claim_ref, retained)
         {:reply, {:replay, result}, put_runtime(state, namespace, runtime)}
 
       %Entry{fingerprint: ^fingerprint, status: :cancelled} ->
@@ -687,7 +753,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     put_record(runtime, request_id, record)
   end
 
-  defp record_replay(runtime, request_id, key, fingerprint, claim_ref) do
+  defp record_replay(runtime, request_id, key, fingerprint, claim_ref, retained) do
     existing = Map.get(runtime.requests, request_id)
 
     record =
@@ -695,7 +761,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         do: existing,
         else: request_record(:replayed, key, fingerprint, claim_ref)
 
-    put_record(runtime, request_id, record)
+    put_record(runtime, request_id, record, retained)
   end
 
   defp successful_record?(record, key, fingerprint) do
@@ -709,11 +775,22 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     |> bind(:claim_ref, claim_ref)
   end
 
-  defp put_record(runtime, request_id, record) do
+  defp put_record(runtime, request_id, record),
+    do: put_record(runtime, request_id, record, nil)
+
+  defp put_record(runtime, request_id, record, retained) do
+    retained_by_request =
+      if is_nil(retained) do
+        runtime.retained
+      else
+        Map.put(runtime.retained, request_id, retained)
+      end
+
     runtime = %{
       runtime
       | requests: Map.put(runtime.requests, request_id, record),
-        order: [request_id | List.delete(runtime.order, request_id)]
+        order: [request_id | List.delete(runtime.order, request_id)],
+        retained: retained_by_request
     }
 
     prune(runtime)
@@ -775,7 +852,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   defp entry_reference?(_record, _replay_key), do: false
 
-  defp record_retryable_waiters(runtime, waiters, owner_request_id, key, fingerprint) do
+  defp record_retryable_waiters(
+         runtime,
+         waiters,
+         owner_request_id,
+         key,
+         fingerprint,
+         retained
+       ) do
     Enum.reduce(waiters, runtime, fn waiter, current ->
       if waiter.request_id == owner_request_id do
         current
@@ -783,7 +867,8 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         put_record(
           current,
           waiter.request_id,
-          request_record(:retryable, key, fingerprint, waiter.claim_ref)
+          request_record(:retryable, key, fingerprint, waiter.claim_ref),
+          retained
         )
       end
     end)

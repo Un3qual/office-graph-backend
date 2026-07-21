@@ -343,6 +343,77 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.retained(namespace, request.request_id)
   end
 
+  test "cancel-target attachment cannot deliver completed work after the request deadline", %{
+    input: input
+  } do
+    parent = self()
+    namespace = {:cancel_target_attachment_deadline, make_ref()}
+
+    request = %{
+      input
+      | request_id: uuid(),
+        idempotency_key: "cancel-target-attachment-deadline",
+        timeout_ms: 40
+    }
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, :attachment_deadline_fixture_completed)
+
+        {:ok,
+         %{
+           "classification" => "proposal",
+           "safe_summary" => "Completed while state was backlogged",
+           "structured_content" => %{"proposal" => %{"intent" => "follow_up"}}
+         }}
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    invocation =
+      Task.async(fn ->
+        Process.flag(:priority, :low)
+
+        receive do
+          :invoke -> DeterministicRuntime.invoke(request, configuration)
+        end
+      end)
+
+    :erlang.trace_pattern(
+      {AdapterState, :claim, 5},
+      [{:_, [], [{:return_trace}]}],
+      [:local]
+    )
+
+    :erlang.trace(invocation.pid, true, [:call, {:tracer, self()}])
+    send(invocation.pid, :invoke)
+
+    assert_receive {:trace, pid, :return_from, {AdapterState, :claim, 5}, :claimed}
+                   when pid == invocation.pid,
+                   500
+
+    :ok = :sys.suspend(AdapterState)
+
+    try do
+      assert_receive :attachment_deadline_fixture_completed, 500
+      Process.sleep(request.timeout_ms + 10)
+      assert nil == Task.yield(invocation, 0)
+    after
+      :erlang.trace(invocation.pid, false, [:call])
+      :erlang.trace_pattern({AdapterState, :claim, 5}, false, [:local])
+      :ok = :sys.resume(AdapterState)
+    end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(invocation, 500)
+
+    assert {:ok, %{classification: :terminal, failure_code: :timeout_exceeded}} =
+             AdapterState.retained(namespace, request.request_id)
+  end
+
   test "owned adapter process failures are isolated and classified", %{input: input} do
     parent = self()
     namespace = {:owned_work_failure, make_ref()}
@@ -735,6 +806,37 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert {:error, {:terminal, :timeout_exceeded}} =
              AdapterState.claim(namespace, key, "timed-out", fingerprint)
+  end
+
+  test "an already-cancelled request remains timed out when delivery is queued before cleanup" do
+    namespace = {:timeout_cancelled_request_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    request_id = "already-cancelled"
+
+    assert :ok = AdapterState.register(namespace, request_id)
+    assert :ok = AdapterState.cancel(namespace, request_id)
+    :ok = :sys.suspend(AdapterState)
+
+    timed_out_claim =
+      try do
+        claim =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, request_id, fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        Process.sleep(25)
+        assert_server_queue_length(2)
+        claim
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, request_id, fingerprint)
   end
 
   test "a conflicting claim remains timed out when delivery is queued before cleanup" do
@@ -1483,7 +1585,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert :ok = AdapterState.cancel(namespace, "owner")
   end
 
-  test "same-id invocation cannot retain a conflict before success retention is written", %{
+  test "completion and replay retain safe metadata in their request-record transitions", %{
     input: input
   } do
     key = {:result, input.execution_id, input.step_key, input.idempotency_key}
@@ -1494,14 +1596,29 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert :claimed = AdapterState.claim(DeterministicModel, key, input.request_id, fingerprint)
 
     assert {:completed, ^success} =
-             AdapterState.complete(DeterministicModel, key, fingerprint, success)
+             AdapterState.complete(
+               DeterministicModel,
+               key,
+               fingerprint,
+               success,
+               success_metadata
+             )
+
+    assert {:ok, ^success_metadata} =
+             AdapterState.retained(DeterministicModel, input.request_id)
 
     assert {:error, {:terminal, :idempotency_conflict}} =
              DeterministicModel.invoke(%{input | token_budget: 101})
 
-    assert :error = AdapterState.retained(DeterministicModel, input.request_id)
-    assert :ok = AdapterState.put_retained(DeterministicModel, input.request_id, success_metadata)
     assert {:ok, ^success_metadata} = AdapterState.retained(DeterministicModel, input.request_id)
+
+    replay_request_id = uuid()
+
+    assert {:replay, ^success} =
+             AdapterState.claim(DeterministicModel, key, replay_request_id, fingerprint)
+
+    assert {:ok, ^success_metadata} =
+             AdapterState.retained(DeterministicModel, replay_request_id)
   end
 
   test "adapter state survives the caller process that created the replay entry", %{input: input} do
