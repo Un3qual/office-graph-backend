@@ -11,6 +11,20 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   }
 
   @sensitivities [:public, :internal, :confidential, :restricted]
+  @common_input_field_types %{
+    request_id: :uuid,
+    execution_id: :uuid,
+    context_package_id: :uuid,
+    authority_snapshot_id: :uuid,
+    operation_id: :uuid,
+    adapter_version: :string,
+    idempotency_key: :string,
+    capability_keys: {:list, :string},
+    credential_kinds: {:list, :atom},
+    sensitivity: {:enum, @sensitivities},
+    approval_granted?: :boolean,
+    timeout_ms: :positive_integer
+  }
 
   def valid_model_manifest?(%ModelManifest{} = manifest), do: valid_manifest?(manifest, :model)
   def valid_model_manifest?(_manifest), do: false
@@ -42,10 +56,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
 
   def validate_tool_output(_manifest, _output), do: malformed_output(:tool)
 
+  def input_schema_fields(kind, payload_schema)
+      when kind in [:model, :tool] and is_map(payload_schema) do
+    kind
+    |> provider_neutral_field_types()
+    |> Map.put(:adapter_payload, {:map, payload_schema})
+  end
+
   def fingerprint(input) when is_struct(input) do
     input
     |> Map.from_struct()
     |> Map.delete(:request_id)
+    |> canonicalize_authority_lists()
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
   end
@@ -137,8 +159,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   end
 
   defp valid_input_schema?(%{fields: fields} = schema, kind) when is_map(fields) do
-    valid_schema?(schema) and
-      MapSet.equal?(MapSet.new(Map.keys(fields)), typed_input_fields(kind))
+    valid_schema?(schema) and input_field_types_compatible?(fields, kind)
   end
 
   defp valid_input_schema?(_schema, _kind), do: false
@@ -229,11 +250,29 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       input.operation_id
     ]
 
-  defp typed_input_fields(:model),
-    do: ModelInput.__struct__() |> Map.from_struct() |> Map.keys() |> MapSet.new()
+  defp input_field_types_compatible?(fields, kind) do
+    with {:ok, {:map, payload_schema}} <- Map.fetch(fields, :adapter_payload),
+         true <- valid_schema?(payload_schema) do
+      Map.delete(fields, :adapter_payload) == provider_neutral_field_types(kind)
+    else
+      _incompatible -> false
+    end
+  end
 
-  defp typed_input_fields(:tool),
-    do: ToolInput.__struct__() |> Map.from_struct() |> Map.keys() |> MapSet.new()
+  defp provider_neutral_field_types(:model) do
+    Map.merge(@common_input_field_types, %{
+      adapter_key: :string,
+      token_budget: :positive_integer
+    })
+  end
+
+  defp provider_neutral_field_types(:tool) do
+    Map.merge(@common_input_field_types, %{
+      tool_key: :string,
+      budget_units: :positive_integer,
+      external_write: :boolean
+    })
+  end
 
   defp adapter_key(input, :model), do: input.adapter_key
   defp adapter_key(input, :tool), do: input.tool_key
@@ -252,6 +291,19 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
     do: sensitivity_rank(requested) <= sensitivity_rank(maximum)
 
   defp sensitivity_rank(sensitivity), do: Enum.find_index(@sensitivities, &(&1 == sensitivity))
+
+  defp canonicalize_authority_lists(input) do
+    Enum.reduce([:capability_keys, :credential_kinds], input, fn field, normalized ->
+      case Map.fetch(normalized, field) do
+        {:ok, values} when is_list(values) ->
+          Map.put(normalized, field, values |> Enum.uniq() |> Enum.sort())
+
+        _missing_or_invalid ->
+          normalized
+      end
+    end)
+  end
+
   defp valid_string_list?(values), do: is_list(values) and Enum.all?(values, &nonempty_string?/1)
   defp valid_atom_list?(values), do: is_list(values) and Enum.all?(values, &is_atom/1)
   defp nonempty_string?(value), do: is_binary(value) and value != ""

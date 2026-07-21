@@ -22,21 +22,6 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     fields: %{fixture_id: :string},
     max_serialized_bytes: 1_024
   }
-  @common_input_fields %{
-    request_id: :uuid,
-    execution_id: :uuid,
-    context_package_id: :uuid,
-    authority_snapshot_id: :uuid,
-    operation_id: :uuid,
-    adapter_version: :string,
-    idempotency_key: :string,
-    capability_keys: {:list, :string},
-    credential_kinds: {:list, :atom},
-    sensitivity: {:enum, [:public, :internal, :confidential, :restricted]},
-    approval_granted?: :boolean,
-    timeout_ms: :positive_integer,
-    adapter_payload: {:map, @adapter_payload_schema}
-  }
   @content_schemas %{
     proposal: %{
       required: ["intent"],
@@ -66,19 +51,11 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   }
 
   def input_schema(:model) do
-    build_input_schema(
-      Map.merge(@common_input_fields, %{adapter_key: :string, token_budget: :positive_integer})
-    )
+    build_input_schema(AdapterContract.input_schema_fields(:model, @adapter_payload_schema))
   end
 
   def input_schema(:tool) do
-    build_input_schema(
-      Map.merge(@common_input_fields, %{
-        tool_key: :string,
-        budget_units: :positive_integer,
-        external_write: :boolean
-      })
-    )
+    build_input_schema(AdapterContract.input_schema_fields(:tool, @adapter_payload_schema))
   end
 
   def output_schema(classifications) when is_list(classifications) do

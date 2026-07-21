@@ -29,19 +29,34 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   def claim(namespace, key, request_id, fingerprint),
     do: claim(namespace, key, request_id, fingerprint, :infinity)
 
-  def claim(namespace, key, request_id, fingerprint, :infinity),
-    do: GenServer.call(__MODULE__, {:claim, namespace, key, request_id, fingerprint}, :infinity)
+  def claim(namespace, key, request_id, fingerprint, :infinity) do
+    claim_ref = make_ref()
+
+    GenServer.call(
+      __MODULE__,
+      {:claim, namespace, key, request_id, fingerprint, claim_ref},
+      :infinity
+    )
+  end
 
   def claim(namespace, key, request_id, fingerprint, timeout)
       when is_integer(timeout) and timeout > 0 do
-    GenServer.call(__MODULE__, {:claim, namespace, key, request_id, fingerprint}, timeout)
-  catch
-    :exit, {:timeout, _call} ->
+    claim_ref = make_ref()
+
+    try do
       GenServer.call(
         __MODULE__,
-        {:expire_claim, namespace, key, request_id, fingerprint},
-        :infinity
+        {:claim, namespace, key, request_id, fingerprint, claim_ref},
+        timeout
       )
+    catch
+      :exit, {:timeout, _call} ->
+        GenServer.call(
+          __MODULE__,
+          {:expire_claim, namespace, key, request_id, fingerprint, claim_ref},
+          :infinity
+        )
+    end
   end
 
   def complete(namespace, key, fingerprint, result),
@@ -98,7 +113,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     {:reply, :ok, put_runtime(state, namespace, runtime)}
   end
 
-  def handle_call({:claim, namespace, key, request_id, fingerprint}, from, state) do
+  def handle_call({:claim, namespace, key, request_id, fingerprint, claim_ref}, from, state) do
     runtime = runtime(state, namespace)
 
     case Map.get(runtime.requests, request_id) do
@@ -111,21 +126,43 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
       _record ->
         case request_binding(runtime, request_id) do
           {:bound, ^key, ^fingerprint} ->
-            claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace)
+            claim_bound_request(
+              runtime,
+              key,
+              request_id,
+              fingerprint,
+              claim_ref,
+              from,
+              state,
+              namespace
+            )
 
           {:bound, _bound_key, _bound_fingerprint} ->
             {:reply, :identity_conflict, state}
 
           :unbound ->
-            claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace)
+            claim_bound_request(
+              runtime,
+              key,
+              request_id,
+              fingerprint,
+              claim_ref,
+              from,
+              state,
+              namespace
+            )
         end
     end
   end
 
-  def handle_call({:expire_claim, namespace, key, request_id, fingerprint}, _from, state) do
+  def handle_call(
+        {:expire_claim, namespace, key, request_id, fingerprint, claim_ref},
+        _from,
+        state
+      ) do
     runtime = runtime(state, namespace)
-    {reply, runtime} = expire_claim(runtime, key, request_id, fingerprint)
-    {:reply, reply, put_runtime(state, namespace, runtime)}
+    runtime = expire_claim(runtime, key, request_id, fingerprint, claim_ref)
+    {:reply, timeout_error(), put_runtime(state, namespace, runtime)}
   end
 
   def handle_call({:complete, namespace, key, fingerprint, result}, from, state) do
@@ -141,7 +178,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
         runtime =
           if retryable_result?(result) do
+            retryable = %Entry{fingerprint: fingerprint, result: nil, status: :retryable}
+
             runtime
+            |> then(&%{&1 | entries: Map.put(&1.entries, key, retryable)})
             |> put_record(pending.request_id, request_record(:retryable, key, fingerprint))
             |> record_retryable_waiters(pending.waiters, key, fingerprint)
           else
@@ -161,7 +201,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
               )
 
             Enum.reduce(pending.waiters, runtime, fn waiter, current ->
-              record_replay(current, waiter.request_id, key, fingerprint)
+              record_replay(current, waiter.request_id, key, fingerprint, waiter.claim_ref)
             end)
           end
 
@@ -263,13 +303,31 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
      }, state}
   end
 
-  defp claim_bound_request(runtime, key, request_id, fingerprint, from, state, namespace) do
+  defp claim_bound_request(
+         runtime,
+         key,
+         request_id,
+         fingerprint,
+         claim_ref,
+         from,
+         state,
+         namespace
+       ) do
     case Map.get(runtime.pending, key) do
       nil ->
-        claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace)
+        claim_terminal_or_new(
+          runtime,
+          key,
+          request_id,
+          fingerprint,
+          claim_ref,
+          from,
+          state,
+          namespace
+        )
 
       %{fingerprint: ^fingerprint} = pending ->
-        runtime = add_waiter(runtime, key, pending, request_id, from)
+        runtime = add_waiter(runtime, key, pending, request_id, claim_ref, from)
         {:noreply, put_runtime(state, namespace, runtime)}
 
       _pending ->
@@ -300,51 +358,84 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp claim_terminal_or_new(runtime, key, request_id, fingerprint, from, state, namespace) do
+  defp claim_terminal_or_new(
+         runtime,
+         key,
+         request_id,
+         fingerprint,
+         claim_ref,
+         from,
+         state,
+         namespace
+       ) do
     case Map.get(runtime.entries, key) do
       %Entry{fingerprint: ^fingerprint, status: :completed, result: result} ->
-        runtime = record_replay(runtime, request_id, key, fingerprint)
+        runtime = record_replay(runtime, request_id, key, fingerprint, claim_ref)
         {:reply, {:replay, result}, put_runtime(state, namespace, runtime)}
 
       %Entry{fingerprint: ^fingerprint, status: :cancelled} ->
         runtime = terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
         {:reply, :cancelled, put_runtime(state, namespace, runtime)}
 
+      %Entry{fingerprint: ^fingerprint, status: :retryable} ->
+        start_claim(runtime, key, request_id, fingerprint, claim_ref, from, state, namespace)
+
       %Entry{} ->
         runtime = terminalize_request(runtime, request_id, :conflict, key, fingerprint)
         {:reply, :conflict, put_runtime(state, namespace, runtime)}
 
       nil ->
-        case Map.get(runtime.requests, request_id) do
-          %{status: :cancelled} ->
-            {:reply, :cancelled, state}
-
-          _record ->
-            {owner, owner_monitor} = monitor_caller(from)
-
-            pending = %{
-              fingerprint: fingerprint,
-              owner: owner,
-              owner_monitor: owner_monitor,
-              request_id: request_id,
-              waiters: []
-            }
-
-            runtime = %{
-              runtime
-              | pending: Map.put(runtime.pending, key, pending),
-                requests: Map.delete(runtime.requests, request_id),
-                order: List.delete(runtime.order, request_id)
-            }
-
-            {:reply, :claimed, put_runtime(state, namespace, runtime)}
-        end
+        start_claim(runtime, key, request_id, fingerprint, claim_ref, from, state, namespace)
     end
   end
 
-  defp add_waiter(runtime, key, pending, request_id, from) do
+  defp start_claim(
+         runtime,
+         key,
+         request_id,
+         fingerprint,
+         claim_ref,
+         from,
+         state,
+         namespace
+       ) do
+    case Map.get(runtime.requests, request_id) do
+      %{status: :cancelled} ->
+        {:reply, :cancelled, state}
+
+      _record ->
+        {owner, owner_monitor} = monitor_caller(from)
+
+        pending = %{
+          fingerprint: fingerprint,
+          owner: owner,
+          owner_claim_ref: claim_ref,
+          owner_monitor: owner_monitor,
+          request_id: request_id,
+          waiters: []
+        }
+
+        runtime = %{
+          runtime
+          | pending: Map.put(runtime.pending, key, pending),
+            requests: Map.delete(runtime.requests, request_id),
+            order: List.delete(runtime.order, request_id)
+        }
+
+        {:reply, :claimed, put_runtime(state, namespace, runtime)}
+    end
+  end
+
+  defp add_waiter(runtime, key, pending, request_id, claim_ref, from) do
     {pid, monitor} = monitor_caller(from)
-    waiter = %{from: from, monitor: monitor, pid: pid, request_id: request_id}
+
+    waiter = %{
+      claim_ref: claim_ref,
+      from: from,
+      monitor: monitor,
+      pid: pid,
+      request_id: request_id
+    }
 
     runtime = %{
       runtime
@@ -355,21 +446,25 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     put_in(runtime.pending[key].waiters, [waiter | pending.waiters])
   end
 
-  defp expire_claim(runtime, key, request_id, fingerprint) do
-    case pending_request(runtime, request_id) do
+  defp expire_claim(runtime, key, request_id, fingerprint, claim_ref) do
+    case pending_claim(runtime, request_id, claim_ref) do
       {:waiter, ^key, %{fingerprint: ^fingerprint} = pending, waiter} ->
         Process.demonitor(waiter.monitor, [:flush])
         remaining_waiters = List.delete(pending.waiters, waiter)
         runtime = put_in(runtime.pending[key].waiters, remaining_waiters)
-        runtime = terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
-        {timeout_error(), runtime}
+
+        if pending.request_id == request_id do
+          runtime
+        else
+          terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
+        end
 
       {:owner, ^key, %{fingerprint: ^fingerprint} = pending} ->
         Process.demonitor(pending.owner_monitor, [:flush])
-        {timeout_error(), expire_owner_claim(runtime, key, pending)}
+        expire_owner_claim(runtime, key, pending)
 
       _not_pending ->
-        {resolved_claim_result(runtime, key, request_id, fingerprint), runtime}
+        terminalize_timed_out_replay(runtime, key, request_id, fingerprint, claim_ref)
     end
   end
 
@@ -382,6 +477,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           promoted = %{
             pending
             | owner: waiter.pid,
+              owner_claim_ref: waiter.claim_ref,
               owner_monitor: waiter.monitor,
               request_id: waiter.request_id,
               waiters: remaining_waiters
@@ -402,26 +498,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     )
   end
 
-  defp resolved_claim_result(runtime, key, request_id, fingerprint) do
+  defp terminalize_timed_out_replay(runtime, key, request_id, fingerprint, claim_ref) do
     case Map.get(runtime.requests, request_id) do
-      %{status: status, replay_key: ^key, fingerprint: ^fingerprint}
-      when status in [:completed, :replayed] ->
-        case Map.get(runtime.entries, key) do
-          %Entry{status: :completed, fingerprint: ^fingerprint, result: result} ->
-            {:replay, result}
-
-          _entry ->
-            timeout_error()
-        end
-
-      %{status: :cancelled} ->
-        :cancelled
-
-      %{status: :conflict} ->
-        :conflict
+      %{
+        status: :replayed,
+        replay_key: ^key,
+        fingerprint: ^fingerprint,
+        claim_ref: ^claim_ref
+      } ->
+        terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
 
       _record ->
-        timeout_error()
+        runtime
     end
   end
 
@@ -461,6 +549,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         promoted = %{
           pending
           | owner: waiter.pid,
+            owner_claim_ref: waiter.claim_ref,
             owner_monitor: waiter.monitor,
             request_id: waiter.request_id,
             waiters: remaining_waiters
@@ -488,25 +577,26 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     put_record(runtime, request_id, record)
   end
 
-  defp record_replay(runtime, request_id, key, fingerprint) do
+  defp record_replay(runtime, request_id, key, fingerprint, claim_ref) do
     existing = Map.get(runtime.requests, request_id)
 
     record =
-      if completed_record?(existing, key, fingerprint),
+      if successful_record?(existing, key, fingerprint),
         do: existing,
-        else: request_record(:replayed, key, fingerprint)
+        else: request_record(:replayed, key, fingerprint, claim_ref)
 
     put_record(runtime, request_id, record)
   end
 
-  defp completed_record?(record, key, fingerprint) do
-    Map.get(record || %{}, :status) == :completed and
+  defp successful_record?(record, key, fingerprint) do
+    Map.get(record || %{}, :status) in [:completed, :replayed] and
       Map.get(record || %{}, :replay_key) == key and
       Map.get(record || %{}, :fingerprint) == fingerprint
   end
 
-  defp request_record(status, replay_key, fingerprint) do
+  defp request_record(status, replay_key, fingerprint, claim_ref \\ nil) do
     %{status: status, replay_key: replay_key, fingerprint: fingerprint}
+    |> bind(:claim_ref, claim_ref)
   end
 
   defp put_record(runtime, request_id, record) do
@@ -540,10 +630,11 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   defp prune_unreferenced_entry(runtime, %{status: status, replay_key: replay_key})
-       when status in [:completed, :replayed, :cancelled] do
-    if Enum.any?(runtime.requests, fn {_request_id, record} ->
-         entry_reference?(record, replay_key)
-       end) do
+       when status in [:completed, :replayed, :cancelled, :retryable, :timed_out, :abandoned] do
+    if Map.has_key?(runtime.pending, replay_key) or
+         Enum.any?(runtime.requests, fn {_request_id, record} ->
+           entry_reference?(record, replay_key)
+         end) do
       runtime
     else
       %{runtime | entries: Map.delete(runtime.entries, replay_key)}
@@ -553,7 +644,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   defp prune_unreferenced_entry(runtime, _record), do: runtime
 
   defp entry_reference?(%{status: status, replay_key: replay_key}, replay_key)
-       when status in [:completed, :replayed, :cancelled],
+       when status in [:completed, :replayed, :cancelled, :retryable, :timed_out, :abandoned],
        do: true
 
   defp entry_reference?(_record, _replay_key), do: false
@@ -575,6 +666,25 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           {:owner, key, pending}
 
         waiter = Enum.find(pending.waiters, &(&1.request_id == request_id)) ->
+          {:waiter, key, pending, waiter}
+
+        true ->
+          false
+      end
+    end)
+  end
+
+  defp pending_claim(runtime, request_id, claim_ref) do
+    Enum.find_value(runtime.pending, :none, fn {key, pending} ->
+      cond do
+        pending.request_id == request_id and pending.owner_claim_ref == claim_ref ->
+          {:owner, key, pending}
+
+        waiter =
+            Enum.find(
+              pending.waiters,
+              &(&1.request_id == request_id and &1.claim_ref == claim_ref)
+            ) ->
           {:waiter, key, pending, waiter}
 
         true ->

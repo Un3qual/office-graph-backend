@@ -199,6 +199,52 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              DeterministicRuntime.invoke(%{request | request_id: uuid()}, configuration)
   end
 
+  test "a waiter remains timed out when completion is queued before timeout cleanup" do
+    namespace = {:timeout_completion_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    parent = self()
+
+    owner =
+      Task.async(fn ->
+        assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+        send(parent, :owner_claimed)
+
+        receive do
+          :complete ->
+            AdapterState.complete(namespace, key, fingerprint, {:ok, :finished})
+        end
+      end)
+
+    assert_receive :owner_claimed
+    :ok = :sys.suspend(AdapterState)
+
+    waiter =
+      try do
+        waiter =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "waiter", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        send(owner.pid, :complete)
+        assert_server_queue_length(2)
+        assert_server_queue_length(3)
+        waiter
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(waiter, 500)
+    assert {:completed, {:ok, :finished}} = Task.await(owner, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "waiter", fingerprint)
+
+    assert {:replay, {:ok, :finished}} =
+             AdapterState.claim(namespace, key, "later-request", fingerprint)
+  end
+
   test "replays the same semantic request under a new request id", %{input: input} do
     assert {:ok, output} = DeterministicModel.invoke(input)
     replay = %{input | request_id: uuid()}
@@ -369,6 +415,18 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterContract.validate_model_input(incomplete_manifest, input)
   end
 
+  test "model manifest input schemas require compatible provider-neutral field types", %{
+    input: input
+  } do
+    manifest = DeterministicModel.manifest()
+    incompatible_manifest = put_in(manifest.input_schema.fields.adapter_payload, :atom)
+
+    refute AdapterContract.valid_model_manifest?(incompatible_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(incompatible_manifest, input)
+  end
+
   test "model invocation fails closed for sensitivity and approval before fixture execution", %{
     input: input
   } do
@@ -433,6 +491,119 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     conflicting = %{input | token_budget: 101}
     assert {:error, {:terminal, :idempotency_conflict}} = DeterministicModel.invoke(conflicting)
+  end
+
+  test "replay fingerprints canonicalize authority sets", %{input: input} do
+    first = %{
+      input
+      | capability_keys: ["agent.model.generate", "agent.context.read"],
+        credential_kinds: [:oauth_token, :api_token]
+    }
+
+    reordered = %{
+      first
+      | capability_keys: ["agent.context.read", "agent.model.generate", "agent.context.read"],
+        credential_kinds: [:api_token, :oauth_token, :api_token]
+    }
+
+    assert AdapterContract.fingerprint(first) == AdapterContract.fingerprint(reordered)
+
+    refute AdapterContract.fingerprint(first) ==
+             AdapterContract.fingerprint(%{reordered | credential_kinds: [:api_token]})
+  end
+
+  test "retryable outcomes preserve the replay-key fingerprint across request ids" do
+    namespace = {:retryable_binding, make_ref()}
+    key = :retryable_result
+
+    assert :claimed = AdapterState.claim(namespace, key, "first", "same-input")
+
+    assert {:completed, {:error, {:retryable, :provider_unavailable}}} =
+             AdapterState.complete(
+               namespace,
+               key,
+               "same-input",
+               {:error, {:retryable, :provider_unavailable}}
+             )
+
+    assert :conflict = AdapterState.claim(namespace, key, "different", "different-input")
+    assert :claimed = AdapterState.claim(namespace, key, "retry", "same-input")
+
+    assert {:completed, {:ok, :recovered}} =
+             AdapterState.complete(namespace, key, "same-input", {:ok, :recovered})
+  end
+
+  test "retryable fingerprint retention remains bounded after an active retry is abandoned" do
+    namespace = {:retryable_abandonment_retention, make_ref()}
+    configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)
+
+    on_exit(fn ->
+      if configured do
+        Application.put_env(:office_graph, :agent_runtime_retention_limit, configured)
+      else
+        Application.delete_env(:office_graph, :agent_runtime_retention_limit)
+      end
+    end)
+
+    Application.put_env(:office_graph, :agent_runtime_retention_limit, 2)
+    key = :retryable_result
+    fingerprint = "same-input"
+
+    assert :claimed = AdapterState.claim(namespace, key, "first", fingerprint)
+
+    assert {:completed, {:error, {:retryable, :provider_unavailable}}} =
+             AdapterState.complete(
+               namespace,
+               key,
+               fingerprint,
+               {:error, {:retryable, :provider_unavailable}}
+             )
+
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        send(parent, {:retry_claimed, AdapterState.claim(namespace, key, "retry", fingerprint)})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:retry_claimed, :claimed}
+
+    record_cancelled_requests(namespace, 1..2)
+    assert AdapterState.entry_count(namespace) == 1
+
+    Process.exit(owner, :kill)
+    assert_pending_count(namespace, 0)
+
+    record_cancelled_requests(namespace, 3..4)
+    assert AdapterState.entry_count(namespace) == 0
+  end
+
+  test "a timed-out same-request duplicate cannot replace the active owner" do
+    namespace = {:same_request_timeout, make_ref()}
+    key = :shared_result
+    request_id = "same-request"
+    fingerprint = "same-input"
+
+    assert :claimed = AdapterState.claim(namespace, key, request_id, fingerprint)
+
+    duplicate =
+      Task.async(fn ->
+        AdapterState.claim(namespace, key, request_id, fingerprint, 20)
+      end)
+
+    assert_waiter_count(namespace, 1)
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(duplicate, 500)
+    assert %{pending: 1, waiters: 0} = AdapterState.state_counts(namespace)
+
+    assert {:completed, {:ok, :owner_result}} =
+             AdapterState.complete(namespace, key, fingerprint, {:ok, :owner_result})
+
+    assert {:replay, {:ok, :owner_result}} =
+             AdapterState.claim(namespace, key, request_id, fingerprint)
   end
 
   test "adapter atomic claims keep all retention stores bounded", %{input: input} do
@@ -562,6 +733,48 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
   defp assert_waiter_count(_namespace, expected, 0) do
     flunk("expected adapter waiter count to become #{expected}")
+  end
+
+  defp assert_pending_count(namespace, expected, attempts \\ 100)
+
+  defp assert_pending_count(namespace, expected, attempts) when attempts > 0 do
+    case AdapterState.state_counts(namespace) do
+      %{pending: ^expected} ->
+        :ok
+
+      _counts ->
+        Process.sleep(1)
+        assert_pending_count(namespace, expected, attempts - 1)
+    end
+  end
+
+  defp assert_pending_count(_namespace, expected, 0) do
+    flunk("expected adapter pending count to become #{expected}")
+  end
+
+  defp record_cancelled_requests(namespace, sequences) do
+    Enum.each(sequences, fn sequence ->
+      request_id = "cancelled-#{sequence}"
+      assert :ok = AdapterState.register(namespace, request_id)
+      assert :ok = AdapterState.cancel(namespace, request_id)
+    end)
+  end
+
+  defp assert_server_queue_length(expected, attempts \\ 100)
+
+  defp assert_server_queue_length(expected, attempts) when attempts > 0 do
+    case Process.info(Process.whereis(AdapterState), :message_queue_len) do
+      {:message_queue_len, length} when length >= expected ->
+        :ok
+
+      _queue_length ->
+        Process.sleep(1)
+        assert_server_queue_length(expected, attempts - 1)
+    end
+  end
+
+  defp assert_server_queue_length(expected, 0) do
+    flunk("expected adapter state queue length to reach #{expected}")
   end
 
   defp uuid, do: Ecto.UUID.generate()

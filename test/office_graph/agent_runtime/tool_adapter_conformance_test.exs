@@ -62,6 +62,20 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
              AdapterContract.validate_tool_input(incomplete_manifest, input)
   end
 
+  test "tool manifest input schemas require compatible provider-neutral field types", %{
+    input: input
+  } do
+    manifest = DeterministicTool.manifest()
+
+    incompatible_manifest =
+      put_in(manifest.input_schema.fields.capability_keys, {:list, :atom})
+
+    refute AdapterContract.valid_tool_manifest?(incompatible_manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(incompatible_manifest, input)
+  end
+
   test "tool manifests without classified content schemas fail closed", %{input: input} do
     manifest = DeterministicTool.manifest()
 
