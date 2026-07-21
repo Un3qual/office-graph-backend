@@ -839,6 +839,85 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.claim(namespace, key, request_id, fingerprint)
   end
 
+  test "a cancelled request remains bound to its original replay identity" do
+    namespace = {:cancelled_request_identity, make_ref()}
+    request_id = "cancelled-request"
+
+    assert :claimed =
+             AdapterState.claim(namespace, :original, request_id, "original-fingerprint")
+
+    assert :ok = AdapterState.cancel(namespace, request_id)
+
+    assert :identity_conflict =
+             AdapterState.claim(namespace, :different, request_id, "different-fingerprint")
+
+    assert :cancelled =
+             AdapterState.claim(namespace, :original, "later-request", "original-fingerprint")
+  end
+
+  test "cancelling a request removes every duplicate waiter" do
+    namespace = {:duplicate_waiter_cancellation, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+
+    on_exit(fn -> AdapterState.reset(namespace) end)
+
+    assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+
+    waiters =
+      for _sequence <- 1..2 do
+        Task.async(fn ->
+          AdapterState.claim(namespace, key, "duplicate-waiter", fingerprint)
+        end)
+      end
+
+    assert_waiter_count(namespace, 2)
+    assert :ok = AdapterState.cancel(namespace, "duplicate-waiter")
+
+    assert Enum.all?(waiters, &(Task.yield(&1, 100) == {:ok, :cancelled}))
+    assert %{pending: 1, waiters: 0} = AdapterState.state_counts(namespace)
+
+    assert {:completed, {:ok, :owner_result}} =
+             AdapterState.complete(namespace, key, fingerprint, {:ok, :owner_result})
+
+    assert :cancelled =
+             AdapterState.claim(namespace, key, "duplicate-waiter", fingerprint)
+  end
+
+  test "a same-request replay remains timed out when delivery is queued before cleanup" do
+    namespace = {:same_request_replay_timeout, make_ref()}
+    key = :shared_result
+    request_id = "same-request"
+    fingerprint = "same-input"
+
+    assert :claimed = AdapterState.claim(namespace, key, request_id, fingerprint)
+
+    assert {:completed, {:ok, :finished}} =
+             AdapterState.complete(namespace, key, fingerprint, {:ok, :finished})
+
+    :ok = :sys.suspend(AdapterState)
+
+    timed_out_claim =
+      try do
+        claim =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, request_id, fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        Process.sleep(25)
+        assert_server_queue_length(2)
+        claim
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, request_id, fingerprint)
+  end
+
   test "a conflicting claim remains timed out when delivery is queued before cleanup" do
     namespace = {:timeout_conflict_race, make_ref()}
     key = :shared_result
