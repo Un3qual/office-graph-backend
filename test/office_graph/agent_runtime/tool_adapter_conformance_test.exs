@@ -76,6 +76,15 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
              AdapterContract.validate_tool_input(incompatible_manifest, input)
   end
 
+  test "tool manifests require idempotent replay support", %{input: input} do
+    manifest = %{DeterministicTool.manifest() | idempotency_supported: false}
+
+    refute AdapterContract.valid_tool_manifest?(manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(manifest, input)
+  end
+
   test "tool manifests without classified content schemas fail closed", %{input: input} do
     manifest = DeterministicTool.manifest()
 
@@ -112,7 +121,12 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert retained.classification == :evidence_candidate
 
     assert retained.output_hash ==
-             :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content))
+             output.structured_content
+             |> :erlang.term_to_binary()
+             |> then(&:crypto.hash(:sha256, &1))
+             |> Base.encode16(case: :lower)
+
+    assert byte_size(retained.output_hash) == 64
 
     refute Map.has_key?(retained, :structured_content)
     refute inspect(retained) =~ "fixture"

@@ -80,7 +80,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       valid_string_list?(manifest.capability_keys) and valid_atom_list?(manifest.credential_kinds) and
       manifest.sensitivity in @sensitivities and manifest.external_write == false and
       is_integer(manifest.timeout_ms) and manifest.timeout_ms in 1_000..120_000 and
-      is_boolean(manifest.idempotency_supported) and manifest.raw_retention == false and
+      manifest.idempotency_supported == true and manifest.raw_retention == false and
       is_boolean(manifest.approval_required) and
       valid_classifications?(manifest.output_classifications, kind) and
       valid_budget?(manifest, kind)

@@ -72,6 +72,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   def invoke(input, %Configuration{} = configuration) do
+    deadline = System.monotonic_time(:millisecond) + input.timeout_ms
     fingerprint = AdapterContract.fingerprint(input)
     replay_key = replay_key(input)
 
@@ -83,7 +84,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
            input.timeout_ms
          ) do
       :claimed ->
-        invoke_new(input, replay_key, fingerprint, configuration)
+        invoke_new(input, replay_key, fingerprint, deadline, configuration)
 
       {:replay, result} ->
         retain_result(input, result, configuration)
@@ -106,11 +107,8 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     %{required: [:adapter_payload], fields: fields, max_serialized_bytes: 16_384}
   end
 
-  defp invoke_new(input, replay_key, fingerprint, configuration) do
-    result =
-      with {:ok, fixture} <- configuration.fixture_loader.(input.adapter_payload.fixture_id) do
-        normalize_fixture(fixture, configuration)
-      end
+  defp invoke_new(input, replay_key, fingerprint, deadline, configuration) do
+    result = invoke_owned_work(input, deadline, configuration)
 
     case AdapterState.complete(
            configuration.state_namespace,
@@ -132,6 +130,45 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     end
   end
 
+  defp invoke_owned_work(input, deadline, configuration) do
+    case remaining_timeout(deadline) do
+      0 ->
+        timeout_error()
+
+      timeout ->
+        task = Task.async(fn -> load_and_normalize(input, configuration) end)
+
+        case Task.yield(task, timeout) do
+          {:ok, result} ->
+            result
+
+          {:exit, _reason} ->
+            malformed_output(configuration)
+
+          nil ->
+            Task.shutdown(task, :brutal_kill)
+            timeout_error()
+        end
+    end
+  end
+
+  defp load_and_normalize(input, configuration) do
+    with {:ok, fixture} <- configuration.fixture_loader.(input.adapter_payload.fixture_id) do
+      normalize_fixture(fixture, configuration)
+    end
+  catch
+    _kind, _reason -> malformed_output(configuration)
+  end
+
+  defp remaining_timeout(deadline) do
+    max(deadline - System.monotonic_time(:millisecond), 0)
+  end
+
+  defp timeout_error, do: {:error, {:terminal, :timeout_exceeded}}
+
+  defp malformed_output(configuration),
+    do: {:error, {:terminal, configuration.malformed_output_code}}
+
   defp normalize_fixture(
          %{
            "classification" => classification,
@@ -149,17 +186,22 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
           structured_content: content
         )
 
-      case configuration.validate_output.(configuration.manifest, output) do
-        :ok -> AdapterResult.normalize({:ok, output})
-        error -> error
-      end
+      normalize_result({:ok, output}, configuration)
     else
       :error -> {:error, {:terminal, configuration.malformed_output_code}}
     end
   end
 
-  defp normalize_fixture(result, configuration) do
+  defp normalize_fixture(result, configuration), do: normalize_result(result, configuration)
+
+  defp normalize_result(result, configuration) do
     case AdapterResult.normalize(result) do
+      {:ok, output} = normalized ->
+        case configuration.validate_output.(configuration.manifest, output) do
+          :ok -> normalized
+          _invalid_output -> {:error, {:terminal, configuration.malformed_output_code}}
+        end
+
       {:error, {:terminal, :invalid_adapter_result}} ->
         {:error, {:terminal, configuration.malformed_output_code}}
 
@@ -182,7 +224,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     if is_struct(output, configuration.output_module) do
       AdapterState.put_retained(configuration.state_namespace, request_id, %{
         classification: output.classification,
-        output_hash: :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content)),
+        output_hash: output_hash(output.structured_content),
         safe_summary: output.safe_summary
       })
     end
@@ -202,6 +244,13 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   defp replay_key(input), do: {:result, input.execution_id, input.idempotency_key}
+
+  defp output_hash(structured_content) do
+    structured_content
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
 
   defp safe_failure_summary(failure_code, failure_code),
     do: "Adapter returned invalid structured output."

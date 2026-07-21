@@ -70,7 +70,12 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert retained.safe_summary == "Propose a bounded follow-up"
 
     assert retained.output_hash ==
-             :crypto.hash(:sha256, :erlang.term_to_binary(output.structured_content))
+             output.structured_content
+             |> :erlang.term_to_binary()
+             |> then(&:crypto.hash(:sha256, &1))
+             |> Base.encode16(case: :lower)
+
+    assert byte_size(retained.output_hash) == 64
 
     refute Map.has_key?(retained, :structured_content)
     refute inspect(retained) =~ "fixture"
@@ -110,6 +115,40 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              failure_code: :provider_unavailable,
              safe_summary: "Adapter request did not complete."
            } = DeterministicModel.retained_request!(retryable.request_id)
+  end
+
+  test "retryable metadata is replaced by final same-request metadata" do
+    retryable_result = {:error, {:retryable, :provider_unavailable}}
+    retryable_metadata = %{classification: :retryable, failure_code: :provider_unavailable}
+
+    final_outcomes = [
+      {:success, {:ok, :recovered}, %{classification: :proposal, output_hash: "00"}},
+      {:terminal, {:error, {:terminal, :invalid_request}},
+       %{classification: :terminal, failure_code: :invalid_request}}
+    ]
+
+    Enum.each(final_outcomes, fn {label, final_result, final_metadata} ->
+      namespace = {:retryable_metadata_refresh, label, make_ref()}
+      key = :shared_result
+      request_id = "same-request"
+      fingerprint = "same-input"
+
+      assert :claimed = AdapterState.claim(namespace, key, request_id, fingerprint)
+
+      assert {:completed, ^retryable_result} =
+               AdapterState.complete(namespace, key, fingerprint, retryable_result)
+
+      assert :ok = AdapterState.put_retained(namespace, request_id, retryable_metadata)
+      assert {:ok, ^retryable_metadata} = AdapterState.retained(namespace, request_id)
+
+      assert :claimed = AdapterState.claim(namespace, key, request_id, fingerprint)
+
+      assert {:completed, ^final_result} =
+               AdapterState.complete(namespace, key, fingerprint, final_result)
+
+      assert :ok = AdapterState.put_retained(namespace, request_id, final_metadata)
+      assert {:ok, ^final_metadata} = AdapterState.retained(namespace, request_id)
+    end)
   end
 
   test "malformed output is terminal and retained only as safe metadata", %{input: input} do
@@ -154,49 +193,97 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     input: input
   } do
     parent = self()
+    namespace = {:replay_wait_timeout, make_ref()}
     request = %{input | timeout_ms: 25, idempotency_key: "claim-timeout"}
+    replay_key = {:result, request.execution_id, request.idempotency_key}
+    fingerprint = AdapterContract.fingerprint(request)
+
+    output = %ModelOutput{
+      classification: :proposal,
+      safe_summary: "Completed after waiter timeout",
+      structured_content: %{"proposal" => %{"intent" => "follow_up"}}
+    }
 
     configuration = %Configuration{
       fixture_loader: fn _fixture_id ->
-        send(parent, {:fixture_waiting, self()})
-
-        receive do
-          :release_fixture ->
-            {:ok,
-             %{
-               "classification" => "proposal",
-               "safe_summary" => "Completed after waiter timeout",
-               "structured_content" => %{"proposal" => %{"intent" => "follow_up"}}
-             }}
-        end
+        send(parent, :unexpected_fixture_invocation)
+        {:error, {:terminal, :fixture_should_not_run}}
       end,
       malformed_output_code: :malformed_model_output,
       manifest: DeterministicModel.manifest(),
       output_module: ModelOutput,
-      state_namespace: DeterministicModel,
+      state_namespace: namespace,
       validate_output: &AdapterContract.validate_model_output/2
     }
 
-    owner = Task.async(fn -> DeterministicRuntime.invoke(request, configuration) end)
-    assert_receive {:fixture_waiting, fixture_process}
+    owner =
+      Task.async(fn ->
+        assert :claimed =
+                 AdapterState.claim(namespace, replay_key, "manual-owner", fingerprint)
 
-    timed_out = %{request | request_id: uuid()}
+        send(parent, :manual_owner_claimed)
+
+        receive do
+          :complete -> AdapterState.complete(namespace, replay_key, fingerprint, {:ok, output})
+        end
+      end)
+
+    assert_receive :manual_owner_claimed
 
     assert {:error, {:terminal, :timeout_exceeded}} =
-             DeterministicRuntime.invoke(timed_out, configuration)
+             DeterministicRuntime.invoke(request, configuration)
 
-    assert %{classification: :terminal, failure_code: :timeout_exceeded} =
-             DeterministicModel.retained_request!(timed_out.request_id)
+    assert {:ok, %{classification: :terminal, failure_code: :timeout_exceeded}} =
+             AdapterState.retained(namespace, request.request_id)
 
-    assert %{waiters: 0} = AdapterState.state_counts(DeterministicModel)
-    send(fixture_process, :release_fixture)
-    assert {:ok, output} = Task.await(owner, 500)
+    assert %{waiters: 0} = AdapterState.state_counts(namespace)
+    send(owner.pid, :complete)
+    assert {:completed, {:ok, ^output}} = Task.await(owner, 500)
 
     assert {:error, {:terminal, :timeout_exceeded}} =
-             DeterministicRuntime.invoke(timed_out, configuration)
+             DeterministicRuntime.invoke(request, configuration)
 
     assert {:ok, ^output} =
              DeterministicRuntime.invoke(%{request | request_id: uuid()}, configuration)
+
+    refute_received :unexpected_fixture_invocation
+  end
+
+  test "owned adapter work is terminated at the request deadline", %{input: input} do
+    parent = self()
+    namespace = {:owned_work_timeout, make_ref()}
+    request = %{input | timeout_ms: 25, idempotency_key: "owned-work-timeout"}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, {:owned_fixture_started, self()})
+        Process.sleep(200)
+
+        {:ok,
+         %{
+           "classification" => "proposal",
+           "safe_summary" => "Completed too late",
+           "structured_content" => %{"proposal" => %{"intent" => "follow_up"}}
+         }}
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             DeterministicRuntime.invoke(request, configuration)
+
+    assert_receive {:owned_fixture_started, fixture_pid}
+    refute fixture_pid == self()
+
+    monitor = Process.monitor(fixture_pid)
+    assert_receive {:DOWN, ^monitor, :process, ^fixture_pid, _reason}, 100
+
+    assert {:ok, %{classification: :terminal, failure_code: :timeout_exceeded}} =
+             AdapterState.retained(namespace, request.request_id)
   end
 
   test "a waiter remains timed out when completion is queued before timeout cleanup" do
@@ -243,6 +330,53 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert {:replay, {:ok, :finished}} =
              AdapterState.claim(namespace, key, "later-request", fingerprint)
+  end
+
+  test "a waiter remains timed out when retryable completion is queued before cleanup" do
+    namespace = {:timeout_retryable_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+    retryable_result = {:error, {:retryable, :provider_unavailable}}
+    parent = self()
+
+    owner =
+      Task.async(fn ->
+        assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+        send(parent, :retryable_owner_claimed)
+
+        receive do
+          :complete_retryable ->
+            AdapterState.complete(namespace, key, fingerprint, retryable_result)
+        end
+      end)
+
+    assert_receive :retryable_owner_claimed
+    :ok = :sys.suspend(AdapterState)
+
+    waiter =
+      try do
+        waiter =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "waiter", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        send(owner.pid, :complete_retryable)
+        assert_server_queue_length(2)
+        assert_server_queue_length(3)
+        waiter
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(waiter, 500)
+    assert {:completed, ^retryable_result} = Task.await(owner, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "waiter", fingerprint)
+
+    assert :claimed = AdapterState.claim(namespace, key, "later-request", fingerprint)
+    assert :ok = AdapterState.cancel(namespace, "later-request")
   end
 
   test "replays the same semantic request under a new request id", %{input: input} do
@@ -306,6 +440,33 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
   test "adapter result rejects outputs outside the typed contract" do
     assert {:error, {:terminal, :invalid_adapter_result}} = AdapterResult.normalize(%{})
+  end
+
+  test "direct typed model outputs still pass through manifest validation", %{input: input} do
+    namespace = {:direct_typed_output, make_ref()}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        {:ok,
+         {:ok,
+          %ModelOutput{
+            classification: :proposal,
+            safe_summary: "Wrong nested type",
+            structured_content: %{"proposal" => %{"intent" => true}}
+          }}}
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             DeterministicRuntime.invoke(
+               %{input | idempotency_key: "direct-typed-output"},
+               configuration
+             )
   end
 
   test "model output schema rejects missing content, wrong nested types, and oversized content" do
@@ -425,6 +586,15 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert {:error, {:terminal, :invalid_model_input}} =
              AdapterContract.validate_model_input(incompatible_manifest, input)
+  end
+
+  test "model manifests require idempotent replay support", %{input: input} do
+    manifest = %{DeterministicModel.manifest() | idempotency_supported: false}
+
+    refute AdapterContract.valid_model_manifest?(manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(manifest, input)
   end
 
   test "model invocation fails closed for sensitivity and approval before fixture execution", %{

@@ -183,7 +183,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
             runtime
             |> then(&%{&1 | entries: Map.put(&1.entries, key, retryable)})
             |> put_record(pending.request_id, request_record(:retryable, key, fingerprint))
-            |> record_retryable_waiters(pending.waiters, key, fingerprint)
+            |> record_retryable_waiters(
+              pending.waiters,
+              pending.request_id,
+              key,
+              fingerprint
+            )
           else
             completed = %Entry{
               fingerprint: fingerprint,
@@ -265,7 +270,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
       case Map.get(runtime.requests, request_id) do
         %{status: status}
         when status in [:completed, :cancelled, :conflict, :replayed, :retryable, :timed_out] ->
-          %{runtime | retained: Map.put_new(runtime.retained, request_id, retained)}
+          %{
+            runtime
+            | retained: put_retained_metadata(runtime.retained, request_id, retained)
+          }
 
         _record ->
           runtime
@@ -464,7 +472,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         expire_owner_claim(runtime, key, pending)
 
       _not_pending ->
-        terminalize_timed_out_replay(runtime, key, request_id, fingerprint, claim_ref)
+        terminalize_timed_out_delivery(runtime, key, request_id, fingerprint, claim_ref)
     end
   end
 
@@ -498,14 +506,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     )
   end
 
-  defp terminalize_timed_out_replay(runtime, key, request_id, fingerprint, claim_ref) do
+  defp terminalize_timed_out_delivery(runtime, key, request_id, fingerprint, claim_ref) do
     case Map.get(runtime.requests, request_id) do
-      %{
-        status: :replayed,
-        replay_key: ^key,
-        fingerprint: ^fingerprint,
-        claim_ref: ^claim_ref
-      } ->
+      %{status: status, replay_key: ^key, fingerprint: ^fingerprint, claim_ref: ^claim_ref}
+      when status in [:replayed, :retryable] ->
         terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
 
       _record ->
@@ -649,9 +653,17 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   defp entry_reference?(_record, _replay_key), do: false
 
-  defp record_retryable_waiters(runtime, waiters, key, fingerprint) do
+  defp record_retryable_waiters(runtime, waiters, owner_request_id, key, fingerprint) do
     Enum.reduce(waiters, runtime, fn waiter, current ->
-      put_record(current, waiter.request_id, request_record(:retryable, key, fingerprint))
+      if waiter.request_id == owner_request_id do
+        current
+      else
+        put_record(
+          current,
+          waiter.request_id,
+          request_record(:retryable, key, fingerprint, waiter.claim_ref)
+        )
+      end
     end)
   end
 
@@ -759,6 +771,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   defp bind(record, _field, nil), do: record
   defp bind(record, field, value), do: Map.put(record, field, value)
+
+  defp put_retained_metadata(retained_by_request, request_id, retained) do
+    Map.update(retained_by_request, request_id, retained, fn existing ->
+      if match?(%{classification: :retryable}, existing), do: retained, else: existing
+    end)
+  end
 
   defp runtime(state, namespace) do
     Map.get(state, namespace, %{
