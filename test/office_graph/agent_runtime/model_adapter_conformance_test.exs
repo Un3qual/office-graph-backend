@@ -578,6 +578,31 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              })
   end
 
+  test "credential contracts reject boolean credential kinds", %{input: input} do
+    credential_manifest = %ModelManifest{
+      DeterministicModel.manifest()
+      | credential_kinds: [:api_token]
+    }
+
+    for boolean <- [false, true] do
+      boolean_manifest = %{DeterministicModel.manifest() | credential_kinds: [boolean]}
+
+      refute AdapterContract.valid_model_manifest?(boolean_manifest)
+
+      assert {:error, {:terminal, :invalid_model_input}} =
+               AdapterContract.validate_model_input(boolean_manifest, %{
+                 input
+                 | credential_kinds: [boolean]
+               })
+
+      assert {:error, {:terminal, :invalid_model_input}} =
+               AdapterContract.validate_model_input(credential_manifest, %{
+                 input
+                 | credential_kinds: [boolean]
+               })
+    end
+  end
+
   test "rejects malformed typed input before reading a fixture", %{input: input} do
     assert {:error, {:terminal, :invalid_model_input}} =
              DeterministicModel.invoke(%{
