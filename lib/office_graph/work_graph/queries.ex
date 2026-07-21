@@ -54,6 +54,41 @@ defmodule OfficeGraph.WorkGraph.Queries do
     end
   end
 
+  def agent_context_items(authority, item_id)
+      when is_map(authority) and is_binary(item_id) do
+    with principal_id when is_binary(principal_id) <- Map.get(authority, :agent_principal_id),
+         organization_id when is_binary(organization_id) <- Map.get(authority, :organization_id),
+         workspace_id when is_binary(workspace_id) <- Map.get(authority, :workspace_id),
+         :ok <-
+           Authorization.authorize_system_principal(
+             principal_id,
+             organization_id,
+             workspace_id,
+             :skeleton_read
+           ),
+         scope = %{organization_id: organization_id, workspace_id: workspace_id},
+         {:ok, item} <- authorized_item(scope, item_id),
+         {:ok, relationships} <-
+           read_adjacency(scope, item_id, %{
+             lifecycle: "active",
+             direction: :both,
+             definition_keys: nil,
+             limit: 100
+           }),
+         {:ok, endpoints} <- batch_authorized_endpoints(scope, relationships) do
+      {:ok,
+       %{
+         selected_item: item,
+         relationships: Enum.map(relationships, &relationship_view(&1, endpoints))
+       }}
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _missing_or_forbidden -> {:error, :forbidden}
+    end
+  end
+
+  def agent_context_items(_authority, _item_id), do: {:error, :forbidden}
+
   def get_relationship(session_context, relationship_id) do
     with :ok <-
            Authorization.authorize_projection(session_context, :skeleton_read,

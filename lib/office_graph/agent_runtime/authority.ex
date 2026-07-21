@@ -1,0 +1,326 @@
+defmodule OfficeGraph.AgentRuntime.Authority do
+  @moduledoc false
+
+  alias OfficeGraph.{Authorization, Identity, Runs}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentDefinition,
+    AgentExecution,
+    ApprovalRequest,
+    AuthoritySnapshot,
+    OrganizationBinding
+  }
+
+  alias OfficeGraph.Integrations.IntegrationCredential
+
+  require Ash.Query
+
+  def compute(%OrganizationBinding{} = binding, %AgentDefinition{} = definition, request, attrs) do
+    with :ok <- validate_definition_authority(definition, request),
+         :ok <- authorize_agent(binding),
+         {:ok, credentials} <- active_credentials(definition, binding),
+         {:ok, policy_bundle} <- Authorization.active_policy_bundle(binding.organization_id) do
+      capability_keys = Enum.sort(request.requested_capabilities)
+      tool_keys = Enum.sort(definition.tool_allowlist)
+      credential_ids = Enum.sort(Enum.map(credentials, & &1.id))
+
+      authority = %{
+        organization_id: binding.organization_id,
+        workspace_id: binding.workspace_id,
+        agent_principal_id: binding.agent_principal_id,
+        delegator_principal_id: attrs[:delegator_principal_id],
+        policy_bundle_id: policy_bundle.id,
+        policy_bundle_version: policy_bundle.version,
+        operation_id: attrs[:operation_id],
+        version: 1,
+        capability_keys: capability_keys,
+        tool_keys: tool_keys,
+        credential_ids: credential_ids,
+        autonomy_mode: request.autonomy_mode,
+        captured_at: DateTime.utc_now()
+      }
+
+      {:ok, Map.put(authority, :authority_hash, authority_hash(authority))}
+    end
+  end
+
+  def revalidate(execution_id, opts \\ [])
+
+  def revalidate(execution_id, opts) when is_binary(execution_id) and is_list(opts) do
+    with {:ok, execution} <- load_execution(execution_id),
+         {:ok, snapshot} <- load_snapshot(execution.id),
+         {:ok, binding} <- load_binding(execution.organization_binding_id),
+         {:ok, definition} <- load_definition(execution.definition_id),
+         :ok <- validate_execution_binding(execution, binding, definition),
+         :ok <- validate_agent_principal(execution.agent_principal_id),
+         :ok <- validate_agent_grants(execution),
+         :ok <- validate_delegator_grant(execution),
+         :ok <- validate_snapshot_contract(snapshot, execution, definition),
+         :ok <- validate_policy_bundle(snapshot, execution),
+         :ok <- Runs.revalidate_agent_authority(execution, snapshot.autonomy_mode),
+         :ok <- validate_snapshot_credentials(snapshot, execution),
+         :ok <- validate_tool(opts[:tool_key], snapshot, definition),
+         :ok <- validate_approval(opts[:approval_request_id], execution, snapshot) do
+      :ok
+    end
+  end
+
+  def revalidate(_execution_id, _opts), do: {:error, :forbidden}
+
+  defp validate_definition_authority(definition, request) do
+    unsupported = request.requested_capabilities -- definition.requested_capabilities
+
+    cond do
+      definition.lifecycle_state != "active" ->
+        {:error, :forbidden}
+
+      request.invocation_mode not in definition.supported_modes ->
+        {:error, :forbidden}
+
+      request.autonomy_mode != definition.default_autonomy_mode ->
+        {:error, :forbidden}
+
+      unsupported != [] ->
+        {:error, {:unsupported_agent_capabilities, Enum.sort(unsupported)}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp authorize_agent(binding) do
+    with :ok <-
+           Authorization.authorize_system_principal(
+             binding.agent_principal_id,
+             binding.organization_id,
+             binding.workspace_id,
+             :agent_runtime_execute
+           ),
+         :ok <-
+           Authorization.authorize_system_principal(
+             binding.agent_principal_id,
+             binding.organization_id,
+             binding.workspace_id,
+             :skeleton_read
+           ) do
+      :ok
+    end
+  end
+
+  defp active_credentials(definition, binding) do
+    [definition.model_credential_id]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce_while({:ok, []}, fn credential_id, {:ok, credentials} ->
+      case credential(credential_id, binding.organization_id, binding.workspace_id) do
+        {:ok, credential} -> {:cont, {:ok, [credential | credentials]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, credentials} -> {:ok, Enum.reverse(credentials)}
+      error -> error
+    end
+  end
+
+  defp credential(id, organization_id, workspace_id) do
+    IntegrationCredential
+    |> Ash.Query.filter(
+      id == ^id and organization_id == ^organization_id and
+        (is_nil(workspace_id) or workspace_id == ^workspace_id)
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{status: "active"} = credential} ->
+        if is_nil(credential.expires_at) or
+             DateTime.compare(credential.expires_at, DateTime.utc_now()) == :gt,
+           do: {:ok, credential},
+           else: {:error, :credential_inactive}
+
+      {:ok, _missing_or_inactive} ->
+        {:error, :credential_inactive}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp load_execution(id), do: get(AgentExecution, id, :execution_not_found)
+  defp load_binding(id), do: get(OrganizationBinding, id, :binding_inactive)
+  defp load_definition(id), do: get(AgentDefinition, id, :definition_inactive)
+
+  defp load_snapshot(execution_id) do
+    AuthoritySnapshot
+    |> Ash.Query.filter(execution_id == ^execution_id and version == 1)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %AuthoritySnapshot{} = snapshot} -> {:ok, snapshot}
+      {:ok, nil} -> {:error, :authority_snapshot_missing}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp get(resource, id, missing_reason) do
+    case Ash.get(resource, id, authorize?: false, not_found_error?: false) do
+      {:ok, nil} -> {:error, missing_reason}
+      {:ok, record} -> {:ok, record}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_execution_binding(execution, binding, definition) do
+    if binding.lifecycle_state == "active" and definition.lifecycle_state == "active" and
+         binding.definition_id == definition.id and
+         binding.organization_id == execution.organization_id and
+         binding.workspace_id == execution.workspace_id and
+         binding.agent_principal_id == execution.agent_principal_id do
+      :ok
+    else
+      {:error, :binding_inactive}
+    end
+  end
+
+  defp validate_agent_principal(principal_id) do
+    case Identity.active_system_principal(principal_id) do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :agent_principal_inactive}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_agent_grants(execution) do
+    with :ok <-
+           Authorization.authorize_system_principal(
+             execution.agent_principal_id,
+             execution.organization_id,
+             execution.workspace_id,
+             :agent_runtime_execute
+           ),
+         :ok <-
+           Authorization.authorize_system_principal(
+             execution.agent_principal_id,
+             execution.organization_id,
+             execution.workspace_id,
+             :skeleton_read
+           ) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _error -> {:error, :agent_authority_revoked}
+    end
+  end
+
+  defp validate_delegator_grant(%{delegator_principal_id: nil}), do: :ok
+
+  defp validate_delegator_grant(execution) do
+    case Authorization.authorize_principal(
+           execution.delegator_principal_id,
+           execution.organization_id,
+           execution.workspace_id,
+           :agent_invoke
+         ) do
+      :ok -> :ok
+      {:error, :integration_storage_unavailable} = error -> error
+      _error -> {:error, :delegator_authority_revoked}
+    end
+  end
+
+  defp validate_snapshot_contract(snapshot, execution, definition) do
+    valid? =
+      snapshot.execution_id == execution.id and
+        snapshot.organization_id == execution.organization_id and
+        snapshot.workspace_id == execution.workspace_id and
+        snapshot.agent_principal_id == execution.agent_principal_id and
+        snapshot.operation_id == execution.operation_id and
+        snapshot.autonomy_mode == execution.autonomy_mode and
+        Enum.empty?(snapshot.capability_keys -- definition.requested_capabilities) and
+        Enum.empty?(snapshot.tool_keys -- definition.tool_allowlist) and
+        snapshot.authority_hash == authority_hash(Map.from_struct(snapshot))
+
+    if valid?, do: :ok, else: {:error, :authority_snapshot_invalid}
+  end
+
+  defp validate_snapshot_credentials(snapshot, execution) do
+    Enum.reduce_while(snapshot.credential_ids, :ok, fn credential_id, :ok ->
+      case credential(credential_id, execution.organization_id, execution.workspace_id) do
+        {:ok, _credential} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_policy_bundle(snapshot, execution) do
+    case Authorization.active_policy_bundle(execution.organization_id) do
+      {:ok, %{id: id, version: version}}
+      when id == snapshot.policy_bundle_id and version == snapshot.policy_bundle_version ->
+        :ok
+
+      {:error, :integration_storage_unavailable} = error ->
+        error
+
+      _changed_or_missing ->
+        {:error, :authority_policy_changed}
+    end
+  end
+
+  defp validate_tool(nil, _snapshot, _definition), do: :ok
+
+  defp validate_tool(tool_key, snapshot, definition) when is_binary(tool_key) do
+    if tool_key in snapshot.tool_keys and tool_key in definition.tool_allowlist,
+      do: :ok,
+      else: {:error, :tool_not_authorized}
+  end
+
+  defp validate_tool(_tool_key, _snapshot, _definition), do: {:error, :tool_not_authorized}
+
+  defp validate_approval(nil, _execution, _snapshot), do: :ok
+
+  defp validate_approval(approval_id, execution, snapshot) when is_binary(approval_id) do
+    case Ash.get(ApprovalRequest, approval_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok,
+       %ApprovalRequest{
+         execution_id: execution_id,
+         authority_snapshot_id: snapshot_id,
+         state: "approved"
+       } = approval}
+      when execution_id == execution.id and snapshot_id == snapshot.id ->
+        if DateTime.compare(approval.expires_at, DateTime.utc_now()) == :gt,
+          do: :ok,
+          else: {:error, :approval_not_active}
+
+      {:ok, _missing_or_inactive} ->
+        {:error, :approval_not_active}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_approval(_approval_id, _execution, _snapshot),
+    do: {:error, :approval_not_active}
+
+  def authority_hash(authority) when is_map(authority) do
+    authority
+    |> Map.take([
+      :organization_id,
+      :workspace_id,
+      :agent_principal_id,
+      :delegator_principal_id,
+      :policy_bundle_id,
+      :policy_bundle_version,
+      :operation_id,
+      :version,
+      :capability_keys,
+      :tool_keys,
+      :credential_ids,
+      :autonomy_mode,
+      :captured_at
+    ])
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+end

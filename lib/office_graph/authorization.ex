@@ -37,6 +37,7 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_archive: "graph_relationship.archive",
     graph_relationship_restore: "graph_relationship.restore",
     agent_definition_bind: "agent.definition.bind",
+    agent_invoke: "agent.invoke",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
@@ -157,6 +158,42 @@ defmodule OfficeGraph.Authorization do
 
   def authorize_system_principal(_principal_id, _organization_id, _workspace_id, _action),
     do: {:error, :forbidden}
+
+  def authorize_principal(principal_id, organization_id, workspace_id, action)
+      when is_binary(principal_id) and is_binary(organization_id) do
+    with {:ok, required} <- Map.fetch(@recognized_capabilities, action),
+         {:ok, true} <- Identity.active_principal(principal_id),
+         {:ok, true} <-
+           granted_capability_for_principal(
+             principal_id,
+             organization_id,
+             workspace_id,
+             required
+           ) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _other -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_principal(_principal_id, _organization_id, _workspace_id, _action),
+    do: {:error, :forbidden}
+
+  def active_policy_bundle(organization_id) when is_binary(organization_id) do
+    PolicyBundle
+    |> Ash.Query.filter(organization_id == ^organization_id and status == "active")
+    |> Ash.Query.sort(version: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [%PolicyBundle{} = bundle]} -> {:ok, bundle}
+      {:ok, []} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def active_policy_bundle(_organization_id), do: {:error, :forbidden}
 
   def ensure_system_role(
         %{id: principal_id},

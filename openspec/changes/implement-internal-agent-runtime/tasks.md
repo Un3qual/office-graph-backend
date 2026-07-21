@@ -11,9 +11,9 @@
 
 ## 3. Invocation, Authority, And Context
 
-- [ ] 3.1 Add failing tests for human and automatic run-linked invocation, replay, definition/run/scope validation, generic system-operation consumption, and immutable authority snapshots.
-- [ ] 3.2 Implement invocation commands, effective-authority computation, operation/execution creation, and pre-step revalidation of principals, credentials, grants, approvals, and tools.
-- [ ] 3.3 Add failing context-package tests, then implement authorized projection assembly, inclusion/redaction rationale, immutable versions, and cross-tenant fail-closed behavior.
+- [x] 3.1 Add failing tests for human and automatic run-linked invocation, replay, definition/run/scope validation, generic system-operation consumption, and immutable authority snapshots.
+- [x] 3.2 Implement invocation commands, effective-authority computation, operation/execution creation, and pre-step revalidation of principals, credentials, grants, approvals, and tools.
+- [x] 3.3 Add failing context-package tests, then implement authorized projection assembly, inclusion/redaction rationale, immutable versions, and cross-tenant fail-closed behavior.
 
 ## 4. Durable Execution State Machine
 

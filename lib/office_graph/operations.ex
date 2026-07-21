@@ -39,6 +39,7 @@ defmodule OfficeGraph.Operations do
     graph_relationship_restore: "graph_relationship.restore",
     graph_relationship_cross_workspace: "graph_relationship.cross_workspace",
     agent_definition_bind: "agent.definition.bind",
+    agent_invoke: "agent.invoke",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",

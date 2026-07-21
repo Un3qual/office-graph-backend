@@ -10,21 +10,47 @@ defmodule OfficeGraph.AgentRuntime do
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
+      OfficeGraph.Projections,
       OfficeGraph.Repo,
       OfficeGraph.Runs,
       OfficeGraph.Tenancy,
       OfficeGraph.WorkGraph
     ],
-    exports: []
+    exports: [InvocationRequest]
 
   require Ash.Query
 
   alias OfficeGraph.{Authorization, Identity, Operations, Repo}
-  alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding, StorageResult}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentDefinition,
+    Authority,
+    InvocationCommands,
+    InvocationRequest,
+    OrganizationBinding,
+    StorageResult
+  }
+
   alias OfficeGraph.Identity.Principal
 
   @canonical_definition_key "openspec-review"
   @agent_capabilities [:agent_runtime_execute, :skeleton_read]
+
+  def invoke(session_context, operation, %InvocationRequest{} = request) do
+    InvocationCommands.invoke(session_context, operation, request)
+  end
+
+  def invoke(_session_context, _operation, _request), do: {:error, :forbidden}
+
+  def invoke_system(operation, %InvocationRequest{} = request) do
+    InvocationCommands.invoke_system(operation, request)
+  end
+
+  def invoke_system(_operation, _request), do: {:error, :forbidden}
+
+  def revalidate_step(execution_id, opts \\ []) do
+    Authority.revalidate(execution_id, opts)
+  end
 
   @doc """
   Binds the migration-owned OpenSpec review definition in the caller's workspace.

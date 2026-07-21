@@ -23,6 +23,7 @@ defmodule OfficeGraph.Runs do
   alias OfficeGraph.WorkPackets.{
     WorkPacket,
     WorkPacketRequiredCheck,
+    WorkPacketSourceReference,
     WorkPacketVersion
   }
 
@@ -69,6 +70,67 @@ defmodule OfficeGraph.Runs do
       run.aggregate_state not in ["failed", "verified"] and
       run.verification_state not in ["failed", "verified"]
   end
+
+  def agent_context(authority, run_id, graph_item_id)
+      when is_map(authority) and is_binary(run_id) and is_binary(graph_item_id) do
+    with {:ok, principal_id, organization_id, workspace_id} <- agent_scope(authority),
+         :ok <-
+           Authorization.authorize_system_principal(
+             principal_id,
+             organization_id,
+             workspace_id,
+             :skeleton_read
+           ),
+         {:ok, run} <- fetch_agent_run(run_id, organization_id, workspace_id),
+         true <- active_run?(run),
+         :ok <- validate_run_graph_item(run, graph_item_id),
+         {:ok, packet} <- fetch_agent_record(WorkPacket, run.work_packet_id, run),
+         {:ok, packet_version} <-
+           fetch_agent_record(WorkPacketVersion, run.work_packet_version_id, run),
+         :ok <- validate_agent_autonomy(run, packet_version, Map.get(authority, :autonomy_mode)),
+         {:ok, required_checks} <- read_run_required_checks(run),
+         {:ok, observations} <- read_observations(run),
+         {:ok, evidence_items} <- read_evidence_items(run),
+         {:ok, verification_results} <- read_verification_results(run) do
+      {:ok,
+       %{
+         run: run,
+         packet: packet,
+         packet_version: packet_version,
+         required_checks: required_checks,
+         observations: observations,
+         evidence_items: evidence_items,
+         verification_results: verification_results
+       }}
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _missing_or_invalid -> {:error, :forbidden}
+    end
+  end
+
+  def agent_context(_authority, _run_id, _graph_item_id), do: {:error, :forbidden}
+
+  def revalidate_agent_authority(execution, autonomy_mode)
+      when is_map(execution) and is_binary(autonomy_mode) do
+    with run_id when is_binary(run_id) <- Map.get(execution, :run_id),
+         graph_item_id when is_binary(graph_item_id) <- Map.get(execution, :graph_item_id),
+         organization_id when is_binary(organization_id) <- Map.get(execution, :organization_id),
+         workspace_id when is_binary(workspace_id) <- Map.get(execution, :workspace_id),
+         {:ok, run} <- fetch_agent_run(run_id, organization_id, workspace_id),
+         true <- active_run?(run),
+         :ok <- validate_run_graph_item(run, graph_item_id),
+         {:ok, packet_version} <-
+           fetch_agent_record(WorkPacketVersion, run.work_packet_version_id, run),
+         :ok <- validate_agent_autonomy(run, packet_version, autonomy_mode) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _missing_or_changed -> {:error, :run_authority_revoked}
+    end
+  end
+
+  def revalidate_agent_authority(_execution, _autonomy_mode),
+    do: {:error, :run_authority_revoked}
 
   def record_observation(session_context, operation, run, attrs) when is_map(attrs) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
@@ -294,6 +356,62 @@ defmodule OfficeGraph.Runs do
       end
     end)
     |> normalize_transaction_result()
+  end
+
+  defp agent_scope(authority) do
+    with principal_id when is_binary(principal_id) <- Map.get(authority, :agent_principal_id),
+         organization_id when is_binary(organization_id) <- Map.get(authority, :organization_id),
+         workspace_id when is_binary(workspace_id) <- Map.get(authority, :workspace_id) do
+      {:ok, principal_id, organization_id, workspace_id}
+    else
+      _invalid -> {:error, :forbidden}
+    end
+  end
+
+  defp fetch_agent_run(run_id, organization_id, workspace_id) do
+    Run
+    |> Ash.Query.filter(
+      id == ^run_id and organization_id == ^organization_id and workspace_id == ^workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %Run{} = run} -> {:ok, run}
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp fetch_agent_record(resource, id, run) do
+    resource
+    |> Ash.Query.filter(
+      id == ^id and organization_id == ^run.organization_id and workspace_id == ^run.workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, :forbidden}
+      {:ok, record} -> {:ok, record}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_run_graph_item(run, graph_item_id) do
+    WorkPacketSourceReference
+    |> Ash.Query.filter(
+      work_packet_version_id == ^run.work_packet_version_id and
+        graph_item_id == ^graph_item_id and organization_id == ^run.organization_id and
+        workspace_id == ^run.workspace_id
+    )
+    |> Ash.exists?(authorize?: false)
+    |> if(do: :ok, else: {:error, :forbidden})
+  end
+
+  defp validate_agent_autonomy(run, packet_version, autonomy_mode) do
+    if run.authority_posture == autonomy_mode and
+         packet_version.autonomy_posture == autonomy_mode do
+      :ok
+    else
+      {:error, :forbidden}
+    end
   end
 
   defp create_observation!(session_context, operation, run, attrs) do
