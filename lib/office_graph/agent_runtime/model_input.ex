@@ -4,6 +4,7 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
   @enforce_keys [
     :request_id,
     :execution_id,
+    :step_key,
     :context_package_id,
     :authority_snapshot_id,
     :operation_id,
@@ -23,6 +24,7 @@ defmodule OfficeGraph.AgentRuntime.ModelInput do
   @type t :: %__MODULE__{
           request_id: Ecto.UUID.t(),
           execution_id: Ecto.UUID.t(),
+          step_key: String.t(),
           context_package_id: Ecto.UUID.t(),
           authority_snapshot_id: Ecto.UUID.t(),
           operation_id: Ecto.UUID.t(),

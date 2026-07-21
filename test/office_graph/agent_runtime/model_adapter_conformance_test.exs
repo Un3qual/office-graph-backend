@@ -195,7 +195,10 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     parent = self()
     namespace = {:replay_wait_timeout, make_ref()}
     request = %{input | timeout_ms: 25, idempotency_key: "claim-timeout"}
-    replay_key = {:result, request.execution_id, request.idempotency_key}
+
+    replay_key =
+      {:result, request.execution_id, request.step_key, request.idempotency_key}
+
     fingerprint = AdapterContract.fingerprint(request)
 
     output = %ModelOutput{
@@ -387,6 +390,23 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert DeterministicModel.retained_request!(replay.request_id) ==
              DeterministicModel.retained_request!(input.request_id)
+  end
+
+  test "scopes replay identity to the durable execution step", %{input: input} do
+    first_step = struct!(input, step_key: "draft-proposal")
+
+    second_step =
+      struct!(input,
+        request_id: uuid(),
+        step_key: "validate-proposal",
+        adapter_payload: %{fixture_id: "terminal"}
+      )
+
+    assert {:ok, %ModelOutput{classification: :proposal}} =
+             DeterministicModel.invoke(first_step)
+
+    assert {:error, {:terminal, :invalid_request}} =
+             DeterministicModel.invoke(second_step)
   end
 
   test "validates authority before replay and rejects a mismatched replay", %{input: input} do
@@ -703,6 +723,69 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.complete(namespace, key, "same-input", {:ok, :recovered})
   end
 
+  test "cancellation preserves an existing idempotency conflict" do
+    namespace = {:conflict_cancellation, make_ref()}
+    key = :shared_result
+
+    assert :claimed = AdapterState.claim(namespace, key, "owner", "original-input")
+
+    assert {:completed, {:ok, :finished}} =
+             AdapterState.complete(namespace, key, "original-input", {:ok, :finished})
+
+    assert :conflict = AdapterState.claim(namespace, key, "conflict", "different-input")
+    assert :ok = AdapterState.cancel(namespace, "conflict")
+    assert :conflict = AdapterState.claim(namespace, key, "conflict", "different-input")
+  end
+
+  test "an abandoned owner keeps the replay key bound to its fingerprint" do
+    namespace = {:abandoned_binding, make_ref()}
+    key = :shared_result
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        send(parent, {:owner_claimed, AdapterState.claim(namespace, key, "owner", "same-input")})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:owner_claimed, :claimed}
+    Process.exit(owner, :kill)
+    assert_pending_count(namespace, 0)
+
+    assert :conflict = AdapterState.claim(namespace, key, "different", "different-input")
+    assert :claimed = AdapterState.claim(namespace, key, "retry", "same-input")
+    assert :ok = AdapterState.cancel(namespace, "retry")
+  end
+
+  test "a timed-out owner keeps the replay key bound to its fingerprint" do
+    namespace = {:timed_out_owner_binding, make_ref()}
+    key = :shared_result
+    :ok = :sys.suspend(AdapterState)
+
+    timed_out_claim =
+      try do
+        claim =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "timed-out", "same-input", 20)
+          end)
+
+        assert_server_queue_length(1)
+        Process.sleep(25)
+        assert_server_queue_length(2)
+        claim
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+    assert %{pending: 0} = AdapterState.state_counts(namespace)
+
+    assert :conflict = AdapterState.claim(namespace, key, "different", "different-input")
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "same-input-retry", "same-input")
+  end
+
   test "retryable fingerprint retention remains bounded after an active retry is abandoned" do
     namespace = {:retryable_abandonment_retention, make_ref()}
     configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)
@@ -840,7 +923,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
   test "same-id invocation cannot retain a conflict before success retention is written", %{
     input: input
   } do
-    key = {:result, input.execution_id, input.idempotency_key}
+    key = {:result, input.execution_id, input.step_key, input.idempotency_key}
     fingerprint = AdapterContract.fingerprint(input)
     success = {:ok, :completed_before_retention}
     success_metadata = %{classification: :proposal, output_hash: <<0>>, safe_summary: "Success"}
@@ -872,6 +955,7 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     %ModelInput{
       request_id: uuid(),
       execution_id: uuid(),
+      step_key: "model-step",
       context_package_id: uuid(),
       authority_snapshot_id: uuid(),
       operation_id: uuid(),

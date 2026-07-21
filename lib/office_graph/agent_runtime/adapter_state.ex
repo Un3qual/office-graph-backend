@@ -250,7 +250,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           nil ->
             {:reply, {:error, :not_found}, state}
 
-          %{status: status} when status in [:completed, :replayed, :timed_out] ->
+          %{status: status} when status in [:completed, :conflict, :replayed, :timed_out] ->
             {:reply, :ok, state}
 
           %{status: :cancelled} ->
@@ -385,6 +385,13 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         runtime = terminalize_request(runtime, request_id, :cancelled, key, fingerprint)
         {:reply, :cancelled, put_runtime(state, namespace, runtime)}
 
+      %Entry{fingerprint: ^fingerprint, status: :timed_out} ->
+        runtime = terminalize_request(runtime, request_id, :timed_out, key, fingerprint)
+        {:reply, timeout_error(), put_runtime(state, namespace, runtime)}
+
+      %Entry{fingerprint: ^fingerprint, status: :abandoned} ->
+        start_claim(runtime, key, request_id, fingerprint, claim_ref, from, state, namespace)
+
       %Entry{fingerprint: ^fingerprint, status: :retryable} ->
         start_claim(runtime, key, request_id, fingerprint, claim_ref, from, state, namespace)
 
@@ -494,7 +501,9 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           put_in(runtime.pending[key], promoted)
 
         [] ->
-          %{runtime | pending: Map.delete(runtime.pending, key)}
+          runtime
+          |> then(&%{&1 | pending: Map.delete(&1.pending, key)})
+          |> put_entry(key, pending.fingerprint, :timed_out)
       end
 
     terminalize_request(
@@ -563,9 +572,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         terminalize_request(runtime, pending.request_id, :abandoned, key, pending.fingerprint)
 
       [] ->
-        runtime = %{runtime | pending: Map.delete(runtime.pending, key)}
+        runtime =
+          runtime
+          |> then(&%{&1 | pending: Map.delete(&1.pending, key)})
+          |> put_entry(key, pending.fingerprint, :abandoned)
+
         terminalize_request(runtime, pending.request_id, :abandoned, key, pending.fingerprint)
     end
+  end
+
+  defp put_entry(runtime, key, fingerprint, status) do
+    entry = %Entry{fingerprint: fingerprint, result: nil, status: status}
+    %{runtime | entries: Map.put(runtime.entries, key, entry)}
   end
 
   defp terminalize_request(runtime, request_id, status, replay_key \\ nil, fingerprint \\ nil) do

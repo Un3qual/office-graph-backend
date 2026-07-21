@@ -243,7 +243,8 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     result
   end
 
-  defp replay_key(input), do: {:result, input.execution_id, input.idempotency_key}
+  defp replay_key(input),
+    do: {:result, input.execution_id, input.step_key, input.idempotency_key}
 
   defp output_hash(structured_content) do
     structured_content

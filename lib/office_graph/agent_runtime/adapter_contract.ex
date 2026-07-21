@@ -14,6 +14,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   @common_input_field_types %{
     request_id: :uuid,
     execution_id: :uuid,
+    step_key: :string,
     context_package_id: :uuid,
     authority_snapshot_id: :uuid,
     operation_id: :uuid,
@@ -132,7 +133,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   defp valid_input_fields?(input, kind) do
     Enum.all?(request_identifiers(input), &match?({:ok, _uuid}, Ecto.UUID.cast(&1))) and
       valid_string_list?(input.capability_keys) and valid_atom_list?(input.credential_kinds) and
-      Enum.all?([input.adapter_version, input.idempotency_key], &nonempty_string?/1) and
+      Enum.all?(
+        [input.step_key, input.adapter_version, input.idempotency_key],
+        &nonempty_string?/1
+      ) and
       is_map(input.adapter_payload) and
       nonempty_string?(adapter_key(input, kind)) and input.sensitivity in @sensitivities and
       is_boolean(input.approval_granted?) and is_integer(input.timeout_ms) and

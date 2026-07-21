@@ -44,6 +44,7 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     fields = ToolInput.__struct__() |> Map.keys()
 
     assert :adapter_payload in fields
+    assert :step_key in fields
     refute :fixture_id in fields
   end
 
@@ -297,6 +298,7 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     %ToolInput{
       request_id: uuid(),
       execution_id: uuid(),
+      step_key: "tool-step",
       context_package_id: uuid(),
       authority_snapshot_id: uuid(),
       operation_id: uuid(),
