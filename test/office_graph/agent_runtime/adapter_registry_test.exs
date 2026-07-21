@@ -523,6 +523,38 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
              AdapterState.claim(namespace, :shared, "original", "original-fingerprint")
   end
 
+  test "a retained conflict keeps its replay entry terminal" do
+    namespace = {:retained_conflict, make_ref()}
+    configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)
+
+    on_exit(fn ->
+      if configured do
+        Application.put_env(:office_graph, :agent_runtime_retention_limit, configured)
+      else
+        Application.delete_env(:office_graph, :agent_runtime_retention_limit)
+      end
+    end)
+
+    Application.put_env(:office_graph, :agent_runtime_retention_limit, 2)
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :shared, "original", "original-fingerprint")
+
+    assert {:completed, {:ok, :original}} =
+             AdapterState.complete(namespace, :shared, "original-fingerprint", {:ok, :original})
+
+    assert :conflict =
+             AdapterState.claim(namespace, :shared, "conflict", "conflict-fingerprint")
+
+    assert :ok = AdapterState.register(namespace, "newer-request")
+
+    assert :conflict =
+             AdapterState.claim(namespace, :shared, "conflict", "conflict-fingerprint")
+
+    assert {:replay, {:ok, :original}} =
+             AdapterState.claim(namespace, :shared, "later-replay", "original-fingerprint")
+  end
+
   test "reset cancels blocked waiters and drops active state" do
     namespace = {:reset, make_ref()}
     :ok = AdapterState.reset(namespace)
@@ -628,6 +660,30 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
 
     assert {:replay, {:ok, :recovered}} =
              AdapterState.claim(namespace, :shared, "takeover-request", "shared-fingerprint")
+  end
+
+  test "cancelling an abandoned owner terminalizes its promoted replay claim" do
+    namespace = {:abandoned_owner_cancellation, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    {owner, _sequence} =
+      start_claim_owner(namespace, :shared, "owner-request", "shared-fingerprint")
+
+    assert_receive {:claim_owner, 1, :claimed}
+
+    {promoted, _sequence} =
+      start_claim_owner(namespace, :shared, "retry-request", "shared-fingerprint")
+
+    refute_receive {:claim_owner, 1, :claimed}, 50
+    Process.exit(owner, :kill)
+    assert_receive {:claim_owner, 1, :claimed}
+
+    assert :ok = AdapterState.cancel(namespace, "owner-request")
+    send(promoted, {:complete, {:ok, :late}})
+    assert_receive {:claim_owner_complete, :cancelled}
+
+    assert :cancelled =
+             AdapterState.claim(namespace, :shared, "later-request", "shared-fingerprint")
   end
 
   test "one claim executes while same-fingerprint callers wait and replay" do

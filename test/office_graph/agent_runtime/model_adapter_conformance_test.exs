@@ -334,6 +334,80 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.retained(namespace, request.request_id)
   end
 
+  test "owned adapter process failures are isolated and classified", %{input: input} do
+    parent = self()
+    namespace = {:owned_work_failure, make_ref()}
+    request = %{input | request_id: uuid(), idempotency_key: "owned-work-failure"}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id -> Process.exit(self(), :kill) end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    {caller, monitor} =
+      spawn_monitor(fn ->
+        send(
+          parent,
+          {:isolated_result, self(), DeterministicRuntime.invoke(request, configuration)}
+        )
+      end)
+
+    assert_receive {:isolated_result, ^caller, {:error, {:terminal, :malformed_model_output}}},
+                   500
+
+    assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 500
+
+    assert {:ok, %{classification: :terminal, failure_code: :malformed_model_output}} =
+             AdapterState.retained(namespace, request.request_id)
+  end
+
+  test "unclassified fixture loader failures fail closed and replay safely", %{input: input} do
+    parent = self()
+
+    Enum.each([error_atom: :error, error_tuple: {:error, :enoent}], fn {label, loader_result} ->
+      namespace = {:unclassified_loader_failure, label, make_ref()}
+
+      request = %{
+        input
+        | request_id: uuid(),
+          idempotency_key: "unclassified-loader-#{label}"
+      }
+
+      configuration = %Configuration{
+        fixture_loader: fn _fixture_id ->
+          send(parent, {:fixture_loader_called, label})
+          loader_result
+        end,
+        malformed_output_code: :malformed_model_output,
+        manifest: DeterministicModel.manifest(),
+        output_module: ModelOutput,
+        state_namespace: namespace,
+        validate_output: &AdapterContract.validate_model_output/2
+      }
+
+      assert {:error, {:terminal, :malformed_model_output}} =
+               DeterministicRuntime.invoke(request, configuration)
+
+      replay = %{request | request_id: uuid()}
+
+      assert {:error, {:terminal, :malformed_model_output}} =
+               DeterministicRuntime.invoke(replay, configuration)
+
+      assert_received {:fixture_loader_called, ^label}
+      refute_received {:fixture_loader_called, ^label}
+
+      assert {:ok, %{classification: :terminal, failure_code: :malformed_model_output}} =
+               AdapterState.retained(namespace, request.request_id)
+
+      assert {:ok, %{classification: :terminal, failure_code: :malformed_model_output}} =
+               AdapterState.retained(namespace, replay.request_id)
+    end)
+  end
+
   test "a waiter remains timed out when completion is queued before timeout cleanup" do
     namespace = {:timeout_completion_race, make_ref()}
     key = :shared_result
@@ -481,6 +555,26 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
                input
                | credential_kinds: [:api_token],
                  sensitivity: :confidential
+             })
+  end
+
+  test "credential contracts reject nil credential kinds", %{input: input} do
+    nil_manifest = %{DeterministicModel.manifest() | credential_kinds: [nil]}
+
+    refute AdapterContract.valid_model_manifest?(nil_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(nil_manifest, %{input | credential_kinds: [nil]})
+
+    credential_manifest = %ModelManifest{
+      DeterministicModel.manifest()
+      | credential_kinds: [:api_token]
+    }
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(credential_manifest, %{
+               input
+               | credential_kinds: [nil]
              })
   end
 

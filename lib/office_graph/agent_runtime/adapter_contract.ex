@@ -309,7 +309,10 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   end
 
   defp valid_string_list?(values), do: is_list(values) and Enum.all?(values, &nonempty_string?/1)
-  defp valid_atom_list?(values), do: is_list(values) and Enum.all?(values, &is_atom/1)
+
+  defp valid_atom_list?(values),
+    do: is_list(values) and Enum.all?(values, &(is_atom(&1) and not is_nil(&1)))
+
   defp nonempty_string?(value), do: is_binary(value) and value != ""
 
   defp valid_classifications?(classifications, :model),

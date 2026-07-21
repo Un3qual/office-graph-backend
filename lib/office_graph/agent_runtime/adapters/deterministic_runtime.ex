@@ -136,7 +136,11 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
         timeout_error()
 
       timeout ->
-        task = Task.async(fn -> load_and_normalize(input, configuration) end)
+        task =
+          Task.Supervisor.async_nolink(
+            OfficeGraph.AgentRuntime.AdapterTaskSupervisor,
+            fn -> load_and_normalize(input, configuration) end
+          )
 
         case Task.yield(task, timeout) do
           {:ok, result} ->
@@ -153,8 +157,9 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   defp load_and_normalize(input, configuration) do
-    with {:ok, fixture} <- configuration.fixture_loader.(input.adapter_payload.fixture_id) do
-      normalize_fixture(fixture, configuration)
+    case configuration.fixture_loader.(input.adapter_payload.fixture_id) do
+      {:ok, fixture} -> normalize_fixture(fixture, configuration)
+      loader_result -> normalize_result(loader_result, configuration)
     end
   catch
     _kind, _reason -> malformed_output(configuration)

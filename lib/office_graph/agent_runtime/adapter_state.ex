@@ -256,8 +256,9 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
           %{status: :cancelled} ->
             {:reply, :ok, state}
 
-          %{status: :retryable, replay_key: key, fingerprint: fingerprint} ->
-            runtime = cancel_retryable(runtime, request_id, key, fingerprint)
+          %{status: status, replay_key: key, fingerprint: fingerprint}
+          when status in [:retryable, :abandoned] ->
+            runtime = cancel_restartable(runtime, request_id, key, fingerprint)
             {:reply, :ok, put_runtime(state, namespace, runtime)}
 
           _record ->
@@ -558,13 +559,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     end)
   end
 
-  defp cancel_retryable(runtime, request_id, key, fingerprint) do
+  defp cancel_restartable(runtime, request_id, key, fingerprint) do
     runtime =
       case {Map.get(runtime.pending, key), Map.get(runtime.entries, key)} do
         {%{fingerprint: ^fingerprint} = pending, _entry} ->
           cancel_pending(runtime, key, pending)
 
-        {_pending, %Entry{fingerprint: ^fingerprint, status: :retryable}} ->
+        {_pending, %Entry{fingerprint: ^fingerprint, status: status}}
+        when status in [:retryable, :abandoned] ->
           put_entry(runtime, key, fingerprint, :cancelled)
 
         _state ->
@@ -672,7 +674,15 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   defp prune_unreferenced_entry(runtime, %{status: status, replay_key: replay_key})
-       when status in [:completed, :replayed, :cancelled, :retryable, :timed_out, :abandoned] do
+       when status in [
+              :completed,
+              :conflict,
+              :replayed,
+              :cancelled,
+              :retryable,
+              :timed_out,
+              :abandoned
+            ] do
     if Map.has_key?(runtime.pending, replay_key) or
          Enum.any?(runtime.requests, fn {_request_id, record} ->
            entry_reference?(record, replay_key)
@@ -686,7 +696,15 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   defp prune_unreferenced_entry(runtime, _record), do: runtime
 
   defp entry_reference?(%{status: status, replay_key: replay_key}, replay_key)
-       when status in [:completed, :replayed, :cancelled, :retryable, :timed_out, :abandoned],
+       when status in [
+              :completed,
+              :conflict,
+              :replayed,
+              :cancelled,
+              :retryable,
+              :timed_out,
+              :abandoned
+            ],
        do: true
 
   defp entry_reference?(_record, _replay_key), do: false
