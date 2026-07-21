@@ -110,13 +110,14 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   defp invoke_new(input, replay_key, fingerprint, deadline, configuration) do
     result = invoke_owned_work(input, deadline, configuration)
 
-    case AdapterState.complete(
+    case AdapterState.complete_until(
            configuration.state_namespace,
            replay_key,
            input.request_id,
            fingerprint,
            result,
-           retained_metadata(result, configuration)
+           retained_metadata(result, configuration),
+           deadline
          ) do
       {:completed, completed_result} ->
         completed_result
@@ -129,6 +130,9 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
 
       :conflict ->
         {:error, {:terminal, :idempotency_conflict}}
+
+      {:error, {:terminal, :timeout_exceeded}} = error ->
+        retain_result(input, error, configuration)
     end
   end
 
@@ -318,10 +322,10 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
            "classification" => classification,
            "safe_summary" => safe_summary,
            "structured_content" => content
-         },
+         } = fixture,
          configuration
        )
-       when is_binary(classification) do
+       when is_binary(classification) and map_size(fixture) == 3 do
     with {:ok, classification} <- output_classification(classification, configuration.manifest) do
       output =
         struct!(configuration.output_module,

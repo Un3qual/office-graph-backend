@@ -414,6 +414,61 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.retained(namespace, request.request_id)
   end
 
+  test "completion delivery cannot outlive the request deadline", %{input: input} do
+    parent = self()
+    namespace = {:completion_deadline, make_ref()}
+
+    request = %{
+      input
+      | request_id: uuid(),
+        idempotency_key: "completion-deadline",
+        timeout_ms: 80
+    }
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, {:completion_fixture_ready, self()})
+
+        receive do
+          :release_completion ->
+            {:ok,
+             %{
+               "classification" => "proposal",
+               "safe_summary" => "Completed while state was backlogged",
+               "structured_content" => %{"proposal" => %{"intent" => "follow_up"}}
+             }}
+        end
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    invocation = Task.async(fn -> DeterministicRuntime.invoke(request, configuration) end)
+
+    assert_receive {:completion_fixture_ready, fixture_pid}, 500
+    :ok = :sys.suspend(AdapterState)
+
+    try do
+      send(fixture_pid, :release_completion)
+      assert_server_queue_length(1)
+      Process.sleep(request.timeout_ms + 10)
+      assert nil == Task.yield(invocation, 0)
+    after
+      :ok = :sys.resume(AdapterState)
+    end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(invocation, 500)
+
+    assert {:ok, %{classification: :terminal, failure_code: :timeout_exceeded}} =
+             AdapterState.retained(namespace, request.request_id)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             DeterministicRuntime.invoke(request, configuration)
+  end
+
   test "owned adapter process failures are isolated and classified", %{input: input} do
     parent = self()
     namespace = {:owned_work_failure, make_ref()}
@@ -1104,6 +1159,33 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:error, {:terminal, :malformed_model_output}} =
              DeterministicRuntime.invoke(
                %{input | idempotency_key: "direct-typed-output"},
+               configuration
+             )
+  end
+
+  test "fixture maps reject undeclared top-level output fields", %{input: input} do
+    namespace = {:extra_top_level_output, make_ref()}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        {:ok,
+         %{
+           "classification" => "proposal",
+           "safe_summary" => "Contains undeclared provider data",
+           "structured_content" => %{"proposal" => %{"intent" => "follow_up"}},
+           "raw_provider_payload" => "secret"
+         }}
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             DeterministicRuntime.invoke(
+               %{input | idempotency_key: "extra-top-level-output"},
                configuration
              )
   end

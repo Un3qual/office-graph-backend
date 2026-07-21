@@ -72,6 +72,29 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         {:complete, namespace, key, request_id, fingerprint, result, retained}
       )
 
+  def complete_until(namespace, key, request_id, fingerprint, result, retained, deadline)
+      when is_integer(deadline) do
+    completion_ref = make_ref()
+
+    case remaining_timeout(deadline) do
+      0 ->
+        expire_completion(namespace, key, request_id, fingerprint, completion_ref)
+
+      timeout ->
+        try do
+          GenServer.call(
+            __MODULE__,
+            {:complete_until, namespace, key, request_id, fingerprint, result, retained,
+             completion_ref, deadline},
+            timeout
+          )
+        catch
+          :exit, {:timeout, _call} ->
+            expire_completion(namespace, key, request_id, fingerprint, completion_ref)
+        end
+    end
+  end
+
   def cancel(namespace, request_id),
     do: GenServer.call(__MODULE__, {:cancel, namespace, request_id})
 
@@ -285,6 +308,60 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
             {:reply, :conflict, state}
         end
     end
+  end
+
+  def handle_call(
+        {:complete_until, namespace, key, request_id, fingerprint, result, retained,
+         completion_ref, deadline},
+        from,
+        state
+      ) do
+    if deadline_expired?(deadline) do
+      runtime = runtime(state, namespace)
+      caller = caller_pid(from)
+
+      {reply, runtime} =
+        expire_completion(runtime, key, request_id, fingerprint, completion_ref, caller)
+
+      {:reply, reply, put_runtime(state, namespace, runtime)}
+    else
+      {:reply, reply, state} =
+        handle_call(
+          {:complete, namespace, key, request_id, fingerprint, result, retained},
+          from,
+          state
+        )
+
+      runtime = runtime(state, namespace)
+
+      runtime =
+        case reply do
+          {:completed, _result} ->
+            stamp_completion(runtime, request_id, key, fingerprint, completion_ref)
+
+          {:replay, _result} ->
+            stamp_completion(runtime, request_id, key, fingerprint, completion_ref)
+
+          _other ->
+            runtime
+        end
+
+      {:reply, reply, put_runtime(state, namespace, runtime)}
+    end
+  end
+
+  def handle_call(
+        {:expire_completion, namespace, key, request_id, fingerprint, completion_ref},
+        from,
+        state
+      ) do
+    runtime = runtime(state, namespace)
+    caller = caller_pid(from)
+
+    {reply, runtime} =
+      expire_completion(runtime, key, request_id, fingerprint, completion_ref, caller)
+
+    {:reply, reply, put_runtime(state, namespace, runtime)}
   end
 
   def handle_call({:cancel, namespace, request_id}, _from, state) do
@@ -665,6 +742,50 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     end
   end
 
+  defp expire_completion(runtime, key, request_id, fingerprint, completion_ref, caller) do
+    case Map.get(runtime.pending, key) do
+      %{fingerprint: ^fingerprint, owner: ^caller} = pending ->
+        Process.demonitor(pending.owner_monitor, [:flush])
+
+        runtime =
+          runtime
+          |> expire_owner_claim(key, pending)
+          |> stamp_completion(request_id, key, fingerprint, completion_ref)
+
+        {timeout_error(), runtime}
+
+      _not_active_owner ->
+        expire_completed_delivery(runtime, key, request_id, fingerprint, completion_ref)
+    end
+  end
+
+  defp expire_completed_delivery(runtime, key, request_id, fingerprint, completion_ref) do
+    case Map.get(runtime.requests, request_id) do
+      %{
+        status: status,
+        replay_key: ^key,
+        fingerprint: ^fingerprint,
+        completion_ref: ^completion_ref
+      }
+      when status in [:completed, :replayed, :retryable] ->
+        runtime =
+          runtime
+          |> terminalize_request(request_id, :timed_out, key, fingerprint)
+          |> then(&%{&1 | retained: Map.delete(&1.retained, request_id)})
+
+        {timeout_error(), runtime}
+
+      %{status: :timed_out, replay_key: ^key, fingerprint: ^fingerprint} ->
+        {timeout_error(), runtime}
+
+      %{status: :cancelled, replay_key: ^key, fingerprint: ^fingerprint} ->
+        {:cancelled, runtime}
+
+      _record ->
+        {:conflict, runtime}
+    end
+  end
+
   defp cancel_pending(runtime, key, pending) do
     signal_cancel_target(pending)
     Enum.each(pending.waiters, &reply_waiter(&1, :cancelled))
@@ -798,6 +919,18 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     |> bind(:claim_ref, claim_ref)
   end
 
+  defp stamp_completion(runtime, nil, _key, _fingerprint, _completion_ref), do: runtime
+
+  defp stamp_completion(runtime, request_id, key, fingerprint, completion_ref) do
+    case Map.get(runtime.requests, request_id) do
+      %{replay_key: ^key, fingerprint: ^fingerprint} = record ->
+        put_record(runtime, request_id, Map.put(record, :completion_ref, completion_ref))
+
+      _record ->
+        runtime
+    end
+  end
+
   defp put_record(runtime, request_id, record),
     do: put_record(runtime, request_id, record, nil)
 
@@ -900,6 +1033,20 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   defp retryable_result?({:error, {:retryable, _failure_code}}), do: true
   defp retryable_result?(_result), do: false
   defp timeout_error, do: {:error, {:terminal, :timeout_exceeded}}
+
+  defp expire_completion(namespace, key, request_id, fingerprint, completion_ref) do
+    GenServer.call(
+      __MODULE__,
+      {:expire_completion, namespace, key, request_id, fingerprint, completion_ref},
+      :infinity
+    )
+  end
+
+  defp remaining_timeout(deadline),
+    do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  defp deadline_expired?(:infinity), do: false
+  defp deadline_expired?(deadline), do: remaining_timeout(deadline) == 0
 
   defp pending_request(runtime, request_id) do
     Enum.find_value(runtime.pending, :none, fn {key, pending} ->
