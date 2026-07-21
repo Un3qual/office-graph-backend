@@ -48,6 +48,15 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert manifest.idempotency_supported == true
   end
 
+  test "model manifests require at least one declared capability", %{input: input} do
+    manifest = %{DeterministicModel.manifest() | capability_keys: []}
+
+    refute AdapterContract.valid_model_manifest?(manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(manifest, %{input | capability_keys: []})
+  end
+
   test "keeps deterministic fixture selection inside the adapter-specific payload" do
     fields = ModelInput.__struct__() |> Map.keys()
 
@@ -398,6 +407,49 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
 
     assert_receive {:DOWN, ^fixture_monitor, :process, ^fixture_pid, _reason}, 500
     assert_pending_count(namespace, 0)
+  end
+
+  test "active cancellation stops owned adapter work without waiting for its deadline", %{
+    input: input
+  } do
+    parent = self()
+    namespace = {:owned_work_cancellation, make_ref()}
+
+    request = %{
+      input
+      | request_id: uuid(),
+        idempotency_key: "owned-work-cancellation",
+        timeout_ms: 1_000
+    }
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, {:cancelled_fixture_started, self()})
+
+        receive do
+          :release -> {:error, {:terminal, :released_after_cancellation}}
+        end
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: namespace,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    invocation = Task.async(fn -> DeterministicRuntime.invoke(request, configuration) end)
+
+    on_exit(fn ->
+      if Process.alive?(invocation.pid), do: Task.shutdown(invocation, :brutal_kill)
+    end)
+
+    assert_receive {:cancelled_fixture_started, fixture_pid}, 500
+    fixture_monitor = Process.monitor(fixture_pid)
+
+    assert :ok = AdapterState.cancel(namespace, request.request_id)
+
+    assert {:ok, {:error, {:cancelled, :cancelled}}} = Task.yield(invocation, 200)
+    assert_receive {:DOWN, ^fixture_monitor, :process, ^fixture_pid, _reason}, 200
   end
 
   test "unclassified fixture loader failures fail closed and replay safely", %{input: input} do

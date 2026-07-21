@@ -79,7 +79,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       is_binary(manifest.version) and manifest.version != "" and
       valid_input_schema?(manifest.input_schema, manifest, kind) and
       valid_output_schema?(manifest.output_schema, manifest.output_classifications, kind) and
-      valid_string_list?(manifest.capability_keys) and
+      valid_nonempty_string_list?(manifest.capability_keys) and
       valid_credential_kind_list?(manifest.credential_kinds) and
       manifest.sensitivity in @sensitivities and manifest.external_write == false and
       is_integer(manifest.timeout_ms) and manifest.timeout_ms in 1_000..120_000 and
@@ -377,6 +377,8 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   end
 
   defp valid_string_list?(values), do: is_list(values) and Enum.all?(values, &nonempty_string?/1)
+
+  defp valid_nonempty_string_list?(values), do: values != [] and valid_string_list?(values)
 
   defp valid_credential_kind_list?(values),
     do: is_list(values) and Enum.all?(values, &valid_credential_kind?/1)

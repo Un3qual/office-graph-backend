@@ -65,6 +65,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   def cancel(namespace, request_id),
     do: GenServer.call(__MODULE__, {:cancel, namespace, request_id})
 
+  def attach_cancel_target(namespace, request_id, target, cancel_ref)
+      when is_pid(target) and is_reference(cancel_ref) do
+    GenServer.call(
+      __MODULE__,
+      {:attach_cancel_target, namespace, request_id, target, cancel_ref}
+    )
+  end
+
   def put_retained(namespace, request_id, retained),
     do: GenServer.call(__MODULE__, {:put_retained, namespace, request_id, retained})
 
@@ -93,6 +101,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     runtime = runtime(state, namespace)
 
     Enum.each(runtime.pending, fn {_key, pending} ->
+      signal_cancel_target(pending)
       Enum.each(pending.waiters, &reply_waiter(&1, :cancelled))
       demonitor_pending(pending)
     end)
@@ -268,6 +277,25 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
     end
   end
 
+  def handle_call(
+        {:attach_cancel_target, namespace, request_id, target, cancel_ref},
+        from,
+        state
+      ) do
+    runtime = runtime(state, namespace)
+    caller = caller_pid(from)
+
+    case pending_request(runtime, request_id) do
+      {:owner, key, %{owner: ^caller}} ->
+        runtime = put_in(runtime.pending[key].cancel_target, {target, cancel_ref})
+        {:reply, :ok, put_runtime(state, namespace, runtime)}
+
+      _not_active_owner ->
+        send(target, {:adapter_cancelled, cancel_ref})
+        {:reply, :cancelled, state}
+    end
+  end
+
   def handle_call({:put_retained, namespace, request_id, retained}, _from, state) do
     runtime = runtime(state, namespace)
 
@@ -427,6 +455,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
         {owner, owner_monitor} = monitor_caller(from)
 
         pending = %{
+          cancel_target: nil,
           fingerprint: fingerprint,
           owner: owner,
           owner_claim_ref: claim_ref,
@@ -496,7 +525,8 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
           promoted = %{
             pending
-            | owner: waiter.pid,
+            | cancel_target: nil,
+              owner: waiter.pid,
               owner_claim_ref: waiter.claim_ref,
               owner_monitor: waiter.monitor,
               request_id: waiter.request_id,
@@ -532,6 +562,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
   end
 
   defp cancel_pending(runtime, key, pending) do
+    signal_cancel_target(pending)
     Enum.each(pending.waiters, &reply_waiter(&1, :cancelled))
     demonitor_pending(pending)
 
@@ -589,7 +620,8 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
         promoted = %{
           pending
-          | owner: waiter.pid,
+          | cancel_target: nil,
+            owner: waiter.pid,
             owner_claim_ref: waiter.claim_ref,
             owner_monitor: waiter.monitor,
             request_id: waiter.request_id,
@@ -818,6 +850,13 @@ defmodule OfficeGraph.AgentRuntime.AdapterState do
 
   defp caller_pid({pid, _tag}), do: pid
   defp reply_waiter(waiter, result), do: GenServer.reply(waiter.from, result)
+
+  defp signal_cancel_target(%{cancel_target: {target, cancel_ref}}) do
+    send(target, {:adapter_cancelled, cancel_ref})
+    :ok
+  end
+
+  defp signal_cancel_target(_pending), do: :ok
 
   defp demonitor_pending(pending) do
     Process.demonitor(pending.owner_monitor, [:flush])

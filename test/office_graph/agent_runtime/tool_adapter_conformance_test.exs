@@ -40,6 +40,15 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     assert manifest.idempotency_supported == true
   end
 
+  test "tool manifests require at least one declared capability", %{input: input} do
+    manifest = %{DeterministicTool.manifest() | capability_keys: []}
+
+    refute AdapterContract.valid_tool_manifest?(manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(manifest, %{input | capability_keys: []})
+  end
+
   test "keeps deterministic fixture selection inside the adapter-specific payload" do
     fields = ToolInput.__struct__() |> Map.keys()
 

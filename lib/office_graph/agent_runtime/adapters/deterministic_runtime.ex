@@ -137,12 +137,20 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
 
       timeout ->
         owner = self()
+        cancel_ref = make_ref()
 
         task =
           Task.Supervisor.async_nolink(
             OfficeGraph.AgentRuntime.AdapterTaskSupervisor,
-            fn -> load_while_owner_alive(owner, input, configuration) end
+            fn -> load_while_owner_alive(owner, input, configuration, cancel_ref) end
           )
+
+        AdapterState.attach_cancel_target(
+          configuration.state_namespace,
+          input.request_id,
+          task.pid,
+          cancel_ref
+        )
 
         case Task.yield(task, timeout) do
           {:ok, result} ->
@@ -158,10 +166,13 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     end
   end
 
-  defp load_while_owner_alive(owner, input, configuration) do
+  defp load_while_owner_alive(owner, input, configuration, cancel_ref) do
     owner_monitor = Process.monitor(owner)
 
     receive do
+      {:adapter_cancelled, ^cancel_ref} ->
+        cancelled_error()
+
       {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
         malformed_output(configuration)
     after
@@ -176,14 +187,32 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
             send(guardian, {result_ref, result})
           end)
 
-        await_owned_loader(owner, owner_monitor, loader, result_ref, configuration)
+        await_owned_loader(
+          owner,
+          owner_monitor,
+          loader,
+          result_ref,
+          cancel_ref,
+          configuration
+        )
     end
   end
 
-  defp await_owned_loader(owner, owner_monitor, loader, result_ref, configuration) do
+  defp await_owned_loader(
+         owner,
+         owner_monitor,
+         loader,
+         result_ref,
+         cancel_ref,
+         configuration
+       ) do
     receive do
       {^result_ref, result} ->
-        await_loader_exit(owner, owner_monitor, loader, result, configuration)
+        await_loader_exit(owner, owner_monitor, loader, result, cancel_ref, configuration)
+
+      {:adapter_cancelled, ^cancel_ref} ->
+        stop_loader(loader)
+        cancelled_error()
 
       {:EXIT, ^loader, _reason} ->
         Process.demonitor(owner_monitor, [:flush])
@@ -199,8 +228,12 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     end
   end
 
-  defp await_loader_exit(owner, owner_monitor, loader, result, configuration) do
+  defp await_loader_exit(owner, owner_monitor, loader, result, cancel_ref, configuration) do
     receive do
+      {:adapter_cancelled, ^cancel_ref} ->
+        stop_loader(loader)
+        cancelled_error()
+
       {:EXIT, ^loader, :normal} ->
         Process.demonitor(owner_monitor, [:flush])
         result
@@ -241,6 +274,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   defp timeout_error, do: {:error, {:terminal, :timeout_exceeded}}
+  defp cancelled_error, do: {:error, {:cancelled, :cancelled}}
 
   defp malformed_output(configuration),
     do: {:error, {:terminal, configuration.malformed_output_code}}
