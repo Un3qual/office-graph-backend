@@ -707,6 +707,66 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterState.claim(namespace, key, "owner", fingerprint)
   end
 
+  test "a cancelled replay remains timed out when delivery is queued before cleanup" do
+    namespace = {:timeout_cancelled_replay_race, make_ref()}
+    key = :shared_result
+    fingerprint = "same-input"
+
+    assert :claimed = AdapterState.claim(namespace, key, "owner", fingerprint)
+    assert :ok = AdapterState.cancel(namespace, "owner")
+    :ok = :sys.suspend(AdapterState)
+
+    timed_out_claim =
+      try do
+        claim =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "timed-out", fingerprint, 20)
+          end)
+
+        assert_server_queue_length(1)
+        Process.sleep(25)
+        assert_server_queue_length(2)
+        claim
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "timed-out", fingerprint)
+  end
+
+  test "a conflicting claim remains timed out when delivery is queued before cleanup" do
+    namespace = {:timeout_conflict_race, make_ref()}
+    key = :shared_result
+
+    assert :claimed = AdapterState.claim(namespace, key, "owner", "original-input")
+    :ok = :sys.suspend(AdapterState)
+
+    timed_out_claim =
+      try do
+        claim =
+          Task.async(fn ->
+            AdapterState.claim(namespace, key, "timed-out", "different-input", 20)
+          end)
+
+        assert_server_queue_length(1)
+        Process.sleep(25)
+        assert_server_queue_length(2)
+        claim
+      after
+        :ok = :sys.resume(AdapterState)
+      end
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, key, "timed-out", "different-input")
+
+    assert :ok = AdapterState.cancel(namespace, "owner")
+  end
+
   test "replays the same semantic request under a new request id", %{input: input} do
     assert {:ok, output} = DeterministicModel.invoke(input)
     replay = %{input | request_id: uuid()}
@@ -1163,6 +1223,65 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
       assert :ok = AdapterState.cancel(namespace, stale_request_id)
 
       assert {:replay, {:ok, :recovered}} =
+               AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+    end
+  end
+
+  test "timed-out retries remain terminal when a stale restartable attempt is cancelled" do
+    for restartable_status <- [:retryable, :abandoned] do
+      namespace = {:timed_out_retry_cancellation, restartable_status, make_ref()}
+      key = :shared_result
+      fingerprint = "same-input"
+      stale_request_id = "stale-#{restartable_status}"
+
+      case restartable_status do
+        :retryable ->
+          assert :claimed = AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+
+          assert {:completed, {:error, {:retryable, :provider_unavailable}}} =
+                   AdapterState.complete(
+                     namespace,
+                     key,
+                     fingerprint,
+                     {:error, {:retryable, :provider_unavailable}}
+                   )
+
+        :abandoned ->
+          parent = self()
+
+          owner =
+            spawn(fn ->
+              result = AdapterState.claim(namespace, key, stale_request_id, fingerprint)
+              send(parent, {:stale_owner_claimed, result})
+              Process.sleep(:infinity)
+            end)
+
+          assert_receive {:stale_owner_claimed, :claimed}
+          Process.exit(owner, :kill)
+          assert_pending_count(namespace, 0)
+      end
+
+      :ok = :sys.suspend(AdapterState)
+
+      timed_out_claim =
+        try do
+          claim =
+            Task.async(fn ->
+              AdapterState.claim(namespace, key, "retry", fingerprint, 20)
+            end)
+
+          assert_server_queue_length(1)
+          Process.sleep(25)
+          assert_server_queue_length(2)
+          claim
+        after
+          :ok = :sys.resume(AdapterState)
+        end
+
+      assert {:error, {:terminal, :timeout_exceeded}} = Task.await(timed_out_claim, 500)
+      assert :ok = AdapterState.cancel(namespace, stale_request_id)
+
+      assert {:error, {:terminal, :timeout_exceeded}} =
                AdapterState.claim(namespace, key, stale_request_id, fingerprint)
     end
   end
