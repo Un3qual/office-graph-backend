@@ -47,6 +47,45 @@ defmodule OfficeGraph.AgentRuntime.ToolAdapterConformanceTest do
     refute :fixture_id in fields
   end
 
+  test "tool manifest input schemas cover every typed request field", %{input: input} do
+    manifest = DeterministicTool.manifest()
+
+    incomplete_manifest =
+      put_in(
+        manifest.input_schema.fields,
+        Map.delete(manifest.input_schema.fields, :external_write)
+      )
+
+    refute AdapterContract.valid_tool_manifest?(incomplete_manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(incomplete_manifest, input)
+  end
+
+  test "tool manifests without classified content schemas fail closed", %{input: input} do
+    manifest = DeterministicTool.manifest()
+
+    malformed_manifest = %{
+      manifest
+      | output_schema: Map.delete(manifest.output_schema, :content_schemas)
+    }
+
+    refute AdapterContract.valid_tool_manifest?(malformed_manifest)
+
+    assert {:error, {:terminal, :invalid_tool_input}} =
+             AdapterContract.validate_tool_input(malformed_manifest, input)
+
+    assert {:error, {:terminal, :malformed_tool_output}} =
+             AdapterContract.validate_tool_output(
+               malformed_manifest,
+               %ToolOutput{
+                 classification: :evidence_candidate,
+                 safe_summary: "Safe output",
+                 structured_content: %{"evidence_candidate" => %{"check" => "static"}}
+               }
+             )
+  end
+
   test "returns classified evidence candidates without retaining fixture content", %{input: input} do
     assert {:ok,
             output = %{

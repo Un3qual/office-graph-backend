@@ -10,7 +10,8 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     ModelOutput
   }
 
-  alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+  alias OfficeGraph.AgentRuntime.Adapters.{DeterministicModel, DeterministicRuntime}
+  alias OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime.Configuration
 
   setup do
     :ok = DeterministicModel.reset()
@@ -149,6 +150,55 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:ok, ^output} = DeterministicModel.invoke(input)
   end
 
+  test "replay wait timeouts are classified, retained, and removed from pending state", %{
+    input: input
+  } do
+    parent = self()
+    request = %{input | timeout_ms: 25, idempotency_key: "claim-timeout"}
+
+    configuration = %Configuration{
+      fixture_loader: fn _fixture_id ->
+        send(parent, {:fixture_waiting, self()})
+
+        receive do
+          :release_fixture ->
+            {:ok,
+             %{
+               "classification" => "proposal",
+               "safe_summary" => "Completed after waiter timeout",
+               "structured_content" => %{"proposal" => %{"intent" => "follow_up"}}
+             }}
+        end
+      end,
+      malformed_output_code: :malformed_model_output,
+      manifest: DeterministicModel.manifest(),
+      output_module: ModelOutput,
+      state_namespace: DeterministicModel,
+      validate_output: &AdapterContract.validate_model_output/2
+    }
+
+    owner = Task.async(fn -> DeterministicRuntime.invoke(request, configuration) end)
+    assert_receive {:fixture_waiting, fixture_process}
+
+    timed_out = %{request | request_id: uuid()}
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             DeterministicRuntime.invoke(timed_out, configuration)
+
+    assert %{classification: :terminal, failure_code: :timeout_exceeded} =
+             DeterministicModel.retained_request!(timed_out.request_id)
+
+    assert %{waiters: 0} = AdapterState.state_counts(DeterministicModel)
+    send(fixture_process, :release_fixture)
+    assert {:ok, output} = Task.await(owner, 500)
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             DeterministicRuntime.invoke(timed_out, configuration)
+
+    assert {:ok, ^output} =
+             DeterministicRuntime.invoke(%{request | request_id: uuid()}, configuration)
+  end
+
   test "replays the same semantic request under a new request id", %{input: input} do
     assert {:ok, output} = DeterministicModel.invoke(input)
     replay = %{input | request_id: uuid()}
@@ -280,6 +330,45 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              )
   end
 
+  test "model manifests without classified content schemas fail closed", %{input: input} do
+    manifest = DeterministicModel.manifest()
+
+    malformed_manifest = %{
+      manifest
+      | output_schema: Map.delete(manifest.output_schema, :content_schemas)
+    }
+
+    refute AdapterContract.valid_model_manifest?(malformed_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(malformed_manifest, input)
+
+    assert {:error, {:terminal, :malformed_model_output}} =
+             AdapterContract.validate_model_output(
+               malformed_manifest,
+               %ModelOutput{
+                 classification: :proposal,
+                 safe_summary: "Safe output",
+                 structured_content: %{"proposal" => %{"intent" => "follow_up"}}
+               }
+             )
+  end
+
+  test "model manifest input schemas cover every typed request field", %{input: input} do
+    manifest = DeterministicModel.manifest()
+
+    incomplete_manifest =
+      put_in(
+        manifest.input_schema.fields,
+        Map.delete(manifest.input_schema.fields, :execution_id)
+      )
+
+    refute AdapterContract.valid_model_manifest?(incomplete_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_input(incomplete_manifest, input)
+  end
+
   test "model invocation fails closed for sensitivity and approval before fixture execution", %{
     input: input
   } do
@@ -301,6 +390,15 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert {:ok, output} = DeterministicModel.invoke(input)
     assert :ok = DeterministicModel.cancel(input.request_id)
     assert {:ok, ^output} = DeterministicModel.invoke(input)
+  end
+
+  test "model replayed successes remain completed after cancellation", %{input: input} do
+    assert {:ok, output} = DeterministicModel.invoke(input)
+    replay = %{input | request_id: uuid()}
+
+    assert {:ok, ^output} = DeterministicModel.invoke(replay)
+    assert :ok = DeterministicModel.cancel(replay.request_id)
+    assert {:ok, ^output} = DeterministicModel.invoke(replay)
   end
 
   test "distinct cancellation and conflict results retain only safe failure metadata", %{
@@ -356,33 +454,46 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
     assert total == terminal + records + retained
   end
 
-  test "a stopped caller before atomic claim cannot evict a full replay window", %{input: input} do
-    anchor = %{input | idempotency_key: "anchor"}
-    assert {:ok, output} = DeterministicModel.invoke(anchor)
+  test "a stopped in-flight waiter cannot evict a full replay window" do
+    namespace = {:stopped_waiter_retention, make_ref()}
+    :ok = AdapterState.reset(namespace)
 
-    for sequence <- 1..(AdapterState.retention_limit() - 1) do
-      assert {:ok, %ModelOutput{}} =
-               DeterministicModel.invoke(%{
-                 input
-                 | request_id: uuid(),
-                   idempotency_key: "full-window-#{sequence}"
-               })
+    for sequence <- 1..AdapterState.retention_limit() do
+      key = {:full_window, sequence}
+      fingerprint = "fingerprint-#{sequence}"
+      assert :claimed = AdapterState.claim(namespace, key, "request-#{sequence}", fingerprint)
+
+      assert {:completed, {:ok, ^sequence}} =
+               AdapterState.complete(namespace, key, fingerprint, {:ok, sequence})
     end
 
-    parent = self()
+    assert :claimed =
+             AdapterState.claim(namespace, :anchor, "anchor-request", "anchor-fingerprint")
 
-    caller =
-      spawn(fn ->
-        send(parent, :ready_to_claim)
+    assert {:completed, {:ok, :anchor}} =
+             AdapterState.complete(
+               namespace,
+               :anchor,
+               "anchor-fingerprint",
+               {:ok, :anchor}
+             )
 
-        receive do
-          :claim -> DeterministicModel.invoke(%{input | request_id: uuid()})
-        end
+    assert AdapterState.entry_count(namespace) == AdapterState.retention_limit()
+    assert :claimed = AdapterState.claim(namespace, :pending, "owner", "pending-fingerprint")
+
+    waiter =
+      Task.async(fn ->
+        AdapterState.claim(namespace, :pending, "waiter", "pending-fingerprint")
       end)
 
-    assert_receive :ready_to_claim
-    Process.exit(caller, :kill)
-    assert {:ok, ^output} = DeterministicModel.invoke(anchor)
+    assert_waiter_count(namespace, 1)
+    assert nil == Task.shutdown(waiter, :brutal_kill)
+    assert_waiter_count(namespace, 0)
+
+    assert {:replay, {:ok, :anchor}} =
+             AdapterState.claim(namespace, :anchor, "anchor-replay", "anchor-fingerprint")
+
+    assert :ok = AdapterState.cancel(namespace, "owner")
   end
 
   test "same-id invocation cannot retain a conflict before success retention is written", %{
@@ -434,6 +545,23 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
       token_budget: 100,
       adapter_payload: %{fixture_id: fixture_id}
     }
+  end
+
+  defp assert_waiter_count(namespace, expected, attempts \\ 40)
+
+  defp assert_waiter_count(namespace, expected, attempts) when attempts > 0 do
+    case AdapterState.state_counts(namespace) do
+      %{waiters: ^expected} ->
+        :ok
+
+      _counts ->
+        Process.sleep(5)
+        assert_waiter_count(namespace, expected, attempts - 1)
+    end
+  end
+
+  defp assert_waiter_count(_namespace, expected, 0) do
+    flunk("expected adapter waiter count to become #{expected}")
   end
 
   defp uuid, do: Ecto.UUID.generate()

@@ -245,6 +245,27 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
     assert {:replay, {:ok, :done}} = Task.await(waiter)
   end
 
+  test "adapter state returns a terminal timeout and releases the expired waiter" do
+    namespace = {:claim_timeout_cleanup, make_ref()}
+    :ok = AdapterState.reset(namespace)
+
+    assert :claimed = AdapterState.claim(namespace, :step, "owner-request", "fingerprint")
+
+    waiter =
+      Task.async(fn ->
+        AdapterState.claim(namespace, :step, "waiter-request", "fingerprint", 25)
+      end)
+
+    assert {:error, {:terminal, :timeout_exceeded}} = Task.await(waiter, 500)
+    assert %{waiters: 0} = AdapterState.state_counts(namespace)
+
+    assert {:completed, {:ok, :done}} =
+             AdapterState.complete(namespace, :step, "fingerprint", {:ok, :done})
+
+    assert {:error, {:terminal, :timeout_exceeded}} =
+             AdapterState.claim(namespace, :step, "waiter-request", "fingerprint")
+  end
+
   test "adapter state retention limit is configurable with a safe default" do
     namespace = {:configured_retention, make_ref()}
     configured = Application.get_env(:office_graph, :agent_runtime_retention_limit)

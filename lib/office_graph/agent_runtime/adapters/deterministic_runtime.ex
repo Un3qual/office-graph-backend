@@ -119,6 +119,9 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
 
       :conflict ->
         retain_result(input, {:error, {:terminal, :idempotency_conflict}}, configuration)
+
+      {:error, {:terminal, :timeout_exceeded}} = error ->
+        retain_result(input, error, configuration)
     end
   end
 

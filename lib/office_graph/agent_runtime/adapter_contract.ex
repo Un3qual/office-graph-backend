@@ -53,7 +53,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   defp valid_manifest?(manifest, kind) do
     is_binary(manifest.key) and manifest.key != "" and
       is_binary(manifest.version) and manifest.version != "" and
-      valid_input_schema?(manifest.input_schema) and
+      valid_input_schema?(manifest.input_schema, kind) and
       valid_output_schema?(manifest.output_schema, manifest.output_classifications, kind) and
       valid_string_list?(manifest.capability_keys) and valid_atom_list?(manifest.credential_kinds) and
       manifest.sensitivity in @sensitivities and manifest.external_write == false and
@@ -123,20 +123,29 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
   defp output_valid?(output, :tool), do: ToolOutput.valid?(output)
 
   defp classified_content_valid?(schema, output) do
-    with content when is_map(content) <- output.structured_content,
+    with {:ok, content_schemas} <- Map.fetch(schema, :content_schemas),
+         true <- is_map(content_schemas),
+         content when is_map(content) <- output.structured_content,
          true <- map_size(content) == 1,
          content_key <- Atom.to_string(output.classification),
          {:ok, nested_content} <- Map.fetch(content, content_key),
-         {:ok, content_schema} <- Map.fetch(schema.content_schemas, output.classification) do
+         {:ok, content_schema} <- Map.fetch(content_schemas, output.classification) do
       schema_accepts?(content_schema, nested_content)
     else
       _invalid -> false
     end
   end
 
-  defp valid_input_schema?(schema), do: valid_schema?(schema)
+  defp valid_input_schema?(%{fields: fields} = schema, kind) when is_map(fields) do
+    valid_schema?(schema) and
+      MapSet.equal?(MapSet.new(Map.keys(fields)), typed_input_fields(kind))
+  end
 
-  defp valid_output_schema?(schema, classifications, kind) do
+  defp valid_input_schema?(_schema, _kind), do: false
+
+  defp valid_output_schema?(schema, classifications, kind) when is_map(schema) do
+    content_schemas = Map.get(schema, :content_schemas)
+
     valid_schema?(schema) and
       schema.required == [:classification, :safe_summary, :structured_content] and
       schema.fields == %{
@@ -144,12 +153,15 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
         safe_summary: {:string, 1_000},
         structured_content: :classified_content
       } and
-      is_map(schema.content_schemas) and
+      is_map(content_schemas) and
+      valid_classifications?(classifications, kind) and
       Enum.all?(classifications, fn classification ->
-        Map.has_key?(schema.content_schemas, classification) and
-          valid_schema?(schema.content_schemas[classification])
-      end) and valid_classifications?(classifications, kind)
+        Map.has_key?(content_schemas, classification) and
+          valid_schema?(content_schemas[classification])
+      end)
   end
+
+  defp valid_output_schema?(_schema, _classifications, _kind), do: false
 
   defp valid_schema?(%{required: required, fields: fields, max_serialized_bytes: max_bytes}) do
     is_list(required) and is_map(fields) and Enum.all?(required, &Map.has_key?(fields, &1)) and
@@ -216,6 +228,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       input.authority_snapshot_id,
       input.operation_id
     ]
+
+  defp typed_input_fields(:model),
+    do: ModelInput.__struct__() |> Map.from_struct() |> Map.keys() |> MapSet.new()
+
+  defp typed_input_fields(:tool),
+    do: ToolInput.__struct__() |> Map.from_struct() |> Map.keys() |> MapSet.new()
 
   defp adapter_key(input, :model), do: input.adapter_key
   defp adapter_key(input, :tool), do: input.tool_key

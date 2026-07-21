@@ -34,7 +34,7 @@ defmodule OfficeGraph.AgentRuntime.ToolInput do
           credential_kinds: [atom()],
           timeout_ms: pos_integer(),
           budget_units: pos_integer(),
-          sensitivity: atom(),
+          sensitivity: :public | :internal | :confidential | :restricted,
           external_write: boolean(),
           approval_granted?: boolean(),
           adapter_payload: map()
