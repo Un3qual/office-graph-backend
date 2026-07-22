@@ -38,6 +38,7 @@ defmodule OfficeGraph.Authorization do
     graph_relationship_restore: "graph_relationship.restore",
     agent_definition_bind: "agent.definition.bind",
     agent_invoke: "agent.invoke",
+    agent_cancel: "agent.cancel",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",

@@ -17,8 +17,8 @@
 
 ## 4. Durable Execution State Machine
 
-- [ ] 4.1 Add failing worker/concurrency tests for queued/running/waiting/retry/completed/failed/cancelled transitions, leases, restart recovery, duplicate dispatch, attempt budgets, and cancellation.
-- [ ] 4.2 Implement durable step workers, state transitions, step idempotency, retry/terminal classification, cancellation, and run/projection invalidations using the unchanged shared system-operation schema.
+- [x] 4.1 Add failing worker/concurrency tests for queued/running/waiting/retry/completed/failed/cancelled transitions, leases, restart recovery, duplicate dispatch, attempt budgets, and cancellation.
+- [x] 4.2 Implement durable step workers, state transitions, step idempotency, retry/terminal classification, cancellation, and run/projection invalidations using the unchanged shared system-operation schema.
 
 ## 5. Approvals, Expansion, And Output Routing
 

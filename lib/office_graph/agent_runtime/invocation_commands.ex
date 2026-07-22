@@ -9,6 +9,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     Authority,
     AuthoritySnapshot,
     ContextAssembler,
+    ExecutionWorker,
     InvocationRequest,
     OrganizationBinding,
     StorageResult
@@ -295,6 +296,11 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
 
     {context_package, context_entries} =
       ContextAssembler.persist_initial!(execution, snapshot, operation, projected_entries)
+
+    case ExecutionWorker.prepare_initial(execution, snapshot) do
+      {:ok, _prepared_step} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
 
     invocation_result(operation, execution, snapshot, context_package, context_entries)
   end

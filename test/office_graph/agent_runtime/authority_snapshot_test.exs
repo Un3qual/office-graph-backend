@@ -21,7 +21,14 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert snapshot.agent_principal_id == context.agent_principal.id
     assert snapshot.delegator_principal_id == context.bootstrap.principal.id
     assert snapshot.operation_id == context.invocation.operation.id
-    assert snapshot.capability_keys == ["proposal.create", "repository.read"]
+
+    assert snapshot.capability_keys == [
+             "agent.model.generate",
+             "agent.tool.read",
+             "proposal.create",
+             "repository.read"
+           ]
+
     assert snapshot.tool_keys == ["openspec.read", "repository.read"]
     assert snapshot.credential_ids == []
     assert snapshot.autonomy_mode == "human_supervised"

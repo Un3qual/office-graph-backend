@@ -65,6 +65,9 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
 
     assert index_exists?("agent_executions_scope_state_index")
     assert index_exists?("agent_executions_operation_index")
+    assert index_exists?("agent_executions_state_lease_index")
+    assert column_exists?("agent_executions", "lease_token")
+    assert column_exists?("agent_executions", "lease_expires_at")
     assert index_exists?("agent_authority_snapshots_execution_version_index")
     assert index_exists?("agent_context_packages_execution_version_index")
     assert index_exists?("agent_context_entries_package_ordinal_index")
@@ -79,9 +82,24 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
   test "the migration installs the canonical OpenSpec review definition without secrets" do
     assert table_exists?("agent_definitions")
 
-    assert %{rows: [[key, lifecycle_state, model_adapter_key, tool_allowlist]]} =
+    assert %{
+             rows: [
+               [
+                 key,
+                 lifecycle_state,
+                 requested_capabilities,
+                 model_adapter_key,
+                 tool_allowlist
+               ]
+             ]
+           } =
              OfficeGraph.Repo.query!("""
-             SELECT key, lifecycle_state, model_adapter_key, tool_allowlist
+             SELECT
+               key,
+               lifecycle_state,
+               requested_capabilities,
+               model_adapter_key,
+               tool_allowlist
              FROM agent_definitions
              WHERE key = 'openspec-review'
              """)
@@ -89,6 +107,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert key == "openspec-review"
     assert lifecycle_state == "active"
     assert model_adapter_key == "deterministic"
+    assert "agent.model.generate" in requested_capabilities
+    assert "agent.tool.read" in requested_capabilities
     assert Enum.sort(tool_allowlist) == ["openspec.read", "repository.read"]
 
     for forbidden <- ~w(secret api_key token raw_prompt raw_response raw_input raw_output) do

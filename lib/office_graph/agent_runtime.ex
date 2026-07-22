@@ -6,6 +6,7 @@ defmodule OfficeGraph.AgentRuntime do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
@@ -25,6 +26,7 @@ defmodule OfficeGraph.AgentRuntime do
   alias OfficeGraph.AgentRuntime.{
     AgentDefinition,
     Authority,
+    CancellationCommands,
     InvocationCommands,
     InvocationRequest,
     OrganizationBinding,
@@ -50,6 +52,10 @@ defmodule OfficeGraph.AgentRuntime do
 
   def revalidate_step(execution_id, opts \\ []) do
     Authority.revalidate(execution_id, opts)
+  end
+
+  def cancel_execution(session_context, operation, attrs) do
+    CancellationCommands.cancel(session_context, operation, attrs)
   end
 
   @doc """
