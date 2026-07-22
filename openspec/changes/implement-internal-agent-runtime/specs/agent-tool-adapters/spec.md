@@ -16,6 +16,12 @@ classification contracts.
   capability, credential, scope, or approval
 - **THEN** the runtime MUST reject or pause the step before adapter execution
 
+#### Scenario: Credentialed adapter input is assembled
+- **WHEN** an adapter manifest declares required credential kinds
+- **THEN** the runtime MUST derive presented kinds from active credential
+  metadata captured by the authority snapshot and MUST NOT copy requirements
+  from the manifest into the request as proof of authority
+
 ### Requirement: Adapter Outputs Are Untrusted And Classified
 Office Graph SHALL validate adapter output and classify it before any owning
 domain consumes it.

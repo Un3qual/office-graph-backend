@@ -31,6 +31,8 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
 
     assert snapshot.tool_keys == ["openspec.read", "repository.read"]
     assert snapshot.credential_ids == []
+    assert snapshot.model_adapter_key == "deterministic"
+    assert snapshot.model_adapter_version == "1"
     assert snapshot.autonomy_mode == "human_supervised"
     assert snapshot.policy_bundle_id == context.bootstrap.policy_bundle.id
     assert snapshot.policy_bundle_version == context.bootstrap.policy_bundle.version

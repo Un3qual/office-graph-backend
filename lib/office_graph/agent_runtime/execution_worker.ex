@@ -7,6 +7,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
   alias OfficeGraph.{AgentRuntime, DurableDelivery, Operations, Repo}
+  alias OfficeGraph.Integrations.IntegrationCredential
 
   alias OfficeGraph.AgentRuntime.{
     AdapterContract,
@@ -47,11 +48,17 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   @doc false
   def enqueue_approval_resume!(%AgentExecution{} = execution, %ApprovalRequest{} = request) do
-    execution
-    |> initial_args(request.operation_id)
-    |> Map.put(:approval_request_id, request.id)
-    |> new()
-    |> Oban.insert!()
+    args =
+      execution
+      |> initial_args(request.operation_id)
+      |> Map.put(:approval_request_id, request.id)
+
+    args =
+      if is_binary(request.context_expansion_request_id),
+        do: Map.put(args, :context_expansion_request_id, request.context_expansion_request_id),
+        else: args
+
+    args |> new() |> Oban.insert!()
   end
 
   @doc false
@@ -139,6 +146,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
               "agent_context_expansion_not_authorized"
             )
 
+          {:error, {:terminal, code}} ->
+            failure_code = safe_code(code, "agent_adapter_authority_invalid")
+            fail_claim(context.execution.id, operation, job, failure_code)
+
           {:error, _reason} ->
             fail_claim(context.execution.id, operation, job, "agent_step_claim_failed")
         end
@@ -190,10 +201,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp load_runtime_context(execution, operation, snapshot) do
     with {:ok, %AgentDefinition{} = definition} <- load_definition(execution.definition_id),
          {:ok, %ContextPackage{} = context_package} <- context_package(execution.id),
-         {:ok, adapter} <- AdapterRegistry.model(definition.model_adapter_key) do
+         {:ok, adapter} <-
+           AdapterRegistry.model(snapshot.model_adapter_key, snapshot.model_adapter_version),
+         {:ok, credential_kinds} <- snapshot_credential_kinds(snapshot, execution) do
       {:ok,
        %{
          adapter: adapter,
+         credential_kinds: credential_kinds,
          context_package: context_package,
          definition: definition,
          execution: execution,
@@ -205,7 +219,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       {:error, :integration_storage_unavailable} = error ->
         error
 
-      {:error, :adapter_not_found} ->
+      {:error, reason} when reason in [:adapter_not_found, :adapter_version_mismatch] ->
         {:error, {:terminal, "agent_adapter_unavailable"}, execution, operation}
 
       {:error, _invalid_runtime_context} ->
@@ -228,6 +242,37 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
+
+  defp snapshot_credential_kinds(snapshot, execution) do
+    Enum.reduce_while(snapshot.credential_ids, {:ok, []}, fn credential_id, {:ok, kinds} ->
+      case Ash.get(IntegrationCredential, credential_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %IntegrationCredential{} = credential}
+        when credential.organization_id == execution.organization_id and
+               (is_nil(credential.workspace_id) or
+                  credential.workspace_id == execution.workspace_id) ->
+          case credential_kind(credential.kind) do
+            {:ok, kind} -> {:cont, {:ok, [kind | kinds]}}
+            {:error, _reason} = error -> {:halt, error}
+          end
+
+        {:ok, _missing_or_wrong_scope} ->
+          {:halt, {:error, :credential_not_found}}
+
+        {:error, _storage_error} ->
+          {:halt, {:error, :integration_storage_unavailable}}
+      end
+    end)
+    |> case do
+      {:ok, kinds} -> {:ok, kinds |> Enum.uniq() |> Enum.sort()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp credential_kind("secret_reference"), do: {:ok, :secret_reference}
+  defp credential_kind(_unsupported), do: {:error, :credential_kind_unsupported}
 
   defp load_operation(operation_id) do
     case Operations.read_operation(operation_id) do
@@ -382,8 +427,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp claim_available_step(context, operation, execution, step_key, fixture_id, lease_token) do
-    with :ok <- ExecutionStateMachine.validate(execution.state, "running") do
-      input = model_input(context, operation, execution, step_key, fixture_id)
+    input = model_input(context, operation, execution, step_key, fixture_id)
+
+    with :ok <- ExecutionStateMachine.validate(execution.state, "running"),
+         :ok <- AdapterContract.validate_model_input(context.manifest, input) do
       credential_id = snapshotted_model_credential_id!(context.snapshot)
       request = create_or_load_request!(context, operation, input, credential_id)
       validate_request_replay!(request, input, credential_id)
@@ -676,6 +723,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       scope_type: "workspace",
       scope_id: execution.workspace_id,
       capability_key: List.first(context.manifest.capability_keys),
+      context_expansion_request_id: context.context_expansion_request_id,
       sensitivity: Atom.to_string(context.manifest.sensitivity),
       external_write: context.manifest.external_write,
       state: "pending",
@@ -800,6 +848,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           :scope_type,
           :scope_id,
           :capability_key,
+          :context_expansion_request_id,
           :sensitivity,
           :external_write,
           :state,
@@ -848,7 +897,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       adapter_version: manifest.version,
       idempotency_key: step_idempotency_key(execution.id, step_key),
       capability_keys: context.snapshot.capability_keys,
-      credential_kinds: manifest.credential_kinds,
+      credential_kinds: context.credential_kinds,
       sensitivity: manifest.sensitivity,
       approval_granted?: is_binary(context.approval_request_id),
       timeout_ms: manifest.timeout_ms,

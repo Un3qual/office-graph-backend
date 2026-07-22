@@ -50,7 +50,8 @@ access to model and tools was rejected because it fragments policy and audit.
 Invocation records mode, origin, selected graph item, run, organization,
 workspace, agent principal, delegator/trigger basis, requested capabilities,
 autonomy envelope, and operation. An immutable authority snapshot records the
-effective intersection used for the execution.
+effective intersection and exact model-adapter key/version used for the
+execution.
 
 Run-less general conversation was rejected for the first implementation because
 the accepted surface is a run-aware operator tool and verification must retain
@@ -61,7 +62,8 @@ parent context.
 Projection contracts assemble selected and neighboring graph items, typed
 records, external references, decisions/checks/evidence, and recent run context.
 Each entry records included, redacted, omitted, restricted, or expansion-required
-posture and a safe rationale. Raw payload slices require policy approval.
+posture, a safe rationale, and the selected source version. Raw payload slices
+require policy approval.
 
 Allowing agents to traverse graph tables on demand was rejected because it can
 self-expand access and cannot explain the prompt boundary.
@@ -99,7 +101,9 @@ or duplicate product effects.
 
 Requests identify execution, step, requested action/context, reason, scope,
 capabilities, sensitivity, expiry, and operation. Narrow GraphQL/JSON commands
-authorize resolve/deny/cancel and resume only the matching waiting step.
+authorize resolve/deny/cancel and resume only the matching waiting step. When a
+step crosses multiple gates, the later request retains the prior approved gate
+lineage so every grant remains revalidated until adapter dispatch.
 
 Implicit approval through conversation membership was rejected because it
 cannot express tool, credential, external-write, or cross-scope authority.

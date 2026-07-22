@@ -5,6 +5,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
 
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
+    ApprovalRequest,
     ContextEntry,
     ContextExpansionRequest,
     ContextPackage,
@@ -146,6 +147,92 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     retried = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
     assert retried.state == "retry_scheduled"
     assert retried.attempt_count == 2
+  end
+
+  test "an approval resume preserves and revalidates its prior expansion authority" do
+    original = Application.get_env(:office_graph, :deterministic_model_approval_required)
+    Application.put_env(:office_graph, :deterministic_model_approval_required, true)
+
+    on_exit(fn ->
+      if is_nil(original) do
+        Application.delete_env(:office_graph, :deterministic_model_approval_required)
+      else
+        Application.put_env(:office_graph, :deterministic_model_approval_required, original)
+      end
+    end)
+
+    fixture = waiting_context_fixture()
+    expansion = approve_expansion(fixture, fixture.request, "Approve bounded context first.")
+    [expansion_resume] = expansion_resume_jobs(fixture.request.id)
+
+    assert :ok = ExecutionWorker.perform(%{expansion_resume | attempt: 1, max_attempts: 3})
+
+    approval =
+      ApprovalRequest
+      |> Ash.Query.filter(execution_id == ^fixture.execution.id and state == "pending")
+      |> Ash.read_one!(authorize?: false)
+
+    Repo.query!(
+      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [Ecto.UUID.dump!(fixture.request.id)]
+    )
+
+    approval_attrs = %{
+      approval_request_id: approval.id,
+      expected_version: approval.version,
+      decision: "approved",
+      resolution_reason: "Approve the model step while retaining its context grant."
+    }
+
+    {:ok, approval_operation} =
+      Operations.start_command(
+        fixture.context.session,
+        :agent_approval_resolve,
+        "approve-after-expansion-#{fixture.context.suffix}",
+        approval_attrs
+      )
+
+    assert {:ok, _resolved} =
+             AgentRuntime.approve(
+               fixture.context.session,
+               approval_operation,
+               approval.id,
+               approval.version,
+               approval_attrs.resolution_reason
+             )
+
+    [approval_resume] = approval_resume_jobs(approval.id)
+
+    assert {:cancel, "agent_authority_revoked"} =
+             ExecutionWorker.perform(%{approval_resume | attempt: 1, max_attempts: 3})
+
+    assert approval.context_expansion_request_id == fixture.request.id
+    assert approval_resume.args["context_expansion_request_id"] == fixture.request.id
+    assert expansion.context_package.expansion_request_id == fixture.request.id
+    assert Repo.aggregate(ModelRequest, :count) == 0
+
+    failed = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_authority_revoked"
+  end
+
+  test "context expansion preserves each entry source version in the successor package" do
+    fixture = waiting_context_fixture()
+    assert %DateTime{} = fixture.target.source_version
+
+    resolved =
+      approve_expansion(fixture, fixture.request, "Approve the versioned bounded reference.")
+
+    expanded =
+      ContextEntry
+      |> Ash.Query.filter(
+        context_package_id == ^resolved.context_package.id and
+          resource_type == ^fixture.request.target_resource_type and
+          resource_id == ^fixture.request.target_resource_id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert expanded.source_version == fixture.target.source_version
   end
 
   test "an unanswered context expansion expires and terminalizes its waiting execution" do
@@ -301,6 +388,16 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       [job],
       job.worker == ^inspect(ExecutionWorker) and
         fragment("?->>'context_expansion_request_id'", job.args) == ^request_id
+    )
+    |> Repo.all()
+  end
+
+  defp approval_resume_jobs(request_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(ExecutionWorker) and
+        fragment("?->>'approval_request_id'", job.args) == ^request_id
     )
     |> Repo.all()
   end

@@ -25,6 +25,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
     attribute :resolution_operation_id, :uuid, public?: true
     attribute :resolved_by_principal_id, :uuid, public?: true
     attribute :credential_id, :uuid, public?: true
+    attribute :context_expansion_request_id, :uuid, public?: true
     attribute :step_key, :string, allow_nil?: false, public?: true
 
     attribute :execution_state_version, :integer,
@@ -71,6 +72,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
         :workspace_id,
         :operation_id,
         :credential_id,
+        :context_expansion_request_id,
         :step_key,
         :execution_state_version,
         :requested_action,
@@ -139,6 +141,11 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
 
     belongs_to :credential, OfficeGraph.Integrations.IntegrationCredential do
       source_attribute :credential_id
+      define_attribute? false
+    end
+
+    belongs_to :context_expansion_request, OfficeGraph.AgentRuntime.ContextExpansionRequest do
+      source_attribute :context_expansion_request_id
       define_attribute? false
     end
   end

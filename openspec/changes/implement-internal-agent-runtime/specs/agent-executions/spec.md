@@ -20,7 +20,8 @@ versioned transitions.
 #### Scenario: Execution is cancelled
 - **WHEN** an authorized actor cancels an active or waiting execution
 - **THEN** new steps MUST stop, active adapter cancellation MUST be requested
-  when supported, and historical records MUST remain
+  from the key/version on the active request when supported, matching pending
+  gates MUST be cancelled atomically, and historical records MUST remain
 
 #### Scenario: Runtime context cannot be loaded
 - **WHEN** a queued step cannot resolve its persisted adapter or other durable

@@ -43,7 +43,8 @@ defmodule OfficeGraph.AgentRuntime.ContextPackageTest do
            end)
 
     assert Enum.all?(entries, fn entry ->
-             entry.operation_id == first.operation.id and is_binary(entry.content_hash)
+             entry.operation_id == first.operation.id and is_binary(entry.content_hash) and
+               match?(%DateTime{}, entry.source_version)
            end)
 
     assert Repo.aggregate(ContextPackage, :count) == 1

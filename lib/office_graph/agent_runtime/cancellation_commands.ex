@@ -6,8 +6,9 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
 
   alias OfficeGraph.AgentRuntime.{
     AdapterRegistry,
-    AgentDefinition,
     AgentExecution,
+    ApprovalRequest,
+    ContextExpansionRequest,
     ExecutionStateMachine,
     ModelRequest,
     StorageResult
@@ -59,6 +60,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   defp persist_cancel(session_context, operation, execution_id, expected_state_version) do
     StorageResult.run(fn ->
       Repo.transaction(fn ->
+        pending_gates = lock_pending_gates(execution_id, session_context)
         execution = lock_execution(execution_id, session_context)
 
         cond do
@@ -79,6 +81,9 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
               model_request = lock_active_model_request(execution.id, execution.current_step_key)
               cancel_model_request!(model_request)
 
+              cancelled_gate =
+                cancel_pending_gate!(session_context, operation, execution, pending_gates)
+
               cancelled =
                 execution
                 |> Ash.Changeset.for_update(:transition, %{
@@ -90,7 +95,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
                 })
                 |> Repo.ash_update!()
 
-              record_invalidation!(session_context, operation, cancelled)
+              record_invalidation!(session_context, operation, cancelled, cancelled_gate)
 
               %{
                 execution: cancelled,
@@ -114,6 +119,35 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     |> Ash.Query.filter(
       id == ^execution_id and organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp lock_pending_gates(execution_id, session_context) do
+    %{
+      approval:
+        lock_pending_gate(
+          ApprovalRequest,
+          execution_id,
+          session_context.organization_id,
+          session_context.workspace_id
+        ),
+      context_expansion:
+        lock_pending_gate(
+          ContextExpansionRequest,
+          execution_id,
+          session_context.organization_id,
+          session_context.workspace_id
+        )
+    }
+  end
+
+  defp lock_pending_gate(resource, execution_id, organization_id, workspace_id) do
+    resource
+    |> Ash.Query.filter(
+      execution_id == ^execution_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id and state == "pending"
     )
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one!(authorize?: false)
@@ -175,29 +209,89 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     :ok
   end
 
-  defp record_invalidation!(session_context, operation, execution) do
-    case DurableDelivery.record_and_enqueue(session_context, operation, %{
-           event_key: "agent-execution:#{execution.id}:v#{execution.state_version}",
-           event_kind: "agent_execution.cancelled",
-           subject_kind: "agent_execution",
-           subject_id: execution.id,
-           subject_version: execution.state_version
-         }) do
-      {:ok, _event} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
+  defp cancel_pending_gate!(session_context, operation, execution, pending_gates) do
+    candidate =
+      case execution.state do
+        "waiting_approval" -> {:approval, pending_gates.approval}
+        "waiting_context" -> {:context_expansion, pending_gates.context_expansion}
+        _active_state -> nil
+      end
+
+    case candidate do
+      {kind, request} when not is_nil(request) ->
+        if request.step_key == execution.current_step_key and
+             request.execution_state_version == execution.state_version do
+          resolved =
+            request
+            |> Ash.Changeset.for_update(:resolve, %{
+              state: "cancelled",
+              version: request.version + 1,
+              resolution_operation_id: operation.id,
+              resolved_by_principal_id: session_context.principal_id,
+              resolution_reason: "execution_cancelled",
+              resolved_at: DateTime.utc_now()
+            })
+            |> Repo.ash_update!()
+
+          {kind, resolved}
+        end
+
+      _missing_or_mismatched ->
+        nil
     end
+  end
+
+  defp record_invalidation!(session_context, operation, execution, cancelled_gate) do
+    events = [
+      DurableDelivery.event_attrs(
+        "agent-execution:#{execution.id}:v#{execution.state_version}",
+        "agent_execution.cancelled",
+        "agent_execution",
+        execution.id,
+        execution.state_version
+      )
+      | gate_events(cancelled_gate)
+    ]
+
+    Enum.each(events, fn attrs ->
+      case DurableDelivery.record_and_enqueue(session_context, operation, attrs) do
+        {:ok, _event} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp gate_events(nil), do: []
+
+  defp gate_events({:approval, request}) do
+    [
+      DurableDelivery.event_attrs(
+        "agent-approval-request:#{request.id}:v#{request.version}",
+        "agent_approval_request.cancelled",
+        "agent_approval_request",
+        request.id,
+        request.version
+      )
+    ]
+  end
+
+  defp gate_events({:context_expansion, request}) do
+    [
+      DurableDelivery.event_attrs(
+        "agent-context-expansion-request:#{request.id}:v#{request.version}",
+        "agent_context_expansion_request.cancelled",
+        "agent_context_expansion_request",
+        request.id,
+        request.version
+      )
+    ]
   end
 
   defp signal_active_adapter(%{model_request: nil}), do: :ok
   defp signal_active_adapter(%{replayed?: true}), do: :ok
 
-  defp signal_active_adapter(%{execution: execution, model_request: request}) do
-    with {:ok, %AgentDefinition{} = definition} <-
-           Ash.get(AgentDefinition, execution.definition_id,
-             authorize?: false,
-             not_found_error?: false
-           ),
-         {:ok, adapter} <- AdapterRegistry.model(definition.model_adapter_key) do
+  defp signal_active_adapter(%{model_request: request}) do
+    with {:ok, adapter} <- AdapterRegistry.model(request.adapter_key, request.adapter_version) do
       adapter.cancel(request.id)
     else
       _unavailable -> :ok

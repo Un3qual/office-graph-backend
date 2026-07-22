@@ -24,6 +24,7 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
     attribute :external_reference_id, :uuid, public?: true
     attribute :posture, :string, allow_nil?: false, public?: true
     attribute :rationale_code, :string, allow_nil?: false, public?: true
+    attribute :source_version, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :content_hash, :string, public?: true
     attribute :ordinal, :integer, allow_nil?: false, constraints: [min: 0], public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
@@ -50,6 +51,7 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
         :external_reference_id,
         :posture,
         :rationale_code,
+        :source_version,
         :content_hash,
         :ordinal,
         :operation_id

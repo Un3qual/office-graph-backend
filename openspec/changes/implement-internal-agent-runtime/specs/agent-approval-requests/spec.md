@@ -16,6 +16,12 @@ authority snapshot, and operation.
 - **THEN** Office Graph MUST record the decision and operation, resume only the
   matching approved step, or terminate/downgrade the denied step
 
+#### Scenario: Approval follows a context expansion
+- **WHEN** a step obtains bounded context and subsequently requires human
+  approval
+- **THEN** the approval request and resume job MUST retain the exact expansion
+  request and MUST revalidate both unexpired grants before adapter dispatch
+
 #### Scenario: Stale approval is submitted
 - **WHEN** a request is expired, cancelled, superseded, or no longer matches the
   waiting execution version
@@ -27,6 +33,12 @@ authority snapshot, and operation.
   exact execution step is still waiting
 - **THEN** Office Graph MUST durably mark the request expired and terminalize
   the waiting execution instead of leaving it stuck
+
+#### Scenario: Waiting execution is cancelled
+- **WHEN** an operator cancels an execution waiting on an approval or context
+  expansion
+- **THEN** the matching pending request MUST become cancelled with the same
+  cancellation operation before the execution cancellation commits
 
 ### Requirement: Context Expansion Decisions Are Separate From Tool Approval
 Office Graph SHALL distinguish context-expansion authority from model, tool,

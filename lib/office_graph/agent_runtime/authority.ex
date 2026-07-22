@@ -4,6 +4,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
   alias OfficeGraph.{Authorization, Identity, Runs}
 
   alias OfficeGraph.AgentRuntime.{
+    AdapterRegistry,
     AgentDefinition,
     AgentExecution,
     ApprovalRequest,
@@ -21,6 +22,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     with :ok <- validate_definition_authority(definition, request),
          :ok <- authorize_agent(binding),
          {:ok, credentials} <- active_credentials(definition, binding),
+         {:ok, model_manifest} <- AdapterRegistry.model_manifest(definition.model_adapter_key),
          {:ok, policy_bundle} <- Authorization.active_policy_bundle(binding.organization_id) do
       capability_keys = Enum.sort(request.requested_capabilities)
       tool_keys = Enum.sort(definition.tool_allowlist)
@@ -38,6 +40,8 @@ defmodule OfficeGraph.AgentRuntime.Authority do
         capability_keys: capability_keys,
         tool_keys: tool_keys,
         credential_ids: credential_ids,
+        model_adapter_key: model_manifest.key,
+        model_adapter_version: model_manifest.version,
         autonomy_mode: request.autonomy_mode,
         captured_at: DateTime.utc_now()
       }
@@ -395,6 +399,8 @@ defmodule OfficeGraph.AgentRuntime.Authority do
       :capability_keys,
       :tool_keys,
       :credential_ids,
+      :model_adapter_key,
+      :model_adapter_version,
       :autonomy_mode,
       :captured_at
     ])

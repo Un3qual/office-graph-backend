@@ -6,6 +6,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
+    ApprovalRequest,
     ContextExpansionRequest,
     ModelRequest
   }
@@ -65,6 +66,85 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     def revalidate_step(_execution_id, _opts),
       do: {:error, :integration_storage_unavailable}
+  end
+
+  defmodule RotatedModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+
+    @impl true
+    def manifest, do: %{DeterministicModel.manifest() | key: "rotated"}
+
+    @impl true
+    def invoke(input) do
+      send(Application.fetch_env!(:office_graph, :execution_worker_test_pid), {
+        :rotated_model_invoked,
+        input.request_id
+      })
+
+      DeterministicModel.invoke(%{input | adapter_key: "deterministic"})
+    end
+
+    @impl true
+    def cancel(request_id) do
+      send(Application.fetch_env!(:office_graph, :execution_worker_test_pid), {
+        :rotated_model_cancelled,
+        request_id
+      })
+
+      :ok
+    end
+  end
+
+  defmodule VersionTwoModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+
+    @impl true
+    def manifest, do: %{DeterministicModel.manifest() | version: "2"}
+
+    @impl true
+    def invoke(input) do
+      send(Application.fetch_env!(:office_graph, :execution_worker_test_pid), {
+        :version_two_model_invoked,
+        input.request_id
+      })
+
+      DeterministicModel.invoke(%{input | adapter_version: "1"})
+    end
+
+    @impl true
+    def cancel(_request_id), do: :ok
+  end
+
+  defmodule CredentialedModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+
+    @impl true
+    def manifest do
+      %{
+        DeterministicModel.manifest()
+        | key: "credentialed",
+          credential_kinds: [:secret_reference]
+      }
+    end
+
+    @impl true
+    def invoke(input) do
+      send(Application.fetch_env!(:office_graph, :execution_worker_test_pid), {
+        :credentialed_model_invoked,
+        input.request_id
+      })
+
+      {:error, {:terminal, :unexpected_credentialed_dispatch}}
+    end
+
+    @impl true
+    def cancel(_request_id), do: :ok
   end
 
   test "invocation enqueues one unique durable model step and replay does not duplicate it" do
@@ -274,13 +354,20 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "missing configured adapter terminalizes queued execution instead of stranding it" do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = Map.new(original_registry)
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
 
-    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'missing' WHERE id = $1", [
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    Application.put_env(:office_graph, :agent_runtime_adapters, %{
+      models: Map.delete(registry.models, "deterministic"),
+      tools: registry.tools
+    })
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    end)
 
     assert {:cancel, "agent_adapter_unavailable"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -353,6 +440,105 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     request = Ash.read_one!(ModelRequest, authorize?: false)
     assert request.credential_id == original_credential.id
     refute request.credential_id == rotated_credential.id
+  end
+
+  test "execution uses the adapter identity captured at invocation after definition rotation" do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = Map.new(original_registry)
+    Application.put_env(:office_graph, :execution_worker_test_pid, self())
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, %{
+      models: Map.put(registry.models, "rotated", RotatedModel),
+      tools: registry.tools
+    })
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      Application.delete_env(:office_graph, :execution_worker_test_pid)
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+
+    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'rotated' WHERE id = $1", [
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    [job] = execution_jobs(invoked.execution.id)
+    assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+    refute_receive {:rotated_model_invoked, _request_id}
+
+    request = Ash.read_one!(ModelRequest, authorize?: false)
+    assert request.adapter_key == "deterministic"
+    assert request.adapter_version == "1"
+    assert invoked.authority_snapshot.model_adapter_key == "deterministic"
+    assert invoked.authority_snapshot.model_adapter_version == "1"
+  end
+
+  test "execution fails closed when the captured adapter version is no longer registered" do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = Map.new(original_registry)
+    Application.put_env(:office_graph, :execution_worker_test_pid, self())
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      Application.delete_env(:office_graph, :execution_worker_test_pid)
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, %{
+      models: Map.put(registry.models, "deterministic", VersionTwoModel),
+      tools: registry.tools
+    })
+
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:cancel, "agent_adapter_unavailable"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    refute_receive {:version_two_model_invoked, _request_id}
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_adapter_unavailable"
+    assert Repo.aggregate(ModelRequest, :count) == 0
+  end
+
+  test "credentialed adapters require matching credential metadata captured by authority" do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = Map.new(original_registry)
+    Application.put_env(:office_graph, :execution_worker_test_pid, self())
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, %{
+      models: Map.put(registry.models, "credentialed", CredentialedModel),
+      tools: registry.tools
+    })
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      Application.delete_env(:office_graph, :execution_worker_test_pid)
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'credentialed' WHERE id = $1", [
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    assert invoked.authority_snapshot.credential_ids == []
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:cancel, "missing_credential"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    refute_receive {:credentialed_model_invoked, _request_id}
+    assert Repo.aggregate(ModelRequest, :count) == 0
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "missing_credential"
   end
 
   test "an authorized cancellation terminalizes queued work and prevents adapter dispatch" do
@@ -445,7 +631,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
     Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: %{"deterministic" => BlockingModel},
+      models: %{"deterministic" => BlockingModel, "rotated" => RotatedModel},
       tools: registry.tools
     })
 
@@ -461,6 +647,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     worker = Task.async(fn -> ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3}) end)
 
     assert_receive {:blocking_model_started, request_id}, 1_000
+
+    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'rotated' WHERE id = $1", [
+      Ecto.UUID.dump!(context.definition.id)
+    ])
 
     running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
 
@@ -479,6 +669,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     assert {:ok, cancelled} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert_receive {:blocking_model_cancelled, ^request_id}, 1_000
+    refute_receive {:rotated_model_cancelled, ^request_id}
     assert {:cancel, "cancelled"} = Task.await(worker, 1_000)
 
     persisted = Ash.get!(AgentExecution, cancelled.execution.id, authorize?: false)
@@ -488,6 +679,74 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert persisted.failure_code == "cancelled_by_operator"
     assert request.state == "cancelled"
     assert request.failure_code == "cancelled_by_operator"
+  end
+
+  test "cancelling waiting executions retires their exact pending gates" do
+    original_approval = Application.get_env(:office_graph, :deterministic_model_approval_required)
+    Application.put_env(:office_graph, :deterministic_model_approval_required, true)
+
+    on_exit(fn ->
+      if is_nil(original_approval) do
+        Application.delete_env(:office_graph, :deterministic_model_approval_required)
+      else
+        Application.put_env(
+          :office_graph,
+          :deterministic_model_approval_required,
+          original_approval
+        )
+      end
+    end)
+
+    approval_context = AgentRuntimeSupport.invocation_fixture()
+    approval_invocation = AgentRuntimeSupport.invoke_human(approval_context)
+    [approval_job] = execution_jobs(approval_invocation.execution.id)
+    assert :ok = ExecutionWorker.perform(%{approval_job | attempt: 1, max_attempts: 3})
+
+    approval =
+      ApprovalRequest
+      |> Ash.Query.filter(
+        execution_id == ^approval_invocation.execution.id and state == "pending"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    cancelled_approval = cancel_execution!(approval_context, approval_invocation.execution.id)
+    retired_approval = Ash.get!(ApprovalRequest, approval.id, authorize?: false)
+
+    assert retired_approval.state == "cancelled"
+    assert retired_approval.version == approval.version + 1
+    assert retired_approval.resolution_operation_id == cancelled_approval.operation.id
+    assert retired_approval.resolved_by_principal_id == approval_context.session.principal_id
+    assert retired_approval.resolution_reason == "execution_cancelled"
+    assert %DateTime{} = retired_approval.resolved_at
+
+    Application.put_env(:office_graph, :deterministic_model_approval_required, false)
+    expansion_context = AgentRuntimeSupport.invocation_fixture()
+    expansion_invocation = AgentRuntimeSupport.invoke_human(expansion_context)
+    [expansion_job] = execution_jobs(expansion_invocation.execution.id)
+
+    Repo.query!(
+      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE context_package_id = $1 AND ordinal = 0",
+      [Ecto.UUID.dump!(expansion_invocation.context_package.id)]
+    )
+
+    assert :ok = ExecutionWorker.perform(%{expansion_job | attempt: 1, max_attempts: 3})
+
+    expansion =
+      ContextExpansionRequest
+      |> Ash.Query.filter(
+        execution_id == ^expansion_invocation.execution.id and state == "pending"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    cancelled_expansion = cancel_execution!(expansion_context, expansion_invocation.execution.id)
+    retired_expansion = Ash.get!(ContextExpansionRequest, expansion.id, authorize?: false)
+
+    assert retired_expansion.state == "cancelled"
+    assert retired_expansion.version == expansion.version + 1
+    assert retired_expansion.resolution_operation_id == cancelled_expansion.operation.id
+    assert retired_expansion.resolved_by_principal_id == expansion_context.session.principal_id
+    assert retired_expansion.resolution_reason == "execution_cancelled"
+    assert %DateTime{} = retired_expansion.resolved_at
   end
 
   test "approval-gated adapters persist waiting approval without consuming an attempt" do
@@ -784,5 +1043,25 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       action: :create,
       authorize?: false
     )
+  end
+
+  defp cancel_execution!(context, execution_id) do
+    execution = Ash.get!(AgentExecution, execution_id, authorize?: false)
+
+    attrs = %{
+      execution_id: execution.id,
+      expected_state_version: execution.state_version
+    }
+
+    {:ok, operation} =
+      Operations.start_command(
+        context.session,
+        :agent_cancel,
+        "cancel-waiting-agent-#{context.suffix}-#{execution.state}",
+        attrs
+      )
+
+    assert {:ok, result} = AgentRuntime.cancel_execution(context.session, operation, attrs)
+    %{operation: operation, result: result}
   end
 end

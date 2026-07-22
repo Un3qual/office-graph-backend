@@ -25,7 +25,8 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
           :resource_id,
           :external_reference_id,
           :posture,
-          :rationale_code
+          :rationale_code,
+          :source_version
         ])
         |> Map.merge(%{
           id: Ecto.UUID.generate(),
@@ -79,6 +80,7 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
           resource_type: entry.resource_type,
           resource_id: entry.resource_id,
           external_reference_id: entry.external_reference_id,
+          source_version: entry.source_version,
           posture: posture,
           rationale_code:
             if(posture != entry.posture,

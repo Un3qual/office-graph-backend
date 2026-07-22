@@ -10,7 +10,17 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
         }
 
   def model(key), do: resolve(:model, key)
+  def model(key, version), do: resolve_version(:model, key, version)
   def tool(key), do: resolve(:tool, key)
+  def tool(key, version), do: resolve_version(:tool, key, version)
+
+  def model_manifest(key) when is_binary(key) do
+    with {:ok, adapter} <- model(key) do
+      read_manifest(adapter, key, &AdapterContract.valid_model_manifest?/1)
+    end
+  end
+
+  def model_manifest(_key), do: {:error, :adapter_not_found}
 
   def validate(configuration \\ configured()) do
     with {:ok, configuration} <- normalize_configuration(configuration),
@@ -33,6 +43,19 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
   end
 
   defp resolve(_kind, _key), do: {:error, :adapter_not_found}
+
+  defp resolve_version(kind, key, version) when is_binary(version) do
+    with {:ok, adapter} <- resolve(kind, key),
+         {:ok, manifest} <- read_manifest(adapter, key, manifest_validator(kind)),
+         true <- manifest.version == version do
+      {:ok, adapter}
+    else
+      false -> {:error, :adapter_version_mismatch}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp resolve_version(_kind, _key, _version), do: {:error, :adapter_version_mismatch}
 
   defp normalize_configuration(configuration) when is_list(configuration) do
     if Enum.all?(configuration, &match?({_, _}, &1)) do
@@ -106,12 +129,24 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
   end
 
   defp safe_manifest(adapter, key, valid_manifest?) do
-    validate_manifest_key(key, adapter.manifest(), valid_manifest?)
+    with {:ok, _manifest} <- read_manifest(adapter, key, valid_manifest?), do: :ok
+  end
+
+  defp read_manifest(adapter, key, valid_manifest?) do
+    manifest = adapter.manifest()
+
+    case validate_manifest_key(key, manifest, valid_manifest?) do
+      :ok -> {:ok, manifest}
+      {:error, _reason} = error -> error
+    end
   catch
     :error, _reason -> {:error, :invalid_manifest}
     :exit, _reason -> {:error, :invalid_manifest}
     :throw, _reason -> {:error, :invalid_manifest}
   end
+
+  defp manifest_validator(:model), do: &AdapterContract.valid_model_manifest?/1
+  defp manifest_validator(:tool), do: &AdapterContract.valid_tool_manifest?/1
 
   defp configured, do: Application.get_env(:office_graph, :agent_runtime_adapters, %{})
   defp plural(:model), do: :models

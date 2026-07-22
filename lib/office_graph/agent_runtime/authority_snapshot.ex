@@ -28,6 +28,8 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshot do
     attribute :capability_keys, {:array, :string}, allow_nil?: false, default: [], public?: true
     attribute :tool_keys, {:array, :string}, allow_nil?: false, default: [], public?: true
     attribute :credential_ids, {:array, :uuid}, allow_nil?: false, default: [], public?: true
+    attribute :model_adapter_key, :string, allow_nil?: false, public?: true
+    attribute :model_adapter_version, :string, allow_nil?: false, public?: true
     attribute :autonomy_mode, :string, allow_nil?: false, public?: true
     attribute :authority_hash, :string, allow_nil?: false, public?: true
     attribute :captured_at, :utc_datetime_usec, allow_nil?: false, public?: true
@@ -57,6 +59,8 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshot do
         :capability_keys,
         :tool_keys,
         :credential_ids,
+        :model_adapter_key,
+        :model_adapter_version,
         :autonomy_mode,
         :authority_hash,
         :captured_at
