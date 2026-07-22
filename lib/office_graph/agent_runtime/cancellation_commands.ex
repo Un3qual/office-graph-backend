@@ -2,6 +2,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   @moduledoc false
 
   alias OfficeGraph.{Authorization, DurableDelivery, Operations, Repo}
+  alias OfficeGraph.DurableDelivery.DomainEvent
 
   alias OfficeGraph.AgentRuntime.{
     AdapterRegistry,
@@ -64,6 +65,9 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
           is_nil(execution) ->
             Repo.rollback(:forbidden)
 
+          cancellation_replay?(operation.id, execution.id) ->
+            cancellation_result(execution, true)
+
           execution.state_version != expected_state_version ->
             Repo.rollback({:stale_agent_execution, execution.id, execution.state_version})
 
@@ -90,7 +94,8 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
 
               %{
                 execution: cancelled,
-                model_request: model_request
+                model_request: model_request,
+                replayed?: false
               }
             else
               {:error, reason} -> Repo.rollback(reason)
@@ -126,6 +131,36 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     |> Ash.read_one!(authorize?: false)
   end
 
+  defp lock_model_request(_execution_id, nil), do: nil
+
+  defp lock_model_request(execution_id, step_key) do
+    ModelRequest
+    |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
+    |> Ash.Query.sort(requested_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp cancellation_replay?(operation_id, execution_id) do
+    DomainEvent
+    |> Ash.Query.filter(
+      operation_id == ^operation_id and event_kind == "agent_execution.cancelled" and
+        subject_kind == "agent_execution" and subject_id == ^execution_id
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false)
+    |> is_struct(DomainEvent)
+  end
+
+  defp cancellation_result(execution, replayed?) do
+    %{
+      execution: execution,
+      model_request: lock_model_request(execution.id, execution.current_step_key),
+      replayed?: replayed?
+    }
+  end
+
   defp cancel_model_request!(nil), do: :ok
 
   defp cancel_model_request!(request) do
@@ -154,6 +189,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   end
 
   defp signal_active_adapter(%{model_request: nil}), do: :ok
+  defp signal_active_adapter(%{replayed?: true}), do: :ok
 
   defp signal_active_adapter(%{execution: execution, model_request: request}) do
     with {:ok, %AgentDefinition{} = definition} <-

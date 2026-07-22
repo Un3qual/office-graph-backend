@@ -72,8 +72,56 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     end
   end
 
-  defp output_fixture do
-    context = AgentRuntimeSupport.invocation_fixture()
+  test "rejects output classifications outside the definition allowlist" do
+    fixture = output_fixture()
+    before_counts = mutation_counts()
+
+    Repo.query!(
+      "UPDATE agent_definitions SET allowed_output_kinds = ARRAY['message']::text[] WHERE id = $1",
+      [Ecto.UUID.dump!(fixture.execution.definition_id)]
+    )
+
+    assert {:error, {:agent_output_kind_not_allowed, "proposal"}} =
+             Repo.transaction(fn ->
+               OutputRouter.route!(
+                 fixture.operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review",
+                 output(:proposal)
+               )
+             end)
+
+    assert mutation_counts() == before_counts
+    assert Repo.aggregate(ProposedGraphChange, :count) == 0
+    assert Audit.count_for_operation(fixture.operation.id) == 0
+    assert Revisions.count_for_operation(fixture.operation.id) == 0
+  end
+
+  test "routes evidence to the required check for the execution graph item" do
+    fixture =
+      output_fixture(
+        verification_check_count: 2,
+        selected_verification_check_index: 1
+      )
+
+    assert {:ok, candidate} =
+             Repo.transaction(fn ->
+               OutputRouter.route!(
+                 fixture.operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review",
+                 output(:evidence_candidate)
+               )
+             end)
+
+    assert candidate.verification_check_id == fixture.verification_check.id
+    refute candidate.verification_check_id == hd(fixture.verification_checks).id
+  end
+
+  defp output_fixture(opts \\ []) do
+    context = AgentRuntimeSupport.invocation_fixture(opts)
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
     {:ok, operation} = Operations.read_operation(job.args["operation_id"])
@@ -81,7 +129,9 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     %{
       execution: invoked.execution,
       context_package: invoked.context_package,
-      operation: operation
+      operation: operation,
+      verification_check: context.verification_check,
+      verification_checks: context.verification_checks
     }
   end
 

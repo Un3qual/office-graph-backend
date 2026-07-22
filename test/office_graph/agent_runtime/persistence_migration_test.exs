@@ -89,7 +89,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
                  lifecycle_state,
                  requested_capabilities,
                  model_adapter_key,
-                 tool_allowlist
+                 tool_allowlist,
+                 allowed_output_kinds
                ]
              ]
            } =
@@ -99,7 +100,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
                lifecycle_state,
                requested_capabilities,
                model_adapter_key,
-               tool_allowlist
+               tool_allowlist,
+               allowed_output_kinds
              FROM agent_definitions
              WHERE key = 'openspec-review'
              """)
@@ -111,10 +113,18 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert "agent.tool.read" in requested_capabilities
     assert Enum.sort(tool_allowlist) == ["openspec.read", "repository.read"]
 
+    assert Enum.sort(allowed_output_kinds) ==
+             ~w(evidence_candidate finding message observation proposal)
+
     for forbidden <- ~w(secret api_key token raw_prompt raw_response raw_input raw_output) do
       refute column_exists?("agent_definitions", forbidden)
       refute column_exists?("agent_model_requests", forbidden)
       refute column_exists?("agent_tool_requests", forbidden)
     end
+  end
+
+  test "the migration installs the human agent invocation capability" do
+    assert %{rows: [["agent.invoke"]]} =
+             OfficeGraph.Repo.query!("SELECT key FROM capabilities WHERE key = 'agent.invoke'")
   end
 end

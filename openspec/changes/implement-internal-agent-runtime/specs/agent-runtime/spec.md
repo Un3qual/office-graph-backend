@@ -30,6 +30,12 @@ direct business mutation or external write.
 - **THEN** AgentRuntime MUST create proposal input through the owning domain and
   MUST NOT write graph truth directly
 
+#### Scenario: Definition disallows an output classification
+
+- **WHEN** validated adapter output is outside the active definition's output
+  allowlist
+- **THEN** AgentRuntime MUST reject it before calling an owning domain command
+
 #### Scenario: Agent requests unsupported external write
 
 - **WHEN** an initial agent requests a provider mutation or other external write

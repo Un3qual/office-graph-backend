@@ -3,7 +3,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
   alias OfficeGraph.{AgentRuntime, Operations}
   alias OfficeGraph.AgentRuntime.ExecutionWorker
-  alias OfficeGraph.AgentRuntime.{AgentExecution, ModelRequest}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentExecution,
+    ContextExpansionRequest,
+    ModelRequest
+  }
+
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
@@ -283,6 +289,39 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert event.subject_version == cancelled.execution.state_version
   end
 
+  test "a lost cancellation response replays the result for the same operation" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+
+    attrs = %{
+      execution_id: invoked.execution.id,
+      expected_state_version: invoked.execution.state_version
+    }
+
+    assert {:ok, operation} =
+             Operations.start_command(
+               context.session,
+               :agent_cancel,
+               "replay-agent-cancel-#{context.suffix}",
+               attrs
+             )
+
+    assert {:ok, first} = AgentRuntime.cancel_execution(context.session, operation, attrs)
+    assert {:ok, replay} = AgentRuntime.cancel_execution(context.session, operation, attrs)
+
+    assert replay.execution.id == first.execution.id
+    assert replay.execution.state_version == first.execution.state_version
+    assert replay.model_request == first.model_request
+
+    assert 1 ==
+             DomainEvent
+             |> Ash.Query.filter(
+               operation_id == ^operation.id and event_kind == "agent_execution.cancelled"
+             )
+             |> Ash.read!(authorize?: false)
+             |> length()
+  end
+
   test "cancelling a running step signals the active adapter and preserves cancellation" do
     original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
     registry = Map.new(original_registry)
@@ -395,6 +434,33 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert waiting.state == "waiting_context"
     assert waiting.current_step_key == "model:review"
     assert waiting.attempt_count == 0
+    assert Repo.aggregate(ModelRequest, :count) == 0
+  end
+
+  test "context expansion fails closed when the invocation did not capture its capability" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "agent-without-expansion-#{context.suffix}",
+        requested_capabilities: ["agent.model.generate", "proposal.create", "repository.read"]
+      })
+
+    [job] = execution_jobs(invoked.execution.id)
+    target = Enum.min_by(invoked.context_entries, & &1.ordinal)
+
+    OfficeGraph.Repo.query!(
+      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = $1",
+      [Ecto.UUID.dump!(target.id)]
+    )
+
+    assert {:cancel, "agent_context_expansion_not_authorized"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_context_expansion_not_authorized"
+    assert Repo.aggregate(ContextExpansionRequest, :count) == 0
     assert Repo.aggregate(ModelRequest, :count) == 0
   end
 

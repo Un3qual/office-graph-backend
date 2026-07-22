@@ -20,6 +20,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     ContextExpansionRequest,
     ContextPackage,
     ExecutionStateMachine,
+    GateExpiryWorker,
     ModelInput,
     ModelRequest,
     OutputRouter
@@ -124,7 +125,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         with {:ok, claim_result} <- claim(context, operation, step_key, fixture_id) do
           run_claim_result(claim_result, operation, job)
         else
-          {:error, _reason} -> finish_terminal_job(job, "agent_step_claim_failed")
+          {:error, :context_expansion_not_authorized} ->
+            fail_claim(
+              context.execution.id,
+              operation,
+              job,
+              "agent_context_expansion_not_authorized"
+            )
+
+          {:error, _reason} ->
+            fail_claim(context.execution.id, operation, job, "agent_step_claim_failed")
         end
 
       {:error, _reason} ->
@@ -146,6 +156,12 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp run_claim_result({:terminal, state, execution}, _operation, job),
     do: finish_terminal_job(job, terminal_failure(execution, state))
+
+  defp fail_claim(execution_id, operation, job, failure_code) do
+    with :ok <- fail_unclaimed_step(execution_id, operation, failure_code) do
+      finish_terminal_job(job, failure_code)
+    end
+  end
 
   defp load_context(execution_id, operation_id, organization_id, workspace_id, step_key) do
     with {:ok, %AgentExecution{} = execution} <-
@@ -301,6 +317,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           lease_expires_at: nil
         })
 
+      GateExpiryWorker.enqueue!(waiting_request)
+
       {:waiting, waiting_state, waiting, waiting_request}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -418,7 +436,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     |> normalize_step_transaction()
   end
 
-  defp fail_unclaimed_step(execution_id, operation) do
+  defp fail_unclaimed_step(execution_id, operation, failure_code \\ "agent_authority_revoked") do
     Repo.transaction(fn ->
       execution = lock_execution!(execution_id)
 
@@ -427,7 +445,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       else
         transition!(execution, operation, "failed", %{
           completed_at: DateTime.utc_now(),
-          failure_code: "agent_authority_revoked",
+          failure_code: failure_code,
           lease_token: nil,
           lease_expires_at: nil
         })
@@ -614,10 +632,17 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         context_package_id == ^context.context_package.id and posture == "expansion_required"
       )
       |> Ash.Query.sort(ordinal: :asc)
+      |> Ash.Query.limit(1)
       |> Ash.Query.lock(:for_update)
       |> Ash.read_one!(authorize?: false)
 
     if is_nil(target), do: Repo.rollback(:context_expansion_target_missing)
+
+    capability_key = "agent.tool.read"
+
+    unless capability_key in context.snapshot.capability_keys do
+      Repo.rollback(:context_expansion_not_authorized)
+    end
 
     attrs = %{
       id: Ecto.UUID.generate(),
@@ -634,7 +659,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       target_scope_type: "workspace",
       target_scope_id: target.workspace_id,
       access_mode: "read",
-      capability_key: "agent.tool.read",
+      capability_key: capability_key,
       reason: "context_entry_requires_expansion",
       sensitivity: "internal",
       expected_duration_seconds: 900,

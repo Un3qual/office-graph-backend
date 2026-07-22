@@ -63,6 +63,10 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
   def persist_expansion!(execution, snapshot, operation, request, current_package) do
     current_entries = load_entries!(current_package.id)
 
+    if Enum.count(current_entries, &expansion_target?(&1, request)) != 1 do
+      Repo.rollback(:context_expansion_target_mismatch)
+    end
+
     expanded_entries =
       Enum.map(current_entries, fn entry ->
         posture = if expansion_target?(entry, request), do: "included", else: entry.posture
@@ -87,10 +91,6 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
 
         Map.put(entry_attrs, :content_hash, entry_hash(entry_attrs))
       end)
-
-    if Enum.count(expanded_entries, &(&1.rationale_code == "approved_context_expansion")) != 1 do
-      Repo.rollback(:context_expansion_target_mismatch)
-    end
 
     package =
       Repo.ash_create!(ContextPackage, %{

@@ -22,6 +22,12 @@ authority snapshot, and operation.
 - **THEN** the resolution command MUST return a stable conflict and MUST NOT
   resume execution
 
+#### Scenario: Waiting request expires without a decision
+- **WHEN** an approval or context-expansion request reaches its expiry while its
+  exact execution step is still waiting
+- **THEN** Office Graph MUST durably mark the request expired and terminalize
+  the waiting execution instead of leaving it stuck
+
 ### Requirement: Context Expansion Decisions Are Separate From Tool Approval
 Office Graph SHALL distinguish context-expansion authority from model, tool,
 credential, mutation, and external-write approval.

@@ -27,6 +27,11 @@ can receive context outside its current package.
 - **THEN** the runtime MUST pause the matching step and create a request naming
   target, reason, capability, access mode, and expected duration
 
+#### Scenario: Invocation lacks the expansion capability
+- **WHEN** a step encounters expansion-required context without the named
+  capability in its immutable authority snapshot
+- **THEN** the runtime MUST fail closed before creating an expansion request
+
 #### Scenario: Expansion is approved
 - **WHEN** an authorized resolver approves bounded additional context
 - **THEN** the runtime MUST create a new context package version linked to the

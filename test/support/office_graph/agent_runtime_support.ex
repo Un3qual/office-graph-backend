@@ -5,7 +5,7 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
   alias OfficeGraph.AgentRuntime.InvocationRequest
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  def invocation_fixture do
+  def invocation_fixture(opts \\ []) do
     suffix = System.unique_integer([:positive])
 
     {:ok, bootstrap} =
@@ -19,11 +19,22 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
         owner_email: "agent-invocation-#{suffix}@office-graph.local"
       )
 
-    {:ok, verification_check} =
-      OperatorProjectionSupport.create_required_verification_check(bootstrap.session)
+    verification_checks =
+      for _index <- 1..Keyword.get(opts, :verification_check_count, 1) do
+        {:ok, verification_check} =
+          OperatorProjectionSupport.create_required_verification_check(bootstrap.session)
+
+        verification_check
+      end
+
+    verification_check =
+      Enum.at(
+        verification_checks,
+        Keyword.get(opts, :selected_verification_check_index, 0)
+      )
 
     {:ok, run_result} =
-      OperatorProjectionSupport.create_ready_run(bootstrap.session, verification_check)
+      OperatorProjectionSupport.create_ready_run(bootstrap.session, verification_checks)
 
     {:ok, bound} =
       AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
@@ -34,6 +45,7 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       bootstrap: bootstrap,
       session: bootstrap.session,
       verification_check: verification_check,
+      verification_checks: verification_checks,
       graph_item_id: verification_check.graph_item_id,
       run: run_result.run,
       packet_version: run_result.packet_version,

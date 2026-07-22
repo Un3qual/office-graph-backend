@@ -53,36 +53,70 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Agents do
   end
 
   def resolve_approval_decision(session_context, operation, attrs) do
-    args = [
-      session_context,
-      operation,
-      attrs.approval_request_id,
-      attrs.expected_version,
-      attrs.resolution_reason
-    ]
-
     case attrs.decision do
-      "approved" -> apply(AgentRuntime, :approve, args)
-      "denied" -> apply(AgentRuntime, :deny_approval, args)
-      "cancelled" -> apply(AgentRuntime, :cancel_approval, args)
-      _invalid -> {:error, {:invalid_field, :decision}}
+      "approved" ->
+        AgentRuntime.approve(
+          session_context,
+          operation,
+          attrs.approval_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      "denied" ->
+        AgentRuntime.deny_approval(
+          session_context,
+          operation,
+          attrs.approval_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      "cancelled" ->
+        AgentRuntime.cancel_approval(
+          session_context,
+          operation,
+          attrs.approval_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      _invalid ->
+        {:error, {:invalid_field, :decision}}
     end
   end
 
   def resolve_context_expansion_decision(session_context, operation, attrs) do
-    args = [
-      session_context,
-      operation,
-      attrs.context_expansion_request_id,
-      attrs.expected_version,
-      attrs.resolution_reason
-    ]
-
     case attrs.decision do
-      "approved" -> apply(AgentRuntime, :approve_context_expansion, args)
-      "denied" -> apply(AgentRuntime, :deny_context_expansion, args)
-      "cancelled" -> apply(AgentRuntime, :cancel_context_expansion, args)
-      _invalid -> {:error, {:invalid_field, :decision}}
+      "approved" ->
+        AgentRuntime.approve_context_expansion(
+          session_context,
+          operation,
+          attrs.context_expansion_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      "denied" ->
+        AgentRuntime.deny_context_expansion(
+          session_context,
+          operation,
+          attrs.context_expansion_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      "cancelled" ->
+        AgentRuntime.cancel_context_expansion(
+          session_context,
+          operation,
+          attrs.context_expansion_request_id,
+          attrs.expected_version,
+          attrs.resolution_reason
+        )
+
+      _invalid ->
+        {:error, {:invalid_field, :decision}}
     end
   end
 

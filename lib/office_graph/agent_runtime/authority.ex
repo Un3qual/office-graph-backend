@@ -8,6 +8,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     AgentExecution,
     ApprovalRequest,
     AuthoritySnapshot,
+    ContextPackage,
     ContextExpansionRequest,
     OrganizationBinding
   }
@@ -302,12 +303,12 @@ defmodule OfficeGraph.AgentRuntime.Authority do
       when execution_id == execution.id and snapshot_id == snapshot.id and
              organization_id == execution.organization_id and
              workspace_id == execution.workspace_id and scope_id == execution.workspace_id and
-             step_key == execution.current_step_key and
-             execution_state_version + 1 == execution.state_version and
-             is_binary(resolution_operation_id) ->
-        if DateTime.compare(approval.expires_at, DateTime.utc_now()) == :gt,
-          do: :ok,
-          else: {:error, :approval_not_active}
+             step_key == execution.current_step_key ->
+        if active_gate_execution?(execution, execution_state_version) and
+             is_binary(resolution_operation_id) and
+             DateTime.compare(approval.expires_at, DateTime.utc_now()) == :gt,
+           do: :ok,
+           else: {:error, :approval_not_active}
 
       {:ok, _missing_or_inactive} ->
         {:error, :approval_not_active}
@@ -338,18 +339,20 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          target_scope_id: scope_id,
          step_key: step_key,
          execution_state_version: execution_state_version,
+         capability_key: capability_key,
          resolution_operation_id: resolution_operation_id,
          state: "approved"
        } = expansion}
       when execution_id == execution.id and snapshot_id == snapshot.id and
              organization_id == execution.organization_id and
              workspace_id == execution.workspace_id and scope_id == execution.workspace_id and
-             step_key == execution.current_step_key and
-             execution_state_version + 1 == execution.state_version and
-             is_binary(resolution_operation_id) ->
-        if DateTime.compare(expansion.expires_at, DateTime.utc_now()) == :gt,
-          do: :ok,
-          else: {:error, :context_expansion_not_active}
+             step_key == execution.current_step_key ->
+        if active_gate_execution?(execution, execution_state_version) and
+             is_binary(resolution_operation_id) and capability_key in snapshot.capability_keys and
+             latest_context_expansion?(execution.id, expansion.id) and
+             DateTime.compare(expansion.expires_at, DateTime.utc_now()) == :gt,
+           do: :ok,
+           else: {:error, :context_expansion_not_active}
 
       {:ok, _missing_or_inactive} ->
         {:error, :context_expansion_not_active}
@@ -361,6 +364,22 @@ defmodule OfficeGraph.AgentRuntime.Authority do
 
   defp validate_context_expansion(_expansion_id, _execution, _snapshot),
     do: {:error, :context_expansion_not_active}
+
+  defp active_gate_execution?(execution, waiting_version) do
+    execution.state in ["queued", "running", "retry_scheduled"] and
+      execution.state_version > waiting_version
+  end
+
+  defp latest_context_expansion?(execution_id, expansion_id) do
+    match?(
+      %ContextPackage{expansion_request_id: ^expansion_id},
+      ContextPackage
+      |> Ash.Query.filter(execution_id == ^execution_id)
+      |> Ash.Query.sort(version: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one!(authorize?: false)
+    )
+  end
 
   def authority_hash(authority) when is_map(authority) do
     authority

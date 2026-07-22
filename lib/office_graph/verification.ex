@@ -59,7 +59,8 @@ defmodule OfficeGraph.Verification do
   def create_agent_evidence_candidate(operation, execution, context_package, step_key, summary) do
     with true <- is_binary(step_key) and is_binary(summary),
          :ok <- validate_agent_output(operation, execution, context_package, step_key),
-         required_check when not is_nil(required_check) <- first_required_check(execution.run_id) do
+         required_check when not is_nil(required_check) <-
+           first_required_check(execution.run_id, execution.graph_item_id) do
       EvidenceCandidate
       |> Ash.Query.filter(execution_id == ^execution.id and step_key == ^step_key)
       |> Ash.Query.lock(:for_update)
@@ -97,9 +98,9 @@ defmodule OfficeGraph.Verification do
     end
   end
 
-  defp first_required_check(run_id) do
+  defp first_required_check(run_id, graph_item_id) do
     RunRequiredCheck
-    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.filter(run_id == ^run_id and verification_check.graph_item_id == ^graph_item_id)
     |> Ash.Query.sort(position: :asc)
     |> Ash.Query.limit(1)
     |> Ash.read_one!(authorize?: false)

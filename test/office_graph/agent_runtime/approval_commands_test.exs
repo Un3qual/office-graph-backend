@@ -2,7 +2,15 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{AgentRuntime, Audit, Operations, Revisions}
-  alias OfficeGraph.AgentRuntime.{AgentExecution, ApprovalRequest, ExecutionWorker}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentExecution,
+    ApprovalRequest,
+    ExecutionWorker,
+    GateExpiryWorker,
+    ModelRequest
+  }
+
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
@@ -118,6 +126,71 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
 
     assert Ash.get!(AgentExecution, other.execution.id, authorize?: false).state ==
              "waiting_approval"
+  end
+
+  test "an approved step keeps its gate authority across bounded adapter retries" do
+    fixture = waiting_approval_fixture()
+    reason = "Approve the bounded retrying model step."
+
+    attrs = %{
+      approval_request_id: fixture.request.id,
+      expected_version: fixture.request.version,
+      decision: "approved",
+      resolution_reason: reason
+    }
+
+    {:ok, operation} =
+      Operations.start_command(
+        fixture.context.session,
+        :agent_approval_resolve,
+        "approve-retrying-agent-step-#{fixture.context.suffix}",
+        attrs
+      )
+
+    assert {:ok, _resolved} =
+             AgentRuntime.approve(
+               fixture.context.session,
+               operation,
+               fixture.request.id,
+               fixture.request.version,
+               reason
+             )
+
+    [resume_job] = approval_resume_jobs(fixture.request.id)
+    retry_job = %{resume_job | args: Map.put(resume_job.args, "fixture_id", "retryable")}
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{retry_job | attempt: 1, max_attempts: 3})
+
+    assert Ash.get!(AgentExecution, fixture.execution.id, authorize?: false).state ==
+             "retry_scheduled"
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{retry_job | attempt: 2, max_attempts: 3})
+
+    retried = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+    assert retried.state == "retry_scheduled"
+    assert retried.attempt_count == 2
+    assert Ash.read_one!(ModelRequest, authorize?: false).state == "retry_scheduled"
+  end
+
+  test "an unanswered approval expires durably instead of leaving its execution waiting" do
+    fixture = waiting_approval_fixture()
+    assert [expiry_job] = gate_expiry_jobs("approval", fixture.request.id)
+
+    OfficeGraph.Repo.query!(
+      "UPDATE agent_approval_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [Ecto.UUID.dump!(fixture.request.id)]
+    )
+
+    assert :ok = GateExpiryWorker.perform(%{expiry_job | attempt: 1, max_attempts: 3})
+
+    expired = Ash.get!(ApprovalRequest, fixture.request.id, authorize?: false)
+    execution = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+
+    assert expired.state == "expired"
+    assert expired.version == fixture.request.version + 1
+    assert expired.resolution_reason == "approval_expired"
+    assert execution.state == "failed"
+    assert execution.failure_code == "agent_approval_expired"
   end
 
   test "denied and cancelled approvals terminalize without a resume" do
@@ -245,6 +318,17 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
       [job],
       job.worker == ^inspect(ExecutionWorker) and
         fragment("?->>'approval_request_id'", job.args) == ^request_id
+    )
+    |> OfficeGraph.Repo.all()
+  end
+
+  defp gate_expiry_jobs(request_kind, request_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(GateExpiryWorker) and
+        fragment("?->>'request_kind'", job.args) == ^request_kind and
+        fragment("?->>'request_id'", job.args) == ^request_id
     )
     |> OfficeGraph.Repo.all()
   end

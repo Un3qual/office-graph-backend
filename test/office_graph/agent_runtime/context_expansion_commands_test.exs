@@ -9,6 +9,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     ContextExpansionRequest,
     ContextPackage,
     ExecutionWorker,
+    GateExpiryWorker,
     ModelRequest
   }
 
@@ -93,6 +94,81 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     assert Revisions.count_for_operation(operation.id) == 1
   end
 
+  test "sequential bounded expansions count only the target changed by each decision" do
+    fixture = waiting_context_fixture(expansion_count: 2)
+    first_request = fixture.request
+
+    first = approve_expansion(fixture, first_request, "Approve the first bounded reference.")
+    assert first.context_package.version == 2
+
+    [first_resume] = expansion_resume_jobs(first_request.id)
+    assert :ok = ExecutionWorker.perform(%{first_resume | attempt: 1, max_attempts: 3})
+
+    waiting_again = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+    assert waiting_again.state == "waiting_context"
+
+    second_request =
+      ContextExpansionRequest
+      |> Ash.Query.filter(
+        execution_id == ^fixture.execution.id and state == "pending" and
+          id != ^first_request.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    second = approve_expansion(fixture, second_request, "Approve the second bounded reference.")
+    assert second.context_package.version == 3
+    assert second.context_package.previous_package_id == first.context_package.id
+    assert second.context_package.expansion_request_id == second_request.id
+
+    assert 2 ==
+             ContextEntry
+             |> Ash.Query.filter(
+               context_package_id == ^second.context_package.id and posture == "included" and
+                 rationale_code == "approved_context_expansion"
+             )
+             |> Ash.read!(authorize?: false)
+             |> length()
+  end
+
+  test "an approved expansion remains valid while its exact step retries" do
+    fixture = waiting_context_fixture()
+
+    resolved =
+      approve_expansion(fixture, fixture.request, "Approve the bounded retrying reference.")
+
+    assert resolved.context_package.version == 2
+    [resume_job] = expansion_resume_jobs(fixture.request.id)
+    retry_job = %{resume_job | args: Map.put(resume_job.args, "fixture_id", "retryable")}
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{retry_job | attempt: 1, max_attempts: 3})
+    assert {:snooze, 1} = ExecutionWorker.perform(%{retry_job | attempt: 2, max_attempts: 3})
+
+    retried = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+    assert retried.state == "retry_scheduled"
+    assert retried.attempt_count == 2
+  end
+
+  test "an unanswered context expansion expires and terminalizes its waiting execution" do
+    fixture = waiting_context_fixture()
+    assert [expiry_job] = gate_expiry_jobs(fixture.request.id)
+
+    Repo.query!(
+      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [Ecto.UUID.dump!(fixture.request.id)]
+    )
+
+    assert :ok = GateExpiryWorker.perform(%{expiry_job | attempt: 1, max_attempts: 3})
+
+    expired = Ash.get!(ContextExpansionRequest, fixture.request.id, authorize?: false)
+    execution = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+
+    assert expired.state == "expired"
+    assert expired.version == fixture.request.version + 1
+    assert expired.resolution_reason == "context_expansion_expired"
+    assert execution.state == "failed"
+    assert execution.failure_code == "agent_context_expansion_expired"
+  end
+
   test "stale and expired context expansion decisions do not resume" do
     stale = waiting_context_fixture()
 
@@ -156,15 +232,20 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     assert expansion_resume_jobs(expired.request.id) == []
   end
 
-  defp waiting_context_fixture do
+  defp waiting_context_fixture(opts \\ []) do
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
-    target = Enum.min_by(invoked.context_entries, & &1.ordinal)
+    expansion_count = Keyword.get(opts, :expansion_count, 1)
+
+    targets =
+      invoked.context_entries
+      |> Enum.sort_by(& &1.ordinal)
+      |> Enum.take(expansion_count)
 
     Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = $1",
-      [Ecto.UUID.dump!(target.id)]
+      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = ANY($1::uuid[])",
+      [Enum.map(targets, &Ecto.UUID.dump!(&1.id))]
     )
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -175,7 +256,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Ash.Query.filter(execution_id == ^execution.id and state == "pending")
       |> Ash.read_one!(authorize?: false)
 
-    target = Ash.get!(ContextEntry, target.id, authorize?: false)
+    target = targets |> hd() |> then(&Ash.get!(ContextEntry, &1.id, authorize?: false))
 
     %{
       context: context,
@@ -186,12 +267,51 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     }
   end
 
+  defp approve_expansion(fixture, request, reason) do
+    attrs = %{
+      context_expansion_request_id: request.id,
+      expected_version: request.version,
+      decision: "approved",
+      resolution_reason: reason
+    }
+
+    {:ok, operation} =
+      Operations.start_command(
+        fixture.context.session,
+        :agent_context_expansion_resolve,
+        "approve-context-expansion-#{request.id}",
+        attrs
+      )
+
+    assert {:ok, resolved} =
+             AgentRuntime.approve_context_expansion(
+               fixture.context.session,
+               operation,
+               request.id,
+               request.version,
+               reason
+             )
+
+    resolved
+  end
+
   defp expansion_resume_jobs(request_id) do
     Oban.Job
     |> where(
       [job],
       job.worker == ^inspect(ExecutionWorker) and
         fragment("?->>'context_expansion_request_id'", job.args) == ^request_id
+    )
+    |> Repo.all()
+  end
+
+  defp gate_expiry_jobs(request_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(GateExpiryWorker) and
+        fragment("?->>'request_kind'", job.args) == "context_expansion" and
+        fragment("?->>'request_id'", job.args) == ^request_id
     )
     |> Repo.all()
   end
