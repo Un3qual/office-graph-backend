@@ -267,8 +267,7 @@ defmodule OfficeGraph.AgentRuntime do
   end
 
   defp replay_binding!(session_context, operation, definition, binding) do
-    if binding.operation_id == operation.id and
-         binding.organization_id == session_context.organization_id and
+    if binding.organization_id == session_context.organization_id and
          binding.workspace_id == session_context.workspace_id and
          binding.lifecycle_state == "active" do
       principal = Ash.get!(Principal, binding.agent_principal_id, authorize?: false)

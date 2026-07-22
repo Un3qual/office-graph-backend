@@ -21,10 +21,11 @@ defmodule OfficeGraph.AgentRuntime.Authority do
   def compute(%OrganizationBinding{} = binding, %AgentDefinition{} = definition, request, attrs) do
     with :ok <- validate_definition_authority(definition, request),
          :ok <- authorize_agent(binding),
+         {:ok, capability_keys} <-
+           effective_capability_keys(binding, request, attrs[:delegator_principal_id]),
          {:ok, credentials} <- active_credentials(definition, binding),
          {:ok, model_manifest} <- AdapterRegistry.model_manifest(definition.model_adapter_key),
          {:ok, policy_bundle} <- Authorization.active_policy_bundle(binding.organization_id) do
-      capability_keys = Enum.sort(request.requested_capabilities)
       tool_keys = Enum.sort(definition.tool_allowlist)
       credential_ids = Enum.sort(Enum.map(credentials, & &1.id))
 
@@ -116,6 +117,25 @@ defmodule OfficeGraph.AgentRuntime.Authority do
              :skeleton_read
            ) do
       :ok
+    end
+  end
+
+  defp effective_capability_keys(_binding, request, nil),
+    do: {:ok, Enum.sort(request.requested_capabilities)}
+
+  defp effective_capability_keys(binding, request, delegator_principal_id) do
+    with {:ok, granted} <-
+           Authorization.intersect_principal_capabilities(
+             delegator_principal_id,
+             binding.organization_id,
+             binding.workspace_id,
+             request.requested_capabilities
+           ) do
+      missing = request.requested_capabilities -- granted
+
+      if missing == [],
+        do: {:ok, granted},
+        else: {:error, {:unauthorized_agent_capabilities, Enum.sort(missing)}}
     end
   end
 

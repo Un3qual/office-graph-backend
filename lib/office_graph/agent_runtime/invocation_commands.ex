@@ -41,7 +41,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
              workspace_id: session_context.workspace_id
            ),
          {:ok, binding, definition} <-
-           active_binding(
+           scoped_binding(
              request.binding_id,
              session_context.organization_id,
              session_context.workspace_id
@@ -57,11 +57,10 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
          :ok <- Operations.validate_system_operation(operation, :agent_runtime_execute),
          :ok <- validate_operation_idempotency(operation, request),
          {:ok, binding, definition} <-
-           active_binding(request.binding_id, operation.organization_id, operation.workspace_id),
-         true <- binding.agent_principal_id == operation.principal_id do
+           scoped_binding(request.binding_id, operation.organization_id, operation.workspace_id),
+         :ok <- validate_system_trigger(operation, request, binding) do
       persist(operation, request, binding, definition, nil)
     else
-      false -> {:error, :forbidden}
       {:error, _reason} = error -> error
     end
   end
@@ -89,12 +88,12 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
       else: {:error, :forbidden}
   end
 
-  defp active_binding(binding_id, organization_id, workspace_id)
+  defp scoped_binding(binding_id, organization_id, workspace_id)
        when is_binary(binding_id) and is_binary(organization_id) and is_binary(workspace_id) do
     OrganizationBinding
     |> Ash.Query.filter(
       id == ^binding_id and organization_id == ^organization_id and
-        workspace_id == ^workspace_id and lifecycle_state == "active"
+        workspace_id == ^workspace_id
     )
     |> Ash.read_one(authorize?: false)
     |> case do
@@ -103,7 +102,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
                authorize?: false,
                not_found_error?: false
              ) do
-          {:ok, %AgentDefinition{lifecycle_state: "active"} = definition} ->
+          {:ok, %AgentDefinition{} = definition} ->
             {:ok, binding, definition}
 
           {:ok, _missing_or_inactive} ->
@@ -121,8 +120,18 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     end
   end
 
-  defp active_binding(_binding_id, _organization_id, _workspace_id),
+  defp scoped_binding(_binding_id, _organization_id, _workspace_id),
     do: {:error, :forbidden}
+
+  defp validate_system_trigger(operation, request, binding) do
+    valid? =
+      binding.agent_principal_id == operation.principal_id and
+        operation.authority_basis == "agent-binding:#{binding.id}" and
+        operation.causation_key == "work-run:#{request.run_id}" and
+        operation.idempotency_scope == "agent-runtime:#{binding.id}:#{request.run_id}"
+
+    if valid?, do: :ok, else: {:error, :forbidden}
+  end
 
   defp persist(operation, request, binding, definition, delegator_principal_id) do
     StorageResult.run(fn ->
@@ -130,24 +139,28 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
         with {:ok, locked_operation} <- Operations.lock_operation(operation.id),
              :ok <- validate_locked_operation(locked_operation, operation),
              {:ok, locked_binding, locked_definition} <-
-               lock_binding_and_definition(binding, definition),
-             {:ok, authority} <-
-               Authority.compute(locked_binding, locked_definition, request,
-                 delegator_principal_id: delegator_principal_id,
-                 operation_id: locked_operation.id
-               ) do
+               lock_binding_and_definition(binding, definition) do
           lock_invocation_identity!(locked_binding.id, request.run_id, request.idempotency_key)
 
           case existing_execution(locked_operation, locked_binding, request) do
             {:ok, nil} ->
-              create_invocation!(
-                locked_operation,
-                locked_binding,
-                locked_definition,
-                request,
-                authority,
-                delegator_principal_id
-              )
+              with :ok <- validate_new_invocation_lifecycle(locked_binding, locked_definition),
+                   {:ok, authority} <-
+                     Authority.compute(locked_binding, locked_definition, request,
+                       delegator_principal_id: delegator_principal_id,
+                       operation_id: locked_operation.id
+                     ) do
+                create_invocation!(
+                  locked_operation,
+                  locked_binding,
+                  locked_definition,
+                  request,
+                  authority,
+                  delegator_principal_id
+                )
+              else
+                {:error, reason} -> Repo.rollback(reason)
+              end
 
             {:ok, execution} ->
               replay_invocation!(
@@ -194,9 +207,9 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
   end
 
   defp lock_binding_and_definition(binding, definition) do
-    with {:ok, %OrganizationBinding{lifecycle_state: "active"} = locked_binding} <-
+    with {:ok, %OrganizationBinding{} = locked_binding} <-
            lock_record(OrganizationBinding, binding.id),
-         {:ok, %AgentDefinition{lifecycle_state: "active"} = locked_definition} <-
+         {:ok, %AgentDefinition{} = locked_definition} <-
            lock_record(AgentDefinition, definition.id),
          true <-
            locked_binding.definition_id == locked_definition.id and
@@ -206,9 +219,14 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
       {:ok, locked_binding, locked_definition}
     else
       false -> {:error, :forbidden}
-      {:ok, _inactive} -> {:error, :forbidden}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp validate_new_invocation_lifecycle(binding, definition) do
+    if binding.lifecycle_state == "active" and definition.lifecycle_state == "active",
+      do: :ok,
+      else: {:error, :forbidden}
   end
 
   defp lock_record(resource, id) do

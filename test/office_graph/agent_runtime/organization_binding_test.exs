@@ -56,6 +56,25 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     assert Repo.aggregate(OrganizationBinding, :count) == 1
   end
 
+  test "an authorized repeat bind with a new operation returns the active scoped binding" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, first} =
+             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-openspec-review-first"
+             })
+
+    assert {:ok, repeated} =
+             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-openspec-review-repeated"
+             })
+
+    assert repeated.binding.id == first.binding.id
+    refute repeated.operation.id == first.operation.id
+    assert repeated.binding.operation_id == first.operation.id
+    assert Repo.aggregate(OrganizationBinding, :count) == 1
+  end
+
   test "binding rejects missing authority, forged scope, generic definition input, and inactive definition" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 

@@ -13,6 +13,8 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
   alias OfficeGraph.WorkGraph.GraphItem
 
+  import OfficeGraph.SessionCaseHelpers
+
   setup do
     {:ok, AgentRuntimeSupport.invocation_fixture()}
   end
@@ -66,6 +68,67 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     assert operation.action == "agent.runtime.execute"
     assert operation.subject_kind == "work_run"
     assert operation.subject_id == context.run.id
+  end
+
+  test "automatic invocation requires the exact binding and run trigger lineage", context do
+    request =
+      AgentRuntimeSupport.request(context, %{
+        origin: "system_trigger",
+        invocation_mode: "automatic",
+        idempotency_key: "unrelated-system-trigger-#{context.suffix}"
+      })
+
+    assert {:ok, unrelated_operation} =
+             AgentRuntimeSupport.system_operation(context, request, %{
+               authority_basis: "unrelated-system-authority",
+               causation_key: "unrelated-system-cause",
+               idempotency_scope: "unrelated-system-scope"
+             })
+
+    assert {:error, :forbidden} = AgentRuntime.invoke_system(unrelated_operation, request)
+    assert Repo.aggregate(AgentExecution, :count) == 0
+  end
+
+  test "human invocation rejects capabilities that the delegator was not granted", context do
+    limited_session =
+      create_session_with_capabilities!(
+        context.bootstrap,
+        ["agent.invoke", "skeleton.read"],
+        prefix: "limited-agent-invoker"
+      )
+
+    request =
+      AgentRuntimeSupport.request(context, %{
+        idempotency_key: "limited-agent-invocation-#{context.suffix}"
+      })
+
+    assert {:ok, operation} = AgentRuntimeSupport.human_operation(limited_session, request)
+
+    assert {:error,
+            {:unauthorized_agent_capabilities,
+             ["agent.model.generate", "agent.tool.read", "proposal.create", "repository.read"]}} =
+             AgentRuntime.invoke(limited_session, operation, request)
+
+    assert Repo.aggregate(AgentExecution, :count) == 0
+  end
+
+  test "an invocation replay survives later binding and definition deactivation", context do
+    request = AgentRuntimeSupport.request(context)
+    assert {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
+    assert {:ok, first} = AgentRuntime.invoke(context.session, operation, request)
+
+    context.binding
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{lifecycle_state: "disabled"})
+    |> Ash.update!(authorize?: false)
+
+    context.definition
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{lifecycle_state: "disabled"})
+    |> Ash.update!(authorize?: false)
+
+    assert {:ok, replay} = AgentRuntime.invoke(context.session, operation, request)
+    assert replay.execution.id == first.execution.id
+    assert replay.authority_snapshot.id == first.authority_snapshot.id
+    assert replay.context_package.id == first.context_package.id
   end
 
   test "human invocation rejects operations for another command", context do

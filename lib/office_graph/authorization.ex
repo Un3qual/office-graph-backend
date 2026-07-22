@@ -41,6 +41,12 @@ defmodule OfficeGraph.Authorization do
     agent_cancel: "agent.cancel",
     agent_approval_resolve: "agent.approval.resolve",
     agent_context_expansion_resolve: "agent.context_expansion.resolve",
+    agent_model_generate: "agent.model.generate",
+    agent_tool_read: "agent.tool.read",
+    agent_proposal_create: "proposal.create",
+    agent_repository_read: "repository.read",
+    agent_openspec_read: "openspec.read",
+    agent_evidence_suggest: "evidence.suggest",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
@@ -182,6 +188,42 @@ defmodule OfficeGraph.Authorization do
 
   def authorize_principal(_principal_id, _organization_id, _workspace_id, _action),
     do: {:error, :forbidden}
+
+  def intersect_principal_capabilities(
+        principal_id,
+        organization_id,
+        workspace_id,
+        requested_capabilities
+      )
+      when is_binary(principal_id) and is_binary(organization_id) and
+             (is_nil(workspace_id) or is_binary(workspace_id)) and
+             is_list(requested_capabilities) do
+    requested_capabilities
+    |> Enum.reduce_while({:ok, []}, fn capability_key, {:ok, granted} ->
+      case granted_capability_for_principal(
+             principal_id,
+             organization_id,
+             workspace_id,
+             capability_key
+           ) do
+        {:ok, true} -> {:cont, {:ok, [capability_key | granted]}}
+        {:ok, false} -> {:cont, {:ok, granted}}
+        {:error, :integration_storage_unavailable} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, granted} -> {:ok, granted |> Enum.uniq() |> Enum.sort()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def intersect_principal_capabilities(
+        _principal_id,
+        _organization_id,
+        _workspace_id,
+        _requested_capabilities
+      ),
+      do: {:error, :forbidden}
 
   def active_policy_bundle(organization_id) when is_binary(organization_id) do
     PolicyBundle
