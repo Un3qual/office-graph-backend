@@ -115,6 +115,20 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       expected_verification_state: :string,
       reason: :string,
       policy_basis: :string
+    ],
+    resolve_agent_approval: [
+      idempotency_key: :string,
+      approval_request_id: :uuid,
+      expected_version: :positive_integer,
+      decision: :string,
+      resolution_reason: :string
+    ],
+    resolve_agent_context_expansion: [
+      idempotency_key: :string,
+      context_expansion_request_id: :uuid,
+      expected_version: :positive_integer,
+      decision: :string,
+      resolution_reason: :string
     ]
   }
 
@@ -144,6 +158,14 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
 
   defp required(params, key, :string), do: required_string(params, key, &String.trim/1)
   defp required(params, key, :raw_string), do: required_string(params, key, &Function.identity/1)
+
+  defp required(params, key, :positive_integer) do
+    case fetch(params, key) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      nil -> {:error, {:missing_field, key}}
+      _other -> {:error, {:invalid_field, key}}
+    end
+  end
 
   defp required(params, key, :uuid) do
     with {:ok, value} <- required(params, key, :string),

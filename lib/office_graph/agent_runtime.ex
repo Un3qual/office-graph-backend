@@ -5,16 +5,21 @@ defmodule OfficeGraph.AgentRuntime do
 
   use Boundary,
     deps: [
+      OfficeGraph.Audit,
       OfficeGraph.Authorization,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
+      OfficeGraph.NodeConversations,
       OfficeGraph.Operations,
       OfficeGraph.Projections,
+      OfficeGraph.ProposedChanges,
       OfficeGraph.Repo,
+      OfficeGraph.Revisions,
       OfficeGraph.Runs,
       OfficeGraph.Tenancy,
+      OfficeGraph.Verification,
       OfficeGraph.WorkGraph
     ],
     exports: [InvocationRequest]
@@ -25,8 +30,10 @@ defmodule OfficeGraph.AgentRuntime do
 
   alias OfficeGraph.AgentRuntime.{
     AgentDefinition,
+    ApprovalCommands,
     Authority,
     CancellationCommands,
+    ContextExpansionCommands,
     InvocationCommands,
     InvocationRequest,
     OrganizationBinding,
@@ -56,6 +63,90 @@ defmodule OfficeGraph.AgentRuntime do
 
   def cancel_execution(session_context, operation, attrs) do
     CancellationCommands.cancel(session_context, operation, attrs)
+  end
+
+  def approve(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "approved",
+      reason
+    )
+  end
+
+  def deny_approval(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "denied",
+      reason
+    )
+  end
+
+  def cancel_approval(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "cancelled",
+      reason
+    )
+  end
+
+  def approve_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "approved",
+      reason
+    )
+  end
+
+  def deny_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "denied",
+      reason
+    )
+  end
+
+  def cancel_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "cancelled",
+      reason
+    )
   end
 
   @doc """

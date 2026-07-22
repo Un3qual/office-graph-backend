@@ -6,10 +6,22 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
     Intake,
     Packets,
     Runs,
+    Agents,
     Verification
   }
 
   object :operator_command_mutations do
+    field :resolve_agent_approval, non_null(:resolve_agent_approval_payload) do
+      arg(:input, non_null(:resolve_agent_approval_input))
+      resolve(&Agents.resolve_approval/2)
+    end
+
+    field :resolve_agent_context_expansion,
+          non_null(:resolve_agent_context_expansion_payload) do
+      arg(:input, non_null(:resolve_agent_context_expansion_input))
+      resolve(&Agents.resolve_context_expansion/2)
+    end
+
     field :bind_github_installation, non_null(:bind_github_installation_payload) do
       arg(:input, non_null(:bind_github_installation_input))
       resolve(&GitHub.bind_installation/2)

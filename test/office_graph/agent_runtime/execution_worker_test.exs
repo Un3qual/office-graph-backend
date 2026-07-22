@@ -357,13 +357,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert :ok = ExecutionWorker.perform(%{job | attempt: 2, max_attempts: 3})
 
     waiting = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
-    request = Ash.read_one!(ModelRequest, authorize?: false)
     assert waiting.state == "waiting_approval"
     assert waiting.current_step_key == "model:review"
     assert waiting.attempt_count == 0
     assert is_nil(waiting.lease_token)
-    assert request.state == "pending"
-    assert request.completed_at == nil
+    assert Repo.aggregate(ModelRequest, :count) == 0
 
     assert 1 ==
              DomainEvent
@@ -394,12 +392,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
     waiting = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
-    request = Ash.read_one!(ModelRequest, authorize?: false)
     assert waiting.state == "waiting_context"
     assert waiting.current_step_key == "model:review"
     assert waiting.attempt_count == 0
-    assert request.state == "pending"
-    assert request.completed_at == nil
+    assert Repo.aggregate(ModelRequest, :count) == 0
   end
 
   test "mutable authority is revalidated before a step and revocation fails it closed" do

@@ -130,6 +130,14 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert {:error, :tool_not_authorized} =
              AgentRuntime.revalidate_step(execution.id, tool_key: "arbitrary.shell")
 
+    waiting =
+      execution
+      |> Ash.Changeset.for_update(:transition, %{
+        state: "waiting_approval",
+        current_step_key: "tool:repository.read"
+      })
+      |> Ash.update!(authorize?: false)
+
     approval =
       Ash.create!(
         ApprovalRequest,
@@ -140,20 +148,35 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
           organization_id: execution.organization_id,
           workspace_id: execution.workspace_id,
           operation_id: execution.operation_id,
-          step_key: "tool:repository.read",
+          step_key: waiting.current_step_key,
+          execution_state_version: waiting.state_version,
           requested_action: "repository.read",
           reason: "Confirm bounded repository context.",
-          scope_type: "work_run",
-          scope_id: execution.run_id,
+          scope_type: "workspace",
+          scope_id: execution.workspace_id,
           capability_key: "repository.read",
           sensitivity: "internal",
           external_write: false,
-          state: "approved",
+          state: "pending",
           expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
         },
         action: :create,
         authorize?: false
       )
+
+    approval =
+      approval
+      |> Ash.Changeset.for_update(:resolve, %{
+        state: "approved",
+        version: 2,
+        resolution_operation_id: execution.operation_id,
+        resolved_at: DateTime.utc_now()
+      })
+      |> Ash.update!(authorize?: false)
+
+    waiting
+    |> Ash.Changeset.for_update(:transition, %{state: "queued"})
+    |> Ash.update!(authorize?: false)
 
     assert :ok =
              AgentRuntime.revalidate_step(execution.id,
@@ -162,7 +185,7 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
              )
 
     approval
-    |> Ash.Changeset.for_update(:resolve, %{state: "cancelled", version: 2})
+    |> Ash.Changeset.for_update(:resolve, %{state: "cancelled", version: 3})
     |> Ash.update!(authorize?: false)
 
     assert {:error, :approval_not_active} =

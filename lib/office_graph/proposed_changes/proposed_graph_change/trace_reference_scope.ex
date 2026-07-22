@@ -9,6 +9,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
   require Ash.Query
 
   @manual_intake_action "manual_intake.submit"
+  @agent_runtime_action "agent.runtime.execute"
 
   @trace_references [
     operation_id: OperationCorrelation,
@@ -77,6 +78,15 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope do
             else
               add_operation_context_error(changeset)
             end
+
+          {:ok,
+           %{
+             organization_id: ^organization_id,
+             workspace_id: ^workspace_id,
+             operation_kind: "system",
+             action: @agent_runtime_action
+           }} ->
+            changeset
 
           {:ok, %{organization_id: ^organization_id, workspace_id: ^workspace_id}} ->
             add_operation_context_error(changeset)

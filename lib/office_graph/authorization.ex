@@ -39,6 +39,8 @@ defmodule OfficeGraph.Authorization do
     agent_definition_bind: "agent.definition.bind",
     agent_invoke: "agent.invoke",
     agent_cancel: "agent.cancel",
+    agent_approval_resolve: "agent.approval.resolve",
+    agent_context_expansion_resolve: "agent.context_expansion.resolve",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",

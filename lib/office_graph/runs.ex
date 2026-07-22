@@ -32,6 +32,53 @@ defmodule OfficeGraph.Runs do
   @work_run_start_action "work_run.start"
   @execution_observation_record_action "execution_observation.record"
 
+  def record_agent_observation(operation, execution, context_package, step_key, summary) do
+    with true <- is_binary(step_key) and is_binary(summary),
+         :ok <- validate_agent_output(operation, execution, context_package, step_key) do
+      ExecutionObservation
+      |> Ash.Query.filter(execution_id == ^execution.id and step_key == ^step_key)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+      |> case do
+        nil ->
+          Repo.ash_create!(ExecutionObservation, %{
+            id: Ecto.UUID.generate(),
+            organization_id: execution.organization_id,
+            workspace_id: execution.workspace_id,
+            work_run_id: execution.run_id,
+            operation_id: operation.id,
+            execution_id: execution.id,
+            context_package_id: context_package.id,
+            step_key: step_key,
+            graph_item_id: execution.graph_item_id,
+            source_kind: "agent_execution",
+            source_identity: execution.id,
+            idempotency_key: step_key,
+            observed_status: "reported",
+            normalized_status: "succeeded",
+            freshness_state: "fresh",
+            trust_basis: "agent_reported",
+            rationale: summary,
+            metadata: %{"classification" => "observation"}
+          })
+
+        observation ->
+          if observation.operation_id == operation.id and
+               observation.context_package_id == context_package.id and
+               observation.rationale == summary,
+             do: observation,
+             else: Repo.rollback(:agent_observation_replay_conflict)
+      end
+    else
+      false -> {:error, :invalid_agent_output}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp validate_agent_output(operation, execution, context_package, step_key) do
+    Operations.validate_agent_output_operation(operation, execution, context_package, step_key)
+  end
+
   def graphql_node_type(%Run{}), do: :work_run
   def graphql_node_type(_value), do: nil
 

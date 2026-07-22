@@ -8,6 +8,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     AgentExecution,
     ApprovalRequest,
     AuthoritySnapshot,
+    ContextExpansionRequest,
     OrganizationBinding
   }
 
@@ -60,7 +61,13 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          :ok <- Runs.revalidate_agent_authority(execution, snapshot.autonomy_mode),
          :ok <- validate_snapshot_credentials(snapshot, execution),
          :ok <- validate_tool(opts[:tool_key], snapshot, definition),
-         :ok <- validate_approval(opts[:approval_request_id], execution, snapshot) do
+         :ok <- validate_approval(opts[:approval_request_id], execution, snapshot),
+         :ok <-
+           validate_context_expansion(
+             opts[:context_expansion_request_id],
+             execution,
+             snapshot
+           ) do
       :ok
     end
   end
@@ -283,9 +290,21 @@ defmodule OfficeGraph.AgentRuntime.Authority do
        %ApprovalRequest{
          execution_id: execution_id,
          authority_snapshot_id: snapshot_id,
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         scope_type: "workspace",
+         scope_id: scope_id,
+         step_key: step_key,
+         execution_state_version: execution_state_version,
+         resolution_operation_id: resolution_operation_id,
          state: "approved"
        } = approval}
-      when execution_id == execution.id and snapshot_id == snapshot.id ->
+      when execution_id == execution.id and snapshot_id == snapshot.id and
+             organization_id == execution.organization_id and
+             workspace_id == execution.workspace_id and scope_id == execution.workspace_id and
+             step_key == execution.current_step_key and
+             execution_state_version + 1 == execution.state_version and
+             is_binary(resolution_operation_id) ->
         if DateTime.compare(approval.expires_at, DateTime.utc_now()) == :gt,
           do: :ok,
           else: {:error, :approval_not_active}
@@ -300,6 +319,48 @@ defmodule OfficeGraph.AgentRuntime.Authority do
 
   defp validate_approval(_approval_id, _execution, _snapshot),
     do: {:error, :approval_not_active}
+
+  defp validate_context_expansion(nil, _execution, _snapshot), do: :ok
+
+  defp validate_context_expansion(expansion_id, execution, snapshot)
+       when is_binary(expansion_id) do
+    case Ash.get(ContextExpansionRequest, expansion_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok,
+       %ContextExpansionRequest{
+         execution_id: execution_id,
+         authority_snapshot_id: snapshot_id,
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         target_scope_type: "workspace",
+         target_scope_id: scope_id,
+         step_key: step_key,
+         execution_state_version: execution_state_version,
+         resolution_operation_id: resolution_operation_id,
+         state: "approved"
+       } = expansion}
+      when execution_id == execution.id and snapshot_id == snapshot.id and
+             organization_id == execution.organization_id and
+             workspace_id == execution.workspace_id and scope_id == execution.workspace_id and
+             step_key == execution.current_step_key and
+             execution_state_version + 1 == execution.state_version and
+             is_binary(resolution_operation_id) ->
+        if DateTime.compare(expansion.expires_at, DateTime.utc_now()) == :gt,
+          do: :ok,
+          else: {:error, :context_expansion_not_active}
+
+      {:ok, _missing_or_inactive} ->
+        {:error, :context_expansion_not_active}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_context_expansion(_expansion_id, _execution, _snapshot),
+    do: {:error, :context_expansion_not_active}
 
   def authority_hash(authority) when is_map(authority) do
     authority

@@ -56,6 +56,59 @@ defmodule OfficeGraph.Verification do
   @evidence_accept_action "evidence.accept"
   @evidence_results ["passed", "failed"]
 
+  def create_agent_evidence_candidate(operation, execution, context_package, step_key, summary) do
+    with true <- is_binary(step_key) and is_binary(summary),
+         :ok <- validate_agent_output(operation, execution, context_package, step_key),
+         required_check when not is_nil(required_check) <- first_required_check(execution.run_id) do
+      EvidenceCandidate
+      |> Ash.Query.filter(execution_id == ^execution.id and step_key == ^step_key)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+      |> case do
+        nil ->
+          Repo.ash_create!(EvidenceCandidate, %{
+            id: Ecto.UUID.generate(),
+            organization_id: execution.organization_id,
+            workspace_id: execution.workspace_id,
+            verification_check_id: required_check.verification_check_id,
+            work_run_id: execution.run_id,
+            operation_id: operation.id,
+            execution_id: execution.id,
+            context_package_id: context_package.id,
+            step_key: step_key,
+            claim: summary,
+            source_kind: "agent_execution",
+            source_identity: "#{execution.id}:#{step_key}",
+            freshness_state: "fresh",
+            trust_basis: "agent_reported",
+            sensitivity: "internal"
+          })
+
+        candidate ->
+          if candidate.operation_id == operation.id and
+               candidate.context_package_id == context_package.id and candidate.claim == summary,
+             do: candidate,
+             else: Repo.rollback(:agent_evidence_candidate_replay_conflict)
+      end
+    else
+      false -> {:error, :invalid_agent_output}
+      nil -> {:error, :required_verification_check_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp first_required_check(run_id) do
+    RunRequiredCheck
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(position: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp validate_agent_output(operation, execution, context_package, step_key) do
+    Operations.validate_agent_output_operation(operation, execution, context_package, step_key)
+  end
+
   def get_candidate_for_accept_command(session_context, id) do
     Operations.read_command_target(
       EvidenceCandidate,

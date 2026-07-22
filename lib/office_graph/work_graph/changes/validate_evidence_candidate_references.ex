@@ -6,6 +6,7 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
   alias OfficeGraph.Repo
 
   @evidence_candidate_create_action "evidence_candidate.create"
+  @agent_runtime_action "agent.runtime.execute"
 
   @impl true
   def change(changeset, _opts, context) do
@@ -60,6 +61,9 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
     |> case do
       %{rows: [[@evidence_candidate_create_action, principal_id, session_id]]} ->
         validate_actor_operation_context(actor, principal_id, session_id)
+
+      %{rows: [[@agent_runtime_action, _principal_id, nil]]} when is_nil(actor) ->
+        :ok
 
       %{rows: [_other]} ->
         {:error, :operation_id,

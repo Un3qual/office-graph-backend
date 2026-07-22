@@ -27,6 +27,12 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
     attribute :resolution_operation_id, :uuid, public?: true
     attribute :resolved_by_principal_id, :uuid, public?: true
     attribute :step_key, :string, allow_nil?: false, public?: true
+
+    attribute :execution_state_version, :integer,
+      allow_nil?: false,
+      constraints: [min: 1],
+      public?: true
+
     attribute :target_resource_type, :string, allow_nil?: false, public?: true
     attribute :target_resource_id, :uuid, allow_nil?: false, public?: true
     attribute :target_scope_type, :string, allow_nil?: false, public?: true
@@ -74,6 +80,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
         :workspace_id,
         :operation_id,
         :step_key,
+        :execution_state_version,
         :target_resource_type,
         :target_resource_id,
         :target_scope_type,

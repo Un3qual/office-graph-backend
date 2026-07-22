@@ -22,9 +22,9 @@
 
 ## 5. Approvals, Expansion, And Output Routing
 
-- [ ] 5.1 Add failing GraphQL/JSON/domain tests for approval and expansion creation, versioned approve/deny/cancel, stale conflicts, expiry, bounded scope, and resume-only-matching-step behavior.
-- [ ] 5.2 Implement approval/expansion commands and resume orchestration with authorization, operation, audit, revision, and realtime provenance.
-- [ ] 5.3 Add failing proposal/evidence tests, then route validated agent output through owning proposal, observation, message, and evidence-candidate commands with no direct business mutation, external write, or verification completion.
+- [x] 5.1 Add failing GraphQL/JSON/domain tests for approval and expansion creation, versioned approve/deny/cancel, stale conflicts, expiry, bounded scope, and resume-only-matching-step behavior.
+- [x] 5.2 Implement approval/expansion commands and resume orchestration with authorization, operation, audit, revision, and realtime provenance.
+- [x] 5.3 Add failing proposal/evidence tests, then route validated agent output through owning proposal, observation, message, and evidence-candidate commands with no direct business mutation, external write, or verification completion.
 
 ## 6. Conversations And Operator Surface
 

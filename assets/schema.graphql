@@ -864,6 +864,8 @@ type RootQueryType {
 }
 
 type RootMutationType {
+  resolveAgentApproval(input: ResolveAgentApprovalInput!): ResolveAgentApprovalPayload!
+  resolveAgentContextExpansion(input: ResolveAgentContextExpansionInput!): ResolveAgentContextExpansionPayload!
   bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
   replyToGithubReview(input: ReplyToGithubReviewInput!): GithubOutboundActionPayload!
   updateGithubCheck(input: UpdateGithubCheckInput!): GithubOutboundActionPayload!
@@ -885,6 +887,53 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+input ResolveAgentApprovalInput {
+  idempotencyKey: String!
+  approvalRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
+}
+
+input ResolveAgentContextExpansionInput {
+  idempotencyKey: String!
+  contextExpansionRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
+}
+
+type OperatorCommandAgentRequest {
+  id: ID!
+  state: String!
+  version: Int!
+  resolutionOperationId: ID
+}
+
+type OperatorCommandAgentExecution {
+  id: ID!
+  state: String!
+  stateVersion: Int!
+  currentStepKey: String
+}
+
+type ResolveAgentApprovalPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  request: OperatorCommandAgentRequest!
+  execution: OperatorCommandAgentExecution!
+}
+
+type ResolveAgentContextExpansionPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  request: OperatorCommandAgentRequest!
+  execution: OperatorCommandAgentExecution!
+  contextPackageId: ID
+}
 
 input GithubInstallationPermissionInput {
   name: String!

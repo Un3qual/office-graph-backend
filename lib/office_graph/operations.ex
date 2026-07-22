@@ -41,6 +41,8 @@ defmodule OfficeGraph.Operations do
     agent_definition_bind: "agent.definition.bind",
     agent_invoke: "agent.invoke",
     agent_cancel: "agent.cancel",
+    agent_approval_resolve: "agent.approval.resolve",
+    agent_context_expansion_resolve: "agent.context_expansion.resolve",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
@@ -102,6 +104,26 @@ defmodule OfficeGraph.Operations do
   end
 
   def validate_system_operation(_operation, _action), do: {:error, :forbidden}
+
+  def validate_agent_output_operation(operation, execution, context_package, step_key)
+      when is_map(operation) and is_map(execution) and is_map(context_package) and
+             is_binary(step_key) do
+    valid? =
+      validate_system_operation(operation, :agent_runtime_execute) == :ok and
+        operation.subject_kind == "agent_execution" and operation.subject_id == execution.id and
+        operation.organization_id == execution.organization_id and
+        operation.workspace_id == execution.workspace_id and
+        operation.principal_id == execution.agent_principal_id and
+        operation.idempotency_key == "step:#{step_key}" and
+        context_package.execution_id == execution.id and
+        context_package.organization_id == execution.organization_id and
+        context_package.workspace_id == execution.workspace_id
+
+    if valid?, do: :ok, else: {:error, :forbidden}
+  end
+
+  def validate_agent_output_operation(_operation, _execution, _context_package, _step_key),
+    do: {:error, :forbidden}
 
   def start_command(session_context, action, idempotency_key, input)
       when is_binary(idempotency_key) and idempotency_key != "" do

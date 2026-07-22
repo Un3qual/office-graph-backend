@@ -23,6 +23,9 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :work_run_id, :uuid, allow_nil?: false, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :execution_id, :uuid, public?: true
+    attribute :context_package_id, :uuid, public?: true
+    attribute :step_key, :string, public?: true
     attribute :verification_check_id, :uuid, allow_nil?: true, public?: true
     attribute :graph_item_id, :uuid, allow_nil?: true, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
@@ -77,6 +80,9 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
         :workspace_id,
         :work_run_id,
         :operation_id,
+        :execution_id,
+        :context_package_id,
+        :step_key,
         :verification_check_id,
         :graph_item_id,
         :source_kind,

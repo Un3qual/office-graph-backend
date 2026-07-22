@@ -14,12 +14,15 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     AdapterResult,
     AgentDefinition,
     AgentExecution,
+    ApprovalRequest,
     AuthoritySnapshot,
     ContextEntry,
+    ContextExpansionRequest,
     ContextPackage,
     ExecutionStateMachine,
     ModelInput,
-    ModelRequest
+    ModelRequest,
+    OutputRouter
   }
 
   require Ash.Query
@@ -41,25 +44,59 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     end
   end
 
+  @doc false
+  def enqueue_approval_resume!(%AgentExecution{} = execution, %ApprovalRequest{} = request) do
+    execution
+    |> initial_args(request.operation_id)
+    |> Map.put(:approval_request_id, request.id)
+    |> new()
+    |> Oban.insert!()
+  end
+
+  @doc false
+  def enqueue_context_expansion_resume!(
+        %AgentExecution{} = execution,
+        %ContextExpansionRequest{} = request
+      ) do
+    execution
+    |> initial_args(request.operation_id)
+    |> Map.put(:context_expansion_request_id, request.id)
+    |> new()
+    |> Oban.insert!()
+  end
+
   @impl Oban.Worker
   def perform(
         %Oban.Job{
-          args: %{
-            "execution_id" => execution_id,
-            "fixture_id" => fixture_id,
-            "operation_id" => operation_id,
-            "organization_id" => organization_id,
-            "step_key" => step_key,
-            "workspace_id" => workspace_id
-          }
+          args:
+            %{
+              "execution_id" => execution_id,
+              "fixture_id" => fixture_id,
+              "operation_id" => operation_id,
+              "organization_id" => organization_id,
+              "step_key" => step_key,
+              "workspace_id" => workspace_id
+            } = args
         } = job
       )
       when is_binary(execution_id) and is_binary(fixture_id) and
              is_binary(operation_id) and is_binary(organization_id) and is_binary(step_key) and
              is_binary(workspace_id) do
     case load_context(execution_id, operation_id, organization_id, workspace_id, step_key) do
-      {:ok, context} -> perform_context(context, step_key, fixture_id, job)
-      {:error, _reason} -> finish_terminal_job(job, "invalid_agent_job_scope")
+      {:ok, context} ->
+        context = Map.put(context, :approval_request_id, Map.get(args, "approval_request_id"))
+
+        context =
+          Map.put(
+            context,
+            :context_expansion_request_id,
+            Map.get(args, "context_expansion_request_id")
+          )
+
+        perform_context(context, step_key, fixture_id, job)
+
+      {:error, _reason} ->
+        finish_terminal_job(job, "invalid_agent_job_scope")
     end
   end
 
@@ -78,7 +115,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp run_available_step(context, step_key, fixture_id, job) do
     operation = context.operation
 
-    case AgentRuntime.revalidate_step(context.execution.id) do
+    case AgentRuntime.revalidate_step(
+           context.execution.id,
+           approval_request_id: context.approval_request_id,
+           context_expansion_request_id: context.context_expansion_request_id
+         ) do
       :ok ->
         with {:ok, claim_result} <- claim(context, operation, step_key, fixture_id) do
           run_claim_result(claim_result, operation, job)
@@ -147,7 +188,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp context_package(execution_id) do
     ContextPackage
-    |> Ash.Query.filter(execution_id == ^execution_id and version == 1)
+    |> Ash.Query.filter(execution_id == ^execution_id)
+    |> Ash.Query.sort(version: :desc)
+    |> Ash.Query.limit(1)
     |> Ash.read_one(authorize?: false)
   end
 
@@ -205,7 +248,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
                 "waiting_context"
               )
 
-            context.manifest.approval_required ->
+            context.manifest.approval_required and is_nil(context.approval_request_id) ->
               wait_available_step(
                 context,
                 operation,
@@ -243,13 +286,12 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
          operation,
          execution,
          step_key,
-         fixture_id,
+         _fixture_id,
          waiting_state
        ) do
     with :ok <- ExecutionStateMachine.validate(execution.state, waiting_state) do
-      input = model_input(context, operation, execution, step_key, fixture_id)
-      request = create_or_load_request!(context, operation, input)
-      validate_request_replay!(request, input)
+      waiting_request =
+        prepare_waiting_request!(waiting_state, context, operation, execution, step_key)
 
       waiting =
         transition!(execution, operation, waiting_state, %{
@@ -259,7 +301,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           lease_expires_at: nil
         })
 
-      {:waiting, waiting_state, waiting, request}
+      {:waiting, waiting_state, waiting, waiting_request}
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -314,6 +356,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           {:run,
            %{
              adapter: context.adapter,
+             context_package: context.context_package,
              execution: running_execution,
              input: input,
              lease_token: lease_token,
@@ -337,6 +380,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
         execution.lease_token == claim.lease_token and execution.state == "running" ->
           now = DateTime.utc_now()
+
+          OutputRouter.route!(
+            operation,
+            execution,
+            claim.context_package,
+            request.step_key,
+            output
+          )
 
           request
           |> Ash.Changeset.for_update(:record_result, %{
@@ -516,6 +567,149 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     |> Ash.read_one!(authorize?: false)
   end
 
+  defp create_or_load_approval_request!(context, operation, execution, step_key) do
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      execution_id: execution.id,
+      authority_snapshot_id: context.snapshot.id,
+      organization_id: execution.organization_id,
+      workspace_id: execution.workspace_id,
+      operation_id: operation.id,
+      step_key: step_key,
+      execution_state_version: execution.state_version + 1,
+      requested_action: "model.generate",
+      reason: "adapter_requires_human_approval",
+      scope_type: "workspace",
+      scope_id: execution.workspace_id,
+      capability_key: List.first(context.manifest.capability_keys),
+      sensitivity: Atom.to_string(context.manifest.sensitivity),
+      external_write: context.manifest.external_write,
+      state: "pending",
+      version: 1,
+      expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+    }
+
+    ApprovalRequest
+    |> Ash.Query.filter(
+      execution_id == ^execution.id and step_key == ^step_key and state == "pending"
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+    |> case do
+      nil -> Repo.ash_create!(ApprovalRequest, attrs)
+      request -> validate_approval_request_replay!(request, attrs)
+    end
+  end
+
+  defp prepare_waiting_request!("waiting_approval", context, operation, execution, step_key),
+    do: create_or_load_approval_request!(context, operation, execution, step_key)
+
+  defp prepare_waiting_request!("waiting_context", context, operation, execution, step_key),
+    do: create_or_load_context_expansion_request!(context, operation, execution, step_key)
+
+  defp create_or_load_context_expansion_request!(context, operation, execution, step_key) do
+    target =
+      ContextEntry
+      |> Ash.Query.filter(
+        context_package_id == ^context.context_package.id and posture == "expansion_required"
+      )
+      |> Ash.Query.sort(ordinal: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+
+    if is_nil(target), do: Repo.rollback(:context_expansion_target_missing)
+
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      execution_id: execution.id,
+      current_context_package_id: context.context_package.id,
+      authority_snapshot_id: context.snapshot.id,
+      organization_id: execution.organization_id,
+      workspace_id: execution.workspace_id,
+      operation_id: operation.id,
+      step_key: step_key,
+      execution_state_version: execution.state_version + 1,
+      target_resource_type: target.resource_type,
+      target_resource_id: target.resource_id,
+      target_scope_type: "workspace",
+      target_scope_id: target.workspace_id,
+      access_mode: "read",
+      capability_key: "agent.tool.read",
+      reason: "context_entry_requires_expansion",
+      sensitivity: "internal",
+      expected_duration_seconds: 900,
+      state: "pending",
+      version: 1,
+      expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+    }
+
+    ContextExpansionRequest
+    |> Ash.Query.filter(
+      execution_id == ^execution.id and step_key == ^step_key and state == "pending"
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+    |> case do
+      nil -> Repo.ash_create!(ContextExpansionRequest, attrs)
+      request -> validate_context_expansion_request_replay!(request, attrs)
+    end
+  end
+
+  defp validate_context_expansion_request_replay!(request, attrs) do
+    fields = [
+      :execution_id,
+      :current_context_package_id,
+      :authority_snapshot_id,
+      :organization_id,
+      :workspace_id,
+      :operation_id,
+      :step_key,
+      :execution_state_version,
+      :target_resource_type,
+      :target_resource_id,
+      :target_scope_type,
+      :target_scope_id,
+      :access_mode,
+      :capability_key,
+      :reason,
+      :sensitivity,
+      :expected_duration_seconds,
+      :state,
+      :version
+    ]
+
+    if Enum.all?(fields, &(Map.get(request, &1) == Map.get(attrs, &1))),
+      do: request,
+      else: Repo.rollback(:agent_context_expansion_request_conflict)
+  end
+
+  defp validate_approval_request_replay!(request, attrs) do
+    valid? =
+      Enum.all?(
+        [
+          :execution_id,
+          :authority_snapshot_id,
+          :organization_id,
+          :workspace_id,
+          :operation_id,
+          :step_key,
+          :execution_state_version,
+          :requested_action,
+          :reason,
+          :scope_type,
+          :scope_id,
+          :capability_key,
+          :sensitivity,
+          :external_write,
+          :state,
+          :version
+        ],
+        &(Map.get(request, &1) == Map.get(attrs, &1))
+      )
+
+    if valid?, do: request, else: Repo.rollback(:agent_approval_request_conflict)
+  end
+
   defp validate_request_replay!(request, input) do
     valid? =
       request.execution_id == input.execution_id and
@@ -546,7 +740,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       capability_keys: context.snapshot.capability_keys,
       credential_kinds: manifest.credential_kinds,
       sensitivity: manifest.sensitivity,
-      approval_granted?: false,
+      approval_granted?: is_binary(context.approval_request_id),
       timeout_ms: manifest.timeout_ms,
       token_budget: manifest.token_budget,
       adapter_payload: %{fixture_id: fixture_id}

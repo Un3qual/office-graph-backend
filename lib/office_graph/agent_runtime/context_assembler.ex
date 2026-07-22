@@ -60,6 +60,63 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
     {package, persisted_entries}
   end
 
+  def persist_expansion!(execution, snapshot, operation, request, current_package) do
+    current_entries = load_entries!(current_package.id)
+
+    expanded_entries =
+      Enum.map(current_entries, fn entry ->
+        posture = if expansion_target?(entry, request), do: "included", else: entry.posture
+
+        entry_attrs = %{
+          id: Ecto.UUID.generate(),
+          organization_id: entry.organization_id,
+          workspace_id: entry.workspace_id,
+          entry_type: entry.entry_type,
+          resource_type: entry.resource_type,
+          resource_id: entry.resource_id,
+          external_reference_id: entry.external_reference_id,
+          posture: posture,
+          rationale_code:
+            if(posture != entry.posture,
+              do: "approved_context_expansion",
+              else: entry.rationale_code
+            ),
+          ordinal: entry.ordinal,
+          operation_id: operation.id
+        }
+
+        Map.put(entry_attrs, :content_hash, entry_hash(entry_attrs))
+      end)
+
+    if Enum.count(expanded_entries, &(&1.rationale_code == "approved_context_expansion")) != 1 do
+      Repo.rollback(:context_expansion_target_mismatch)
+    end
+
+    package =
+      Repo.ash_create!(ContextPackage, %{
+        id: Ecto.UUID.generate(),
+        execution_id: execution.id,
+        authority_snapshot_id: snapshot.id,
+        organization_id: execution.organization_id,
+        workspace_id: execution.workspace_id,
+        selected_graph_item_id: current_package.selected_graph_item_id,
+        run_id: current_package.run_id,
+        previous_package_id: current_package.id,
+        expansion_request_id: request.id,
+        operation_id: operation.id,
+        version: current_package.version + 1,
+        package_hash: package_hash(expanded_entries),
+        assembled_at: DateTime.utc_now()
+      })
+
+    entries =
+      Enum.map(expanded_entries, fn entry ->
+        Repo.ash_create!(ContextEntry, Map.put(entry, :context_package_id, package.id))
+      end)
+
+    {package, entries}
+  end
+
   def load_initial(execution_id) do
     with {:ok, %ContextPackage{} = package} <- load_package(execution_id),
          {:ok, entries} <- load_entries(package.id) do
@@ -82,6 +139,20 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
     |> Ash.Query.filter(context_package_id == ^package_id)
     |> Ash.Query.sort(ordinal: :asc)
     |> Ash.read(authorize?: false)
+  end
+
+  defp load_entries!(package_id) do
+    case load_entries(package_id) do
+      {:ok, entries} -> entries
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp expansion_target?(entry, request) do
+    entry.resource_type == request.target_resource_type and
+      entry.resource_id == request.target_resource_id and entry.posture == "expansion_required" and
+      entry.organization_id == request.organization_id and
+      entry.workspace_id == request.target_scope_id
   end
 
   defp entry_hash(entry) do

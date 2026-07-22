@@ -69,6 +69,14 @@ defmodule OfficeGraphWeb.Router do
          JsonApi.OperatorCommands.RunsController,
          :start_work_run
 
+    post "/v1/commands/resolve-agent-approval",
+         JsonApi.OperatorCommands.AgentsController,
+         :resolve_approval
+
+    post "/v1/commands/resolve-agent-context-expansion",
+         JsonApi.OperatorCommands.AgentsController,
+         :resolve_context_expansion
+
     post "/v1/commands/record-execution-observation",
          JsonApi.OperatorCommands.RunsController,
          :record_execution_observation
