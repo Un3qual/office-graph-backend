@@ -58,6 +58,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceResourceTest do
       :autonomy_mode,
       :state,
       :state_version,
+      :lease_token,
+      :lease_expires_at,
       :idempotency_key
     ])
 

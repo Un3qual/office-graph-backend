@@ -5,26 +5,149 @@ defmodule OfficeGraph.AgentRuntime do
 
   use Boundary,
     deps: [
+      OfficeGraph.Audit,
       OfficeGraph.Authorization,
+      OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
       OfficeGraph.Integrations,
+      OfficeGraph.NodeConversations,
       OfficeGraph.Operations,
+      OfficeGraph.Projections,
+      OfficeGraph.ProposedChanges,
       OfficeGraph.Repo,
+      OfficeGraph.Revisions,
       OfficeGraph.Runs,
       OfficeGraph.Tenancy,
+      OfficeGraph.Verification,
       OfficeGraph.WorkGraph
     ],
-    exports: []
+    exports: [InvocationRequest]
 
   require Ash.Query
 
   alias OfficeGraph.{Authorization, Identity, Operations, Repo}
-  alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding, StorageResult}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentDefinition,
+    ApprovalCommands,
+    Authority,
+    CancellationCommands,
+    ContextExpansionCommands,
+    InvocationCommands,
+    InvocationRequest,
+    OrganizationBinding,
+    StorageResult
+  }
+
   alias OfficeGraph.Identity.Principal
 
   @canonical_definition_key "openspec-review"
   @agent_capabilities [:agent_runtime_execute, :skeleton_read]
+
+  def invoke(session_context, operation, %InvocationRequest{} = request) do
+    InvocationCommands.invoke(session_context, operation, request)
+  end
+
+  def invoke(_session_context, _operation, _request), do: {:error, :forbidden}
+
+  def invoke_system(operation, %InvocationRequest{} = request) do
+    InvocationCommands.invoke_system(operation, request)
+  end
+
+  def invoke_system(_operation, _request), do: {:error, :forbidden}
+
+  def revalidate_step(execution_id, opts \\ []) do
+    Authority.revalidate(execution_id, opts)
+  end
+
+  def cancel_execution(session_context, operation, attrs) do
+    CancellationCommands.cancel(session_context, operation, attrs)
+  end
+
+  def approve(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "approved",
+      reason
+    )
+  end
+
+  def deny_approval(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "denied",
+      reason
+    )
+  end
+
+  def cancel_approval(session_context, operation, request_id, expected_version, reason) do
+    ApprovalCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "cancelled",
+      reason
+    )
+  end
+
+  def approve_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "approved",
+      reason
+    )
+  end
+
+  def deny_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "denied",
+      reason
+    )
+  end
+
+  def cancel_context_expansion(
+        session_context,
+        operation,
+        request_id,
+        expected_version,
+        reason
+      ) do
+    ContextExpansionCommands.resolve(
+      session_context,
+      operation,
+      request_id,
+      expected_version,
+      "cancelled",
+      reason
+    )
+  end
 
   @doc """
   Binds the migration-owned OpenSpec review definition in the caller's workspace.
@@ -144,8 +267,7 @@ defmodule OfficeGraph.AgentRuntime do
   end
 
   defp replay_binding!(session_context, operation, definition, binding) do
-    if binding.operation_id == operation.id and
-         binding.organization_id == session_context.organization_id and
+    if binding.organization_id == session_context.organization_id and
          binding.workspace_id == session_context.workspace_id and
          binding.lifecycle_state == "active" do
       principal = Ash.get!(Principal, binding.agent_principal_id, authorize?: false)

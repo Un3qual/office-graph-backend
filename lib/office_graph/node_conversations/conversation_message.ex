@@ -19,6 +19,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
     attribute :execution_id, :uuid, public?: true
     attribute :author_principal_id, :uuid, public?: true
     attribute :context_package_id, :uuid, public?: true
+    attribute :step_key, :string, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :proposed_graph_change_id, :uuid, public?: true
     attribute :domain_action_operation_id, :uuid, public?: true
@@ -44,6 +45,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
         :execution_id,
         :author_principal_id,
         :context_package_id,
+        :step_key,
         :operation_id,
         :proposed_graph_change_id,
         :domain_action_operation_id,

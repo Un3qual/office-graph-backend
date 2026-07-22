@@ -42,6 +42,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       public?: true
 
     attribute :current_step_key, :string, public?: true
+    attribute :lease_token, :string, public?: true
+    attribute :lease_expires_at, :utc_datetime_usec, public?: true
 
     attribute :attempt_count, :integer,
       allow_nil?: false,
@@ -85,6 +87,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
         :state,
         :state_version,
         :current_step_key,
+        :lease_token,
+        :lease_expires_at,
         :attempt_count,
         :idempotency_key,
         :failure_code,
@@ -105,6 +109,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       accept [
         :state,
         :current_step_key,
+        :lease_token,
+        :lease_expires_at,
         :attempt_count,
         :failure_code,
         :started_at,

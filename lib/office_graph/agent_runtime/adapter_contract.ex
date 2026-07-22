@@ -40,6 +40,13 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
 
   def validate_model_input(_manifest, _input), do: {:error, {:terminal, :invalid_model_input}}
 
+  def validate_model_preflight(%ModelManifest{} = manifest, %ModelInput{} = input) do
+    validate_input(manifest, input, :model, skip_approval?: true)
+  end
+
+  def validate_model_preflight(_manifest, _input),
+    do: {:error, {:terminal, :invalid_model_input}}
+
   def validate_tool_input(%ToolManifest{} = manifest, %ToolInput{} = input) do
     validate_input(manifest, input, :tool)
   end
@@ -89,8 +96,17 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       valid_budget?(manifest, kind)
   end
 
-  defp validate_input(manifest, input, kind) do
-    Enum.reduce_while(input_checks(manifest, input, kind), :ok, fn {check, failure_code}, :ok ->
+  defp validate_input(manifest, input, kind, opts \\ []) do
+    checks =
+      if opts[:skip_approval?],
+        do:
+          Enum.reject(
+            input_checks(manifest, input, kind),
+            &match?({_check, :approval_required}, &1)
+          ),
+        else: input_checks(manifest, input, kind)
+
+    Enum.reduce_while(checks, :ok, fn {check, failure_code}, :ok ->
       if check.() do
         {:cont, :ok}
       else

@@ -24,6 +24,9 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
     attribute :execution_observation_id, :uuid, allow_nil?: true, public?: true
     attribute :artifact_id, :uuid, allow_nil?: true, public?: true
     attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :execution_id, :uuid, public?: true
+    attribute :context_package_id, :uuid, public?: true
+    attribute :step_key, :string, public?: true
     attribute :claim, :string, allow_nil?: false, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :source_identity, :string, allow_nil?: false, public?: true
@@ -75,6 +78,9 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
         :execution_observation_id,
         :artifact_id,
         :operation_id,
+        :execution_id,
+        :context_package_id,
+        :step_key,
         :claim,
         :source_kind,
         :source_identity,

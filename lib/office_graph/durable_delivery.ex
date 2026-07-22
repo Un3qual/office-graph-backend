@@ -29,6 +29,16 @@ defmodule OfficeGraph.DurableDelivery do
 
   require Ash.Query
 
+  def event_attrs(event_key, event_kind, subject_kind, subject_id, subject_version) do
+    %{
+      event_key: event_key,
+      event_kind: event_kind,
+      subject_kind: subject_kind,
+      subject_id: subject_id,
+      subject_version: subject_version
+    }
+  end
+
   def record_and_enqueue(session_context, operation, attrs) do
     with {:ok, request} <- EventRequest.new(session_context, operation, attrs) do
       transaction(fn -> record_and_enqueue_request(request) end)

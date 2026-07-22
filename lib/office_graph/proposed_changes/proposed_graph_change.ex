@@ -34,6 +34,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     attribute :applied_operation_id, :uuid, public?: true
     attribute :applied_resource_id, :uuid, public?: true
     attribute :normalized_event_id, :uuid, public?: true
+    attribute :execution_id, :uuid, public?: true
+    attribute :context_package_id, :uuid, public?: true
+    attribute :step_key, :string, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
     attribute :payload, :map, allow_nil?: false, default: %{}, public?: true
@@ -57,6 +60,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
         :workspace_id,
         :operation_id,
         :normalized_event_id,
+        :execution_id,
+        :context_package_id,
+        :step_key,
         :change_type,
         :payload
       ]

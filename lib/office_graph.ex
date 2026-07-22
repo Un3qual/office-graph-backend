@@ -3,10 +3,12 @@ defmodule OfficeGraph do
     deps: [OfficeGraph.Repo],
     exports: [
       ApiSupport,
+      AgentRuntime,
       DurableDelivery,
       GitHubIntegration,
       Identity.SessionContext,
       Integrations,
+      NodeConversations,
       Operations,
       Projections,
       ProposedChanges,

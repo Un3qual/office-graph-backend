@@ -6,6 +6,8 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   @uuid_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @uuid_metadata_keys [
     :accepted_id,
+    :approval_request_id,
+    :context_expansion_request_id,
     :current_version_id,
     :evidence_candidate_id,
     :id,
@@ -27,6 +29,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   @execution_states ["completed", "failed", "pending", "running"]
   @verification_states ["failed", "missing_evidence", "pending", "unverified", "verified"]
   @evidence_results ["failed", "passed", "waived"]
+  @agent_request_states ["approved", "cancelled", "denied", "expired", "pending", "superseded"]
   @simple_reason_tokens [
     "existing_normalized_event_changes",
     "invalid_apply_input",
@@ -76,6 +79,46 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   def classify({:stale_version, :provider_version}) do
     result(:conflict, "stale_provider_version", "The provider object version is stale.")
+  end
+
+  def classify({:stale_agent_approval, request_id, current_version}) do
+    result(:conflict, "stale_agent_approval", "The approval request version is stale.",
+      approval_request_id: request_id,
+      current_version: current_version
+    )
+  end
+
+  def classify({kind, request_id})
+      when kind in [:agent_approval_expired, :agent_context_expansion_expired] do
+    {code, key} =
+      if kind == :agent_approval_expired,
+        do: {"agent_approval_expired", :approval_request_id},
+        else: {"agent_context_expansion_expired", :context_expansion_request_id}
+
+    result(:conflict, code, "The agent request is expired.", %{key => request_id})
+  end
+
+  def classify({:stale_agent_context_expansion, request_id, current_version}) do
+    result(
+      :conflict,
+      "stale_agent_context_expansion",
+      "The context expansion request version is stale.",
+      context_expansion_request_id: request_id,
+      current_version: current_version
+    )
+  end
+
+  def classify({kind, request_id, state})
+      when kind in [:agent_approval_resolved, :agent_context_expansion_resolved] do
+    {code, key} =
+      if kind == :agent_approval_resolved,
+        do: {"agent_approval_resolved", :approval_request_id},
+        else: {"agent_context_expansion_resolved", :context_expansion_request_id}
+
+    result(:conflict, code, "The agent request is already resolved.", %{
+      key => request_id,
+      state: state
+    })
   end
 
   def classify(%Ash.Error.Forbidden{}), do: classify(:forbidden)
@@ -331,6 +374,14 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
 
   defp sanitize_metadata_entry(:evidence_result, value) do
     {:ok, sanitize_enum(value, @evidence_results)}
+  end
+
+  defp sanitize_metadata_entry(:current_version, value)
+       when is_integer(value) and value > 0,
+       do: {:ok, value}
+
+  defp sanitize_metadata_entry(:state, value) do
+    {:ok, sanitize_enum(value, @agent_request_states)}
   end
 
   defp sanitize_metadata_entry(:reason, value), do: {:ok, sanitize_reason(value)}

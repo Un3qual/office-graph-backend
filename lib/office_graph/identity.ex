@@ -117,6 +117,19 @@ defmodule OfficeGraph.Identity do
 
   def active_system_principal(_principal_id), do: {:ok, false}
 
+  def active_principal(principal_id) when is_binary(principal_id) do
+    case Ash.get(Principal, principal_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
+      {:ok, %Principal{status: "active"}} -> {:ok, true}
+      {:ok, _missing_or_inactive} -> {:ok, false}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def active_principal(_principal_id), do: {:ok, false}
+
   def ensure_system_principal(email, kind)
       when is_binary(email) and kind in ["agent", "service", "webhook"] do
     principal =

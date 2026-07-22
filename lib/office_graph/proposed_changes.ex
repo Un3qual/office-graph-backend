@@ -6,6 +6,7 @@ defmodule OfficeGraph.ProposedChanges do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.WorkGraph
     ],
@@ -29,6 +30,53 @@ defmodule OfficeGraph.ProposedChanges do
   @apply_operation_action "proposed_change.apply"
   @manual_intake_action "manual_intake.submit"
   @normalized_intake_event Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
+
+  def create_from_agent(operation, execution, context_package, step_key, kind, summary) do
+    with true <- kind in [:proposal, :finding] and is_binary(summary),
+         :ok <- validate_agent_output(operation, execution, context_package, step_key) do
+      change_type = if kind == :finding, do: "create_review_finding", else: "create_task"
+
+      ProposedGraphChange
+      |> Ash.Query.filter(
+        execution_id == ^execution.id and step_key == ^step_key and change_type == ^change_type
+      )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+      |> case do
+        nil ->
+          Repo.ash_create!(ProposedGraphChange, %{
+            id: Ecto.UUID.generate(),
+            organization_id: execution.organization_id,
+            workspace_id: execution.workspace_id,
+            operation_id: operation.id,
+            execution_id: execution.id,
+            context_package_id: context_package.id,
+            step_key: step_key,
+            change_type: change_type,
+            payload: %{"title" => summary, "body" => summary}
+          })
+
+        change ->
+          if change.operation_id == operation.id and
+               change.context_package_id == context_package.id and
+               change.payload == %{"title" => summary, "body" => summary},
+             do: change,
+             else: Repo.rollback(:agent_proposal_replay_conflict)
+      end
+    else
+      false -> {:error, :invalid_agent_output}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp validate_agent_output(operation, execution, context_package, step_key) do
+    OfficeGraph.Operations.validate_agent_output_operation(
+      operation,
+      execution,
+      context_package,
+      step_key
+    )
+  end
 
   defguardp is_apply_validation_error(error)
             when error == :forbidden or

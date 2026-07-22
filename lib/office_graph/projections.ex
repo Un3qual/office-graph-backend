@@ -7,6 +7,7 @@ defmodule OfficeGraph.Projections do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.ExternalRefs,
       OfficeGraph.GitHubIntegration,
       OfficeGraph.Integrations,
       OfficeGraph.ProposedChanges,
@@ -18,7 +19,14 @@ defmodule OfficeGraph.Projections do
     ],
     exports: []
 
-  alias OfficeGraph.Projections.{OperatorWorkflow, PacketReadiness, PacketWorkspace, RunState}
+  alias OfficeGraph.Projections.{
+    AgentContext,
+    OperatorWorkflow,
+    PacketReadiness,
+    PacketWorkspace,
+    RunState
+  }
+
   alias OfficeGraph.{Runs, WorkGraph, WorkPackets}
 
   defdelegate operator_inbox(session_context), to: OperatorWorkflow
@@ -50,6 +58,8 @@ defmodule OfficeGraph.Projections do
     as: :command_option_page
 
   defdelegate verification_outcome(session_context, run_id), to: RunState
+
+  defdelegate agent_context(authority, graph_item_id, run_id), to: AgentContext, as: :project
 
   defdelegate integration_health(session_context, installation_id, opts \\ []),
     to: OfficeGraph.GitHubIntegration

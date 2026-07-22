@@ -34,6 +34,8 @@ defmodule OfficeGraph.WorkGraph do
   defdelegate list_relationships(session_context, item_id, opts \\ []),
     to: Queries
 
+  defdelegate agent_context_items(authority, item_id), to: Queries
+
   defdelegate create_relationship(session_context, operation, request),
     to: RelationshipCommands,
     as: :create

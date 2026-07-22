@@ -11,20 +11,20 @@
 
 ## 3. Invocation, Authority, And Context
 
-- [ ] 3.1 Add failing tests for human and automatic run-linked invocation, replay, definition/run/scope validation, generic system-operation consumption, and immutable authority snapshots.
-- [ ] 3.2 Implement invocation commands, effective-authority computation, operation/execution creation, and pre-step revalidation of principals, credentials, grants, approvals, and tools.
-- [ ] 3.3 Add failing context-package tests, then implement authorized projection assembly, inclusion/redaction rationale, immutable versions, and cross-tenant fail-closed behavior.
+- [x] 3.1 Add failing tests for human and automatic run-linked invocation, replay, definition/run/scope validation, generic system-operation consumption, and immutable authority snapshots.
+- [x] 3.2 Implement invocation commands, effective-authority computation, operation/execution creation, and pre-step revalidation of principals, credentials, grants, approvals, and tools.
+- [x] 3.3 Add failing context-package tests, then implement authorized projection assembly, inclusion/redaction rationale, immutable versions, and cross-tenant fail-closed behavior.
 
 ## 4. Durable Execution State Machine
 
-- [ ] 4.1 Add failing worker/concurrency tests for queued/running/waiting/retry/completed/failed/cancelled transitions, leases, restart recovery, duplicate dispatch, attempt budgets, and cancellation.
-- [ ] 4.2 Implement durable step workers, state transitions, step idempotency, retry/terminal classification, cancellation, and run/projection invalidations using the unchanged shared system-operation schema.
+- [x] 4.1 Add failing worker/concurrency tests for queued/running/waiting/retry/completed/failed/cancelled transitions, leases, restart recovery, duplicate dispatch, attempt budgets, and cancellation.
+- [x] 4.2 Implement durable step workers, state transitions, step idempotency, retry/terminal classification, cancellation, and run/projection invalidations using the unchanged shared system-operation schema.
 
 ## 5. Approvals, Expansion, And Output Routing
 
-- [ ] 5.1 Add failing GraphQL/JSON/domain tests for approval and expansion creation, versioned approve/deny/cancel, stale conflicts, expiry, bounded scope, and resume-only-matching-step behavior.
-- [ ] 5.2 Implement approval/expansion commands and resume orchestration with authorization, operation, audit, revision, and realtime provenance.
-- [ ] 5.3 Add failing proposal/evidence tests, then route validated agent output through owning proposal, observation, message, and evidence-candidate commands with no direct business mutation, external write, or verification completion.
+- [x] 5.1 Add failing GraphQL/JSON/domain tests for approval and expansion creation, versioned approve/deny/cancel, stale conflicts, expiry, bounded scope, and resume-only-matching-step behavior.
+- [x] 5.2 Implement approval/expansion commands and resume orchestration with authorization, operation, audit, revision, and realtime provenance.
+- [x] 5.3 Add failing proposal/evidence tests, then route validated agent output through owning proposal, observation, message, and evidence-candidate commands with no direct business mutation, external write, or verification completion.
 
 ## 6. Conversations And Operator Surface
 

@@ -50,7 +50,12 @@ access to model and tools was rejected because it fragments policy and audit.
 Invocation records mode, origin, selected graph item, run, organization,
 workspace, agent principal, delegator/trigger basis, requested capabilities,
 autonomy envelope, and operation. An immutable authority snapshot records the
-effective intersection used for the execution.
+effective intersection of the definition request and delegator grants, and the
+exact model-adapter key/version used for the execution. Automatic invocation
+accepts only the canonical binding/run trigger authority, while an exact
+persisted invocation replay remains readable after later lifecycle changes.
+Schema upgrades that add fields to the canonical snapshot hash rehash existing
+rows in the same migration and restore the prior hash form on rollback.
 
 Run-less general conversation was rejected for the first implementation because
 the accepted surface is a run-aware operator tool and verification must retain
@@ -61,7 +66,8 @@ parent context.
 Projection contracts assemble selected and neighboring graph items, typed
 records, external references, decisions/checks/evidence, and recent run context.
 Each entry records included, redacted, omitted, restricted, or expansion-required
-posture and a safe rationale. Raw payload slices require policy approval.
+posture, a safe rationale, and the selected source version. Raw payload slices
+require policy approval.
 
 Allowing agents to traverse graph tables on demand was rejected because it can
 self-expand access and cannot explain the prompt boundary.
@@ -71,7 +77,10 @@ self-expand access and cannot explain the prompt boundary.
 Model adapters accept a provider-neutral request and return validated structured
 output or classified error. Tool manifests declare input/output schemas,
 capabilities, credentials, sensitivity, external-write posture, timeout, budget,
-and output classification.
+and output classification. The worker validates both pre-gate input authority
+and successful output against the selected manifest, so an impossible request
+cannot create a durable gate and globally well-formed but adapter-disallowed
+output cannot reach routing.
 
 Ad hoc prompt function calls and direct provider SDK exposure were rejected
 because they make permission and credential enforcement opaque.
@@ -80,7 +89,10 @@ because they make permission and credential enforcement opaque.
 
 Model output is untrusted. Agent suggestions route to existing proposal commands;
 verification material routes to evidence-candidate commands. No initial adapter
-can call a direct business mutation or external write.
+can call a direct business mutation or external write. Output routing checks
+the definition allowlist, the invocation's immutable capability snapshot, and
+the exact step operation's snapshot, execution causation, and idempotency scope
+before calling an owning domain.
 
 Read-only output alone was rejected as too weak, while direct writes were
 rejected as a bypass around validation, audit, and approval.
@@ -91,6 +103,12 @@ Executions move through queued, running, waiting approval, waiting context,
 retry scheduled, completed, failed, or cancelled. Oban jobs use execution and
 step identities, leases, bounded attempts, and classified retry/terminal
 results. Step completion records before dispatching the next step.
+Storage-availability failures retain their retryable classification through
+output validation instead of being collapsed into terminal authorization
+failure.
+Cancellation replays reissue the adapter's idempotent cancellation signal when
+the persisted request still identifies an adapter operation that may remain
+active.
 
 A single long-running process was rejected because restart and retry would lose
 or duplicate product effects.
@@ -99,7 +117,10 @@ or duplicate product effects.
 
 Requests identify execution, step, requested action/context, reason, scope,
 capabilities, sensitivity, expiry, and operation. Narrow GraphQL/JSON commands
-authorize resolve/deny/cancel and resume only the matching waiting step.
+authorize resolve/deny/cancel and resume only the matching waiting step. When a
+step crosses multiple gates, the later request retains the prior approved gate
+lineage so every grant in every immutable successor context package remains
+revalidated until adapter dispatch.
 
 Implicit approval through conversation membership was rejected because it
 cannot express tool, credential, external-write, or cross-scope authority.
@@ -151,6 +172,10 @@ optional after the integration change and do not shape core runtime schemas.
    retry, and recovery.
 4. Add proposal/evidence routing, approvals, expansion, and realtime projections.
 5. Install and bind the OpenSpec review agent and add the focused operator UI.
+
+When adapter lineage is added to pre-existing authority snapshots, recompute
+their canonical hashes after the backfill and recompute the legacy form before
+removing those fields on rollback.
 
 Rollback disables invocation/workers first, waits for active steps or marks them
 cancelled with provenance, retains execution/conversation history while API

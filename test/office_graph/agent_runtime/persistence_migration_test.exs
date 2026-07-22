@@ -65,12 +65,20 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
 
     assert index_exists?("agent_executions_scope_state_index")
     assert index_exists?("agent_executions_operation_index")
+    assert index_exists?("agent_executions_state_lease_index")
+    assert column_exists?("agent_executions", "lease_token")
+    assert column_exists?("agent_executions", "lease_expires_at")
     assert index_exists?("agent_authority_snapshots_execution_version_index")
+    refute column_nullable?("agent_authority_snapshots", "model_adapter_key")
+    refute column_nullable?("agent_authority_snapshots", "model_adapter_version")
     assert index_exists?("agent_context_packages_execution_version_index")
     assert index_exists?("agent_context_entries_package_ordinal_index")
+    refute column_nullable?("agent_context_entries", "source_version")
     assert index_exists?("agent_model_requests_execution_step_idempotency_index")
     assert index_exists?("agent_tool_requests_execution_step_idempotency_index")
     assert index_exists?("agent_approval_requests_execution_step_index")
+    assert index_exists?("agent_approval_requests_context_expansion_index")
+    assert column_exists?("agent_approval_requests", "context_expansion_request_id")
     assert index_exists?("agent_context_expansion_requests_execution_step_index")
     assert index_exists?("conversations_run_graph_item_index")
     assert index_exists?("conversation_messages_conversation_inserted_at_index")
@@ -79,9 +87,26 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
   test "the migration installs the canonical OpenSpec review definition without secrets" do
     assert table_exists?("agent_definitions")
 
-    assert %{rows: [[key, lifecycle_state, model_adapter_key, tool_allowlist]]} =
+    assert %{
+             rows: [
+               [
+                 key,
+                 lifecycle_state,
+                 requested_capabilities,
+                 model_adapter_key,
+                 tool_allowlist,
+                 allowed_output_kinds
+               ]
+             ]
+           } =
              OfficeGraph.Repo.query!("""
-             SELECT key, lifecycle_state, model_adapter_key, tool_allowlist
+             SELECT
+               key,
+               lifecycle_state,
+               requested_capabilities,
+               model_adapter_key,
+               tool_allowlist,
+               allowed_output_kinds
              FROM agent_definitions
              WHERE key = 'openspec-review'
              """)
@@ -89,12 +114,22 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert key == "openspec-review"
     assert lifecycle_state == "active"
     assert model_adapter_key == "deterministic"
+    assert "agent.model.generate" in requested_capabilities
+    assert "agent.tool.read" in requested_capabilities
     assert Enum.sort(tool_allowlist) == ["openspec.read", "repository.read"]
+
+    assert Enum.sort(allowed_output_kinds) ==
+             ~w(evidence_candidate finding message observation proposal)
 
     for forbidden <- ~w(secret api_key token raw_prompt raw_response raw_input raw_output) do
       refute column_exists?("agent_definitions", forbidden)
       refute column_exists?("agent_model_requests", forbidden)
       refute column_exists?("agent_tool_requests", forbidden)
     end
+  end
+
+  test "the migration installs the human agent invocation capability" do
+    assert %{rows: [["agent.invoke"]]} =
+             OfficeGraph.Repo.query!("SELECT key FROM capabilities WHERE key = 'agent.invoke'")
   end
 end
