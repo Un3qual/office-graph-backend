@@ -48,7 +48,9 @@ export function OperatorInspector({
   runId,
   selectedId,
 }: Props) {
-  const [validationRequested, setValidationRequested] = useState(false);
+  const validationScope = `${selectedId ?? "none"}:${runId ?? "none"}:${graphItemId ?? "none"}`;
+  const [requestedValidationScope, setRequestedValidationScope] = useState<string | null>(null);
+  const validationRequested = requestedValidationScope === validationScope;
 
   return (
     <>
@@ -68,7 +70,7 @@ export function OperatorInspector({
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
-          onValidateReadiness={() => setValidationRequested(true)}
+          onValidateReadiness={() => setRequestedValidationScope(validationScope)}
           readiness={readiness}
           readinessInput={readinessInput}
         />

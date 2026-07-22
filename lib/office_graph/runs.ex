@@ -370,6 +370,23 @@ defmodule OfficeGraph.Runs do
   def validate_conversation_scope(_session_context, _run_id, _graph_item_id),
     do: {:error, :forbidden}
 
+  def validate_agent_invocation_scope(run, graph_item_id, autonomy_mode)
+      when is_binary(graph_item_id) and is_binary(autonomy_mode) do
+    with true <- active_run?(run),
+         :ok <- validate_run_graph_item(run, graph_item_id),
+         {:ok, packet_version} <-
+           fetch_agent_record(WorkPacketVersion, run.work_packet_version_id, run),
+         :ok <- validate_agent_autonomy(run, packet_version, autonomy_mode) do
+      :ok
+    else
+      false -> {:error, :forbidden}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def validate_agent_invocation_scope(_run, _graph_item_id, _autonomy_mode),
+    do: {:error, :forbidden}
+
   def get_verification_outcome_summary(session_context, run_id) do
     with {:ok, run} <- get_projection_run(session_context, run_id),
          {:ok, required_checks} <- read_run_required_checks(run),

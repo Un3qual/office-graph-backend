@@ -46,6 +46,52 @@ describe("operator route reads", () => {
     });
   });
 
+  it("requires a new readiness request after the selected item changes", async () => {
+    const secondItem = support.operatorWorkflowItem({
+      id: "operator_workflow_item_global_2",
+      normalizedEventId: "evt_2",
+      title: "Second workflow item",
+      typedId: { type: "normalized_intake_event", id: "evt_2" },
+      graphLinks: [
+        {
+          type: "verification_check",
+          id: "check_2",
+          graphItemId: "graph_2",
+          title: "Second verification check",
+          state: "required",
+        },
+        {
+          type: "work_run",
+          id: "run_2",
+          graphItemId: null,
+          title: "Second workflow run",
+          state: "running",
+        },
+      ],
+    });
+    const network = support.createOperatorNetwork({
+      workflowItems: [support.operatorWorkflowItem(), secondItem],
+    });
+
+    support.renderWithRelay(<OperatorRoute />, network);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Validate readiness" }));
+    await waitFor(() => {
+      expect(
+        network.mock.calls.filter(([request]) => request.name === "OperatorPacketReadinessQuery"),
+      ).toHaveLength(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Second workflow item/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Validate readiness" })).toBeEnabled();
+    });
+    expect(
+      network.mock.calls.filter(([request]) => request.name === "OperatorPacketReadinessQuery"),
+    ).toHaveLength(1);
+  });
+
   it("opens a packet-workspace run link from the route query string", async () => {
     const runState = support.operatorRunState();
     const network = support.createOperatorNetwork({

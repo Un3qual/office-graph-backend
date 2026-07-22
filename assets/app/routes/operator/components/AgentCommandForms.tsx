@@ -82,11 +82,13 @@ export function AgentConversationForm({
   activity: OperatorRunConversation;
   onRefresh: () => void;
 }) {
-  return activity.conversation ? (
+  if (!activity.conversation) {
+    return <StartConversationForm activity={activity} onRefresh={onRefresh} />;
+  }
+
+  return enabledAffordance(activity.commandAffordances, "append_conversation_message") ? (
     <MessageForm activity={activity} onRefresh={onRefresh} />
-  ) : (
-    <StartConversationForm activity={activity} onRefresh={onRefresh} />
-  );
+  ) : null;
 }
 
 function StartConversationForm({

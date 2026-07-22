@@ -3,14 +3,21 @@ import type { GraphQLResponse } from "relay-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { GraphQLResponseError } from "../../relay/fetchGraphQL";
 import OperatorRoute from "./route";
-
-import * as support from "./routeTestSupport";
+import {
+  deferredGraphQLResponse,
+  enabledCommandAffordance,
+  lastVariablesFor,
+  operatorRunState,
+  operatorWorkflowItem,
+  renderWithRelay,
+  workflowConnectionResponse,
+} from "./routeTestSupport";
 
 describe("operator run agent surface", () => {
   it("shows bounded execution, conversation, context, and gate state", async () => {
     const network = agentNetwork();
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     const panel = await screen.findByRole("region", { name: "Agent Activity" });
     expect(panel).toHaveTextContent("Review the selected run and OpenSpec artifacts.");
@@ -22,10 +29,10 @@ describe("operator run agent surface", () => {
   });
 
   it("invokes and cancels through independent narrow Relay actions", async () => {
-    const invocation = support.deferredGraphQLResponse();
+    const invocation = deferredGraphQLResponse();
     const network = agentNetwork({ invocation });
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     fireEvent.change(await screen.findByLabelText("Requested outcome"), {
       target: { value: "Review this run for specification gaps." },
@@ -33,7 +40,7 @@ describe("operator run agent surface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Invoke agent" }));
 
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "OperatorInvokeAgentMutation")).toEqual({
+      expect(lastVariablesFor(network, "OperatorInvokeAgentMutation")).toEqual({
         input: {
           autonomyMode: "human_supervised",
           bindingId: "binding_1",
@@ -55,7 +62,7 @@ describe("operator run agent surface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel agent execution" }));
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "OperatorCancelAgentExecutionMutation")).toEqual({
+      expect(lastVariablesFor(network, "OperatorCancelAgentExecutionMutation")).toEqual({
         input: {
           executionId: "execution_1",
           expectedStateVersion: 1,
@@ -64,7 +71,7 @@ describe("operator run agent surface", () => {
       });
     });
 
-    await act(async () => {
+    await act(() => {
       invocation.resolve({
         data: {
           invokeAgent: {
@@ -87,16 +94,14 @@ describe("operator run agent surface", () => {
   it("submits messages and versioned approval and expansion decisions", async () => {
     const network = agentNetwork();
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     fireEvent.change(await screen.findByLabelText("Run message"), {
       target: { value: "Please inspect the authorization boundary." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => {
-      expect(
-        support.lastVariablesFor(network, "OperatorAppendConversationMessageMutation"),
-      ).toEqual({
+      expect(lastVariablesFor(network, "OperatorAppendConversationMessageMutation")).toEqual({
         input: {
           body: "Please inspect the authorization boundary.",
           contributionKind: "comment",
@@ -113,7 +118,7 @@ describe("operator run agent surface", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Approve request" }));
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "OperatorResolveAgentApprovalMutation")).toEqual({
+      expect(lastVariablesFor(network, "OperatorResolveAgentApprovalMutation")).toEqual({
         input: {
           approvalRequestId: "approval_1",
           decision: "approved",
@@ -129,9 +134,7 @@ describe("operator run agent surface", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Approve context expansion" }));
     await waitFor(() => {
-      expect(
-        support.lastVariablesFor(network, "OperatorResolveAgentContextExpansionMutation"),
-      ).toEqual({
+      expect(lastVariablesFor(network, "OperatorResolveAgentContextExpansionMutation")).toEqual({
         input: {
           contextExpansionRequestId: "expansion_1",
           decision: "approved",
@@ -143,6 +146,16 @@ describe("operator run agent surface", () => {
     });
   });
 
+  it("does not expose message submission without the append affordance", async () => {
+    const network = agentNetwork({ appendEnabled: false });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("region", { name: "Agent Activity" })).toBeVisible();
+    expect(screen.queryByLabelText("Run message")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
+  });
+
   it("refetches stale gates and preserves safe conflict feedback", async () => {
     let conversationReads = 0;
     const network = agentNetwork({
@@ -152,7 +165,7 @@ describe("operator run agent surface", () => {
       staleApproval: true,
     });
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     fireEvent.change(await screen.findByLabelText("Approval resolution reason"), {
       target: { value: "Approve the exact request shown." },
@@ -167,7 +180,7 @@ describe("operator run agent surface", () => {
   });
 
   it("resets drafts when the selected run and graph context changes", async () => {
-    const second = support.operatorWorkflowItem({
+    const second = operatorWorkflowItem({
       id: "operator_workflow_item_agent_2",
       normalizedEventId: "evt_agent_2",
       title: "Second agent run",
@@ -189,16 +202,16 @@ describe("operator run agent surface", () => {
         },
       ],
     });
-    const network = agentNetwork({ workflowItems: [support.operatorWorkflowItem(), second] });
+    const network = agentNetwork({ workflowItems: [operatorWorkflowItem(), second] });
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     const draft = await screen.findByLabelText("Run message");
     fireEvent.change(draft, { target: { value: "Do not carry this draft." } });
     fireEvent.click(screen.getByRole("button", { name: /Second agent run/i }));
 
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "OperatorRunConversationQuery")).toEqual({
+      expect(lastVariablesFor(network, "OperatorRunConversationQuery")).toEqual({
         graphItemId: "graph_2",
         runId: "run_2",
       });
@@ -209,12 +222,12 @@ describe("operator run agent surface", () => {
   it("starts the focused run conversation when none exists", async () => {
     const network = agentNetwork({ noConversation: true });
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     fireEvent.click(await screen.findByRole("button", { name: "Start conversation" }));
 
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "OperatorStartRunConversationMutation")).toEqual({
+      expect(lastVariablesFor(network, "OperatorStartRunConversationMutation")).toEqual({
         input: {
           graphItemId: "graph_1",
           idempotencyKey: expect.any(String),
@@ -228,7 +241,7 @@ describe("operator run agent surface", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = agentNetwork({ conversationError: true });
 
-    support.renderWithRelay(<OperatorRoute />, network);
+    renderWithRelay(<OperatorRoute />, network);
 
     expect(await screen.findByText("Agent activity is unavailable.")).toBeVisible();
     expect(screen.getByRole("region", { name: "Run State" })).toHaveTextContent("run_1");
@@ -237,28 +250,30 @@ describe("operator run agent surface", () => {
 });
 
 function agentNetwork({
+  appendEnabled = true,
   conversationError = false,
   invocation,
   noConversation = false,
   onConversationRead,
   staleApproval = false,
-  workflowItems = [support.operatorWorkflowItem()],
+  workflowItems = [operatorWorkflowItem()],
 }: {
+  appendEnabled?: boolean;
   conversationError?: boolean;
-  invocation?: ReturnType<typeof support.deferredGraphQLResponse>;
+  invocation?: ReturnType<typeof deferredGraphQLResponse>;
   noConversation?: boolean;
   onConversationRead?: () => void;
   staleApproval?: boolean;
-  workflowItems?: ReturnType<typeof support.operatorWorkflowItem>[];
+  workflowItems?: ReturnType<typeof operatorWorkflowItem>[];
 } = {}) {
-  return vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+  return vi.fn((request, variables) => {
     if (request.name === "OperatorWorkflowRouteQuery") {
-      return support.workflowConnectionResponse(workflowItems, variables);
+      return workflowConnectionResponse(workflowItems, variables);
     }
     if (request.name === "OperatorRunStateQuery") {
       const graphItemId = variables.id === "run_2" ? "graph_2" : "graph_1";
       const runState = {
-        ...support.operatorRunState({
+        ...operatorRunState({
           requiredChecks: [
             {
               id: `required_${variables.id}`,
@@ -291,11 +306,24 @@ function agentNetwork({
         graphItemId: variables.graphItemId,
         runId: variables.runId,
       });
+      const projectedSurface = appendEnabled
+        ? surface
+        : {
+            ...surface,
+            allowedNextActions: surface.allowedNextActions.filter(
+              (identity) => identity !== "append_conversation_message",
+            ),
+            commandAffordances: surface.commandAffordances.map((affordance) =>
+              affordance.identity === "append_conversation_message"
+                ? { ...affordance, state: "disabled" }
+                : affordance,
+            ),
+          };
       return {
         data: {
           operatorRunConversation: noConversation
-            ? agentSurfaceWithoutConversation(surface, variables)
-            : surface,
+            ? agentSurfaceWithoutConversation(projectedSurface, variables)
+            : projectedSurface,
         },
       };
     }
@@ -345,7 +373,7 @@ function agentSurfaceWithoutConversation(
     ...surface,
     allowedNextActions: ["start_run_conversation", "invoke_agent"],
     commandAffordances: [
-      support.enabledCommandAffordance("start_run_conversation", [
+      enabledCommandAffordance("start_run_conversation", [
         { field: "run_id", value: variables.runId, values: [] },
         { field: "graph_item_id", value: variables.graphItemId, values: [] },
       ]),
@@ -396,8 +424,8 @@ function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: stri
       "resolve_agent_context_expansion",
     ],
     commandAffordances: [
-      support.enabledCommandAffordance("append_conversation_message"),
-      support.enabledCommandAffordance("invoke_agent", [
+      enabledCommandAffordance("append_conversation_message"),
+      enabledCommandAffordance("invoke_agent", [
         { field: "binding_id", value: "binding_1", values: [] },
         { field: "run_id", value: runId, values: [] },
         { field: "graph_item_id", value: graphItemId, values: [] },
@@ -413,9 +441,9 @@ function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: stri
           values: [],
         },
       ]),
-      support.enabledCommandAffordance("cancel_agent_execution"),
-      support.enabledCommandAffordance("resolve_agent_approval"),
-      support.enabledCommandAffordance("resolve_agent_context_expansion"),
+      enabledCommandAffordance("cancel_agent_execution"),
+      enabledCommandAffordance("resolve_agent_approval"),
+      enabledCommandAffordance("resolve_agent_context_expansion"),
     ],
     conversation: {
       id: "conversation_1",

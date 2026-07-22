@@ -12,7 +12,6 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
-  import Ecto.Query
 
   test "GraphQL invokes and JSON cancels the exact run-linked agent execution", %{conn: conn} do
     context = AgentRuntimeSupport.invocation_fixture()
@@ -160,7 +159,7 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   defp waiting_approval_fixture do
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
 
@@ -175,7 +174,7 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   defp waiting_context_fixture do
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     target = Enum.min_by(invoked.context_entries, & &1.ordinal)
 
     Repo.query!(
@@ -192,15 +191,5 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
       |> Ash.read_one!(authorize?: false)
 
     %{context: context, execution: execution, request: request}
-  end
-
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> Repo.all()
   end
 end

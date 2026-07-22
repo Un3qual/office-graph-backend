@@ -45,7 +45,8 @@
   padding: 14px;
 }
 
-.operator-command-form label {
+.operator-command-form label,
+.agent-gate-form label {
   color: var(--og-color-text-muted);
   font-size: var(--og-typography-small-size);
 }
@@ -91,11 +92,6 @@
 .agent-gate-form {
   display: grid;
   gap: 8px;
-}
-
-.agent-gate-form label {
-  color: var(--og-color-text-muted);
-  font-size: var(--og-typography-small-size);
 }
 
 .inbox-list {

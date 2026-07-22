@@ -571,7 +571,7 @@ defmodule OfficeGraph.Projections.RunState do
       FROM verification_results
       WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
       UNION ALL
-      SELECT updated_at, 'agent_execution', id, 'Agent execution', state
+      SELECT inserted_at, 'agent_execution', id, 'Agent execution', state
       FROM agent_executions
       WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3
       UNION ALL
@@ -580,7 +580,7 @@ defmodule OfficeGraph.Projections.RunState do
       FROM agent_context_packages
       WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3
       UNION ALL
-      SELECT request.updated_at, 'agent_approval', request.id, request.requested_action,
+      SELECT request.inserted_at, 'agent_approval', request.id, request.requested_action,
              request.state
       FROM agent_approval_requests AS request
       JOIN agent_executions AS execution ON execution.id = request.execution_id
@@ -588,7 +588,7 @@ defmodule OfficeGraph.Projections.RunState do
         AND execution.organization_id = $2
         AND execution.workspace_id = $3
       UNION ALL
-      SELECT request.updated_at, 'agent_context_expansion', request.id,
+      SELECT request.inserted_at, 'agent_context_expansion', request.id,
              request.target_resource_type, request.state
       FROM agent_context_expansion_requests AS request
       JOIN agent_executions AS execution ON execution.id = request.execution_id
@@ -596,7 +596,7 @@ defmodule OfficeGraph.Projections.RunState do
         AND execution.organization_id = $2
         AND execution.workspace_id = $3
       UNION ALL
-      SELECT COALESCE(request.completed_at, request.requested_at, request.inserted_at),
+      SELECT request.inserted_at,
              'agent_tool_request', request.id, request.tool_key, request.state
       FROM agent_tool_requests AS request
       JOIN agent_executions AS execution ON execution.id = request.execution_id
@@ -604,7 +604,7 @@ defmodule OfficeGraph.Projections.RunState do
         AND execution.organization_id = $2
         AND execution.workspace_id = $3
       UNION ALL
-      SELECT proposal.updated_at, 'agent_proposal', proposal.id, proposal.change_type,
+      SELECT proposal.inserted_at, 'agent_proposal', proposal.id, proposal.change_type,
              proposal.status
       FROM proposed_graph_changes AS proposal
       JOIN agent_executions AS execution ON execution.id = proposal.execution_id

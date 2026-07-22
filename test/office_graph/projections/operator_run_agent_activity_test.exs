@@ -2,10 +2,8 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Operations, Projections, Repo}
-  alias OfficeGraph.AgentRuntime.{ExecutionWorker, ModelOutput, OutputRouter}
+  alias OfficeGraph.AgentRuntime.{ModelOutput, OutputRouter}
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
-
-  import Ecto.Query
 
   test "run activity includes bounded agent execution and conversation summaries" do
     context = AgentRuntimeSupport.invocation_fixture()
@@ -15,7 +13,7 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
         requested_capabilities: ["agent.model.generate"]
       })
 
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     {:ok, step_operation} = Operations.read_operation(job.args["operation_id"])
 
     assert {:ok, message} =
@@ -65,13 +63,32 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
     assert message_id == message.id
   end
 
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
+  test "activity cursor remains stable when an execution state update changes updated_at" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+
+    assert {:ok, first_page} =
+             Projections.operator_run_activity_page(context.session, context.run.id,
+               limit: 100,
+               after_cursor: nil
+             )
+
+    execution_edge =
+      Enum.find(first_page.edges, fn edge ->
+        edge.node.kind == "agent_execution" and edge.node.stable_id == invoked.execution.id
+      end)
+
+    Repo.query!(
+      "UPDATE agent_executions SET updated_at = now() + interval '1 hour' WHERE id = $1",
+      [Ecto.UUID.dump!(invoked.execution.id)]
     )
-    |> Repo.all()
+
+    assert {:ok, next_page} =
+             Projections.operator_run_activity_page(context.session, context.run.id,
+               limit: 100,
+               after_cursor: execution_edge.cursor
+             )
+
+    refute Enum.any?(next_page.edges, &(&1.node.stable_id == invoked.execution.id))
   end
 end

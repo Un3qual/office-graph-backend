@@ -42,6 +42,13 @@ defmodule OfficeGraph.NodeConversations do
       Repo.transaction(fn ->
         _operation = lock_operation!(operation.id)
 
+        lock_conversation_scope!(
+          session_context.organization_id,
+          session_context.workspace_id,
+          run_id,
+          graph_item_id
+        )
+
         case read_conversation(session_context, run_id, graph_item_id, lock?: true) do
           {:ok, nil} ->
             Repo.ash_create!(Conversation, %{
@@ -96,7 +103,7 @@ defmodule OfficeGraph.NodeConversations do
            Authorization.authorize_projection(session_context, :skeleton_read,
              organization_id: session_context.organization_id
            ),
-         {:ok, _run} <- Runs.validate_conversation_scope(session_context, run_id, graph_item_id),
+         {:ok, run} <- Runs.validate_conversation_scope(session_context, run_id, graph_item_id),
          {:ok, conversation} <- read_conversation(session_context, run_id, graph_item_id),
          {:ok, messages} <- read_messages(conversation),
          {:ok, referenced_context} <-
@@ -104,7 +111,7 @@ defmodule OfficeGraph.NodeConversations do
          {:ok, agent_state} <-
            read_agent_state(session_context, run_id, graph_item_id) do
       command_affordances =
-        command_affordances(session_context, conversation, agent_state, run_id, graph_item_id)
+        command_affordances(session_context, conversation, agent_state, run, graph_item_id)
 
       {:ok,
        agent_state
@@ -155,6 +162,13 @@ defmodule OfficeGraph.NodeConversations do
   end
 
   defp get_or_create_conversation!(operation, execution) do
+    lock_conversation_scope!(
+      execution.organization_id,
+      execution.workspace_id,
+      execution.run_id,
+      execution.graph_item_id
+    )
+
     Conversation
     |> Ash.Query.filter(
       organization_id == ^execution.organization_id and workspace_id == ^execution.workspace_id and
@@ -313,7 +327,7 @@ defmodule OfficeGraph.NodeConversations do
         validate_domain_operation_scope!(session_context, operation_id)
 
       %{contribution_kind: kind} ->
-        Repo.rollback({:invalid_conversation_message_linkage, String.to_existing_atom(kind)})
+        Repo.rollback({:invalid_conversation_message_linkage, kind})
     end
   end
 
@@ -732,13 +746,13 @@ defmodule OfficeGraph.NodeConversations do
 
   defp invocation_target(_rows), do: nil
 
-  defp command_affordances(session_context, conversation, agent_state, run_id, graph_item_id) do
+  defp command_affordances(session_context, conversation, agent_state, run, graph_item_id) do
     [
-      conversation_affordance(session_context, conversation, run_id, graph_item_id),
+      conversation_affordance(session_context, conversation, run.id, graph_item_id),
       invocation_affordance(
         session_context,
         agent_state.invocation_target,
-        run_id,
+        run,
         graph_item_id
       ),
       cancellation_affordance(session_context, agent_state.executions),
@@ -790,44 +804,61 @@ defmodule OfficeGraph.NodeConversations do
     )
   end
 
-  defp invocation_affordance(session_context, target, run_id, graph_item_id)
+  defp invocation_affordance(session_context, target, run, graph_item_id)
        when not is_nil(target) do
-    capability_affordance(
-      session_context,
-      :agent_invoke,
-      "invoke_agent",
-      "Invoke the approved OpenSpec review agent for this run context.",
-      required_fields: [
-        "binding_id",
-        "run_id",
-        "graph_item_id",
-        "requested_outcome",
-        "requested_capabilities",
-        "autonomy_mode"
-      ],
-      input_defaults: [
-        CommandAffordance.input_default("binding_id", target.binding_id),
-        CommandAffordance.input_default("run_id", run_id),
-        CommandAffordance.input_default("graph_item_id", graph_item_id),
-        CommandAffordance.input_default(
-          "requested_outcome",
-          "Review the selected run and OpenSpec artifacts."
-        ),
-        CommandAffordance.input_default(
-          "requested_capabilities",
-          target.requested_capabilities
-        ),
-        CommandAffordance.input_default("autonomy_mode", target.autonomy_mode)
-      ],
-      target_ids: [CommandAffordance.target_id("agent_organization_binding", target.binding_id)]
-    )
+    case Runs.validate_agent_invocation_scope(run, graph_item_id, target.autonomy_mode) do
+      :ok ->
+        capability_affordance(
+          session_context,
+          :agent_invoke,
+          "invoke_agent",
+          "Invoke the approved OpenSpec review agent for this run context.",
+          required_fields: [
+            "binding_id",
+            "run_id",
+            "graph_item_id",
+            "requested_outcome",
+            "requested_capabilities",
+            "autonomy_mode"
+          ],
+          input_defaults: [
+            CommandAffordance.input_default("binding_id", target.binding_id),
+            CommandAffordance.input_default("run_id", run.id),
+            CommandAffordance.input_default("graph_item_id", graph_item_id),
+            CommandAffordance.input_default(
+              "requested_outcome",
+              "Review the selected run and OpenSpec artifacts."
+            ),
+            CommandAffordance.input_default(
+              "requested_capabilities",
+              target.requested_capabilities
+            ),
+            CommandAffordance.input_default("autonomy_mode", target.autonomy_mode)
+          ],
+          target_ids: [
+            CommandAffordance.target_id("agent_organization_binding", target.binding_id)
+          ]
+        )
+
+      {:error, _reason} ->
+        CommandAffordance.disabled(
+          "invoke_agent",
+          "This run context no longer permits agent invocation."
+        )
+    end
   end
 
-  defp invocation_affordance(_session_context, nil, _run_id, _graph_item_id) do
+  defp invocation_affordance(_session_context, nil, _run, _graph_item_id) do
     CommandAffordance.disabled(
       "invoke_agent",
       "No approved OpenSpec review agent is bound to this workspace."
     )
+  end
+
+  defp lock_conversation_scope!(organization_id, workspace_id, run_id, graph_item_id) do
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      "node-conversation:#{organization_id}:#{workspace_id}:#{run_id}:#{graph_item_id}:#{@purpose}"
+    ])
   end
 
   defp cancellation_affordance(session_context, executions) do

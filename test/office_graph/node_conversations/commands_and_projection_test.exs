@@ -7,8 +7,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  import Ecto.Query
-
   test "opens one run-scoped conversation and replays the originating command" do
     context = AgentRuntimeSupport.invocation_fixture()
     attrs = conversation_attrs(context)
@@ -117,11 +115,32 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
         invalid_attrs
       )
 
-    assert {:error, {:invalid_conversation_message_linkage, :comment}} =
+    assert {:error, {:invalid_conversation_message_linkage, "comment"}} =
              NodeConversations.append_human_message(
                context.session,
                invalid_operation,
                invalid_attrs
+             )
+
+    missing_linkage_attrs = %{
+      attrs
+      | contribution_kind: "domain_action",
+        domain_action_operation_id: nil
+    }
+
+    missing_linkage_operation =
+      command!(
+        context.session,
+        :conversation_message_create,
+        "missing-domain-action",
+        missing_linkage_attrs
+      )
+
+    assert {:error, {:invalid_conversation_message_linkage, "domain_action"}} =
+             NodeConversations.append_human_message(
+               context.session,
+               missing_linkage_operation,
+               missing_linkage_attrs
              )
   end
 
@@ -169,7 +188,7 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
         requested_capabilities: ["agent.model.generate"]
       })
 
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     {:ok, step_operation} = Operations.read_operation(job.args["operation_id"])
 
     assert {:ok, agent_message} =
@@ -271,7 +290,7 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
     assert {:ok, projection} =
@@ -296,6 +315,29 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     assert %DateTime{} = request.expires_at
   end
 
+  test "disables invocation when the selected run is terminal or its autonomy changed" do
+    terminal_context = AgentRuntimeSupport.invocation_fixture()
+
+    terminal_context.run
+    |> Ash.Changeset.for_update(:set_lifecycle_state, %{
+      state: "failed",
+      aggregate_state: "failed",
+      execution_state: "failed"
+    })
+    |> Ash.update!(authorize?: false)
+
+    assert_invocation_disabled(terminal_context)
+
+    changed_authority_context = AgentRuntimeSupport.invocation_fixture()
+
+    Repo.query!(
+      "UPDATE work_packet_versions SET autonomy_posture = 'bounded_automatic', updated_at = now() WHERE id = $1",
+      [Ecto.UUID.dump!(changed_authority_context.packet_version.id)]
+    )
+
+    assert_invocation_disabled(changed_authority_context)
+  end
+
   defp start_conversation!(context) do
     attrs = conversation_attrs(context)
     operation = command!(context.session, :conversation_start, "start-helper", attrs)
@@ -305,6 +347,16 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
   defp conversation_attrs(context) do
     %{run_id: context.run.id, graph_item_id: context.graph_item_id}
+  end
+
+  defp assert_invocation_disabled(context) do
+    assert {:ok, projection} =
+             NodeConversations.project(context.session, context.run.id, context.graph_item_id)
+
+    assert %{state: "disabled"} =
+             Enum.find(projection.command_affordances, &(&1.identity == "invoke_agent"))
+
+    refute "invoke_agent" in projection.allowed_next_actions
   end
 
   defp command!(session, action, key, attrs) do
@@ -327,15 +379,5 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
       )
 
     Enum.find(intake.proposed_changes, &(&1.change_type == "create_task"))
-  end
-
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> Repo.all()
   end
 end
