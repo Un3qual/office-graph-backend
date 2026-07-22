@@ -16,6 +16,9 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
 
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
+  import OfficeGraph.TestSupport.AgentRuntimeSupport,
+    only: [approval_resume_jobs: 1, execution_jobs: 1]
+
   require Ash.Query
 
   test "an exact bounded context expansion creates an immutable package and resumes once" do
@@ -427,34 +430,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     |> Repo.all()
   end
 
-  defp approval_resume_jobs(request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'approval_request_id'", job.args) == ^request_id
-    )
-    |> Repo.all()
-  end
-
   defp gate_expiry_jobs(request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(GateExpiryWorker) and
-        fragment("?->>'request_kind'", job.args) == "context_expansion" and
-        fragment("?->>'request_id'", job.args) == ^request_id
-    )
-    |> Repo.all()
-  end
-
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> Repo.all()
+    AgentRuntimeSupport.gate_expiry_jobs("context_expansion", request_id)
   end
 end

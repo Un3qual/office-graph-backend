@@ -17,6 +17,7 @@ classification contracts.
 - **THEN** the runtime MUST reject or pause the step before adapter execution
 
 #### Scenario: Credentialed adapter input is assembled
+
 - **WHEN** an adapter manifest declares required credential kinds
 - **THEN** the runtime MUST derive presented kinds from active credential
   metadata captured by the authority snapshot and MUST NOT copy requirements

@@ -61,7 +61,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          :ok <- validate_execution_binding(execution, binding, definition),
          :ok <- validate_agent_principal(execution.agent_principal_id),
          :ok <- validate_agent_grants(execution),
-         :ok <- validate_delegator_grant(execution),
+         :ok <- validate_delegator_grant(execution, snapshot),
          :ok <- validate_snapshot_contract(snapshot, execution, definition),
          :ok <- validate_policy_bundle(snapshot, execution),
          :ok <- Runs.revalidate_agent_authority(execution, snapshot.autonomy_mode),
@@ -241,18 +241,28 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     end
   end
 
-  defp validate_delegator_grant(%{delegator_principal_id: nil}), do: :ok
+  defp validate_delegator_grant(%{delegator_principal_id: nil}, _snapshot), do: :ok
 
-  defp validate_delegator_grant(execution) do
-    case Authorization.authorize_principal(
-           execution.delegator_principal_id,
-           execution.organization_id,
-           execution.workspace_id,
-           :agent_invoke
-         ) do
-      :ok -> :ok
+  defp validate_delegator_grant(execution, snapshot) do
+    with :ok <-
+           Authorization.authorize_principal(
+             execution.delegator_principal_id,
+             execution.organization_id,
+             execution.workspace_id,
+             :agent_invoke
+           ),
+         {:ok, granted_capabilities} <-
+           Authorization.intersect_principal_capabilities(
+             execution.delegator_principal_id,
+             execution.organization_id,
+             execution.workspace_id,
+             snapshot.capability_keys
+           ),
+         true <- Enum.empty?(snapshot.capability_keys -- granted_capabilities) do
+      :ok
+    else
       {:error, :integration_storage_unavailable} = error -> error
-      _error -> {:error, :delegator_authority_revoked}
+      _revoked_or_inactive -> {:error, :delegator_authority_revoked}
     end
   end
 
@@ -321,6 +331,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          scope_id: scope_id,
          step_key: step_key,
          execution_state_version: execution_state_version,
+         capability_key: capability_key,
          resolution_operation_id: resolution_operation_id,
          state: "approved"
        } = approval}
@@ -330,6 +341,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
              step_key == execution.current_step_key ->
         if active_gate_execution?(execution, execution_state_version) and
              is_binary(resolution_operation_id) and
+             capability_key in snapshot.capability_keys and
              DateTime.compare(approval.expires_at, DateTime.utc_now()) == :gt,
            do: :ok,
            else: {:error, :approval_not_active}

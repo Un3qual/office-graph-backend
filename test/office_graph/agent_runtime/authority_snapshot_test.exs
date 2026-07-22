@@ -88,6 +88,40 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert {:error, :agent_authority_revoked} = AgentRuntime.revalidate_step(execution_id)
   end
 
+  test "pre-step revalidation rejects a revoked delegated snapshot capability", context do
+    execution_id = context.invocation.execution.id
+    delegator_id = context.bootstrap.principal.id
+    organization_id = context.bootstrap.organization.id
+
+    assert :ok = AgentRuntime.revalidate_step(execution_id)
+
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (
+        SELECT role_id
+        FROM role_assignments
+        WHERE principal_id = $1 AND organization_id = $2
+      )
+      AND capability_id IN (
+        SELECT id FROM capabilities WHERE key = 'repository.read'
+      )
+      """,
+      [Ecto.UUID.dump!(delegator_id), Ecto.UUID.dump!(organization_id)]
+    )
+
+    assert :ok =
+             Authorization.authorize_principal(
+               delegator_id,
+               organization_id,
+               context.bootstrap.workspace.id,
+               :agent_invoke
+             )
+
+    assert {:error, :delegator_authority_revoked} =
+             AgentRuntime.revalidate_step(execution_id)
+  end
+
   test "pre-step revalidation fails closed when the active organization policy changes",
        context do
     execution_id = context.invocation.execution.id
@@ -181,6 +215,17 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     |> Ash.update!(authorize?: false)
 
     assert :ok =
+             AgentRuntime.revalidate_step(execution.id,
+               tool_key: "repository.read",
+               approval_request_id: approval.id
+             )
+
+    Repo.query!(
+      "UPDATE agent_approval_requests SET capability_key = 'external.write' WHERE id = $1",
+      [Ecto.UUID.dump!(approval.id)]
+    )
+
+    assert {:error, :approval_not_active} =
              AgentRuntime.revalidate_step(execution.id,
                tool_key: "repository.read",
                approval_request_id: approval.id

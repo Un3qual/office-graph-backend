@@ -1,9 +1,11 @@
 defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
   @moduledoc false
 
-  alias OfficeGraph.{AgentRuntime, Foundation, Operations}
-  alias OfficeGraph.AgentRuntime.InvocationRequest
+  alias OfficeGraph.{AgentRuntime, Foundation, Operations, Repo}
+  alias OfficeGraph.AgentRuntime.{ExecutionWorker, GateExpiryWorker, InvocationRequest}
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
+
+  import Ecto.Query
 
   def invocation_fixture(opts \\ []) do
     suffix = System.unique_integer([:positive])
@@ -100,6 +102,37 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
     with {:ok, system_request} <- Operations.new_system_operation_request(attrs) do
       Operations.start_system_operation(system_request)
     end
+  end
+
+  def execution_jobs(execution_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(ExecutionWorker) and
+        fragment("?->>'execution_id'", job.args) == ^execution_id
+    )
+    |> Repo.all()
+  end
+
+  def approval_resume_jobs(request_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(ExecutionWorker) and
+        fragment("?->>'approval_request_id'", job.args) == ^request_id
+    )
+    |> Repo.all()
+  end
+
+  def gate_expiry_jobs(request_kind, request_id) do
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^inspect(GateExpiryWorker) and
+        fragment("?->>'request_kind'", job.args) == ^request_kind and
+        fragment("?->>'request_id'", job.args) == ^request_id
+    )
+    |> Repo.all()
   end
 
   defp base_request(context) do

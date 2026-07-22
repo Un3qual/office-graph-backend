@@ -361,16 +361,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "worker rejects globally valid output that violates the selected adapter manifest" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
-
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: Map.put(registry.models, "manifest-violating", ManifestViolatingModel),
-      tools: registry.tools
-    })
-
-    on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    configure_adapter_registry(fn registry ->
+      %{
+        models: Map.put(registry.models, "manifest-violating", ManifestViolatingModel),
+        tools: registry.tools
+      }
     end)
 
     context = AgentRuntimeSupport.invocation_fixture()
@@ -421,19 +416,15 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "missing configured adapter terminalizes queued execution instead of stranding it" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: Map.delete(registry.models, "deterministic"),
-      tools: registry.tools
-    })
-
-    on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    configure_adapter_registry(fn registry ->
+      %{
+        models: Map.delete(registry.models, "deterministic"),
+        tools: registry.tools
+      }
     end)
 
     assert {:cancel, "agent_adapter_unavailable"} =
@@ -510,17 +501,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "execution uses the adapter identity captured at invocation after definition rotation" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: Map.put(registry.models, "rotated", RotatedModel),
-      tools: registry.tools
-    })
+    configure_adapter_registry(fn registry ->
+      %{
+        models: Map.put(registry.models, "rotated", RotatedModel),
+        tools: registry.tools
+      }
+    end)
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
 
@@ -543,22 +533,21 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "execution fails closed when the captured adapter version is no longer registered" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
 
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: Map.put(registry.models, "deterministic", VersionTwoModel),
-      tools: registry.tools
-    })
+    configure_adapter_registry(fn registry ->
+      %{
+        models: Map.put(registry.models, "deterministic", VersionTwoModel),
+        tools: registry.tools
+      }
+    end)
 
     [job] = execution_jobs(invoked.execution.id)
 
@@ -573,17 +562,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "credentialed adapters require matching credential metadata captured by authority" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: Map.put(registry.models, "credentialed", CredentialedModel),
-      tools: registry.tools
-    })
+    configure_adapter_registry(fn registry ->
+      %{
+        models: Map.put(registry.models, "credentialed", CredentialedModel),
+        tools: registry.tools
+      }
+    end)
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
 
@@ -690,20 +678,19 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "cancelling a running step signals the active adapter and preserves cancellation" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     coordinator = start_supervised!({Agent, fn -> %{} end})
 
     Application.put_env(:office_graph, :execution_worker_test_coordinator, coordinator)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: %{"deterministic" => BlockingModel, "rotated" => RotatedModel},
-      tools: registry.tools
-    })
+    configure_adapter_registry(fn registry ->
+      %{
+        models: %{"deterministic" => BlockingModel, "rotated" => RotatedModel},
+        tools: registry.tools
+      }
+    end)
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_coordinator)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
@@ -990,20 +977,19 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "concurrent duplicate dispatch has one lease owner and one durable effect" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     coordinator = start_supervised!({Agent, fn -> %{} end})
 
     Application.put_env(:office_graph, :execution_worker_test_coordinator, coordinator)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: %{"deterministic" => BlockingModel},
-      tools: registry.tools
-    })
+    configure_adapter_registry(fn registry ->
+      %{
+        models: %{"deterministic" => BlockingModel},
+        tools: registry.tools
+      }
+    end)
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_coordinator)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
@@ -1031,20 +1017,20 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   test "worker restart reclaims an expired persisted request with the same step identity" do
-    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
-    registry = Map.new(original_registry)
     coordinator = start_supervised!({Agent, fn -> %{} end})
 
     Application.put_env(:office_graph, :execution_worker_test_coordinator, coordinator)
     Application.put_env(:office_graph, :execution_worker_test_pid, self())
 
-    Application.put_env(:office_graph, :agent_runtime_adapters, %{
-      models: %{"deterministic" => BlockingModel},
-      tools: registry.tools
-    })
+    original_registry =
+      configure_adapter_registry(fn registry ->
+        %{
+          models: %{"deterministic" => BlockingModel},
+          tools: registry.tools
+        }
+      end)
 
     on_exit(fn ->
-      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
       Application.delete_env(:office_graph, :execution_worker_test_coordinator)
       Application.delete_env(:office_graph, :execution_worker_test_pid)
     end)
@@ -1131,6 +1117,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
         fragment("?->>'execution_id'", job.args) == ^execution_id
     )
     |> Repo.all()
+  end
+
+  defp configure_adapter_registry(update) when is_function(update, 1) do
+    original = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = original |> Map.new() |> update.()
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, registry)
+    on_exit(fn -> Application.put_env(:office_graph, :agent_runtime_adapters, original) end)
+
+    original
   end
 
   defp create_model_credential!(context, label) do

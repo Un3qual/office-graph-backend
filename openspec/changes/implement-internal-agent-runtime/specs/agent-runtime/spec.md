@@ -83,6 +83,7 @@ durable step.
   for request provenance while later invocations capture the rotated credential
 
 #### Scenario: Definition adapter rotates during an active execution
+
 - **WHEN** a definition selects another adapter after invocation
 - **THEN** the active execution MUST resolve only the snapshotted adapter
   key/version and MUST fail closed if that exact version is no longer registered

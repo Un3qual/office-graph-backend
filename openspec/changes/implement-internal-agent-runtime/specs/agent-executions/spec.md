@@ -31,12 +31,14 @@ versioned transitions.
   the adapter's idempotent cancellation signal
 
 #### Scenario: Runtime context cannot be loaded
+
 - **WHEN** a queued step cannot resolve its persisted adapter or other durable
   runtime configuration
 - **THEN** the execution MUST transition to a durable failed state instead of
   completing its only job while remaining queued
 
 #### Scenario: Transient storage failure occurs before a claim
+
 - **WHEN** context loading or mutable-authority revalidation returns a storage
   availability failure before the step is claimed
 - **THEN** the worker MUST retry without consuming an execution attempt or
@@ -56,6 +58,7 @@ terminal failure reason codes without raw provider/model exception text.
 - **THEN** the execution MUST become failed with a safe terminal classification
 
 #### Scenario: Governed output routing rejects a completed adapter result
+
 - **WHEN** an adapter succeeds but output validation or the owning domain rejects
   the routed result
 - **THEN** the model request and execution MUST transition through the durable

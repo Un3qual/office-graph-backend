@@ -24,7 +24,11 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     with :ok <- validate_human_envelope(request),
          :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- Operations.validate_operation_action(operation, @human_action),
-         :ok <- validate_operation_idempotency(operation, request),
+         :ok <-
+           Operations.validate_command_replay(
+             operation,
+             InvocationRequest.command_input(request)
+           ),
          :ok <-
            Authorization.authorize_operation(
              session_context,

@@ -46,6 +46,23 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     assert Repo.aggregate(ContextPackage, :count) == 1
   end
 
+  test "human invocation rejects an operation whose command digest names another request",
+       context do
+    request = AgentRuntimeSupport.request(context)
+    assert {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
+
+    conflicting_request = %{
+      request
+      | requested_outcome: "Use the same idempotency key for a different requested outcome."
+    }
+
+    assert {:error, {:command_idempotency_conflict, operation_id}} =
+             AgentRuntime.invoke(context.session, operation, conflicting_request)
+
+    assert operation_id == operation.id
+    assert Repo.aggregate(AgentExecution, :count) == 0
+  end
+
   test "automatic invocation consumes the generic system operation without another operation schema",
        context do
     request =
@@ -201,7 +218,6 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
 
   test "invocation rejects graph context from another organization", context do
     request = AgentRuntimeSupport.request(context)
-    assert {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
 
     suffix = System.unique_integer([:positive])
 
@@ -232,6 +248,10 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
       )
 
     foreign_request = %{request | graph_item_id: foreign_item.id}
+
+    assert {:ok, operation} =
+             AgentRuntimeSupport.human_operation(context.session, foreign_request)
+
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, foreign_request)
 
     assert Repo.aggregate(AgentExecution, :count) == 0

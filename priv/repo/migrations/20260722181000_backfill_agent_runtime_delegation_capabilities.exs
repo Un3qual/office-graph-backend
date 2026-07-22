@@ -12,6 +12,7 @@ defmodule OfficeGraph.Repo.Migrations.BackfillAgentRuntimeDelegationCapabilities
 
   def up do
     capability_values = Enum.map_join(@capability_keys, ",\n", &"('#{&1}')")
+    capability_key_array = Enum.map_join(@capability_keys, ",\n", &"'#{&1}'")
 
     execute("""
     INSERT INTO capabilities (id, key, description, inserted_at, updated_at)
@@ -39,12 +40,7 @@ defmodule OfficeGraph.Repo.Migrations.BackfillAgentRuntimeDelegationCapabilities
       NOW()
     FROM roles
     JOIN capabilities ON capabilities.key = ANY(ARRAY[
-      'agent.model.generate',
-      'agent.tool.read',
-      'evidence.suggest',
-      'openspec.read',
-      'proposal.create',
-      'repository.read'
+      #{capability_key_array}
     ]::text[])
     WHERE roles.key = 'owner'
     ON CONFLICT (role_id, capability_id) DO NOTHING

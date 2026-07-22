@@ -12,6 +12,10 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
   }
 
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
+  alias OfficeGraph.Integrations.IntegrationCredential
+
+  import OfficeGraph.TestSupport.AgentRuntimeSupport,
+    only: [approval_resume_jobs: 1, execution_jobs: 1, gate_expiry_jobs: 2]
 
   require Ash.Query
 
@@ -32,6 +36,28 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
 
   test "an approval-gated step creates one bounded request before waiting" do
     context = AgentRuntimeSupport.invocation_fixture()
+
+    credential =
+      Ash.create!(
+        IntegrationCredential,
+        %{
+          id: Ecto.UUID.generate(),
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.bootstrap.workspace.id,
+          kind: "secret_reference",
+          secret_reference: "test-secret://agent-runtime/approval/#{context.suffix}",
+          status: "active",
+          operation_id: context.binding.operation_id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    OfficeGraph.Repo.query!(
+      "UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2",
+      [Ecto.UUID.dump!(credential.id), Ecto.UUID.dump!(context.definition.id)]
+    )
+
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
 
@@ -56,6 +82,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
     assert request.scope_type == "workspace"
     assert request.scope_id == context.bootstrap.workspace.id
     assert request.capability_key == "agent.model.generate"
+    assert request.credential_id == credential.id
     assert request.sensitivity == "internal"
     refute request.external_write
     assert DateTime.compare(request.expires_at, DateTime.utc_now()) == :gt
@@ -312,38 +339,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
     %{context: context, execution: execution, invoked: invoked, job: job, request: request}
   end
 
-  defp approval_resume_jobs(request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'approval_request_id'", job.args) == ^request_id
-    )
-    |> OfficeGraph.Repo.all()
-  end
-
-  defp gate_expiry_jobs(request_kind, request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(GateExpiryWorker) and
-        fragment("?->>'request_kind'", job.args) == ^request_kind and
-        fragment("?->>'request_id'", job.args) == ^request_id
-    )
-    |> OfficeGraph.Repo.all()
-  end
-
   defp approve(session, operation, request_id, expected_version, reason) do
     AgentRuntime.approve(session, operation, request_id, expected_version, reason)
-  end
-
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> OfficeGraph.Repo.all()
   end
 end

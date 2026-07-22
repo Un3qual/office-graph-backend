@@ -448,8 +448,12 @@ defmodule OfficeGraph.Runs do
         graph_item_id == ^graph_item_id and organization_id == ^run.organization_id and
         workspace_id == ^run.workspace_id
     )
-    |> Ash.exists?(authorize?: false)
-    |> if(do: :ok, else: {:error, :forbidden})
+    |> Ash.exists(authorize?: false)
+    |> case do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
   end
 
   defp validate_agent_autonomy(run, packet_version, autonomy_mode) do
