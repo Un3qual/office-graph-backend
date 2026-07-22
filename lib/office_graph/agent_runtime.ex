@@ -51,6 +51,26 @@ defmodule OfficeGraph.AgentRuntime do
 
   def invoke(_session_context, _operation, _request), do: {:error, :forbidden}
 
+  def invoke_human(session_context, attrs)
+      when is_map(session_context) and is_map(attrs) and not is_struct(attrs) do
+    with {:ok, request} <-
+           attrs
+           |> Map.put(:origin, "operator")
+           |> Map.put(:invocation_mode, "human")
+           |> InvocationRequest.new(),
+         {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :agent_invoke,
+             request.idempotency_key,
+             InvocationRequest.command_input(request)
+           ) do
+      InvocationCommands.invoke(session_context, operation, request)
+    end
+  end
+
+  def invoke_human(_session_context, _attrs), do: {:error, :forbidden}
+
   def invoke_system(operation, %InvocationRequest{} = request) do
     InvocationCommands.invoke_system(operation, request)
   end

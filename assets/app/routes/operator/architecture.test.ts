@@ -45,6 +45,7 @@ describe("operator route architecture", () => {
       new Set([
         "OperatorWorkflowRouteOperation",
         "OperatorPacketReadinessOperation",
+        "OperatorRunConversationOperation",
         "OperatorRunStateOperation",
       ]),
     );

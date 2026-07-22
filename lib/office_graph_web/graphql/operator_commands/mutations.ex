@@ -11,6 +11,16 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
   }
 
   object :operator_command_mutations do
+    field :invoke_agent, non_null(:invoke_agent_payload) do
+      arg(:input, non_null(:invoke_agent_input))
+      resolve(&Agents.invoke_agent/2)
+    end
+
+    field :cancel_agent_execution, non_null(:cancel_agent_execution_payload) do
+      arg(:input, non_null(:cancel_agent_execution_input))
+      resolve(&Agents.cancel_agent_execution/2)
+    end
+
     field :start_run_conversation, non_null(:start_run_conversation_payload) do
       arg(:input, non_null(:start_run_conversation_input))
       resolve(&Agents.start_conversation/2)

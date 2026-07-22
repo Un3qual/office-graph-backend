@@ -865,6 +865,8 @@ type RootQueryType {
 }
 
 type RootMutationType {
+  invokeAgent(input: InvokeAgentInput!): InvokeAgentPayload!
+  cancelAgentExecution(input: CancelAgentExecutionInput!): CancelAgentExecutionPayload!
   startRunConversation(input: StartRunConversationInput!): StartRunConversationPayload!
   appendConversationMessage(input: AppendConversationMessageInput!): AppendConversationMessagePayload!
   resolveAgentApproval(input: ResolveAgentApprovalInput!): ResolveAgentApprovalPayload!
@@ -890,6 +892,22 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+input InvokeAgentInput {
+  idempotencyKey: String!
+  bindingId: ID!
+  graphItemId: ID!
+  runId: ID!
+  requestedOutcome: String!
+  requestedCapabilities: [String!]!
+  autonomyMode: String!
+}
+
+input CancelAgentExecutionInput {
+  idempotencyKey: String!
+  executionId: ID!
+  expectedStateVersion: Int!
+}
 
 input StartRunConversationInput {
   idempotencyKey: String!
@@ -948,6 +966,21 @@ type OperatorCommandAgentExecution {
   state: String!
   stateVersion: Int!
   currentStepKey: String
+}
+
+type InvokeAgentPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  execution: OperatorCommandAgentExecution!
+  contextPackageId: ID!
+}
+
+type CancelAgentExecutionPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  execution: OperatorCommandAgentExecution!
 }
 
 type ResolveAgentApprovalPayload {
@@ -1665,6 +1698,8 @@ type OperatorRunConversationMessage {
 type OperatorRunConversation {
   type: String!
   sourceWatermark: ID!
+  allowedNextActions: [String!]!
+  commandAffordances: [OperatorCommandAffordance!]!
   conversation: OperatorRunConversationRecord
   messages: [OperatorRunConversationMessage!]!
   executions: [OperatorRunConversationExecution!]!
@@ -1674,6 +1709,7 @@ type OperatorRunConversation {
 
 type OperatorRunConversationExecution {
   id: ID!
+  bindingId: ID!
   state: String!
   stateVersion: Int!
   currentStepKey: String

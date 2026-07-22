@@ -77,6 +77,14 @@ defmodule OfficeGraphWeb.Router do
          JsonApi.OperatorCommands.AgentsController,
          :resolve_context_expansion
 
+    post "/v1/commands/invoke-agent",
+         JsonApi.OperatorCommands.AgentsController,
+         :invoke_agent
+
+    post "/v1/commands/cancel-agent-execution",
+         JsonApi.OperatorCommands.AgentsController,
+         :cancel_agent_execution
+
     post "/v1/commands/start-run-conversation",
          JsonApi.OperatorCommands.AgentsController,
          :start_conversation

@@ -6,6 +6,48 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Agents do
   alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
+  def invoke_agent(%{input: input}, resolution) do
+    with {:ok, parsed} <- Input.parse(:invoke_agent, input),
+         {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+         {:ok, operation, result} <- invoke(session_context, parsed) do
+      {:ok, invocation_payload(operation, result)}
+    else
+      error -> Errors.to_absinthe(error)
+    end
+  end
+
+  def cancel_agent_execution(%{input: input}, resolution) do
+    with {:ok, parsed} <- Input.parse(:cancel_agent_execution, input),
+         {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+         {:ok, operation, result} <- cancel_execution(session_context, parsed) do
+      {:ok, cancellation_payload(operation, result)}
+    else
+      error -> Errors.to_absinthe(error)
+    end
+  end
+
+  def invoke(session_context, parsed) do
+    with {:ok, result} <- AgentRuntime.invoke_human(session_context, parsed) do
+      {:ok, result.operation, result}
+    end
+  end
+
+  def cancel_execution(session_context, parsed) do
+    {idempotency_key, command_input} = Map.pop!(parsed, :idempotency_key)
+
+    with {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :agent_cancel,
+             idempotency_key,
+             command_input
+           ),
+         {:ok, result} <-
+           AgentRuntime.cancel_execution(session_context, operation, command_input) do
+      {:ok, operation, result}
+    end
+  end
+
   def resolve_approval(%{input: input}, resolution) do
     with {:ok, parsed} <- Input.parse(:resolve_agent_approval, input),
          {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
@@ -189,6 +231,25 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Agents do
         %{type: "conversation_message", id: message.id}
       ],
       message: message
+    }
+  end
+
+  def invocation_payload(operation, result) do
+    %{
+      command: "invoke_agent",
+      operation_id: operation.id,
+      affected_ids: [%{type: "agent_execution", id: result.execution.id}],
+      execution: result.execution,
+      context_package_id: result.context_package.id
+    }
+  end
+
+  def cancellation_payload(operation, result) do
+    %{
+      command: "cancel_agent_execution",
+      operation_id: operation.id,
+      affected_ids: [%{type: "agent_execution", id: result.execution.id}],
+      execution: result.execution
     }
   end
 end

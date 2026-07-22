@@ -9,6 +9,7 @@ import type {
   OperatorRunStateFragment$key,
 } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorRunStateQuery as OperatorRunStateOperation } from "../../relay/__generated__/OperatorRunStateQuery.graphql";
+import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorWorkflowItemFragment$data,
   OperatorWorkflowItemFragment$key,
@@ -18,6 +19,7 @@ import {
   OperatorPacketReadinessFragment,
   OperatorPacketReadinessQuery,
   OperatorRunStateFragment,
+  OperatorRunConversationQuery,
   OperatorRunStateQuery,
   OperatorWorkflowItemFragment,
   OperatorWorkflowRouteQuery,
@@ -34,6 +36,9 @@ type OperatorWorkflowInput = {
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
 export type OperatorRunState = OperatorRunStateFragment$data;
+export type OperatorRunConversation = NonNullable<
+  OperatorRunConversationOperation["response"]["operatorRunConversation"]
+>;
 export type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
@@ -101,6 +106,20 @@ export function useOperatorRunState(
   );
 
   return runStateFromRelay(data);
+}
+
+export function useOperatorRunConversation(runId: string, graphItemId: string, fetchKey?: number) {
+  const data = useLazyLoadQuery<OperatorRunConversationOperation>(
+    OperatorRunConversationQuery,
+    { runId, graphItemId },
+    { fetchKey, fetchPolicy: "network-only" },
+  );
+
+  if (!data.operatorRunConversation) {
+    throw new Error("The GraphQL operator run conversation projection was empty.");
+  }
+
+  return data.operatorRunConversation;
 }
 
 function workflowConnectionFromRelay(

@@ -130,6 +130,20 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       decision: :string,
       resolution_reason: :string
     ],
+    invoke_agent: [
+      idempotency_key: :string,
+      binding_id: :uuid,
+      graph_item_id: :uuid,
+      run_id: :uuid,
+      requested_outcome: :raw_string,
+      requested_capabilities: {:list, :string},
+      autonomy_mode: :string
+    ],
+    cancel_agent_execution: [
+      idempotency_key: :string,
+      execution_id: :uuid,
+      expected_state_version: :positive_integer
+    ],
     start_run_conversation: [
       idempotency_key: :string,
       run_id: :uuid,

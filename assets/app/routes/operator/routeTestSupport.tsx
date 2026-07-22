@@ -39,7 +39,7 @@ export function renderWithRelay(
 ) {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
-    network: Network.create(network),
+    network: Network.create(withEmptyAgentActivityFallback(network)),
     store: new Store(new RecordSource()),
   });
 
@@ -48,6 +48,43 @@ export function renderWithRelay(
       <RelayEnvironmentProvider environment={environment}>{ui}</RelayEnvironmentProvider>
     </MemoryRouter>,
   );
+}
+
+function withEmptyAgentActivityFallback(network: FetchFunction): FetchFunction {
+  return async (request, variables, cacheConfig, uploadables) => {
+    try {
+      return await (network(
+        request,
+        variables,
+        cacheConfig,
+        uploadables,
+      ) as Promise<GraphQLResponse>);
+    } catch (error) {
+      if (
+        request.name !== "OperatorRunConversationQuery" ||
+        !(error instanceof Error) ||
+        !error.message.startsWith("Unexpected Relay request")
+      ) {
+        throw error;
+      }
+
+      return {
+        data: {
+          operatorRunConversation: {
+            type: "operator_run_conversation",
+            sourceWatermark: `${variables.runId}:${variables.graphItemId}:empty`,
+            allowedNextActions: [],
+            commandAffordances: [],
+            conversation: null,
+            messages: [],
+            executions: [],
+            approvalRequests: [],
+            contextExpansionRequests: [],
+          },
+        },
+      };
+    }
+  };
 }
 
 export function createOperatorNetwork({

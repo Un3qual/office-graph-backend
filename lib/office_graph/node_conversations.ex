@@ -8,6 +8,7 @@ defmodule OfficeGraph.NodeConversations do
       OfficeGraph.Authorization,
       OfficeGraph.Identity,
       OfficeGraph.Operations,
+      OfficeGraph.Projections,
       OfficeGraph.Repo,
       OfficeGraph.Runs,
       OfficeGraph.WorkGraph
@@ -16,6 +17,7 @@ defmodule OfficeGraph.NodeConversations do
 
   alias OfficeGraph.{Authorization, Operations, Repo, Runs}
   alias OfficeGraph.NodeConversations.{Conversation, ConversationMessage}
+  alias OfficeGraph.Projections.CommandAffordance
 
   require Ash.Query
 
@@ -23,6 +25,13 @@ defmodule OfficeGraph.NodeConversations do
   @message_action "conversation.message.create"
   @purpose "agent_runtime"
   @visibility "run_participants"
+  @operator_requested_capabilities ~w(
+    agent.model.generate
+    agent.tool.read
+    proposal.create
+    repository.read
+  )
+  @terminal_execution_states ~w(completed failed cancelled)
 
   def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do
     attrs = %{run_id: run_id, graph_item_id: graph_item_id}
@@ -94,10 +103,16 @@ defmodule OfficeGraph.NodeConversations do
            read_referenced_context(session_context, conversation, messages),
          {:ok, agent_state} <-
            read_agent_state(session_context, run_id, graph_item_id) do
+      command_affordances =
+        command_affordances(session_context, conversation, agent_state, run_id, graph_item_id)
+
       {:ok,
        agent_state
+       |> Map.drop([:invocation_target])
        |> Map.merge(%{
          type: "operator_run_conversation",
+         allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
+         command_affordances: command_affordances,
          conversation: project_conversation(conversation),
          messages: Enum.map(messages, &project_message(&1, referenced_context))
        })
@@ -504,7 +519,7 @@ defmodule OfficeGraph.NodeConversations do
              """
              SELECT id::text, state, state_version, current_step_key, attempt_count,
                     failure_code, requested_outcome, invocation_mode, origin, autonomy_mode,
-                    inserted_at, updated_at
+                    organization_binding_id::text, inserted_at, updated_at
              FROM agent_executions
              WHERE organization_id = $1 AND workspace_id = $2 AND run_id = $3
                AND graph_item_id = $4
@@ -548,12 +563,29 @@ defmodule OfficeGraph.NodeConversations do
              LIMIT 100
              """,
              scope_params(session_context, run_id, graph_item_id)
+           ),
+         {:ok, %{rows: invocation_rows}} <-
+           Repo.query(
+             """
+             SELECT binding.id::text, definition.requested_capabilities,
+                    definition.default_autonomy_mode
+             FROM agent_organization_bindings AS binding
+             JOIN agent_definitions AS definition ON definition.id = binding.definition_id
+             WHERE binding.organization_id = $1 AND binding.workspace_id = $2
+               AND binding.lifecycle_state = 'active'
+               AND definition.lifecycle_state = 'active'
+               AND definition.key = 'openspec-review'
+             ORDER BY binding.inserted_at, binding.id
+             LIMIT 1
+             """,
+             Enum.take(scope_params(session_context, run_id, graph_item_id), 2)
            ) do
       {:ok,
        %{
          executions: Enum.map(execution_rows, &execution_projection/1),
          approval_requests: Enum.map(approval_rows, &approval_projection/1),
-         context_expansion_requests: Enum.map(expansion_rows, &context_expansion_projection/1)
+         context_expansion_requests: Enum.map(expansion_rows, &context_expansion_projection/1),
+         invocation_target: invocation_target(invocation_rows)
        }}
     else
       {:error, _storage_error} -> {:error, :integration_storage_unavailable}
@@ -580,6 +612,7 @@ defmodule OfficeGraph.NodeConversations do
          invocation_mode,
          origin,
          autonomy_mode,
+         binding_id,
          inserted_at,
          updated_at
        ]) do
@@ -594,6 +627,7 @@ defmodule OfficeGraph.NodeConversations do
       invocation_mode: invocation_mode,
       origin: origin,
       autonomy_mode: autonomy_mode,
+      binding_id: binding_id,
       inserted_at: utc_datetime(inserted_at),
       updated_at: utc_datetime(updated_at)
     }
@@ -682,6 +716,188 @@ defmodule OfficeGraph.NodeConversations do
   defp utc_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
   defp utc_datetime(%DateTime{} = value), do: value
   defp utc_datetime(nil), do: nil
+
+  defp invocation_target([[binding_id, requested_capabilities, autonomy_mode]]) do
+    capabilities =
+      Enum.filter(@operator_requested_capabilities, &(&1 in requested_capabilities))
+
+    if capabilities == @operator_requested_capabilities do
+      %{
+        binding_id: binding_id,
+        requested_capabilities: capabilities,
+        autonomy_mode: autonomy_mode
+      }
+    end
+  end
+
+  defp invocation_target(_rows), do: nil
+
+  defp command_affordances(session_context, conversation, agent_state, run_id, graph_item_id) do
+    [
+      conversation_affordance(session_context, conversation, run_id, graph_item_id),
+      invocation_affordance(
+        session_context,
+        agent_state.invocation_target,
+        run_id,
+        graph_item_id
+      ),
+      cancellation_affordance(session_context, agent_state.executions),
+      approval_affordance(session_context, agent_state.approval_requests),
+      context_expansion_affordance(session_context, agent_state.context_expansion_requests)
+    ]
+  end
+
+  defp conversation_affordance(session_context, nil, run_id, graph_item_id) do
+    capability_affordance(
+      session_context,
+      :conversation_write,
+      "start_run_conversation",
+      "Start a focused conversation for this run and graph item.",
+      required_fields: ["run_id", "graph_item_id"],
+      input_defaults: [
+        CommandAffordance.input_default("run_id", run_id),
+        CommandAffordance.input_default("graph_item_id", graph_item_id)
+      ],
+      target_ids: [
+        CommandAffordance.target_id("run", run_id),
+        CommandAffordance.target_id("graph_item", graph_item_id)
+      ]
+    )
+  end
+
+  defp conversation_affordance(
+         session_context,
+         %{state: "active", id: conversation_id},
+         _run_id,
+         _graph_item_id
+       ) do
+    capability_affordance(
+      session_context,
+      :conversation_write,
+      "append_conversation_message",
+      "Add a human contribution to this run conversation.",
+      required_fields: ["conversation_id", "body", "contribution_kind"],
+      input_defaults: [CommandAffordance.input_default("conversation_id", conversation_id)],
+      target_ids: [CommandAffordance.target_id("conversation", conversation_id)]
+    )
+  end
+
+  defp conversation_affordance(_session_context, conversation, _run_id, _graph_item_id) do
+    CommandAffordance.disabled(
+      "append_conversation_message",
+      "This conversation is no longer active.",
+      target_ids: [CommandAffordance.target_id("conversation", conversation.id)]
+    )
+  end
+
+  defp invocation_affordance(session_context, target, run_id, graph_item_id)
+       when not is_nil(target) do
+    capability_affordance(
+      session_context,
+      :agent_invoke,
+      "invoke_agent",
+      "Invoke the approved OpenSpec review agent for this run context.",
+      required_fields: [
+        "binding_id",
+        "run_id",
+        "graph_item_id",
+        "requested_outcome",
+        "requested_capabilities",
+        "autonomy_mode"
+      ],
+      input_defaults: [
+        CommandAffordance.input_default("binding_id", target.binding_id),
+        CommandAffordance.input_default("run_id", run_id),
+        CommandAffordance.input_default("graph_item_id", graph_item_id),
+        CommandAffordance.input_default(
+          "requested_outcome",
+          "Review the selected run and OpenSpec artifacts."
+        ),
+        CommandAffordance.input_default(
+          "requested_capabilities",
+          target.requested_capabilities
+        ),
+        CommandAffordance.input_default("autonomy_mode", target.autonomy_mode)
+      ],
+      target_ids: [CommandAffordance.target_id("agent_organization_binding", target.binding_id)]
+    )
+  end
+
+  defp invocation_affordance(_session_context, nil, _run_id, _graph_item_id) do
+    CommandAffordance.disabled(
+      "invoke_agent",
+      "No approved OpenSpec review agent is bound to this workspace."
+    )
+  end
+
+  defp cancellation_affordance(session_context, executions) do
+    active = Enum.reject(executions, &(&1.state in @terminal_execution_states))
+
+    if active == [] do
+      CommandAffordance.disabled(
+        "cancel_agent_execution",
+        "No active agent execution can be cancelled."
+      )
+    else
+      capability_affordance(
+        session_context,
+        :agent_cancel,
+        "cancel_agent_execution",
+        "Cancel one active agent execution using its current version.",
+        required_fields: ["execution_id", "expected_state_version"],
+        target_ids: Enum.map(active, &CommandAffordance.target_id("agent_execution", &1.id))
+      )
+    end
+  end
+
+  defp approval_affordance(session_context, requests) do
+    pending = Enum.filter(requests, &(&1.state == "pending"))
+
+    request_affordance(
+      session_context,
+      :agent_approval_resolve,
+      "resolve_agent_approval",
+      "Resolve one exact pending agent approval request.",
+      pending,
+      "agent_approval_request"
+    )
+  end
+
+  defp context_expansion_affordance(session_context, requests) do
+    pending = Enum.filter(requests, &(&1.state == "pending"))
+
+    request_affordance(
+      session_context,
+      :agent_context_expansion_resolve,
+      "resolve_agent_context_expansion",
+      "Resolve one exact pending context expansion request.",
+      pending,
+      "agent_context_expansion_request"
+    )
+  end
+
+  defp request_affordance(_session_context, _capability, identity, explanation, [], _type) do
+    CommandAffordance.disabled(identity, explanation)
+  end
+
+  defp request_affordance(session_context, capability, identity, explanation, pending, type) do
+    capability_affordance(
+      session_context,
+      capability,
+      identity,
+      explanation,
+      required_fields: ["expected_version", "decision", "resolution_reason"],
+      target_ids: Enum.map(pending, &CommandAffordance.target_id(type, &1.id))
+    )
+  end
+
+  defp capability_affordance(session_context, capability, identity, explanation, opts) do
+    if CommandAffordance.authorized?(session_context, capability) do
+      CommandAffordance.enabled(identity, explanation, opts)
+    else
+      CommandAffordance.policy_restricted(identity)
+    end
+  end
 
   defp source_watermark(conversation, messages, agent_state) do
     [

@@ -3,6 +3,67 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
 
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
+  test "GraphQL exposes scoped start and invoke affordances before a conversation exists", %{
+    conn: conn
+  } do
+    context = AgentRuntimeSupport.invocation_fixture()
+    conn = Ash.PlugHelpers.set_actor(conn, context.session)
+
+    read =
+      conn
+      |> post(~p"/graphql", %{
+        query: """
+        query RunConversation($runId: ID!, $graphItemId: ID!) {
+          operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
+            conversation { id }
+            commandAffordances {
+              identity state requiredFields
+              inputDefaults { field value values }
+              targetIds { type id }
+            }
+          }
+        }
+        """,
+        variables: %{runId: context.run.id, graphItemId: context.graph_item_id}
+      })
+      |> json_response(200)
+
+    assert read["errors"] in [nil, []]
+    projection = read["data"]["operatorRunConversation"]
+    assert projection["conversation"] == nil
+
+    start_affordance =
+      Enum.find(projection["commandAffordances"], &(&1["identity"] == "start_run_conversation"))
+
+    assert start_affordance["state"] == "enabled"
+    assert start_affordance["requiredFields"] == ["run_id", "graph_item_id"]
+
+    assert Enum.any?(
+             start_affordance["inputDefaults"],
+             &(&1["field"] == "run_id" and &1["value"] == context.run.id)
+           )
+
+    assert Enum.any?(
+             start_affordance["inputDefaults"],
+             &(&1["field"] == "graph_item_id" and &1["value"] == context.graph_item_id)
+           )
+
+    invoke_affordance =
+      Enum.find(projection["commandAffordances"], &(&1["identity"] == "invoke_agent"))
+
+    assert invoke_affordance["state"] == "enabled"
+
+    assert Enum.any?(
+             invoke_affordance["inputDefaults"],
+             &(&1["field"] == "run_id" and &1["value"] == context.run.id)
+           )
+
+    assert Enum.any?(
+             invoke_affordance["inputDefaults"],
+             &(&1["field"] == "graph_item_id" and &1["value"] == context.graph_item_id)
+           )
+  end
+
   test "GraphQL opens and reads the focused run conversation", %{conn: conn} do
     context = AgentRuntimeSupport.invocation_fixture()
     conn = Ash.PlugHelpers.set_actor(conn, context.session)
@@ -46,6 +107,12 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
         query RunConversation($runId: ID!, $graphItemId: ID!) {
           operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
             type sourceWatermark
+            allowedNextActions
+            commandAffordances {
+              identity state safeExplanation requiredFields
+              inputDefaults { field value values }
+              targetIds { type id }
+            }
             conversation { id runId graphItemId state }
             messages {
               id source body authorPrincipalId executionId contextPackageId
@@ -53,7 +120,7 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
               referencedContext { visibility packageId version entries { posture rationaleCode } }
             }
             executions {
-              id state stateVersion currentStepKey attemptCount failureCode
+              id bindingId state stateVersion currentStepKey attemptCount failureCode
               requestedOutcome invocationMode origin autonomyMode insertedAt updatedAt
             }
             approvalRequests { id executionId stepKey requestedAction state version expiresAt }
@@ -74,6 +141,17 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
     assert read["data"]["operatorRunConversation"]["executions"] == []
     assert read["data"]["operatorRunConversation"]["approvalRequests"] == []
     assert read["data"]["operatorRunConversation"]["contextExpansionRequests"] == []
+
+    assert "invoke_agent" in read["data"]["operatorRunConversation"]["allowedNextActions"]
+
+    invoke_affordance =
+      Enum.find(
+        read["data"]["operatorRunConversation"]["commandAffordances"],
+        &(&1["identity"] == "invoke_agent")
+      )
+
+    assert invoke_affordance["state"] == "enabled"
+    assert Enum.any?(invoke_affordance["inputDefaults"], &(&1["field"] == "binding_id"))
   end
 
   test "JSON appends and reads a human message with explicit action provenance", %{conn: conn} do

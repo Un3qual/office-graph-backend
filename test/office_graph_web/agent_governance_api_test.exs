@@ -14,6 +14,60 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   require Ash.Query
   import Ecto.Query
 
+  test "GraphQL invokes and JSON cancels the exact run-linked agent execution", %{conn: conn} do
+    context = AgentRuntimeSupport.invocation_fixture()
+    conn = Ash.PlugHelpers.set_actor(conn, context.session)
+
+    invoked =
+      conn
+      |> post(~p"/graphql", %{
+        query: """
+        mutation Invoke($input: InvokeAgentInput!) {
+          invokeAgent(input: $input) {
+            command operationId affectedIds { type id } contextPackageId
+            execution { id state stateVersion currentStepKey }
+          }
+        }
+        """,
+        variables: %{
+          input: %{
+            idempotencyKey: "graphql-invoke-agent-#{context.suffix}",
+            bindingId: context.binding.id,
+            graphItemId: context.graph_item_id,
+            runId: context.run.id,
+            requestedOutcome: "Review the selected run and OpenSpec artifacts.",
+            requestedCapabilities: [
+              "agent.model.generate",
+              "agent.tool.read",
+              "proposal.create",
+              "repository.read"
+            ],
+            autonomyMode: "human_supervised"
+          }
+        }
+      })
+      |> json_response(200)
+
+    assert invoked["errors"] in [nil, []]
+    payload = invoked["data"]["invokeAgent"]
+    assert payload["command"] == "invoke_agent"
+    assert payload["execution"]["state"] == "queued"
+    assert is_binary(payload["contextPackageId"])
+
+    cancelled =
+      conn
+      |> post(~p"/api/v1/commands/cancel-agent-execution", %{
+        idempotency_key: "json-cancel-agent-#{context.suffix}",
+        execution_id: payload["execution"]["id"],
+        expected_state_version: payload["execution"]["stateVersion"]
+      })
+      |> json_response(200)
+
+    assert cancelled["command"] == "cancel_agent_execution"
+    assert cancelled["result"]["execution"]["state"] == "cancelled"
+    assert cancelled["result"]["execution"]["state_version"] == 2
+  end
+
   test "GraphQL resolves the exact durable approval and returns its queued execution", %{
     conn: conn
   } do

@@ -385,6 +385,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   object :operator_run_conversation do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
+    field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
     field :conversation, :operator_run_conversation_record
     field :messages, non_null(list_of(non_null(:operator_run_conversation_message)))
     field :executions, non_null(list_of(non_null(:operator_run_conversation_execution)))
@@ -398,6 +400,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   object :operator_run_conversation_execution do
     field :id, non_null(:id)
+    field :binding_id, non_null(:id)
     field :state, non_null(:string)
     field :state_version, non_null(:integer)
     field :current_step_key, :string

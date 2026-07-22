@@ -8,6 +8,39 @@ defmodule OfficeGraphWeb.JsonApi.OperatorCommands.AgentsController do
   alias OfficeGraphWeb.OperatorCommands.Input
   alias OfficeGraphWeb.RequestSession
 
+  def invoke_agent(conn, params) do
+    command_name = "invoke_agent"
+
+    with {:ok, parsed} <- Input.parse(:invoke_agent, params),
+         {:ok, session_context} <- request_session(conn),
+         {:ok, operation, result} <- Agents.invoke(session_context, parsed) do
+      payload = Agents.invocation_payload(operation, result)
+
+      Serializer.render(conn, command_name, operation.id, payload.affected_ids, %{
+        execution: execution_result(result.execution),
+        context_package_id: result.context_package.id
+      })
+    else
+      error -> Errors.render(conn, error, command: command_name)
+    end
+  end
+
+  def cancel_agent_execution(conn, params) do
+    command_name = "cancel_agent_execution"
+
+    with {:ok, parsed} <- Input.parse(:cancel_agent_execution, params),
+         {:ok, session_context} <- request_session(conn),
+         {:ok, operation, result} <- Agents.cancel_execution(session_context, parsed) do
+      payload = Agents.cancellation_payload(operation, result)
+
+      Serializer.render(conn, command_name, operation.id, payload.affected_ids, %{
+        execution: execution_result(result.execution)
+      })
+    else
+      error -> Errors.render(conn, error, command: command_name)
+    end
+  end
+
   def resolve_approval(conn, params) do
     resolve(
       conn,
