@@ -121,6 +121,65 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     refute candidate.verification_check_id == hd(fixture.verification_checks).id
   end
 
+  test "preserves transient authorization storage failures during output operation validation" do
+    fixture = output_fixture()
+
+    Repo.query!("SET LOCAL search_path TO pg_catalog")
+
+    result =
+      try do
+        Operations.validate_agent_output_operation(
+          fixture.operation,
+          fixture.execution,
+          fixture.context_package,
+          "model:review"
+        )
+      after
+        Repo.query!("SET LOCAL search_path TO public")
+      end
+
+    assert {:error, :integration_storage_unavailable} = result
+
+    assert :ok =
+             Operations.validate_agent_output_operation(
+               fixture.operation,
+               fixture.execution,
+               fixture.context_package,
+               "model:review"
+             )
+  end
+
+  test "requires output operations to carry the exact step authority lineage" do
+    fixture = output_fixture()
+
+    invalid_lineage = [
+      authority_basis: "agent-authority-snapshot:#{Ecto.UUID.generate()}",
+      causation_key: "agent-execution:#{Ecto.UUID.generate()}",
+      idempotency_scope: "agent-runtime:#{Ecto.UUID.generate()}"
+    ]
+
+    for {field, value} <- invalid_lineage do
+      invalid_operation = Map.put(fixture.operation, field, value)
+
+      assert {:error, :forbidden} =
+               Operations.validate_agent_output_operation(
+                 invalid_operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review"
+               ),
+             "expected a mismatched #{field} to be rejected"
+    end
+
+    assert :ok =
+             Operations.validate_agent_output_operation(
+               fixture.operation,
+               fixture.execution,
+               fixture.context_package,
+               "model:review"
+             )
+  end
+
   for {classification, required_capability, resource} <- [
         {:proposal, "proposal.create", ProposedGraphChange},
         {:finding, "proposal.create", ProposedGraphChange},

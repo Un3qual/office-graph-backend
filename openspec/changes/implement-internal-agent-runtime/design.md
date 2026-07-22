@@ -54,6 +54,8 @@ effective intersection of the definition request and delegator grants, and the
 exact model-adapter key/version used for the execution. Automatic invocation
 accepts only the canonical binding/run trigger authority, while an exact
 persisted invocation replay remains readable after later lifecycle changes.
+Schema upgrades that add fields to the canonical snapshot hash rehash existing
+rows in the same migration and restore the prior hash form on rollback.
 
 Run-less general conversation was rejected for the first implementation because
 the accepted surface is a run-aware operator tool and verification must retain
@@ -88,7 +90,8 @@ because they make permission and credential enforcement opaque.
 Model output is untrusted. Agent suggestions route to existing proposal commands;
 verification material routes to evidence-candidate commands. No initial adapter
 can call a direct business mutation or external write. Output routing checks
-both the definition allowlist and the invocation's immutable capability snapshot
+the definition allowlist, the invocation's immutable capability snapshot, and
+the exact step operation's snapshot, execution causation, and idempotency scope
 before calling an owning domain.
 
 Read-only output alone was rejected as too weak, while direct writes were
@@ -100,6 +103,9 @@ Executions move through queued, running, waiting approval, waiting context,
 retry scheduled, completed, failed, or cancelled. Oban jobs use execution and
 step identities, leases, bounded attempts, and classified retry/terminal
 results. Step completion records before dispatching the next step.
+Storage-availability failures retain their retryable classification through
+output validation instead of being collapsed into terminal authorization
+failure.
 Cancellation replays reissue the adapter's idempotent cancellation signal when
 the persisted request still identifies an adapter operation that may remain
 active.
@@ -166,6 +172,10 @@ optional after the integration change and do not shape core runtime schemas.
    retry, and recovery.
 4. Add proposal/evidence routing, approvals, expansion, and realtime projections.
 5. Install and bind the OpenSpec review agent and add the focused operator UI.
+
+When adapter lineage is added to pre-existing authority snapshots, recompute
+their canonical hashes after the backfill and recompute the legacy form before
+removing those fields on rollback.
 
 Rollback disables invocation/workers first, waits for active steps or marks them
 cancelled with provenance, retains execution/conversation history while API

@@ -108,18 +108,26 @@ defmodule OfficeGraph.Operations do
   def validate_agent_output_operation(operation, execution, context_package, step_key)
       when is_map(operation) and is_map(execution) and is_map(context_package) and
              is_binary(step_key) do
-    valid? =
-      validate_system_operation(operation, :agent_runtime_execute) == :ok and
-        operation.subject_kind == "agent_execution" and operation.subject_id == execution.id and
-        operation.organization_id == execution.organization_id and
-        operation.workspace_id == execution.workspace_id and
-        operation.principal_id == execution.agent_principal_id and
-        operation.idempotency_key == "step:#{step_key}" and
-        context_package.execution_id == execution.id and
-        context_package.organization_id == execution.organization_id and
-        context_package.workspace_id == execution.workspace_id
-
-    if valid?, do: :ok, else: {:error, :forbidden}
+    with :ok <- validate_system_operation(operation, :agent_runtime_execute),
+         true <- operation.subject_kind == "agent_execution",
+         true <- operation.subject_id == execution.id,
+         true <- operation.organization_id == execution.organization_id,
+         true <- operation.workspace_id == execution.workspace_id,
+         true <- operation.principal_id == execution.agent_principal_id,
+         true <-
+           operation.authority_basis ==
+             "agent-authority-snapshot:#{context_package.authority_snapshot_id}",
+         true <- operation.causation_key == "agent-execution:#{execution.id}",
+         true <- operation.idempotency_scope == "agent-runtime:#{execution.id}",
+         true <- operation.idempotency_key == "step:#{step_key}",
+         true <- context_package.execution_id == execution.id,
+         true <- context_package.organization_id == execution.organization_id,
+         true <- context_package.workspace_id == execution.workspace_id do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _invalid -> {:error, :forbidden}
+    end
   end
 
   def validate_agent_output_operation(_operation, _execution, _context_package, _step_key),

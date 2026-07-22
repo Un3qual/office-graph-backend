@@ -64,6 +64,14 @@ direct business mutation or external write.
   from the immutable authority snapshot
 - **THEN** AgentRuntime MUST reject it before calling the owning domain command
 
+#### Scenario: Routed output operation does not match the durable step
+
+- **WHEN** a routed output presents a generically authorized system operation
+  whose authority snapshot, execution causation, or idempotency scope does not
+  match the exact context package and durable step
+- **THEN** the owning-domain boundary MUST reject it before creating the routed
+  record, audit entry, or revision
+
 #### Scenario: Agent requests unsupported external write
 
 - **WHEN** an initial agent requests a provider mutation or other external write
@@ -93,3 +101,10 @@ durable step.
 - **WHEN** a definition selects another adapter after invocation
 - **THEN** the active execution MUST resolve only the snapshotted adapter
   key/version and MUST fail closed if that exact version is no longer registered
+
+#### Scenario: Adapter lineage is backfilled into existing snapshots
+
+- **WHEN** a schema upgrade adds the model-adapter key and version to an
+  existing immutable authority snapshot
+- **THEN** the migration MUST recompute the canonical authority hash so valid
+  queued or waiting executions remain revalidatable
