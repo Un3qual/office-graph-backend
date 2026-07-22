@@ -28,8 +28,8 @@
 
 ## 6. Conversations And Operator Surface
 
-- [ ] 6.1 Add failing conversation tests for run/graph scope, human/agent provenance, redacted referenced context, message replay, and explicit proposal/domain-action linkage.
-- [ ] 6.2 Implement NodeConversations commands, projections, GraphQL/JSON reads/commands, and product-relevant run timeline summaries.
+- [x] 6.1 Add failing conversation tests for run/graph scope, human/agent provenance, redacted referenced context, message replay, and explicit proposal/domain-action linkage.
+- [x] 6.2 Implement NodeConversations commands, projections, GraphQL/JSON reads/commands, and product-relevant run timeline summaries.
 - [ ] 6.3 Add failing Relay/operator tests, then implement the focused run-aware conversation, invocation, cancellation, approval, expansion, status, and error/conflict UI without agent administration or general chat.
 
 ## 7. First Automatic Agent

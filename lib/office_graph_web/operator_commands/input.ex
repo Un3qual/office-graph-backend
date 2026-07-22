@@ -129,6 +129,19 @@ defmodule OfficeGraphWeb.OperatorCommands.Input do
       expected_version: :positive_integer,
       decision: :string,
       resolution_reason: :string
+    ],
+    start_run_conversation: [
+      idempotency_key: :string,
+      run_id: :uuid,
+      graph_item_id: :uuid
+    ],
+    append_conversation_message: [
+      idempotency_key: :string,
+      conversation_id: :uuid,
+      body: :raw_string,
+      contribution_kind: :string,
+      proposed_graph_change_id: :optional_uuid,
+      domain_action_operation_id: :optional_uuid
     ]
   }
 

@@ -776,6 +776,7 @@ interface Node {
 
 type RootQueryType {
   health: String!
+  operatorRunConversation(runId: ID!, graphItemId: ID!): OperatorRunConversation!
   githubIntegrationHealth(installationId: ID!, limit: Int): GithubIntegrationHealth!
   graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
@@ -864,6 +865,8 @@ type RootQueryType {
 }
 
 type RootMutationType {
+  startRunConversation(input: StartRunConversationInput!): StartRunConversationPayload!
+  appendConversationMessage(input: AppendConversationMessageInput!): AppendConversationMessagePayload!
   resolveAgentApproval(input: ResolveAgentApprovalInput!): ResolveAgentApprovalPayload!
   resolveAgentContextExpansion(input: ResolveAgentContextExpansionInput!): ResolveAgentContextExpansionPayload!
   bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
@@ -887,6 +890,35 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+input StartRunConversationInput {
+  idempotencyKey: String!
+  runId: ID!
+  graphItemId: ID!
+}
+
+input AppendConversationMessageInput {
+  idempotencyKey: String!
+  conversationId: ID!
+  body: String!
+  contributionKind: String!
+  proposedGraphChangeId: ID
+  domainActionOperationId: ID
+}
+
+type StartRunConversationPayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  conversation: OperatorRunConversationRecord!
+}
+
+type AppendConversationMessagePayload {
+  command: String!
+  operationId: ID!
+  affectedIds: [OperatorTypedId!]!
+  message: OperatorRunConversationMessage!
+}
 
 input ResolveAgentApprovalInput {
   idempotencyKey: String!
@@ -1587,6 +1619,112 @@ type OperatorRunActivity {
 type OperatorRunActivityConnection {
   pageInfo: PageInfo!
   edges: [OperatorRunActivityEdge]
+}
+
+type OperatorRunConversationContextEntry {
+  posture: String!
+  rationaleCode: String!
+}
+
+type OperatorRunConversationReferencedContext {
+  visibility: String!
+  packageId: ID
+  version: Int
+  entries: [OperatorRunConversationContextEntry!]!
+}
+
+type OperatorRunConversationRecord {
+  id: ID!
+  runId: ID!
+  graphItemId: ID!
+  createdByPrincipalId: ID!
+  operationId: ID!
+  purpose: String!
+  visibility: String!
+  state: String!
+  stateVersion: Int!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type OperatorRunConversationMessage {
+  id: ID!
+  source: String!
+  body: String!
+  visibility: String!
+  authorPrincipalId: ID
+  executionId: ID
+  contextPackageId: ID
+  operationId: ID!
+  proposedGraphChangeId: ID
+  domainActionOperationId: ID
+  insertedAt: DateTime!
+  referencedContext: OperatorRunConversationReferencedContext
+}
+
+type OperatorRunConversation {
+  type: String!
+  sourceWatermark: ID!
+  conversation: OperatorRunConversationRecord
+  messages: [OperatorRunConversationMessage!]!
+  executions: [OperatorRunConversationExecution!]!
+  approvalRequests: [OperatorRunConversationApprovalRequest!]!
+  contextExpansionRequests: [OperatorRunConversationContextExpansionRequest!]!
+}
+
+type OperatorRunConversationExecution {
+  id: ID!
+  state: String!
+  stateVersion: Int!
+  currentStepKey: String
+  attemptCount: Int!
+  failureCode: String
+  requestedOutcome: String!
+  invocationMode: String!
+  origin: String!
+  autonomyMode: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type OperatorRunConversationApprovalRequest {
+  id: ID!
+  executionId: ID!
+  stepKey: String!
+  requestedAction: String!
+  reason: String!
+  scopeType: String!
+  scopeId: ID!
+  capabilityKey: String
+  sensitivity: String!
+  externalWrite: Boolean!
+  state: String!
+  version: Int!
+  expiresAt: DateTime!
+  resolutionReason: String
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type OperatorRunConversationContextExpansionRequest {
+  id: ID!
+  executionId: ID!
+  stepKey: String!
+  targetResourceType: String!
+  targetResourceId: ID!
+  targetScopeType: String!
+  targetScopeId: ID!
+  accessMode: String!
+  capabilityKey: String
+  reason: String!
+  sensitivity: String!
+  expectedDurationSeconds: Int!
+  state: String!
+  version: Int!
+  expiresAt: DateTime!
+  resolutionReason: String
+  insertedAt: DateTime!
+  updatedAt: DateTime!
 }
 
 type OperatorRunChildSummary {

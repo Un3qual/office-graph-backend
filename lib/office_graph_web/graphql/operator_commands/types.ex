@@ -1,6 +1,35 @@
 defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
   use Absinthe.Schema.Notation
 
+  input_object :start_run_conversation_input do
+    field :idempotency_key, non_null(:string)
+    field :run_id, non_null(:id)
+    field :graph_item_id, non_null(:id)
+  end
+
+  input_object :append_conversation_message_input do
+    field :idempotency_key, non_null(:string)
+    field :conversation_id, non_null(:id)
+    field :body, non_null(:string)
+    field :contribution_kind, non_null(:string)
+    field :proposed_graph_change_id, :id
+    field :domain_action_operation_id, :id
+  end
+
+  object :start_run_conversation_payload do
+    field :command, non_null(:string)
+    field :operation_id, non_null(:id)
+    field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
+    field :conversation, non_null(:operator_run_conversation_record)
+  end
+
+  object :append_conversation_message_payload do
+    field :command, non_null(:string)
+    field :operation_id, non_null(:id)
+    field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
+    field :message, non_null(:operator_run_conversation_message)
+  end
+
   input_object :resolve_agent_approval_input do
     field :idempotency_key, non_null(:string)
     field :approval_request_id, non_null(:id)

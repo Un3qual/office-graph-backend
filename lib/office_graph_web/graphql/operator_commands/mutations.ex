@@ -11,6 +11,16 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
   }
 
   object :operator_command_mutations do
+    field :start_run_conversation, non_null(:start_run_conversation_payload) do
+      arg(:input, non_null(:start_run_conversation_input))
+      resolve(&Agents.start_conversation/2)
+    end
+
+    field :append_conversation_message, non_null(:append_conversation_message_payload) do
+      arg(:input, non_null(:append_conversation_message_input))
+      resolve(&Agents.append_conversation_message/2)
+    end
+
     field :resolve_agent_approval, non_null(:resolve_agent_approval_payload) do
       arg(:input, non_null(:resolve_agent_approval_input))
       resolve(&Agents.resolve_approval/2)

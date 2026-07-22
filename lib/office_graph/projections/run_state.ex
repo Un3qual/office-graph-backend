@@ -571,6 +571,60 @@ defmodule OfficeGraph.Projections.RunState do
       FROM verification_results
       WHERE work_run_id = $1 AND organization_id = $2 AND workspace_id = $3
       UNION ALL
+      SELECT updated_at, 'agent_execution', id, 'Agent execution', state
+      FROM agent_executions
+      WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT inserted_at, 'agent_context', id,
+             'Agent context version ' || version::text, 'assembled'
+      FROM agent_context_packages
+      WHERE run_id = $1 AND organization_id = $2 AND workspace_id = $3
+      UNION ALL
+      SELECT request.updated_at, 'agent_approval', request.id, request.requested_action,
+             request.state
+      FROM agent_approval_requests AS request
+      JOIN agent_executions AS execution ON execution.id = request.execution_id
+      WHERE execution.run_id = $1
+        AND execution.organization_id = $2
+        AND execution.workspace_id = $3
+      UNION ALL
+      SELECT request.updated_at, 'agent_context_expansion', request.id,
+             request.target_resource_type, request.state
+      FROM agent_context_expansion_requests AS request
+      JOIN agent_executions AS execution ON execution.id = request.execution_id
+      WHERE execution.run_id = $1
+        AND execution.organization_id = $2
+        AND execution.workspace_id = $3
+      UNION ALL
+      SELECT COALESCE(request.completed_at, request.requested_at, request.inserted_at),
+             'agent_tool_request', request.id, request.tool_key, request.state
+      FROM agent_tool_requests AS request
+      JOIN agent_executions AS execution ON execution.id = request.execution_id
+      WHERE execution.run_id = $1
+        AND execution.organization_id = $2
+        AND execution.workspace_id = $3
+      UNION ALL
+      SELECT proposal.updated_at, 'agent_proposal', proposal.id, proposal.change_type,
+             proposal.status
+      FROM proposed_graph_changes AS proposal
+      JOIN agent_executions AS execution ON execution.id = proposal.execution_id
+      WHERE execution.run_id = $1
+        AND execution.organization_id = $2
+        AND execution.workspace_id = $3
+      UNION ALL
+      SELECT message.inserted_at, 'conversation_message', message.id,
+             CASE message.source
+               WHEN 'agent' THEN 'Agent message'
+               WHEN 'human' THEN 'Human message'
+               ELSE 'System message'
+             END,
+             'recorded'
+      FROM conversation_messages AS message
+      JOIN conversations AS conversation ON conversation.id = message.conversation_id
+      WHERE conversation.run_id = $1
+        AND conversation.organization_id = $2
+        AND conversation.workspace_id = $3
+      UNION ALL
       SELECT rrc.inserted_at, 'missing_evidence', rrc.verification_check_id,
              COALESCE(vc.title, 'Missing evidence'),
              CASE WHEN EXISTS (
@@ -638,7 +692,14 @@ defmodule OfficeGraph.Projections.RunState do
              "evidence_candidate",
              "evidence_item",
              "verification_result",
-             "missing_evidence"
+             "missing_evidence",
+             "agent_execution",
+             "agent_context",
+             "agent_approval",
+             "agent_context_expansion",
+             "agent_tool_request",
+             "agent_proposal",
+             "conversation_message"
            ],
          {:ok, id} <- Ecto.UUID.cast(id) do
       {:ok, {inserted_at, kind, id}}

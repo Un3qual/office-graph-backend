@@ -77,6 +77,18 @@ defmodule OfficeGraphWeb.Router do
          JsonApi.OperatorCommands.AgentsController,
          :resolve_context_expansion
 
+    post "/v1/commands/start-run-conversation",
+         JsonApi.OperatorCommands.AgentsController,
+         :start_conversation
+
+    post "/v1/commands/append-conversation-message",
+         JsonApi.OperatorCommands.AgentsController,
+         :append_conversation_message
+
+    get "/v1/runs/:run_id/graph-items/:graph_item_id/conversation",
+        JsonApi.ConversationsController,
+        :show
+
     post "/v1/commands/record-execution-observation",
          JsonApi.OperatorCommands.RunsController,
          :record_execution_observation

@@ -3,12 +3,27 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
   use Absinthe.Relay.Schema.Notation, :modern
 
   alias Absinthe.Relay.Connection
-  alias OfficeGraph.Projections
+  alias OfficeGraph.{NodeConversations, Projections}
   alias OfficeGraph.WorkGraph
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.RequestSession
 
   object :operator_workflow_queries do
+    field :operator_run_conversation, non_null(:operator_run_conversation) do
+      arg(:run_id, non_null(:id))
+      arg(:graph_item_id, non_null(:id))
+
+      resolve(fn args, resolution ->
+        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, projection} <-
+               NodeConversations.project(session_context, args.run_id, args.graph_item_id) do
+          {:ok, projection}
+        else
+          error -> Errors.to_absinthe(error)
+        end
+      end)
+    end
+
     field :github_integration_health, non_null(:github_integration_health) do
       arg(:installation_id, non_null(:id))
       arg(:limit, :integer)
