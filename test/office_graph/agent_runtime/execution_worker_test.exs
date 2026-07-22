@@ -11,6 +11,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   }
 
   alias OfficeGraph.DurableDelivery.DomainEvent
+  alias OfficeGraph.Integrations.IntegrationCredential
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
@@ -57,6 +58,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       send(test_pid, {:blocking_model_cancelled, request_id})
       :ok
     end
+  end
+
+  defmodule StorageUnavailableRevalidator do
+    @moduledoc false
+
+    def revalidate_step(_execution_id, _opts),
+      do: {:error, :integration_storage_unavailable}
   end
 
   test "invocation enqueues one unique durable model step and replay does not duplicate it" do
@@ -239,6 +247,112 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       assert request.failure_code == failure_code
       refute Map.has_key?(Map.from_struct(request), :raw_error)
     end
+  end
+
+  test "output routing rejection terminalizes the claimed request and execution" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    [job] = execution_jobs(invoked.execution.id)
+
+    Repo.query!(
+      "UPDATE agent_definitions SET allowed_output_kinds = ARRAY['message']::text[] WHERE id = $1",
+      [Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    assert {:cancel, "agent_output_kind_not_allowed"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    request = Ash.read_one!(ModelRequest, authorize?: false)
+
+    assert execution.state == "failed"
+    assert execution.failure_code == "agent_output_kind_not_allowed"
+    assert is_nil(execution.lease_token)
+    assert is_nil(execution.lease_expires_at)
+    assert request.state == "failed"
+    assert request.failure_code == "agent_output_kind_not_allowed"
+  end
+
+  test "missing configured adapter terminalizes queued execution instead of stranding it" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    [job] = execution_jobs(invoked.execution.id)
+
+    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'missing' WHERE id = $1", [
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    assert {:cancel, "agent_adapter_unavailable"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert execution.state == "failed"
+    assert execution.failure_code == "agent_adapter_unavailable"
+    assert Repo.aggregate(ModelRequest, :count) == 0
+  end
+
+  test "transient authority storage failure retries without recording false revocation" do
+    configured = Application.get_env(:office_graph, :agent_runtime_revalidator)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_revalidator,
+      StorageUnavailableRevalidator
+    )
+
+    on_exit(fn ->
+      if is_nil(configured) do
+        Application.delete_env(:office_graph, :agent_runtime_revalidator)
+      else
+        Application.put_env(:office_graph, :agent_runtime_revalidator, configured)
+      end
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    queued = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert queued.state == "queued"
+    assert queued.attempt_count == 0
+    assert Repo.aggregate(ModelRequest, :count) == 0
+
+    Application.delete_env(:office_graph, :agent_runtime_revalidator)
+
+    assert :ok = ExecutionWorker.perform(%{job | attempt: 2, max_attempts: 3})
+    assert Ash.get!(AgentExecution, invoked.execution.id, authorize?: false).state == "completed"
+  end
+
+  test "model request provenance retains the credential captured by the authority snapshot" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    original_credential = create_model_credential!(context, "original")
+    rotated_credential = create_model_credential!(context, "rotated")
+
+    Repo.query!("UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2", [
+      Ecto.UUID.dump!(original_credential.id),
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "snapshotted-model-credential-#{context.suffix}"
+      })
+
+    assert invoked.authority_snapshot.credential_ids == [original_credential.id]
+
+    Repo.query!("UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2", [
+      Ecto.UUID.dump!(rotated_credential.id),
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    [job] = execution_jobs(invoked.execution.id)
+    assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    request = Ash.read_one!(ModelRequest, authorize?: false)
+    assert request.credential_id == original_credential.id
+    refute request.credential_id == rotated_credential.id
   end
 
   test "an authorized cancellation terminalizes queued work and prevents adapter dispatch" do
@@ -653,5 +767,22 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
         fragment("?->>'execution_id'", job.args) == ^execution_id
     )
     |> Repo.all()
+  end
+
+  defp create_model_credential!(context, label) do
+    Ash.create!(
+      IntegrationCredential,
+      %{
+        id: Ecto.UUID.generate(),
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id,
+        kind: "secret_reference",
+        secret_reference: "test-secret://agent-runtime/#{label}/#{context.suffix}",
+        status: "active",
+        operation_id: context.binding.operation_id
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 end

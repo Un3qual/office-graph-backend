@@ -96,6 +96,12 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
         perform_context(context, step_key, fixture_id, job)
 
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, {:terminal, failure_code}, execution, operation} ->
+        fail_claim(execution.id, operation, job, failure_code)
+
       {:error, _reason} ->
         finish_terminal_job(job, "invalid_agent_job_scope")
     end
@@ -116,7 +122,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp run_available_step(context, step_key, fixture_id, job) do
     operation = context.operation
 
-    case AgentRuntime.revalidate_step(
+    case revalidate_step(
            context.execution.id,
            approval_request_id: context.approval_request_id,
            context_expansion_request_id: context.context_expansion_request_id
@@ -136,6 +142,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           {:error, _reason} ->
             fail_claim(context.execution.id, operation, job, "agent_step_claim_failed")
         end
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
 
       {:error, _reason} ->
         with :ok <- fail_unclaimed_step(context.execution.id, operation) do
@@ -164,21 +173,24 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp load_context(execution_id, operation_id, organization_id, workspace_id, step_key) do
-    with {:ok, %AgentExecution{} = execution} <-
-           Ash.get(AgentExecution, execution_id, authorize?: false, not_found_error?: false),
+    with {:ok, %AgentExecution{} = execution} <- load_execution(execution_id),
          true <-
            execution.organization_id == organization_id and
              execution.workspace_id == workspace_id,
-         {:ok, %AgentDefinition{} = definition} <-
-           Ash.get(AgentDefinition, execution.definition_id,
-             authorize?: false,
-             not_found_error?: false
-           ),
          {:ok, %AuthoritySnapshot{} = snapshot} <- authority_snapshot(execution.id),
-         {:ok, %ContextPackage{} = context_package} <- context_package(execution.id),
-         {:ok, adapter} <- AdapterRegistry.model(definition.model_adapter_key),
-         {:ok, operation} <- Operations.read_operation(operation_id),
+         {:ok, operation} <- load_operation(operation_id),
          :ok <- validate_step_operation(operation, execution, snapshot, step_key) do
+      load_runtime_context(execution, operation, snapshot)
+    else
+      false -> {:error, :forbidden}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp load_runtime_context(execution, operation, snapshot) do
+    with {:ok, %AgentDefinition{} = definition} <- load_definition(execution.definition_id),
+         {:ok, %ContextPackage{} = context_package} <- context_package(execution.id),
+         {:ok, adapter} <- AdapterRegistry.model(definition.model_adapter_key) do
       {:ok,
        %{
          adapter: adapter,
@@ -190,9 +202,38 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
          snapshot: snapshot
        }}
     else
-      false -> {:error, :forbidden}
+      {:error, :integration_storage_unavailable} = error ->
+        error
+
+      {:error, :adapter_not_found} ->
+        {:error, {:terminal, "agent_adapter_unavailable"}, execution, operation}
+
+      {:error, _invalid_runtime_context} ->
+        {:error, {:terminal, "agent_context_unavailable"}, execution, operation}
+    end
+  end
+
+  defp load_execution(execution_id) do
+    case Ash.get(AgentExecution, execution_id, authorize?: false, not_found_error?: false) do
+      {:ok, %AgentExecution{} = execution} -> {:ok, execution}
       {:ok, nil} -> {:error, :execution_not_found}
-      {:error, _reason} = error -> error
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp load_definition(definition_id) do
+    case Ash.get(AgentDefinition, definition_id, authorize?: false, not_found_error?: false) do
+      {:ok, %AgentDefinition{} = definition} -> {:ok, definition}
+      {:ok, nil} -> {:error, :definition_not_found}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp load_operation(operation_id) do
+    case Operations.read_operation(operation_id) do
+      {:ok, operation} -> {:ok, operation}
+      {:error, {:not_found, _resource, _id}} -> {:error, :operation_not_found}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -200,6 +241,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     AuthoritySnapshot
     |> Ash.Query.filter(execution_id == ^execution_id and version == 1)
     |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %AuthoritySnapshot{} = snapshot} -> {:ok, snapshot}
+      {:ok, nil} -> {:error, :authority_snapshot_missing}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
   end
 
   defp context_package(execution_id) do
@@ -208,6 +254,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     |> Ash.Query.sort(version: :desc)
     |> Ash.Query.limit(1)
     |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %ContextPackage{} = context_package} -> {:ok, context_package}
+      {:ok, nil} -> {:error, :context_package_missing}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp revalidate_step(execution_id, opts) do
+    revalidator = Application.get_env(:office_graph, :agent_runtime_revalidator, AgentRuntime)
+    revalidator.revalidate_step(execution_id, opts)
   end
 
   defp create_step_operation(execution, snapshot, step_key) do
@@ -328,8 +384,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp claim_available_step(context, operation, execution, step_key, fixture_id, lease_token) do
     with :ok <- ExecutionStateMachine.validate(execution.state, "running") do
       input = model_input(context, operation, execution, step_key, fixture_id)
-      request = create_or_load_request!(context, operation, input)
-      validate_request_replay!(request, input)
+      credential_id = snapshotted_model_credential_id!(context.snapshot)
+      request = create_or_load_request!(context, operation, input, credential_id)
+      validate_request_replay!(request, input, credential_id)
 
       case request.state do
         "succeeded" ->
@@ -456,21 +513,28 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     |> normalize_step_transaction()
   end
 
-  defp persist_adapter_result({:ok, output}, claim, operation, _job),
-    do: complete(claim, operation, output)
+  defp persist_adapter_result({:ok, output}, claim, operation, job) do
+    case complete(claim, operation, output) do
+      :ok ->
+        :ok
+
+      {:error, :integration_storage_unavailable} ->
+        retry_or_exhaust(claim, operation, job, "integration_storage_unavailable")
+
+      {:error, :stale_agent_execution_lease} ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, reason} ->
+        failure_code = output_routing_failure_code(reason)
+
+        with :ok <- fail_step(claim, operation, failure_code) do
+          finish_terminal_job(job, failure_code)
+        end
+    end
+  end
 
   defp persist_adapter_result({:error, {:retryable, code}}, claim, operation, job) do
-    if claim.execution.attempt_count >= bounded_attempt_budget(job) do
-      with :ok <- fail_step(claim, operation, "attempts_exhausted") do
-        finish_terminal_job(job, "attempts_exhausted")
-      end
-    else
-      failure_code = safe_code(code, "retryable_adapter_failure")
-
-      with :ok <- retry_step(claim, operation, failure_code) do
-        {:snooze, @retry_delay_seconds}
-      end
-    end
+    retry_or_exhaust(claim, operation, job, safe_code(code, "retryable_adapter_failure"))
   end
 
   defp persist_adapter_result({:error, {:terminal, code}}, claim, operation, job) do
@@ -499,6 +563,18 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp cancel_step(claim, operation, failure_code) do
     finalize_step(claim, operation, "cancelled", "cancelled", failure_code)
+  end
+
+  defp retry_or_exhaust(claim, operation, job, failure_code) do
+    if claim.execution.attempt_count >= bounded_attempt_budget(job) do
+      with :ok <- fail_step(claim, operation, "attempts_exhausted") do
+        finish_terminal_job(job, "attempts_exhausted")
+      end
+    else
+      with :ok <- retry_step(claim, operation, failure_code) do
+        {:snooze, @retry_delay_seconds}
+      end
+    end
   end
 
   defp finalize_step(claim, operation, request_state, execution_state, failure_code) do
@@ -548,7 +624,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp normalize_step_transaction({:ok, :ok}), do: :ok
   defp normalize_step_transaction({:error, reason}), do: {:error, reason}
 
-  defp create_or_load_request!(context, operation, input) do
+  defp create_or_load_request!(context, operation, input, credential_id) do
     case model_request(context.execution.id, input.step_key, input.idempotency_key) do
       nil ->
         Repo.ash_create!(ModelRequest, %{
@@ -556,7 +632,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           execution_id: input.execution_id,
           context_package_id: input.context_package_id,
           authority_snapshot_id: input.authority_snapshot_id,
-          credential_id: context.definition.model_credential_id,
+          credential_id: credential_id,
           operation_id: operation.id,
           step_key: input.step_key,
           adapter_key: input.adapter_key,
@@ -735,11 +811,12 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     if valid?, do: request, else: Repo.rollback(:agent_approval_request_conflict)
   end
 
-  defp validate_request_replay!(request, input) do
+  defp validate_request_replay!(request, input, credential_id) do
     valid? =
       request.execution_id == input.execution_id and
         request.context_package_id == input.context_package_id and
         request.authority_snapshot_id == input.authority_snapshot_id and
+        request.credential_id == credential_id and
         request.step_key == input.step_key and request.adapter_key == input.adapter_key and
         request.adapter_version == input.adapter_version and
         request.idempotency_key == input.idempotency_key and
@@ -748,6 +825,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
     unless valid?, do: Repo.rollback(:agent_step_idempotency_conflict)
   end
+
+  defp snapshotted_model_credential_id!(%AuthoritySnapshot{credential_ids: []}), do: nil
+
+  defp snapshotted_model_credential_id!(%AuthoritySnapshot{credential_ids: [credential_id]}),
+    do: credential_id
+
+  defp snapshotted_model_credential_id!(_snapshot),
+    do: Repo.rollback(:authority_snapshot_invalid)
 
   defp model_input(context, operation, execution, step_key, fixture_id) do
     manifest = context.manifest
@@ -922,6 +1007,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp safe_code(_code, fallback), do: fallback
+
+  defp output_routing_failure_code({:agent_output_kind_not_allowed, _output_kind}),
+    do: "agent_output_kind_not_allowed"
+
+  defp output_routing_failure_code(_reason), do: "agent_output_routing_failed"
 
   defp step_idempotency_key(execution_id, step_key),
     do: "agent-step:#{execution_id}:#{step_key}"

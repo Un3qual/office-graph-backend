@@ -52,3 +52,10 @@ durable step.
 - **WHEN** a queued or retrying step reaches execution after revocation
 - **THEN** the runtime MUST fail closed or request new authority without erasing
   prior execution history
+
+#### Scenario: Definition credential rotates during an active execution
+
+- **WHEN** a definition selects a new active credential after an execution has
+  captured its immutable authority snapshot
+- **THEN** the active execution MUST retain the snapshotted credential reference
+  for request provenance while later invocations capture the rotated credential
