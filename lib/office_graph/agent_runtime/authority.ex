@@ -69,7 +69,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          :ok <- validate_tool(opts[:tool_key], snapshot, definition),
          :ok <- validate_approval(opts[:approval_request_id], execution, snapshot),
          :ok <-
-           validate_context_expansion(
+           validate_context_expansion_lineage(
              opts[:context_expansion_request_id],
              execution,
              snapshot
@@ -345,7 +345,28 @@ defmodule OfficeGraph.AgentRuntime.Authority do
   defp validate_approval(_approval_id, _execution, _snapshot),
     do: {:error, :approval_not_active}
 
-  defp validate_context_expansion(nil, _execution, _snapshot), do: :ok
+  defp validate_context_expansion_lineage(expansion_id, execution, snapshot) do
+    with {:ok, lineage_ids} <- context_expansion_lineage(execution.id),
+         :ok <- validate_requested_expansion(expansion_id, lineage_ids) do
+      Enum.reduce_while(lineage_ids, :ok, fn lineage_id, :ok ->
+        case validate_context_expansion(lineage_id, execution, snapshot) do
+          :ok -> {:cont, :ok}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp validate_requested_expansion(nil, _lineage_ids), do: :ok
+
+  defp validate_requested_expansion(expansion_id, lineage_ids) when is_binary(expansion_id) do
+    if expansion_id in lineage_ids,
+      do: :ok,
+      else: {:error, :context_expansion_not_active}
+  end
+
+  defp validate_requested_expansion(_expansion_id, _lineage_ids),
+    do: {:error, :context_expansion_not_active}
 
   defp validate_context_expansion(expansion_id, execution, snapshot)
        when is_binary(expansion_id) do
@@ -373,7 +394,6 @@ defmodule OfficeGraph.AgentRuntime.Authority do
              step_key == execution.current_step_key ->
         if active_gate_execution?(execution, execution_state_version) and
              is_binary(resolution_operation_id) and capability_key in snapshot.capability_keys and
-             latest_context_expansion?(execution.id, expansion.id) and
              DateTime.compare(expansion.expires_at, DateTime.utc_now()) == :gt,
            do: :ok,
            else: {:error, :context_expansion_not_active}
@@ -394,15 +414,40 @@ defmodule OfficeGraph.AgentRuntime.Authority do
       execution.state_version > waiting_version
   end
 
-  defp latest_context_expansion?(execution_id, expansion_id) do
-    match?(
-      %ContextPackage{expansion_request_id: ^expansion_id},
-      ContextPackage
-      |> Ash.Query.filter(execution_id == ^execution_id)
-      |> Ash.Query.sort(version: :desc)
-      |> Ash.Query.limit(1)
-      |> Ash.read_one!(authorize?: false)
-    )
+  defp context_expansion_lineage(execution_id) do
+    ContextPackage
+    |> Ash.Query.filter(execution_id == ^execution_id)
+    |> Ash.Query.sort(version: :desc)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, []} ->
+        {:error, :context_expansion_not_active}
+
+      {:ok, packages} ->
+        validate_package_lineage(packages)
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_package_lineage(packages) do
+    valid? =
+      packages
+      |> Enum.chunk_every(2, 1, [nil])
+      |> Enum.all?(fn
+        [package, nil] ->
+          is_nil(package.previous_package_id) and package.version == 1
+
+        [package, previous] ->
+          package.previous_package_id == previous.id and package.version == previous.version + 1
+      end)
+
+    if valid? do
+      {:ok, packages |> Enum.map(& &1.expansion_request_id) |> Enum.reject(&is_nil/1)}
+    else
+      {:error, :context_expansion_not_active}
+    end
   end
 
   def authority_hash(authority) when is_map(authority) do

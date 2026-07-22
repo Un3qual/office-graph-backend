@@ -17,6 +17,13 @@ allowlist, and default autonomy envelope.
   that organization and current workspace without exposing a generic
   agent-admin mutation
 
+#### Scenario: Active definition binding is requested again
+
+- **WHEN** an authorized owner repeats the narrow binding command for a
+  definition already bound to the same organization and workspace
+- **THEN** Office Graph MUST return the active scoped binding without requiring
+  the original operation identity or creating a duplicate binding
+
 #### Scenario: Inactive definition is invoked
 - **WHEN** a definition or organization binding is disabled or revoked
 - **THEN** the runtime MUST reject new execution and preserve historical

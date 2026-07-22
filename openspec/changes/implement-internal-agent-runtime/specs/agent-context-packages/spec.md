@@ -41,3 +41,10 @@ can receive context outside its current package.
 - **WHEN** an approved expansion creates a successor context package
 - **THEN** every copied entry MUST preserve the source version that contributed
   to its original immutable content hash
+
+#### Scenario: Successor package has multiple approved expansions
+
+- **WHEN** a step resumes from a context package descended through multiple
+  approved expansion requests
+- **THEN** the runtime MUST validate the complete linear package lineage and
+  revalidate every expansion grant before adapter dispatch

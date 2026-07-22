@@ -37,6 +37,13 @@ domain consumes it.
 - **THEN** the step MUST fail with a safe classified error and MUST NOT create
   graph, proposal, evidence, or external effects
 
+#### Scenario: Adapter returns a globally valid but undeclared classification
+
+- **WHEN** output is structurally valid but its classification is not allowed by
+  the selected manifest
+- **THEN** the worker MUST reject it before output routing and MUST NOT create an
+  owning-domain effect
+
 ### Requirement: Deterministic Adapters Exercise The Full Runtime
 Office Graph SHALL provide deterministic model and tool adapters for local tests
 and normal verification.

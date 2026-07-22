@@ -50,8 +50,10 @@ access to model and tools was rejected because it fragments policy and audit.
 Invocation records mode, origin, selected graph item, run, organization,
 workspace, agent principal, delegator/trigger basis, requested capabilities,
 autonomy envelope, and operation. An immutable authority snapshot records the
-effective intersection and exact model-adapter key/version used for the
-execution.
+effective intersection of the definition request and delegator grants, and the
+exact model-adapter key/version used for the execution. Automatic invocation
+accepts only the canonical binding/run trigger authority, while an exact
+persisted invocation replay remains readable after later lifecycle changes.
 
 Run-less general conversation was rejected for the first implementation because
 the accepted surface is a run-aware operator tool and verification must retain
@@ -73,7 +75,10 @@ self-expand access and cannot explain the prompt boundary.
 Model adapters accept a provider-neutral request and return validated structured
 output or classified error. Tool manifests declare input/output schemas,
 capabilities, credentials, sensitivity, external-write posture, timeout, budget,
-and output classification.
+and output classification. The worker validates both pre-gate input authority
+and successful output against the selected manifest, so an impossible request
+cannot create a durable gate and globally well-formed but adapter-disallowed
+output cannot reach routing.
 
 Ad hoc prompt function calls and direct provider SDK exposure were rejected
 because they make permission and credential enforcement opaque.
@@ -93,6 +98,9 @@ Executions move through queued, running, waiting approval, waiting context,
 retry scheduled, completed, failed, or cancelled. Oban jobs use execution and
 step identities, leases, bounded attempts, and classified retry/terminal
 results. Step completion records before dispatching the next step.
+Cancellation replays reissue the adapter's idempotent cancellation signal when
+the persisted request still identifies an adapter operation that may remain
+active.
 
 A single long-running process was rejected because restart and retry would lose
 or duplicate product effects.
@@ -103,7 +111,8 @@ Requests identify execution, step, requested action/context, reason, scope,
 capabilities, sensitivity, expiry, and operation. Narrow GraphQL/JSON commands
 authorize resolve/deny/cancel and resume only the matching waiting step. When a
 step crosses multiple gates, the later request retains the prior approved gate
-lineage so every grant remains revalidated until adapter dispatch.
+lineage so every grant in every immutable successor context package remains
+revalidated until adapter dispatch.
 
 Implicit approval through conversation membership was rejected because it
 cannot express tool, credential, external-write, or cross-scope authority.

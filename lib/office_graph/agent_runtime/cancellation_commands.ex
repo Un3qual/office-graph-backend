@@ -288,7 +288,6 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   end
 
   defp signal_active_adapter(%{model_request: nil}), do: :ok
-  defp signal_active_adapter(%{replayed?: true}), do: :ok
 
   defp signal_active_adapter(%{model_request: request}) do
     with {:ok, adapter} <- AdapterRegistry.model(request.adapter_key, request.adapter_version) do

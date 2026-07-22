@@ -131,6 +131,41 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
              |> length()
   end
 
+  test "sequential expansions revalidate every grant in the successor package lineage" do
+    fixture = waiting_context_fixture(expansion_count: 2)
+    first_request = fixture.request
+
+    first = approve_expansion(fixture, first_request, "Approve the first bounded reference.")
+    [first_resume] = expansion_resume_jobs(first_request.id)
+    assert :ok = ExecutionWorker.perform(%{first_resume | attempt: 1, max_attempts: 3})
+
+    second_request =
+      ContextExpansionRequest
+      |> Ash.Query.filter(
+        execution_id == ^fixture.execution.id and state == "pending" and
+          id != ^first_request.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    second = approve_expansion(fixture, second_request, "Approve the second bounded reference.")
+    [second_resume] = expansion_resume_jobs(second_request.id)
+
+    Repo.query!(
+      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [Ecto.UUID.dump!(first_request.id)]
+    )
+
+    assert {:cancel, "agent_authority_revoked"} =
+             ExecutionWorker.perform(%{second_resume | attempt: 1, max_attempts: 3})
+
+    assert second.context_package.previous_package_id == first.context_package.id
+    assert Repo.aggregate(ModelRequest, :count) == 0
+
+    failed = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_authority_revoked"
+  end
+
   test "an approved expansion remains valid while its exact step retries" do
     fixture = waiting_context_fixture()
 

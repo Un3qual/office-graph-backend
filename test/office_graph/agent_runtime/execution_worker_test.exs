@@ -13,6 +13,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.Integrations.IntegrationCredential
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
@@ -141,6 +142,36 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       })
 
       {:error, {:terminal, :unexpected_credentialed_dispatch}}
+    end
+
+    @impl true
+    def cancel(_request_id), do: :ok
+  end
+
+  defmodule ManifestViolatingModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.{DeterministicModel, DeterministicRuntime}
+    alias OfficeGraph.AgentRuntime.ModelOutput
+
+    @impl true
+    def manifest do
+      %{
+        DeterministicModel.manifest()
+        | key: "manifest-violating",
+          output_schema: DeterministicRuntime.output_schema([:finding]),
+          output_classifications: [:finding]
+      }
+    end
+
+    @impl true
+    def invoke(_input) do
+      {:ok,
+       %ModelOutput{
+         classification: :proposal,
+         safe_summary: "A globally valid but manifest-disallowed proposal",
+         structured_content: %{"proposal" => %{"intent" => "follow_up"}}
+       }}
     end
 
     @impl true
@@ -327,6 +358,42 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       assert request.failure_code == failure_code
       refute Map.has_key?(Map.from_struct(request), :raw_error)
     end
+  end
+
+  test "worker rejects globally valid output that violates the selected adapter manifest" do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = Map.new(original_registry)
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, %{
+      models: Map.put(registry.models, "manifest-violating", ManifestViolatingModel),
+      tools: registry.tools
+    })
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    Repo.query!("UPDATE agent_definitions SET model_adapter_key = $1 WHERE id = $2", [
+      "manifest-violating",
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:cancel, "malformed_model_output"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    request = Ash.read_one!(ModelRequest, authorize?: false)
+
+    assert execution.state == "failed"
+    assert execution.failure_code == "malformed_model_output"
+    assert request.state == "failed"
+    assert request.failure_code == "malformed_model_output"
+    assert Repo.aggregate(ProposedGraphChange, :count) == 0
   end
 
   test "output routing rejection terminalizes the claimed request and execution" do
@@ -670,6 +737,12 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert {:ok, cancelled} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert_receive {:blocking_model_cancelled, ^request_id}, 1_000
     refute_receive {:rotated_model_cancelled, ^request_id}
+
+    assert {:ok, replayed} = AgentRuntime.cancel_execution(context.session, operation, attrs)
+    assert replayed.replayed?
+    assert_receive {:blocking_model_cancelled, ^request_id}, 1_000
+    refute_receive {:rotated_model_cancelled, ^request_id}
+
     assert {:cancel, "cancelled"} = Task.await(worker, 1_000)
 
     persisted = Ash.get!(AgentExecution, cancelled.execution.id, authorize?: false)
@@ -780,6 +853,38 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
              |> Ash.Query.filter(event_kind == "agent_execution.waiting_approval")
              |> Ash.read!(authorize?: false)
              |> length()
+  end
+
+  test "missing manifest authority fails before an impossible approval gate is opened" do
+    original = Application.get_env(:office_graph, :deterministic_model_approval_required)
+    Application.put_env(:office_graph, :deterministic_model_approval_required, true)
+
+    on_exit(fn ->
+      if is_nil(original) do
+        Application.delete_env(:office_graph, :deterministic_model_approval_required)
+      else
+        Application.put_env(:office_graph, :deterministic_model_approval_required, original)
+      end
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "approval-without-model-authority-#{context.suffix}",
+        requested_capabilities: ["agent.tool.read", "proposal.create", "repository.read"]
+      })
+
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:cancel, "missing_capability"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "missing_capability"
+    assert Repo.aggregate(ApprovalRequest, :count) == 0
+    assert Repo.aggregate(ModelRequest, :count) == 0
   end
 
   test "expansion-required context persists waiting context before adapter dispatch" do

@@ -23,6 +23,13 @@ versioned transitions.
   from the key/version on the active request when supported, matching pending
   gates MUST be cancelled atomically, and historical records MUST remain
 
+#### Scenario: Cancellation operation is replayed
+
+- **WHEN** an exact cancellation operation is replayed for an execution with a
+  persisted model request
+- **THEN** the runtime MUST return the persisted cancellation result and reissue
+  the adapter's idempotent cancellation signal
+
 #### Scenario: Runtime context cannot be loaded
 - **WHEN** a queued step cannot resolve its persisted adapter or other durable
   runtime configuration

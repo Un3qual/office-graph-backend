@@ -11,6 +11,12 @@ authority snapshot, and operation.
 - **THEN** the execution MUST enter waiting-approval and create one replay-safe
   approval request
 
+#### Scenario: Step lacks authority before approval
+
+- **WHEN** a step requires approval but its manifest capability, credential,
+  scope, sensitivity, timeout, or budget preconditions are not satisfied
+- **THEN** the execution MUST fail closed before creating an approval request
+
 #### Scenario: Approval is resolved
 - **WHEN** an authorized actor approves or denies the current request
 - **THEN** Office Graph MUST record the decision and operation, resume only the

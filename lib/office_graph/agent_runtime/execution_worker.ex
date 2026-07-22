@@ -354,36 +354,42 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
       case execution_posture(execution) do
         :available ->
-          cond do
-            context_requires_expansion?(context.context_package.id) ->
-              wait_available_step(
-                context,
-                operation,
-                execution,
-                step_key,
-                fixture_id,
-                "waiting_context"
-              )
+          input = model_input(context, operation, execution, step_key, fixture_id)
 
-            context.manifest.approval_required and is_nil(context.approval_request_id) ->
-              wait_available_step(
-                context,
-                operation,
-                execution,
-                step_key,
-                fixture_id,
-                "waiting_approval"
-              )
+          with :ok <- AdapterContract.validate_model_preflight(context.manifest, input) do
+            cond do
+              context_requires_expansion?(context.context_package.id) ->
+                wait_available_step(
+                  context,
+                  operation,
+                  execution,
+                  step_key,
+                  fixture_id,
+                  "waiting_context"
+                )
 
-            true ->
-              claim_available_step(
-                context,
-                operation,
-                execution,
-                step_key,
-                fixture_id,
-                lease_token
-              )
+              context.manifest.approval_required and is_nil(context.approval_request_id) ->
+                wait_available_step(
+                  context,
+                  operation,
+                  execution,
+                  step_key,
+                  fixture_id,
+                  "waiting_approval"
+                )
+
+              true ->
+                claim_available_step(
+                  context,
+                  operation,
+                  execution,
+                  step_key,
+                  input,
+                  lease_token
+                )
+            end
+          else
+            {:error, reason} -> Repo.rollback(reason)
           end
 
         {:leased, delay} ->
@@ -426,9 +432,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     end
   end
 
-  defp claim_available_step(context, operation, execution, step_key, fixture_id, lease_token) do
-    input = model_input(context, operation, execution, step_key, fixture_id)
-
+  defp claim_available_step(context, operation, execution, step_key, input, lease_token) do
     with :ok <- ExecutionStateMachine.validate(execution.state, "running"),
          :ok <- AdapterContract.validate_model_input(context.manifest, input) do
       credential_id = snapshotted_model_credential_id!(context.snapshot)
@@ -482,6 +486,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
              execution: running_execution,
              input: input,
              lease_token: lease_token,
+             manifest: context.manifest,
              request: running_request
            }}
       end
@@ -561,22 +566,28 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp persist_adapter_result({:ok, output}, claim, operation, job) do
-    case complete(claim, operation, output) do
+    case AdapterContract.validate_model_output(claim.manifest, output) do
       :ok ->
-        :ok
+        case complete(claim, operation, output) do
+          :ok ->
+            :ok
 
-      {:error, :integration_storage_unavailable} ->
-        retry_or_exhaust(claim, operation, job, "integration_storage_unavailable")
+          {:error, :integration_storage_unavailable} ->
+            retry_or_exhaust(claim, operation, job, "integration_storage_unavailable")
 
-      {:error, :stale_agent_execution_lease} ->
-        {:snooze, @retry_delay_seconds}
+          {:error, :stale_agent_execution_lease} ->
+            {:snooze, @retry_delay_seconds}
 
-      {:error, reason} ->
-        failure_code = output_routing_failure_code(reason)
+          {:error, reason} ->
+            failure_code = output_routing_failure_code(reason)
 
-        with :ok <- fail_step(claim, operation, failure_code) do
-          finish_terminal_job(job, failure_code)
+            with :ok <- fail_step(claim, operation, failure_code) do
+              finish_terminal_job(job, failure_code)
+            end
         end
+
+      {:error, failure} ->
+        persist_adapter_result({:error, failure}, claim, operation, job)
     end
   end
 

@@ -12,11 +12,33 @@ linked to an existing authorized work run and selected graph context.
 - **THEN** AgentRuntime MUST create or replay one execution with operation,
   agent principal, delegator, context package, and immutable authority snapshot
 
+#### Scenario: Delegator requests capabilities
+
+- **WHEN** an operator invocation requests the definition's declared
+  capabilities
+- **THEN** the immutable authority snapshot MUST contain only capabilities also
+  granted to the delegating principal and MUST reject any requested capability
+  outside that intersection
+
 #### Scenario: Automatic OpenSpec review starts
 
 - **WHEN** a declared system trigger requests the bound OpenSpec review agent
 - **THEN** AgentRuntime MUST validate the generic system operation, definition
   binding, run, scope, and trigger authority before enqueueing execution
+
+#### Scenario: Automatic trigger lineage does not match the run binding
+
+- **WHEN** a system operation has generic runtime authority but its authority
+  basis, causation key, or idempotency scope does not name the exact binding and
+  run
+- **THEN** AgentRuntime MUST reject the invocation before creating an execution
+
+#### Scenario: Existing invocation is replayed after lifecycle deactivation
+
+- **WHEN** an exact persisted invocation operation is replayed after its binding
+  or definition becomes inactive
+- **THEN** AgentRuntime MUST return the historical execution without authorizing
+  a new invocation
 
 ### Requirement: Agent Runtime Is Proposal First
 
