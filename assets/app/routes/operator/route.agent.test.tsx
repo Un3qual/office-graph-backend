@@ -266,11 +266,12 @@ function agentNetwork({
   staleApproval?: boolean;
   workflowItems?: ReturnType<typeof operatorWorkflowItem>[];
 } = {}) {
-  return vi.fn((request, variables) => {
-    if (request.name === "OperatorWorkflowRouteQuery") {
-      return workflowConnectionResponse(workflowItems, variables);
-    }
-    if (request.name === "OperatorRunStateQuery") {
+  const handlers: Record<
+    string,
+    (variables: Readonly<Record<string, string>>) => GraphQLResponse | Promise<GraphQLResponse>
+  > = {
+    OperatorWorkflowRouteQuery: (variables) => workflowConnectionResponse(workflowItems, variables),
+    OperatorRunStateQuery: (variables) => {
       const graphItemId = variables.id === "run_2" ? "graph_2" : "graph_1";
       const runState = {
         ...operatorRunState({
@@ -291,15 +292,15 @@ function agentNetwork({
         },
       };
       return { data: { operatorRunState: runState } };
-    }
-    if (request.name === "OperatorRunConversationQuery") {
+    },
+    OperatorRunConversationQuery: (variables) => {
       onConversationRead?.();
       if (conversationError) {
         throw new GraphQLResponseError(
           "Conversation projection unavailable.",
           { errors: [{ message: "Conversation projection unavailable." } as never] },
           503,
-          request.name,
+          "OperatorRunConversationQuery",
         );
       }
       const surface = agentSurface({
@@ -326,21 +327,16 @@ function agentNetwork({
             : projectedSurface,
         },
       };
-    }
-    if (request.name === "OperatorInvokeAgentMutation") {
-      if (invocation) return invocation.promise;
-      return commandResponse("invokeAgent", "invoke_agent");
-    }
-    if (request.name === "OperatorCancelAgentExecutionMutation") {
-      return commandResponse("cancelAgentExecution", "cancel_agent_execution");
-    }
-    if (request.name === "OperatorAppendConversationMessageMutation") {
-      return commandResponse("appendConversationMessage", "append_conversation_message");
-    }
-    if (request.name === "OperatorStartRunConversationMutation") {
-      return commandResponse("startRunConversation", "start_run_conversation");
-    }
-    if (request.name === "OperatorResolveAgentApprovalMutation") {
+    },
+    OperatorInvokeAgentMutation: () =>
+      invocation?.promise ?? commandResponse("invokeAgent", "invoke_agent"),
+    OperatorCancelAgentExecutionMutation: () =>
+      commandResponse("cancelAgentExecution", "cancel_agent_execution"),
+    OperatorAppendConversationMessageMutation: () =>
+      commandResponse("appendConversationMessage", "append_conversation_message"),
+    OperatorStartRunConversationMutation: () =>
+      commandResponse("startRunConversation", "start_run_conversation"),
+    OperatorResolveAgentApprovalMutation: () => {
       if (staleApproval) {
         throw new GraphQLResponseError(
           "The approval request version is stale.",
@@ -353,15 +349,19 @@ function agentNetwork({
             ],
           },
           409,
-          request.name,
+          "OperatorResolveAgentApprovalMutation",
         );
       }
       return commandResponse("resolveAgentApproval", "resolve_agent_approval");
-    }
-    if (request.name === "OperatorResolveAgentContextExpansionMutation") {
-      return commandResponse("resolveAgentContextExpansion", "resolve_agent_context_expansion");
-    }
-    throw new Error(`Unexpected Relay request in agent route test: ${request.name}`);
+    },
+    OperatorResolveAgentContextExpansionMutation: () =>
+      commandResponse("resolveAgentContextExpansion", "resolve_agent_context_expansion"),
+  };
+
+  return vi.fn((request, variables) => {
+    const handler = handlers[request.name];
+    if (!handler) throw new Error(`Unexpected Relay request in agent route test: ${request.name}`);
+    return handler(variables);
   });
 }
 
