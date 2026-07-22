@@ -368,9 +368,8 @@ defmodule OfficeGraph.AgentRuntime.Authority do
   defp validate_requested_expansion(_expansion_id, _lineage_ids),
     do: {:error, :context_expansion_not_active}
 
-  defp validate_context_expansion(expansion_id, execution, snapshot)
-       when is_binary(expansion_id) do
-    case Ash.get(ContextExpansionRequest, expansion_id,
+  defp validate_context_expansion(id, execution, snapshot) when is_binary(id) do
+    case Ash.get(ContextExpansionRequest, id,
            authorize?: false,
            not_found_error?: false
          ) do
