@@ -2,11 +2,25 @@ defmodule OfficeGraph.AgentRuntime.OutputRouter do
   @moduledoc false
 
   alias OfficeGraph.{Audit, NodeConversations, ProposedChanges, Revisions, Runs, Verification}
-  alias OfficeGraph.AgentRuntime.{AgentDefinition, ModelOutput, ToolOutput}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentDefinition,
+    AuthoritySnapshot,
+    ModelOutput,
+    ToolOutput
+  }
+
+  @output_capabilities %{
+    proposal: "proposal.create",
+    finding: "proposal.create",
+    evidence_candidate: "evidence.suggest",
+    message: nil,
+    observation: nil
+  }
 
   def route!(operation, execution, context_package, step_key, output)
       when is_struct(output, ModelOutput) or is_struct(output, ToolOutput) do
-    with :ok <- validate_output_kind(execution, output.classification) do
+    with :ok <- validate_output_kind(execution, context_package, output.classification) do
       routed = route_classification(output, operation, execution, context_package, step_key)
 
       case routed do
@@ -22,13 +36,29 @@ defmodule OfficeGraph.AgentRuntime.OutputRouter do
     end
   end
 
-  defp validate_output_kind(execution, classification) do
+  defp validate_output_kind(execution, context_package, classification) do
     output_kind = Atom.to_string(classification)
 
-    case Ash.get(AgentDefinition, execution.definition_id,
-           authorize?: false,
-           not_found_error?: false
-         ) do
+    with {:ok, required_capability} <- Map.fetch(@output_capabilities, classification),
+         :ok <- validate_definition_output_kind(execution, output_kind),
+         :ok <-
+           validate_snapshot_capability(
+             execution,
+             context_package,
+             output_kind,
+             required_capability
+           ) do
+      :ok
+    else
+      :error -> {:error, {:agent_output_kind_not_allowed, output_kind}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp validate_definition_output_kind(execution, output_kind) do
+    AgentDefinition
+    |> Ash.get(execution.definition_id, authorize?: false, not_found_error?: false)
+    |> case do
       {:ok, %AgentDefinition{allowed_output_kinds: allowed}} ->
         if output_kind in allowed,
           do: :ok,
@@ -36,6 +66,37 @@ defmodule OfficeGraph.AgentRuntime.OutputRouter do
 
       {:ok, _missing_or_disallowed} ->
         {:error, {:agent_output_kind_not_allowed, output_kind}}
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp validate_snapshot_capability(_execution, _context_package, _output_kind, nil),
+    do: :ok
+
+  defp validate_snapshot_capability(execution, context_package, output_kind, required_capability) do
+    AuthoritySnapshot
+    |> Ash.get(context_package.authority_snapshot_id,
+      authorize?: false,
+      not_found_error?: false
+    )
+    |> case do
+      {:ok, %AuthoritySnapshot{} = snapshot} ->
+        cond do
+          snapshot.execution_id != execution.id or
+              context_package.execution_id != execution.id ->
+            {:error, :authority_snapshot_invalid}
+
+          required_capability in snapshot.capability_keys ->
+            :ok
+
+          true ->
+            {:error, {:agent_output_capability_not_authorized, output_kind, required_capability}}
+        end
+
+      {:ok, nil} ->
+        {:error, :authority_snapshot_invalid}
 
       {:error, _storage_error} ->
         {:error, :integration_storage_unavailable}

@@ -87,7 +87,9 @@ because they make permission and credential enforcement opaque.
 
 Model output is untrusted. Agent suggestions route to existing proposal commands;
 verification material routes to evidence-candidate commands. No initial adapter
-can call a direct business mutation or external write.
+can call a direct business mutation or external write. Output routing checks
+both the definition allowlist and the invocation's immutable capability snapshot
+before calling an owning domain.
 
 Read-only output alone was rejected as too weak, while direct writes were
 rejected as a bypass around validation, audit, and approval.

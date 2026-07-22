@@ -27,7 +27,7 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     @resource resource
 
     test "routes #{classification} through its owning domain exactly once" do
-      fixture = output_fixture()
+      fixture = output_fixture(requested_capabilities: capabilities_for(@classification))
       output = output(@classification)
       before_counts = mutation_counts()
       before_run = Ash.get!(Run, fixture.execution.run_id, authorize?: false)
@@ -102,7 +102,8 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     fixture =
       output_fixture(
         verification_check_count: 2,
-        selected_verification_check_index: 1
+        selected_verification_check_index: 1,
+        requested_capabilities: capabilities_for(:evidence_candidate)
       )
 
     assert {:ok, candidate} =
@@ -120,9 +121,54 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     refute candidate.verification_check_id == hd(fixture.verification_checks).id
   end
 
+  for {classification, required_capability, resource} <- [
+        {:proposal, "proposal.create", ProposedGraphChange},
+        {:finding, "proposal.create", ProposedGraphChange},
+        {:evidence_candidate, "evidence.suggest", EvidenceCandidate}
+      ] do
+    @classification classification
+    @classification_string Atom.to_string(classification)
+    @required_capability required_capability
+    @resource resource
+
+    test "rejects #{classification} without #{@required_capability} in the authority snapshot" do
+      fixture = output_fixture(requested_capabilities: ["agent.model.generate"])
+      before_counts = mutation_counts()
+
+      assert {:error,
+              {:agent_output_capability_not_authorized, @classification_string,
+               @required_capability}} =
+               Repo.transaction(fn ->
+                 OutputRouter.route!(
+                   fixture.operation,
+                   fixture.execution,
+                   fixture.context_package,
+                   "model:review",
+                   output(@classification)
+                 )
+               end)
+
+      assert mutation_counts() == before_counts
+      assert Repo.aggregate(@resource, :count) == 0
+      assert Audit.count_for_operation(fixture.operation.id) == 0
+      assert Revisions.count_for_operation(fixture.operation.id) == 0
+    end
+  end
+
   defp output_fixture(opts \\ []) do
-    context = AgentRuntimeSupport.invocation_fixture(opts)
-    invoked = AgentRuntimeSupport.invoke_human(context)
+    requested_capabilities = Keyword.get(opts, :requested_capabilities)
+
+    context =
+      AgentRuntimeSupport.invocation_fixture(Keyword.delete(opts, :requested_capabilities))
+
+    invoked =
+      if requested_capabilities,
+        do:
+          AgentRuntimeSupport.invoke_human(context, %{
+            requested_capabilities: requested_capabilities
+          }),
+        else: AgentRuntimeSupport.invoke_human(context)
+
     [job] = execution_jobs(invoked.execution.id)
     {:ok, operation} = Operations.read_operation(job.args["operation_id"])
 
@@ -151,6 +197,15 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
       structured_content: %{Atom.to_string(classification) => content}
     }
   end
+
+  defp capabilities_for(classification) when classification in [:proposal, :finding],
+    do: ["agent.model.generate", "proposal.create"]
+
+  defp capabilities_for(:evidence_candidate),
+    do: ["agent.model.generate", "evidence.suggest"]
+
+  defp capabilities_for(classification) when classification in [:message, :observation],
+    do: ["agent.model.generate"]
 
   defp mutation_counts do
     %{

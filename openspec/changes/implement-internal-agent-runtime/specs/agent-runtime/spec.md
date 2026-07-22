@@ -58,6 +58,12 @@ direct business mutation or external write.
   allowlist
 - **THEN** AgentRuntime MUST reject it before calling an owning domain command
 
+#### Scenario: Invocation lacks authority for a governed output
+
+- **WHEN** validated adapter output requires an owning-domain capability absent
+  from the immutable authority snapshot
+- **THEN** AgentRuntime MUST reject it before calling the owning domain command
+
 #### Scenario: Agent requests unsupported external write
 
 - **WHEN** an initial agent requests a provider mutation or other external write
