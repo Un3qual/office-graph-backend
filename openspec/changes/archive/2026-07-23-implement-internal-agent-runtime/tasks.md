@@ -40,6 +40,6 @@
 
 ## 8. Verification And Archive
 
-- [ ] 8.1 Run focused migrations, resources, adapters, runtime workers, authority, context, approvals, conversations, proposals/evidence, run projection, API, Relay UI, concurrency, query-count, and architecture tests.
-- [ ] 8.2 Run strict OpenSpec validation, deterministic runtime acceptance tests, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
-- [ ] 8.3 Synchronize delta specs, archive `implement-internal-agent-runtime`, and confirm the final product-loop change can consume the runtime without identity/governance scope leakage.
+- [x] 8.1 Run focused migrations, resources, adapters, runtime workers, authority, context, approvals, conversations, proposals/evidence, run projection, API, Relay UI, concurrency, query-count, and architecture tests.
+- [x] 8.2 Run strict OpenSpec validation, deterministic runtime acceptance tests, the canonical Nix-backed `mix verify` gate, and `git diff --check`.
+- [x] 8.3 Synchronize delta specs, archive `implement-internal-agent-runtime`, and confirm the final product-loop change can consume the runtime without identity/governance scope leakage.
