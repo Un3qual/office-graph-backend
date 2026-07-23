@@ -143,12 +143,11 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       origin: "operator",
       invocation_mode: "human",
       idempotency_key: "agent-invocation-#{context.suffix}",
-      requested_outcome: "Review the selected work and propose bounded follow-up.",
-      requested_capabilities: [
-        "agent.model.generate",
-        "evidence.suggest",
-        "proposal.create"
-      ],
+      requested_outcome:
+        "Review the selected run, work packet, graph context, checks, and evidence, then propose bounded follow-up work.",
+      requested_capabilities:
+        context.definition.requested_capabilities
+        |> Kernel.--(["agent.invoke"]),
       autonomy_mode: "human_supervised"
     }
   end

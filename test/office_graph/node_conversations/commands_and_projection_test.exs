@@ -469,11 +469,17 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
              NodeConversations.project(context.session, context.run.id, context.graph_item_id)
 
     assert %{state: "enabled"} =
-             invoke_affordance =
+             invocation_affordance =
              Enum.find(projection.command_affordances, &(&1.identity == "invoke_agent"))
 
+    assert invocation_affordance.safe_explanation ==
+             "Invoke the approved run review agent for this run context."
+
+    assert input_default(invocation_affordance, "requested_outcome") ==
+             "Review the selected run, work packet, graph context, checks, and evidence, then propose bounded follow-up work."
+
     requested_capabilities =
-      invoke_affordance.input_defaults
+      invocation_affordance.input_defaults
       |> Enum.find(&(&1.field == "requested_capabilities"))
       |> Map.fetch!(:values)
 
@@ -483,7 +489,8 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
              |> Enum.sort()
 
     assert "evidence.suggest" in requested_capabilities
-    assert "openspec.read" in requested_capabilities
+    refute "openspec.read" in requested_capabilities
+    refute "repository.read" in requested_capabilities
   end
 
   test "hides invocation when the operator cannot delegate every requested capability" do
@@ -537,6 +544,12 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
   defp conversation_attrs(context) do
     %{run_id: context.run.id, graph_item_id: context.graph_item_id}
+  end
+
+  defp input_default(affordance, field) do
+    affordance.input_defaults
+    |> Enum.find(&(&1.field == field))
+    |> Map.fetch!(:value)
   end
 
   defp assert_invocation_disabled(context) do
