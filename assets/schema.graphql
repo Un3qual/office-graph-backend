@@ -1584,6 +1584,7 @@ type OperatorRunRef {
 
 type OperatorPacketRef {
   id: ID!
+  relayId: ID!
   title: String!
   state: String!
 }

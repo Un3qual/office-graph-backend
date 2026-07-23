@@ -114,7 +114,7 @@ function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selec
       <div className="runs-detail-actions">
         <Link
           className="ui-button ui-button-secondary"
-          to={`/packets?packetId=${encodeURIComponent(detail.packet.id)}`}
+          to={`/packets?packetId=${encodeURIComponent(detail.packet.relayId)}`}
         >
           Open packet history
         </Link>

@@ -13,6 +13,16 @@ import { vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
 import PacketsRoute from "./route";
 
+export const packetIdentity = {
+  rawId: "123e4567-e89b-12d3-a456-426614174000",
+  relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+} as const;
+
+export const secondPacketIdentity = {
+  rawId: "223e4567-e89b-12d3-a456-426614174000",
+  relayId: "d29ya19wYWNrZXQ6MjIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+} as const;
+
 export function renderWithRelay(network: FetchFunction, initialEntry = "/packets") {
   let navigate: NavigateFunction | null = null;
   const environment = new Environment({
@@ -90,6 +100,14 @@ export function packetWorkspaceResponse(
           pageInfo,
         },
       },
+    },
+  };
+}
+
+export function linkedPacketResponse(linkedPacket: ReturnType<typeof packet> | null) {
+  return {
+    data: {
+      linkedPacket,
     },
   };
 }
@@ -241,18 +259,7 @@ export function packetConnectionResponse(
           endCursor: createdPackets.length > 0 ? `created_cursor_${createdPackets.length}` : null,
         },
       },
-      linkedPacket: {
-        edges: linkedPackets.map((node, index) => ({
-          cursor: `linked_cursor_${index + 1}`,
-          node,
-        })),
-        pageInfo: {
-          hasNextPage: false,
-          hasPreviousPage: false,
-          startCursor: linkedPackets.length > 0 ? "linked_cursor_1" : null,
-          endCursor: linkedPackets.length > 0 ? `linked_cursor_${linkedPackets.length}` : null,
-        },
-      },
+      linkedPacket: linkedPackets[0] ?? null,
       listWorkPackets: {
         edges: packets.map((node, index) => ({
           cursor: `cursor_${index + 1}`,

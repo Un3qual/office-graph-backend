@@ -15,7 +15,7 @@ describe("packet workspace route reads", () => {
 
     support.renderWithRelay(vi.fn(() => request.promise));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading packets...");
+    expect(screen.getByText("Loading packets...")).toHaveAttribute("role", "status");
   });
 
   it("renders a packet-specific empty state without stale detail", async () => {
@@ -274,7 +274,7 @@ describe("packet workspace route reads", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading packet page...");
+    expect(screen.getByText("Loading packet page...")).toHaveAttribute("role", "status");
     expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
       "No packet selected.",
@@ -296,6 +296,8 @@ describe("packet workspace route reads", () => {
         after: "cursor_1",
         createdOperationId: null,
         loadCreatedPacket: false,
+        packetId: "",
+        loadLinkedPacket: false,
       });
       expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
@@ -345,6 +347,8 @@ describe("packet workspace route reads", () => {
         after: null,
         createdOperationId: null,
         loadCreatedPacket: false,
+        packetId: "",
+        loadLinkedPacket: false,
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",

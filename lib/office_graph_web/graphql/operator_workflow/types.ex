@@ -269,6 +269,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   object :operator_packet_ref do
     field :id, non_null(:id)
+
+    field :relay_id, non_null(:id) do
+      resolve(fn %{id: id}, _, _ -> {:ok, relay_id("work_packet", id)} end)
+    end
+
     field :title, non_null(:string)
     field :state, non_null(:string)
   end

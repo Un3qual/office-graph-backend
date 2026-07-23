@@ -203,6 +203,7 @@ describe("all-runs route reads", () => {
         run_off_page: support.runState({
           packet: {
             id: "packet_off_page",
+            relayId: "d29ya19wYWNrZXQ6cGFja2V0X29mZl9wYWdl",
             title: "Off-page packet",
             state: "active",
           },
@@ -239,6 +240,7 @@ describe("all-runs route reads", () => {
         run_second: support.runState({
           packet: {
             id: "packet_second",
+            relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
             title: "Second packet",
             state: "active",
           },
@@ -397,6 +399,7 @@ describe("all-runs route reads", () => {
         operatorRunState: support.runState({
           packet: {
             id: "packet_second",
+            relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
             title: "Second packet",
             state: "active",
           },

@@ -165,7 +165,12 @@ describe("all-runs route activity and command boundaries", () => {
         return {
           data: {
             operatorRunState: support.runState({
-              packet: { id: "packet_second", title: "Second packet", state: "active" },
+              packet: {
+                id: "packet_second",
+                relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
+                title: "Second packet",
+                state: "active",
+              },
               run: {
                 id: "run_second",
                 aggregateState: "running",
@@ -256,7 +261,7 @@ describe("all-runs route activity and command boundaries", () => {
 
     expect(await screen.findByRole("link", { name: "Open packet history" })).toHaveAttribute(
       "href",
-      "/packets?packetId=packet_new",
+      "/packets?packetId=d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
     );
     expect(
       screen.queryByRole("button", { name: /start|approve|verify|waive/i }),

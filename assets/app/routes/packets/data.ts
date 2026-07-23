@@ -6,7 +6,7 @@ export const PacketsRouteQuery = graphql`
     $after: String
     $createdOperationId: ID
     $loadCreatedPacket: Boolean!
-    $packetId: ID
+    $packetId: ID!
     $loadLinkedPacket: Boolean!
   ) {
     operatorPacketCreateAffordance {
@@ -39,14 +39,11 @@ export const PacketsRouteQuery = graphql`
         }
       }
     }
-    linkedPacket: listWorkPackets(first: 1, filter: { id: { eq: $packetId } })
-      @include(if: $loadLinkedPacket) {
-      edges {
-        node {
-          id
-          ...PacketsRoutePacketFragment
-        }
-      }
+    linkedPacket: getWorkPacket(id: $packetId)
+      @include(if: $loadLinkedPacket)
+      @catch(to: NULL) {
+      id
+      ...PacketsRoutePacketFragment
     }
   }
 `;

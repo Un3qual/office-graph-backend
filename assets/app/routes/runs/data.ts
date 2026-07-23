@@ -44,6 +44,7 @@ export const RunDetailQuery = graphql`
       sourceWatermark
       packet {
         id
+        relayId
         title
         state
       }

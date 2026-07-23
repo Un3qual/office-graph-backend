@@ -14,8 +14,8 @@ describe("packet workspace route reads", () => {
   it("selects the first packet by default", async () => {
     support.renderWithRelay(
       support.packetNetwork([
-        support.packet(),
-        support.packet({ id: "packet_2", title: "Second packet" }),
+        support.packet({ id: support.packetIdentity.relayId }),
+        support.packet({ id: support.secondPacketIdentity.relayId, title: "Second packet" }),
       ]),
     );
 
@@ -29,16 +29,28 @@ describe("packet workspace route reads", () => {
       "aria-current",
     );
     await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_1");
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.packetIdentity.relayId}`,
+      );
     });
+    expect(screen.getByTestId("route-location")).not.toHaveTextContent(
+      support.packetIdentity.rawId,
+    );
   });
 
   it("selects a packetId already present on the first page without duplicating it", async () => {
-    const selectedPacket = support.packet({ id: "packet_2", title: "Linked packet" });
+    const selectedPacket = support.packet({
+      id: support.secondPacketIdentity.relayId,
+      title: "Linked packet",
+    });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
-        expect(variables).toMatchObject({
-          packetId: "packet_2",
+        expect(variables).toEqual({
+          first: 50,
+          after: null,
+          createdOperationId: null,
+          loadCreatedPacket: false,
+          packetId: support.secondPacketIdentity.relayId,
           loadLinkedPacket: true,
         });
         return support.packetConnectionResponse(
@@ -54,7 +66,7 @@ describe("packet workspace route reads", () => {
         return support.packetWorkspaceResponse(
           support.workspace({
             packet: support.packetWorkspacePacket({
-              id: "packet_2",
+              id: support.secondPacketIdentity.rawId,
               title: "Linked packet",
             }),
           }),
@@ -64,7 +76,7 @@ describe("packet workspace route reads", () => {
       throw new Error(`Unexpected request ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/packets?packetId=packet_2");
+    support.renderWithRelay(network, `/packets?packetId=${support.secondPacketIdentity.relayId}`);
 
     const selectedRows = await screen.findAllByRole("button", { name: /Linked packet/i });
     expect(selectedRows).toHaveLength(1);
@@ -72,37 +84,47 @@ describe("packet workspace route reads", () => {
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
       "Linked packet",
     );
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_2");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(
+      `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+    );
   });
 
   it("loads an authorized packetId outside the first page and preserves normal row selection", async () => {
-    const linkedPacket = support.packet({ id: "packet_linked", title: "Linked packet" });
+    const linkedPacket = support.packet({
+      id: support.secondPacketIdentity.relayId,
+      title: "Linked packet",
+    });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
+        const selectedPacket =
+          variables.packetId === support.secondPacketIdentity.relayId
+            ? linkedPacket
+            : support.packet({ id: support.packetIdentity.relayId });
+
         return support.packetConnectionResponse(
-          [support.packet()],
+          [support.packet({ id: support.packetIdentity.relayId })],
           {},
           support.createPacketAffordance(),
           [],
-          variables.packetId === "packet_linked" ? [linkedPacket] : [],
+          [selectedPacket],
         );
       }
 
       if (request.name === "PacketsWorkspaceDetailQuery") {
         const packet =
-          variables.id === "packet_linked"
+          variables.id === support.secondPacketIdentity.relayId
             ? support.packetWorkspacePacket({
-                id: "packet_linked",
+                id: support.secondPacketIdentity.rawId,
                 title: "Linked packet",
               })
-            : support.packetWorkspacePacket();
+            : support.packetWorkspacePacket({ id: support.packetIdentity.rawId });
         return support.packetWorkspaceResponse(support.workspace({ packet }));
       }
 
       throw new Error(`Unexpected request ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/packets?packetId=packet_linked");
+    support.renderWithRelay(network, `/packets?packetId=${support.secondPacketIdentity.relayId}`);
 
     const linkedRow = await screen.findByRole("button", { name: /Linked packet/i });
     expect(linkedRow).toHaveAttribute("aria-current", "true");
@@ -117,45 +139,63 @@ describe("packet workspace route reads", () => {
         "aria-current",
         "true",
       );
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_1");
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.packetIdentity.relayId}`,
+      );
     });
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent("First packet");
   });
 
-  it.each(["packet_missing", "packet_forbidden", "not-a-packet-id", "packet_stale"])(
-    "retains unavailable packetId %s without falling back to the first row",
-    async (packetId) => {
-      const network = vi.fn(async (request): Promise<GraphQLResponse> => {
-        if (request.name === "PacketsRouteQuery") {
-          return support.packetConnectionResponse([support.packet()]);
-        }
+  it.each([
+    "d29ya19wYWNrZXQ6MzIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+    "d29ya19wYWNrZXQ6NDIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+    "not-a-relay-id",
+  ])("retains unavailable packetId %s without falling back to the first row", async (packetId) => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        const response = support.packetConnectionResponse([
+          support.packet({ id: support.packetIdentity.relayId }),
+        ]);
 
-        throw new Error(`The unavailable selection must not load detail: ${request.name}`);
-      });
+        return packetId === "not-a-relay-id"
+          ? ({
+              ...response,
+              errors: [
+                {
+                  message: "invalid primary key provided",
+                  path: ["linkedPacket"],
+                  locations: [{ line: 1, column: 1 }],
+                },
+              ],
+            } as GraphQLResponse)
+          : response;
+      }
 
-      support.renderWithRelay(network, `/packets?packetId=${packetId}`);
+      throw new Error(`The unavailable selection must not load detail: ${request.name}`);
+    });
 
-      expect(await screen.findByRole("button", { name: /First packet/i })).not.toHaveAttribute(
-        "aria-current",
-      );
-      expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
-        "No packet selected.",
-      );
-      expect(screen.getByTestId("route-location")).toHaveTextContent(
-        `/packets?packetId=${packetId}`,
-      );
-    },
-  );
+    support.renderWithRelay(network, `/packets?packetId=${packetId}`);
+
+    expect(await screen.findByRole("button", { name: /First packet/i })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
+      "No packet selected.",
+    );
+    expect(screen.getByTestId("route-location")).toHaveTextContent(`/packets?packetId=${packetId}`);
+  });
 
   it("clears stale detail when the URL changes to an unavailable packetId", async () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
         return support.packetConnectionResponse(
-          [support.packet()],
+          [support.packet({ id: support.packetIdentity.relayId })],
           {},
           support.createPacketAffordance(),
           [],
-          variables.packetId === "packet_1" ? [support.packet()] : [],
+          variables.packetId === support.packetIdentity.relayId
+            ? [support.packet({ id: support.packetIdentity.relayId })]
+            : [],
         );
       }
 
@@ -166,14 +206,18 @@ describe("packet workspace route reads", () => {
       throw new Error(`Unexpected request ${request.name}`);
     });
 
-    const view = support.renderWithRelay(network, "/packets?packetId=packet_1");
+    const view = support.renderWithRelay(
+      network,
+      `/packets?packetId=${support.packetIdentity.relayId}`,
+    );
 
     expect(await screen.findByRole("heading", { name: "First packet" })).toBeInTheDocument();
-    view.navigate("/packets?packetId=packet_missing");
+    const unavailablePacketId = "d29ya19wYWNrZXQ6MzIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw";
+    view.navigate(`/packets?packetId=${unavailablePacketId}`);
 
     await waitFor(() => {
       expect(screen.getByTestId("route-location")).toHaveTextContent(
-        "/packets?packetId=packet_missing",
+        `/packets?packetId=${unavailablePacketId}`,
       );
       expect(screen.queryByRole("heading", { name: "First packet" })).not.toBeInTheDocument();
       expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
@@ -185,13 +229,65 @@ describe("packet workspace route reads", () => {
     });
   });
 
-  it("updates route-local selection when a packet row is selected", async () => {
-    support.renderWithRelay(
-      support.packetNetwork([
-        support.packet(),
-        support.packet({ id: "packet_2", title: "Second packet" }),
-      ]),
-    );
+  it("preserves a row-selected packetId while paging forward and backward", async () => {
+    const firstPacket = support.packet({ id: support.packetIdentity.relayId });
+    const secondPacket = support.packet({
+      id: support.secondPacketIdentity.relayId,
+      title: "Second packet",
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        const linkedPacket =
+          variables.packetId === support.secondPacketIdentity.relayId ? [secondPacket] : [];
+
+        return variables.after === "cursor_2"
+          ? support.packetConnectionResponse(
+              [
+                support.packet({
+                  id: "d29ya19wYWNrZXQ6MzIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+                  title: "Third packet",
+                }),
+              ],
+              {
+                hasPreviousPage: true,
+                startCursor: "cursor_3",
+                endCursor: "cursor_3",
+              },
+              support.createPacketAffordance(),
+              [],
+              linkedPacket,
+            )
+          : support.packetConnectionResponse(
+              [firstPacket, secondPacket],
+              {
+                hasNextPage: true,
+                startCursor: "cursor_1",
+                endCursor: "cursor_2",
+              },
+              support.createPacketAffordance(),
+              [],
+              linkedPacket,
+            );
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        return support.packetWorkspaceResponse(
+          support.workspace({
+            packet:
+              variables.id === support.secondPacketIdentity.relayId
+                ? support.packetWorkspacePacket({
+                    id: support.secondPacketIdentity.rawId,
+                    title: "Second packet",
+                  })
+                : support.packetWorkspacePacket({ id: support.packetIdentity.rawId }),
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected request ${request.name}`);
+    });
+
+    support.renderWithRelay(network);
     const secondRow = await screen.findByRole("button", { name: /Second packet/i });
 
     fireEvent.click(secondRow);
@@ -205,6 +301,32 @@ describe("packet workspace route reads", () => {
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
       "Second packet",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    });
   });
 
   it("renders the selected packet summary and product navigation", async () => {
@@ -319,25 +441,33 @@ describe("packet workspace route reads", () => {
     expect(detailRows).not.toContain("#edf1f3");
   });
 
-  it("returns to the previous cursor page", async () => {
+  it("moves only default-origin selection when paging forward and backward", async () => {
     const network = vi.fn(
       async (request, variables): Promise<GraphQLResponse> =>
         request.name === "PacketsWorkspaceDetailQuery"
           ? support.packetWorkspaceResponse(support.workspace())
           : variables.after === "cursor_1"
             ? support.packetConnectionResponse(
-                [support.packet({ id: "packet_2", title: "Second packet" })],
+                [
+                  support.packet({
+                    id: support.secondPacketIdentity.relayId,
+                    title: "Second packet",
+                  }),
+                ],
                 {
                   hasPreviousPage: true,
                   startCursor: "cursor_2",
                   endCursor: "cursor_2",
                 },
               )
-            : support.packetConnectionResponse([support.packet()], {
-                hasNextPage: true,
-                startCursor: "cursor_1",
-                endCursor: "cursor_1",
-              }),
+            : support.packetConnectionResponse(
+                [support.packet({ id: support.packetIdentity.relayId })],
+                {
+                  hasNextPage: true,
+                  startCursor: "cursor_1",
+                  endCursor: "cursor_1",
+                },
+              ),
     );
 
     support.renderWithRelay(network);
@@ -345,21 +475,114 @@ describe("packet workspace route reads", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled());
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+      );
+    });
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     await waitFor(() => {
-      expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+      expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toMatchObject({
         first: 50,
         after: null,
         createdOperationId: null,
         loadCreatedPacket: false,
-        packetId: null,
-        loadLinkedPacket: false,
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",
         "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.packetIdentity.relayId}`,
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    });
+  });
+
+  it("preserves an explicit off-page packetId while paging forward and backward", async () => {
+    const explicitPacket = support.packet({
+      id: support.secondPacketIdentity.relayId,
+      title: "Explicit packet",
+    });
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        expect(variables.packetId).toBe(support.secondPacketIdentity.relayId);
+
+        return variables.after === "cursor_1"
+          ? support.packetConnectionResponse(
+              [
+                support.packet({
+                  id: "d29ya19wYWNrZXQ6MzIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+                  title: "Second page packet",
+                }),
+              ],
+              {
+                hasPreviousPage: true,
+                startCursor: "cursor_2",
+                endCursor: "cursor_2",
+              },
+              support.createPacketAffordance(),
+              [],
+              [explicitPacket],
+            )
+          : support.packetConnectionResponse(
+              [support.packet({ id: support.packetIdentity.relayId })],
+              {
+                hasNextPage: true,
+                startCursor: "cursor_1",
+                endCursor: "cursor_1",
+              },
+              support.createPacketAffordance(),
+              [],
+              [explicitPacket],
+            );
+      }
+
+      if (request.name === "PacketsWorkspaceDetailQuery") {
+        expect(variables.id).toBe(support.secondPacketIdentity.relayId);
+        return support.packetWorkspaceResponse(
+          support.workspace({
+            packet: support.packetWorkspacePacket({
+              id: support.secondPacketIdentity.rawId,
+              title: "Explicit packet",
+            }),
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected request ${request.name}`);
+    });
+
+    support.renderWithRelay(network, `/packets?packetId=${support.secondPacketIdentity.relayId}`);
+
+    expect(await screen.findByRole("button", { name: /Explicit packet/i })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Explicit packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+      );
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Explicit packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
       );
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });

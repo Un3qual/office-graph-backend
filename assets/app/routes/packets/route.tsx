@@ -12,6 +12,12 @@ type PacketNavigation = {
   previousCursors: Array<string | null>;
 };
 
+type LocalPacketSelection = {
+  origin: "default" | "explicit" | "operation";
+  pageAfter?: string | null;
+  selection: PacketSelection;
+};
+
 type PacketsRouteContentProps = {
   canPageBackward: boolean;
   fetchKey: number;
@@ -36,22 +42,28 @@ export default function PacketsRoute() {
     page: defaultPacketsPage,
     previousCursors: [],
   });
-  const [localSelection, setLocalSelection] = useState<PacketSelection | null>(null);
+  const [localSelection, setLocalSelection] = useState<LocalPacketSelection | null>(null);
   const requestedSelection: PacketSelection | null =
     packetId !== null
-      ? localSelection?.kind === "relay_id" && localSelection.value === packetId
-        ? localSelection
-        : { kind: "packet_id", value: packetId }
-      : localSelection?.kind === "operation_id"
-        ? localSelection
+      ? localSelection?.origin === "default" &&
+        localSelection.pageAfter !== navigation.page.after &&
+        localSelection.selection.value === packetId
+        ? null
+        : localSelection?.origin === "default" &&
+            localSelection.selection.kind === "relay_id" &&
+            localSelection.selection.value === packetId
+          ? localSelection.selection
+          : { kind: "packet_id", value: packetId }
+      : localSelection?.selection.kind === "operation_id"
+        ? localSelection.selection
         : null;
-  const selectionKey = requestedSelection
-    ? `${requestedSelection.kind}:${requestedSelection.value}`
-    : "default";
 
   const selectPacket = (selection: PacketSelection) => {
     if (selection.kind === "relay_id") {
-      setLocalSelection(selection);
+      setLocalSelection({
+        origin: "explicit",
+        selection: { kind: "packet_id", value: selection.value },
+      });
       setSearchParams((currentSearchParams) => {
         const nextSearchParams = new URLSearchParams(currentSearchParams);
         nextSearchParams.set("packetId", selection.value);
@@ -61,7 +73,7 @@ export default function PacketsRoute() {
     }
 
     if (selection.kind === "operation_id") {
-      setLocalSelection(selection);
+      setLocalSelection({ origin: "operation", selection });
       setSearchParams((currentSearchParams) => {
         const nextSearchParams = new URLSearchParams(currentSearchParams);
         nextSearchParams.delete("packetId");
@@ -77,13 +89,13 @@ export default function PacketsRoute() {
 
   const selectDefaultPacket = useCallback(
     (id: string) => {
-      setLocalSelection({ kind: "relay_id", value: id });
+      setLocalSelection({
+        origin: "default",
+        pageAfter: navigation.page.after,
+        selection: { kind: "relay_id", value: id },
+      });
       setSearchParams(
         (currentSearchParams) => {
-          if (currentSearchParams.has("packetId")) {
-            return currentSearchParams;
-          }
-
           const nextSearchParams = new URLSearchParams(currentSearchParams);
           nextSearchParams.set("packetId", id);
           return nextSearchParams;
@@ -91,20 +103,14 @@ export default function PacketsRoute() {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [navigation.page.after, setSearchParams],
   );
 
-  const clearSelection = useCallback(() => {
-    setLocalSelection(null);
-    setSearchParams((currentSearchParams) => {
-      const nextSearchParams = new URLSearchParams(currentSearchParams);
-      nextSearchParams.delete("packetId");
-      return nextSearchParams;
-    });
-  }, [setSearchParams]);
-
   const loadNextPage = (nextCursor: string) => {
-    clearSelection();
+    if (localSelection?.origin === "operation") {
+      setLocalSelection(null);
+    }
+
     setNavigation(({ page, previousCursors }) => ({
       hasNavigated: true,
       page: page.after === nextCursor ? page : { ...page, after: nextCursor },
@@ -114,7 +120,10 @@ export default function PacketsRoute() {
   };
 
   const loadPreviousPage = () => {
-    clearSelection();
+    if (localSelection?.origin === "operation") {
+      setLocalSelection(null);
+    }
+
     setNavigation(({ page, previousCursors }) => {
       if (previousCursors.length === 0) {
         return { hasNavigated: true, page, previousCursors };
@@ -141,7 +150,7 @@ export default function PacketsRoute() {
         />
       }
       loadingFallback={<PacketWorkspaceLoading isPage={navigation.hasNavigated} />}
-      resetKey={`packets:${navigation.page.after ?? "initial"}:${selectionKey}:${fetchKey}`}
+      resetKey={`packets:${navigation.page.after ?? "initial"}:${fetchKey}`}
     >
       <PacketsRouteContent
         canPageBackward={navigation.previousCursors.length > 0}

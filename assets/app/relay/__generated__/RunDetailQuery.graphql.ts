@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<dd1b7a5d67fafbf20a5f409e8e497763>>
+ * @generated SignedSource<<64913e447e7021e7c3b0462fa3668983>>
  * @lightSyntaxTransform
  */
 
@@ -55,6 +55,7 @@ export type RunDetailQuery$data = {
     }>;
     readonly packet: {
       readonly id: string;
+      readonly relayId: string;
       readonly state: string;
       readonly title: string;
     };
@@ -195,6 +196,13 @@ v9 = [
         "plural": false,
         "selections": [
           (v4/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "relayId",
+            "storageKey": null
+          },
           (v5/*:: as any*/),
           (v6/*:: as any*/)
         ],
@@ -582,16 +590,16 @@ return {
     "selections": (v9/*:: as any*/)
   },
   "params": {
-    "cacheID": "b00fddb7b5cf6fc0307d20ef1bd6beb4",
+    "cacheID": "d61d950f58277efc26c465d230d60d6c",
     "id": null,
     "metadata": {},
     "name": "RunDetailQuery",
     "operationKind": "query",
-    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    type\n    status\n    sourceWatermark\n    packet {\n      id\n      title\n      state\n    }\n    packetVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    run {\n      id\n      aggregateState\n      executionState\n      verificationState\n    }\n    requiredChecks {\n      id\n      graphItemId\n      verificationCheckId\n      state\n    }\n    evidenceCandidates {\n      id\n      verificationCheckId\n      executionObservationId\n      claim\n      state\n      freshnessState\n      trustBasis\n      sourceKind\n      sourceIdentity\n    }\n    evidenceItems {\n      id\n      state\n      candidateId\n      workRunId\n    }\n    verificationResults {\n      id\n      result\n      verificationCheckId\n      evidenceItemId\n      operationId\n      actorPrincipalId\n      policyBasis\n      targetGraphItemId\n      workRunId\n      workPacketVersionId\n    }\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n    activity(first: $activityFirst, after: $activityAfter) {\n      edges {\n        cursor\n        node {\n          kind\n          stableId\n          title\n          status\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n  }\n}\n"
+    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    type\n    status\n    sourceWatermark\n    packet {\n      id\n      relayId\n      title\n      state\n    }\n    packetVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    run {\n      id\n      aggregateState\n      executionState\n      verificationState\n    }\n    requiredChecks {\n      id\n      graphItemId\n      verificationCheckId\n      state\n    }\n    evidenceCandidates {\n      id\n      verificationCheckId\n      executionObservationId\n      claim\n      state\n      freshnessState\n      trustBasis\n      sourceKind\n      sourceIdentity\n    }\n    evidenceItems {\n      id\n      state\n      candidateId\n      workRunId\n    }\n    verificationResults {\n      id\n      result\n      verificationCheckId\n      evidenceItemId\n      operationId\n      actorPrincipalId\n      policyBasis\n      targetGraphItemId\n      workRunId\n      workPacketVersionId\n    }\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n    activity(first: $activityFirst, after: $activityAfter) {\n      edges {\n        cursor\n        node {\n          kind\n          stableId\n          title\n          status\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "03e4b445df145e3514ea9818dc7ff052";
+(node as any).hash = "efa7ba2b9963beae6b29edd8f8886f82";
 
 export default node;

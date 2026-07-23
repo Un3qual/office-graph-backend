@@ -95,7 +95,12 @@ export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSumma
     verificationState: "pending",
     insertedAt: "2026-07-23T19:00:00Z",
     sourceWatermark: "operation_new",
-    packet: { id: "packet_new", title: "Newest packet", state: "active" },
+    packet: {
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+      title: "Newest packet",
+      state: "active",
+    },
     packetVersion: {
       id: "version_new",
       versionNumber: 3,
@@ -111,7 +116,12 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
     type: "operator_run_state",
     status: "awaiting_evidence_acceptance",
     sourceWatermark: "operation_new",
-    packet: { id: "packet_new", title: "Newest packet", state: "active" },
+    packet: {
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+      title: "Newest packet",
+      state: "active",
+    },
     packetVersion: {
       id: "version_new",
       versionNumber: 3,
@@ -241,7 +251,7 @@ type RunSummaryPayload = {
   verificationState: string;
   insertedAt: string;
   sourceWatermark: string;
-  packet: { id: string; title: string; state: string };
+  packet: { id: string; relayId: string; title: string; state: string };
   packetVersion: {
     id: string;
     versionNumber: number;
@@ -254,7 +264,7 @@ type RunStatePayload = {
   type: string;
   status: string;
   sourceWatermark: string | null;
-  packet: { id: string; title: string; state: string };
+  packet: { id: string; relayId: string; title: string; state: string };
   packetVersion: {
     id: string;
     versionNumber: number;

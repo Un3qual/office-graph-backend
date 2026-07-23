@@ -41,7 +41,7 @@ export function usePacketsWorkflow({
 }: PacketsWorkflowInput) {
   const createdOperationId =
     requestedSelection?.kind === "operation_id" ? requestedSelection.value : null;
-  const packetId = requestedSelection?.kind === "packet_id" ? requestedSelection.value : null;
+  const packetId = requestedSelection?.kind === "packet_id" ? requestedSelection.value : "";
   const data = useLazyLoadQuery<PacketsRouteOperation>(
     PacketsRouteQuery,
     {
@@ -49,7 +49,7 @@ export function usePacketsWorkflow({
       createdOperationId,
       loadCreatedPacket: createdOperationId !== null,
       packetId,
-      loadLinkedPacket: packetId !== null,
+      loadLinkedPacket: packetId !== "",
     },
     {
       fetchKey,
@@ -59,7 +59,12 @@ export function usePacketsWorkflow({
   const connection = packetConnectionFromRelay(data);
   const rows = mergePacket(
     mergePacket(connection.rows, packetRowsFromRelayConnection(data.createdPacket)[0] ?? null),
-    packetRowsFromRelayConnection(data.linkedPacket)[0] ?? null,
+    data.linkedPacket
+      ? readInlineData<PacketsRoutePacketFragment$key>(
+          PacketsRoutePacketFragment,
+          data.linkedPacket,
+        )
+      : null,
   );
   const selectedId = selectedPacketId(rows, requestedSelection);
   const selectedPacket = rows.find((packet) => packet.id === selectedId) ?? null;
