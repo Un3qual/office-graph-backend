@@ -24,6 +24,6 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Run strict OpenSpec validation through the project Nix flake.
-- [ ] 5.2 Run focused backend, GraphQL, Relay-generation, route, architecture, and query-bound tests through the project Nix flake for the new projection and product surfaces.
-- [ ] 5.3 Run every final verification command through the project Nix flake: typecheck, frontend test suite, production frontend build, `git diff --check`, and `mix verify`; resolve regressions before archiving the completed change.
+- [x] 5.1 Run strict OpenSpec validation through the project Nix flake.
+- [x] 5.2 Run focused backend, GraphQL, Relay-generation, route, architecture, and query-bound tests through the project Nix flake for the new projection and product surfaces.
+- [x] 5.3 Run every final verification command through the project Nix flake: typecheck, frontend test suite, production frontend build, `git diff --check`, and `mix verify`; resolve regressions before archiving the completed change.
