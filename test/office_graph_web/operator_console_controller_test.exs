@@ -72,6 +72,25 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     refute html =~ "live_socket"
   end
 
+  test "serves the React Router all-runs workspace app shell", %{conn: conn} do
+    html =
+      conn
+      |> get(~p"/runs")
+      |> html_response(200)
+
+    assert html =~ "window.__reactRouterContext"
+    assert html =~ "Office Graph"
+    assert react_router_asset_paths(html) != []
+
+    assert Enum.all?(
+             react_router_asset_paths(html),
+             &String.starts_with?(&1, "/assets/react-router/")
+           )
+
+    refute html =~ "data-phx-main"
+    refute html =~ "live_socket"
+  end
+
   test "app shell assets match the React Router build contract", %{conn: conn} do
     html =
       conn
@@ -162,7 +181,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
 
     File.rename!(missing_asset.path, missing_asset.backup_path)
 
-    for product_path <- ["/operator", "/packets"] do
+    for product_path <- ["/operator", "/packets", "/runs"] do
       body =
         conn
         |> recycle()
