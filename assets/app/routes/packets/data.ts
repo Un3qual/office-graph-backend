@@ -60,7 +60,8 @@ export const PacketsRoutePacketFragment = graphql`
 `;
 
 export const PacketsWorkspaceDetailQuery = graphql`
-  query PacketsWorkspaceDetailQuery($id: ID!, $versionFirst: Int!, $versionAfter: String) {
+  query PacketsWorkspaceDetailQuery($id: ID!, $versionFirst: Int!, $versionAfter: String)
+  @throwOnFieldError {
     operatorPacketWorkspace(id: $id) {
       sourceWatermark
       ready

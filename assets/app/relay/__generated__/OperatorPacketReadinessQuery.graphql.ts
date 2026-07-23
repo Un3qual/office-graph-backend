@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<df69e8579e882a66a45834c58fe0c679>>
+ * @generated SignedSource<<21ab0774261ea5a06e71d1f550640f5f>>
  * @lightSyntaxTransform
  */
 
@@ -200,7 +200,9 @@ return {
   "fragment": {
     "argumentDefinitions": (v0/*:: as any*/),
     "kind": "Fragment",
-    "metadata": null,
+    "metadata": {
+      "throwOnFieldError": true
+    },
     "name": "OperatorPacketReadinessQuery",
     "selections": [
       {
@@ -320,6 +322,6 @@ return {
 };
 })();
 
-(node as any).hash = "d552c829fbd0b1118ee66d76c9396a94";
+(node as any).hash = "0beb2954d648e6a1a2c2c09e0116634b";
 
 export default node;

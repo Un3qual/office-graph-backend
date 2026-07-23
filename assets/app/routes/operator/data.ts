@@ -1,7 +1,7 @@
 import { graphql } from "react-relay";
 
 export const OperatorWorkflowRouteQuery = graphql`
-  query OperatorWorkflowRouteQuery($first: Int!, $after: String) {
+  query OperatorWorkflowRouteQuery($first: Int!, $after: String) @throwOnFieldError {
     operatorManualIntakeAffordance {
       identity
       state
@@ -102,7 +102,8 @@ export const OperatorWorkflowItemFragment = graphql`
 `;
 
 export const OperatorRelationshipDetailsQuery = graphql`
-  query OperatorRelationshipDetailsQuery($id: ID!, $first: Int!, $after: String) {
+  query OperatorRelationshipDetailsQuery($id: ID!, $first: Int!, $after: String)
+  @throwOnFieldError {
     operatorRelationshipDetails(id: $id, first: $first, after: $after) {
       edges {
         cursor
@@ -145,7 +146,7 @@ export const OperatorPacketReadinessFragment = graphql`
 `;
 
 export const OperatorPacketReadinessQuery = graphql`
-  query OperatorPacketReadinessQuery($input: OperatorPacketReadinessInput!) {
+  query OperatorPacketReadinessQuery($input: OperatorPacketReadinessInput!) @throwOnFieldError {
     operatorPacketReadiness(input: $input) {
       ...OperatorPacketReadinessFragment
     }
@@ -329,7 +330,7 @@ export const OperatorRunCommandOptionPageQuery = graphql`
     $loadEvidenceCandidate: Boolean!
     $loadEvidenceAcceptance: Boolean!
     $loadWaiver: Boolean!
-  ) {
+  ) @throwOnFieldError {
     observation: operatorRunCommandOptionPage(
       id: $id, kind: "observation", first: $first, after: $observationAfter
     ) @include(if: $loadObservation) {
@@ -382,7 +383,8 @@ export const OperatorRunCommandOptionPageConnectionFragment = graphql`
 `;
 
 export const OperatorRunStateQuery = graphql`
-  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String) {
+  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String)
+  @throwOnFieldError {
     operatorRunState(id: $id) {
       ...OperatorRunStateFragment
         @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
@@ -391,7 +393,7 @@ export const OperatorRunStateQuery = graphql`
 `;
 
 export const OperatorRunConversationQuery = graphql`
-  query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) {
+  query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) @throwOnFieldError {
     operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
       type
       sourceWatermark

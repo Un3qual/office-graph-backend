@@ -1,7 +1,7 @@
 import { graphql } from "react-relay";
 
 export const RunsRouteQuery = graphql`
-  query RunsRouteQuery($first: Int!, $after: String) {
+  query RunsRouteQuery($first: Int!, $after: String) @throwOnFieldError {
     operatorRuns(first: $first, after: $after) {
       edges {
         cursor
@@ -37,7 +37,7 @@ export const RunsRouteQuery = graphql`
 `;
 
 export const RunDetailQuery = graphql`
-  query RunDetailQuery($id: ID!, $activityFirst: Int!, $activityAfter: String) {
+  query RunDetailQuery($id: ID!, $activityFirst: Int!, $activityAfter: String) @throwOnFieldError {
     operatorRunState(id: $id) {
       type
       status
