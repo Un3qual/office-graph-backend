@@ -7,9 +7,17 @@ allowlist, and default autonomy envelope.
 
 #### Scenario: Run review agent is installed
 - **WHEN** the runtime migration runs
-- **THEN** the canonical run-review definition MUST exist without an
-  application seed, MUST have no tool allowlist, and MUST allow only its
-  declared proposal-first outputs
+- **THEN** the canonical definition MUST exist without an application seed with
+  key exactly `run-review`, display name exactly `Run Review`, and model adapter
+  exactly `deterministic`
+
+#### Scenario: Run review agent authority is loaded
+
+- **WHEN** the canonical `run-review` definition is loaded for binding or
+  invocation
+- **THEN** its tool allowlist MUST be empty and its requested capabilities MUST
+  be exactly `agent.invoke`, `agent.model.generate`, `proposal.create`, and
+  `evidence.suggest`, with no additional capability
 
 #### Scenario: Definition is bound to an organization
 - **WHEN** an authorized local owner invokes the narrow binding command
