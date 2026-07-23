@@ -11,6 +11,12 @@ The initial milestone uses the existing bootstrap session. Identity and
 governance administration remain deferred and are not a prerequisite or an
 outcome of this change.
 
+The server already resolves product-read actors through the shared
+`OfficeGraphWeb.RequestSession` boundary. This change consumes that resolution
+unchanged, including its intentionally deferred bootstrap posture; neither the
+`/runs` route nor its GraphQL reads create an actor, session, or fallback of
+their own.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -33,6 +39,11 @@ outcome of this change.
   second timeline model, a compatibility query, or any run mutation.
 - New entity, report, integration-health, credential-health, or settings
   routes; `Entities` and `Reports` remain disabled.
+- Tailwind, Tailwind-dependent component libraries, utility-class conventions,
+  or a route-specific UI framework. The route uses the existing shared UI and
+  stylesheet conventions, with architecture-test coverage.
+- A `/runs` alias or compatibility route, or a route-specific actor/session
+  resolver or bootstrap fallback.
 
 ## Decisions
 
@@ -57,8 +68,9 @@ time. Rejected because it creates query fanout and duplicates detail assembly.
 
 `operatorRuns(first:, after:)` exposes `OperatorRunSummary` nodes and follows
 the established `operatorWorkflowItems` connection validation and error
-conventions. It is a read-only addition; no mutation or hidden compatibility
-query is introduced.
+conventions. Its resolver uses the existing shared `RequestSession` resolution
+unchanged. It is a read-only addition; no mutation, hidden compatibility query,
+or route-specific session fallback is introduced.
 
 Alternative considered: have the route combine packet rows with per-run reads.
 Rejected because it cannot represent all runs or preserve the fixed query bound.
@@ -71,12 +83,19 @@ bounded activity page. Additional list and activity pages use their respective
 Relay connections. The route owns `?runId=<id>` selection and clears
 selection-scoped detail before a changed selection's authoritative read settles.
 
-The first visible run is selected only when the URL does not name a valid
-visible run. A URL id outside the current list is read through
-`operatorRunState`; missing or forbidden results render the same safe detail
-state without revealing cross-scope existence. The route has no mutations;
+The first visible run is selected only when `runId` is absent. Every present
+`runId`, including one outside the current list or one that resolves as
+invalid, missing, forbidden, or stale, remains the requested selection and is
+read through `operatorRunState`; an unavailable result renders the safe detail
+state without revealing cross-scope existence or falling back to another row.
+The route has no mutations;
 operator links direct users to `/operator?runId=<id>` for commands and packet
 links direct users to `/packets?packetId=<id>`.
+
+The canonical route is `/runs`; it has no alias or compatibility route/query.
+The route uses the existing shared UI conventions and global `runs.css` import,
+not Tailwind or a route-specific UI framework. An architecture test enforces
+the route/import/style boundary.
 
 Alternative considered: retain detail in a route-level cache after a selection
 change. Rejected because a second client-side source can display stale
@@ -88,7 +107,11 @@ The existing packet route recognizes `packetId` from its URL, represents a
 user's packet selection in that URL, and loads safe selected-packet detail as
 needed. Its existing list, detail, paging, and mutation paths remain the only
 packet workspace behavior. A missing, unauthorized, or stale URL selection
-must clear stale detail and present a safe state.
+must clear stale detail and present a safe state. The first visible packet is
+the default only when `packetId` is absent; every present value remains the
+requested selection and is authoritatively resolved, never silently replaced
+by a list row. This narrow URL behavior uses the existing shared session
+resolution unchanged.
 
 Alternative considered: copy packet detail or commands into `/runs`. Rejected
 because the all-runs route is a reader and the packet workspace already owns
@@ -108,6 +131,12 @@ those responsibilities.
   detail boundary by selected id before Relay resolves the replacement.
 - [New UI grows a second command surface] → Keep all-runs GraphQL documents
   read-only and test deep links to existing packet and operator owners.
+- [A present URL selection silently changes context] → Default only for an
+  absent parameter; retain every present `runId` or `packetId` until its
+  authoritative detail read resolves to loaded or safe unavailable.
+- [A route creates a divergent authorization posture] → Route all new reads
+  through the existing shared `RequestSession` boundary and cover that no
+  route-specific actor, session, or fallback is introduced.
 
 ## Migration Plan
 
@@ -117,6 +146,11 @@ those responsibilities.
    packet URL-selection behavior together so deep links have a destination.
 3. Roll back by removing the route and connection from the release; no stored
    state or command semantics need reversal.
+
+Every final verification command, including strict OpenSpec validation,
+backend tests, Relay generation checks, TypeScript typechecking, Vitest, the
+production frontend build, `git diff --check`, and `mix verify`, runs through
+the project Nix flake.
 
 ## Open Questions
 

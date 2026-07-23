@@ -50,7 +50,10 @@ command.
 
 Office Graph SHALL expose the bounded index as the forward `operatorRuns(first:, after:)`
 Relay connection with `OperatorRunSummary` nodes and existing connection
-validation, cursor, and safe-error conventions.
+validation, cursor, and safe-error conventions. It SHALL use the existing
+shared `OfficeGraphWeb.RequestSession` resolution unchanged, including the
+intentionally deferred bootstrap posture, and SHALL NOT create a route-specific
+actor, session, or fallback.
 
 #### Scenario: Client reads a run page
 
@@ -71,3 +74,11 @@ validation, cursor, and safe-error conventions.
 - **THEN** it MUST add no run mutation, hidden compatibility query, or second
   detailed-run projection; `operatorRunState` remains the detail and activity
   source
+
+#### Scenario: Shared request session resolves the read
+
+- **WHEN** `operatorRuns` or its selected `operatorRunState` detail read
+  resolves an actor
+- **THEN** it MUST consume the existing shared `RequestSession` resolution
+  unchanged and MUST NOT create a route-specific actor, session, bootstrap, or
+  fallback

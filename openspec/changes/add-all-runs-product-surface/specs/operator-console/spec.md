@@ -5,7 +5,10 @@
 Office Graph SHALL expose `/runs` as a React, Relay-backed, read-only product
 route and SHALL enable `All Runs` as its navigation destination. `Entities` and
 `Reports` SHALL remain disabled, and `/runs` SHALL NOT render, submit, or own a
-run, evidence, verification, approval, conversation, or packet mutation.
+run, evidence, verification, approval, conversation, or packet mutation. The
+route SHALL use the existing shared styling and component conventions and SHALL
+NOT introduce Tailwind, a Tailwind-dependent UI library, utility-class
+conventions, or a route-specific UI framework.
 
 #### Scenario: Operator opens all runs
 
@@ -28,6 +31,42 @@ run, evidence, verification, approval, conversation, or packet mutation.
 - **THEN** they MUST find no mutation or duplicated command implementation, and
   commands, approvals, and linked conversations MUST remain reachable only via
   the existing operator workspace
+
+#### Scenario: Route architecture is verified
+
+- **WHEN** the all-runs route architecture test runs
+- **THEN** it MUST enforce route-owned imports and the global `runs.css` style
+  boundary, and MUST reject Tailwind, Tailwind-dependent UI libraries,
+  utility-class conventions, and a route-specific UI framework
+
+### Requirement: All Runs Uses The Shared Session And Canonical Route
+
+Office Graph SHALL expose only canonical `/runs` for the all-runs product
+surface. Its app shell and GraphQL reads SHALL consume the existing shared
+`OfficeGraphWeb.RequestSession` resolution unchanged, including the
+intentionally deferred bootstrap posture, and SHALL NOT add a route-specific
+actor/session creation path, bootstrap fallback, alias, compatibility route, or
+compatibility query.
+
+#### Scenario: Operator requests the canonical route
+
+- **WHEN** an operator requests `/runs`
+- **THEN** Phoenix MUST serve the existing React app shell for that canonical
+  path and MUST NOT expose an all-runs alias or compatibility route
+
+#### Scenario: Route resolves a session
+
+- **WHEN** the all-runs list or selected detail read resolves its request actor
+- **THEN** it MUST use the existing shared `RequestSession` resolution without
+  creating a route-local actor, session, bootstrap, or fallback
+
+#### Scenario: Route contract is inspected
+
+- **WHEN** route and GraphQL architecture coverage inspects all-runs entry
+  points
+- **THEN** it MUST find only the canonical `/runs` route and the documented
+  `operatorRuns` and `operatorRunState` reads, with no alias or compatibility
+  route/query
 
 ### Requirement: All Runs Preserves Authoritative List And Detail State
 
@@ -74,9 +113,11 @@ recoverable boundaries.
 ### Requirement: All Runs Selection Is URL-Owned And Clears Stale Detail
 
 Office Graph SHALL represent route-local run selection as `?runId=<id>`. It
-SHALL choose the first visible run only when the URL does not already name a
-valid visible run and SHALL clear selection-scoped detail before an authoritative
-replacement read resolves.
+SHALL choose the first visible run only when `runId` is absent. Every present
+`runId` value SHALL remain the requested selection, including one absent from
+the current page or one that is invalid, missing, forbidden, or stale, and the
+route SHALL clear selection-scoped detail before its authoritative replacement
+read resolves.
 
 #### Scenario: URL selects a visible run
 
@@ -93,6 +134,14 @@ replacement read resolves.
   detail state if the result is missing or forbidden without revealing whether
   another tenant contains that id
 
+#### Scenario: Present requested selection is unavailable
+
+- **WHEN** `runId` is present but its authoritative detail read is invalid,
+  missing, forbidden, or stale
+- **THEN** the route MUST retain that requested URL value, preserve the list,
+  clear stale detail, and render the safe detail error without falling back to
+  the first or another visible run
+
 #### Scenario: Operator changes selection
 
 - **WHEN** an operator selects a different visible run
@@ -102,7 +151,7 @@ replacement read resolves.
 
 #### Scenario: URL lacks a selection
 
-- **WHEN** a non-empty authorized list loads without a valid `runId` URL value
+- **WHEN** a non-empty authorized list loads with no `runId` URL parameter
 - **THEN** the route MUST select the first visible run and represent that
   selection in the URL
 

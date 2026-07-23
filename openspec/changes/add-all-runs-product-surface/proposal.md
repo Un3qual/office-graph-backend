@@ -17,6 +17,9 @@ existing packet and operator workspaces without creating another command path.
   disabled.
 - Add explicit `packetId` URL selection to the existing packet workspace for
   packet deep links; preserve its present data and command ownership.
+- Keep the existing shared `RequestSession` resolution unchanged for the new
+  reads, expose only canonical `/runs`, and retain the project's CSS and
+  component conventions without Tailwind or a route-specific UI framework.
 
 ## Capabilities
 
@@ -41,4 +44,6 @@ package under `assets/app/routes/runs/`. It will extend app-shell routing and
 navigation, and narrowly adapt the existing packet route's selection behavior.
 The route reuses `operatorRunState` and its activity connection for detail;
 it adds no mutation, persistence, migration, external write, identity, or
-governance administration behavior.
+governance administration behavior. It adds no route-specific actor/session
+creation or fallback, route alias, compatibility route, compatibility query,
+Tailwind dependency, or route-specific UI framework.
