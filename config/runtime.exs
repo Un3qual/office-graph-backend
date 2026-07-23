@@ -61,7 +61,8 @@ if config_env() == :prod do
   config :office_graph, :agent_runtime_repository_tooling,
     repository_root: repository_root,
     git_executable: git_executable,
-    openspec_executable: openspec_executable
+    openspec_executable: openspec_executable,
+    immutable_checkout: true
 
   database_url =
     System.get_env("DATABASE_URL") ||

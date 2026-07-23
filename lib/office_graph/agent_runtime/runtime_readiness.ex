@@ -27,6 +27,7 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadiness do
              :agent_runtime_openspec_not_absolute
            ),
          :ok <- validate_revision(config, runner),
+         :ok <- validate_immutable_checkout(config, runner),
          :ok <- validate_project_file(config, runner),
          :ok <- validate_openspec(config, runner) do
       :ok
@@ -95,6 +96,64 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadiness do
       _missing_or_unreadable -> {:error, :agent_runtime_repository_unavailable}
     end
   end
+
+  defp validate_immutable_checkout(config, runner) do
+    if Map.get(config, :immutable_checkout, true) do
+      with :ok <- validate_git_directory(config, runner),
+           :ok <- validate_clean_worktree(config, runner) do
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp validate_git_directory(config, runner) do
+    case runner.run(
+           config.git_executable,
+           ["-C", config.repository_root, "rev-parse", "--absolute-git-dir"],
+           timeout_ms: 5_000,
+           max_bytes: 4_096
+         ) do
+      {:ok, git_directory} ->
+        if path_within_repository?(String.trim(git_directory), config.repository_root),
+          do: :ok,
+          else: {:error, :agent_runtime_repository_unavailable}
+
+      {:error, _reason} ->
+        {:error, :agent_runtime_git_unavailable}
+    end
+  end
+
+  defp validate_clean_worktree(config, runner) do
+    case runner.run(
+           config.git_executable,
+           ["-C", config.repository_root, "status", "--porcelain=v1", "--untracked-files=all"],
+           timeout_ms: 5_000,
+           max_bytes: 65_536
+         ) do
+      {:ok, status} ->
+        if String.trim(status) == "",
+          do: :ok,
+          else: {:error, :agent_runtime_repository_unavailable}
+
+      {:error, _reason} ->
+        {:error, :agent_runtime_git_unavailable}
+    end
+  end
+
+  defp path_within_repository?(path, repository_root)
+       when is_binary(path) and is_binary(repository_root) and path != "" do
+    relative =
+      path
+      |> Path.expand()
+      |> Path.relative_to(Path.expand(repository_root))
+
+    relative != "." and relative != ".." and
+      not String.starts_with?(relative, "../") and Path.type(relative) == :relative
+  end
+
+  defp path_within_repository?(_path, _repository_root), do: false
 
   defp validate_openspec(config, runner) do
     case runner.run(

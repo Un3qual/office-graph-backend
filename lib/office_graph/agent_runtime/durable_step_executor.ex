@@ -361,38 +361,37 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
   defp complete(claim, output, opts) do
     advance = Keyword.fetch!(opts, :advance)
 
-    Repo.transaction(fn ->
-      execution = lock_execution!(claim.execution.id)
-      request = lock_request!(claim.request)
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        execution = lock_execution!(claim.execution.id)
+        request = lock_request!(claim.request)
 
-      cond do
-        execution.state == "cancelled" ->
-          record_request_result!(request, %{
-            state: "cancelled",
-            failure_code: execution.failure_code || "cancelled",
-            completed_at: DateTime.utc_now()
-          })
+        cond do
+          execution.state == "cancelled" ->
+            record_request_result!(request, %{
+              state: "cancelled",
+              failure_code: execution.failure_code || "cancelled",
+              completed_at: DateTime.utc_now()
+            })
 
-          :ok
+            :ok
 
-        execution.lease_token == claim.lease_token and execution.state == "running" ->
-          now = DateTime.utc_now()
-          result_attrs = success_result_attrs(output, now)
-          succeeded_request = record_request_result!(request, result_attrs)
-          advance.(execution, succeeded_request, output, now)
-          :ok
+          execution.lease_token == claim.lease_token and execution.state == "running" ->
+            now = DateTime.utc_now()
+            result_attrs = success_result_attrs(output, now)
+            succeeded_request = record_request_result!(request, result_attrs)
+            advance.(execution, succeeded_request, output, now)
+            :ok
 
-        request.state == "succeeded" ->
-          :ok
+          request.state == "succeeded" ->
+            :ok
 
-        true ->
-          Repo.rollback(:stale_agent_execution_lease)
-      end
+          true ->
+            Repo.rollback(:stale_agent_execution_lease)
+        end
+      end)
+      |> normalize_transaction()
     end)
-    |> normalize_transaction()
-  rescue
-    error in [Ash.Error.Forbidden, Ash.Error.Framework, Ash.Error.Invalid, Ash.Error.Unknown] ->
-      {:error, error}
   end
 
   defp retry_or_exhaust(claim, job, failure_code) do

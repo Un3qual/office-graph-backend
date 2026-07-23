@@ -60,9 +60,16 @@ runtime configuration rather than a build checkout or ambient executable path.
 
 #### Scenario: Runtime starts automatic workers
 - **WHEN** the application starts with the OpenSpec-review workflow registered
-- **THEN** it MUST validate an absolute immutable repository mount, pinned Git
-  and OpenSpec executables, the mounted `HEAD`, `openspec/project.md`, and
-  bounded parseable OpenSpec inventory before starting durable workers
+- **THEN** it MUST validate an absolute immutable, clean, self-contained
+  repository mount, pinned Git and OpenSpec executables, the mounted `HEAD`,
+  `openspec/project.md`, and bounded parseable OpenSpec inventory before
+  starting durable workers
+
+#### Scenario: OpenSpec review revision changes before a read
+- **WHEN** an OpenSpec tool request names the captured repository revision but
+  the mounted checkout no longer has that exact `HEAD`
+- **THEN** the tool MUST fail closed before invoking OpenSpec and MUST preserve
+  the revision in its dereferenceable output reference
 
 #### Scenario: Repository tooling is unavailable
 - **WHEN** any configured mount, executable, revision, project artifact, or

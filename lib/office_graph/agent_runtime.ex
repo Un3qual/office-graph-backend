@@ -43,7 +43,17 @@ defmodule OfficeGraph.AgentRuntime do
   alias OfficeGraph.Identity.Principal
 
   @canonical_definition_key "openspec-review"
-  @agent_capabilities [:agent_runtime_execute, :skeleton_read]
+  @agent_capabilities [
+    :agent_runtime_execute,
+    :skeleton_read,
+    :agent_invoke,
+    :agent_model_generate,
+    :agent_tool_read,
+    :agent_proposal_create,
+    :agent_repository_read,
+    :agent_openspec_read,
+    :agent_evidence_suggest
+  ]
 
   def invoke(session_context, operation, %InvocationRequest{} = request) do
     InvocationCommands.invoke(session_context, operation, request)

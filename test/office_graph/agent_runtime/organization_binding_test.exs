@@ -53,6 +53,24 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
                :skeleton_read
              )
 
+    for action <- [
+          :agent_invoke,
+          :agent_model_generate,
+          :agent_tool_read,
+          :agent_proposal_create,
+          :agent_repository_read,
+          :agent_openspec_read,
+          :agent_evidence_suggest
+        ] do
+      assert :ok =
+               Authorization.authorize_system_principal(
+                 first.principal.id,
+                 bootstrap.organization.id,
+                 bootstrap.workspace.id,
+                 action
+               )
+    end
+
     assert Repo.aggregate(OrganizationBinding, :count) == 1
   end
 

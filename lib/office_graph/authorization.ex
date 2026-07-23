@@ -65,7 +65,16 @@ defmodule OfficeGraph.Authorization do
   @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
   @system_capabilities Map.merge(
                          @restricted_capabilities,
-                         Map.take(@owner_capabilities, [:skeleton_read])
+                         Map.take(@owner_capabilities, [
+                           :skeleton_read,
+                           :agent_invoke,
+                           :agent_model_generate,
+                           :agent_tool_read,
+                           :agent_proposal_create,
+                           :agent_repository_read,
+                           :agent_openspec_read,
+                           :agent_evidence_suggest
+                         ])
                        )
 
   def ensure_owner_role(principal, tenant) do

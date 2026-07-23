@@ -122,6 +122,34 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
              AgentRuntime.revalidate_step(execution_id)
   end
 
+  test "pre-step revalidation rejects a snapshot capability revoked from the agent", context do
+    execution_id = context.invocation.execution.id
+
+    assert :ok = AgentRuntime.revalidate_step(execution_id)
+
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (
+        SELECT role_id
+        FROM role_assignments
+        WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
+      )
+      AND capability_id IN (
+        SELECT id FROM capabilities WHERE key = 'repository.read'
+      )
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    assert {:error, :agent_authority_revoked} =
+             AgentRuntime.revalidate_step(execution_id)
+  end
+
   test "pre-step revalidation fails closed when the active organization policy changes",
        context do
     execution_id = context.invocation.execution.id

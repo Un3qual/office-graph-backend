@@ -42,8 +42,8 @@ Production runtime config enables Postgres TLS by default. Set
 The automatic OpenSpec-review agent requires an immutable repository mount and
 explicit Git and OpenSpec executables. Production starts fail closed before
 Oban workers are started unless all three absolute paths are configured and the
-runtime can read the mounted checkout's `HEAD`, `openspec/project.md`, and
-`openspec list --json` output:
+runtime can verify a clean, self-contained checkout, read its `HEAD` and
+`openspec/project.md`, and parse bounded `openspec list --json` output:
 
 - `OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT`
 - `OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE`
@@ -61,6 +61,10 @@ file points outside the mount is not valid. Keep the checkout fixed for the
 process lifetime and restart the application after atomically replacing it with
 a new revision. Do not bypass ownership checks with a broad
 `safe.directory=*` setting.
+
+Each OpenSpec tool request carries the same full revision used by repository
+reads and fails closed if the mounted checkout's `HEAD` changes before the CLI
+is invoked.
 
 The packaged OpenSpec executable and the application command boundary force
 OpenSpec telemetry off. Ambient `OPENSPEC_TELEMETRY` values cannot enable local

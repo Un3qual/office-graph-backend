@@ -157,14 +157,16 @@ optional after the integration change and do not shape core runtime schemas.
 The workflow's repository dependency is a runtime deployment contract, not the
 release builder's checkout. Production supplies absolute paths for a complete,
 self-contained, read-only Git clone and for the pinned Git/OpenSpec executables.
-A supervised readiness check runs before Oban, validates the mounted `HEAD`,
-the tracked `openspec/project.md`, and bounded parseable `openspec list --json`
-output, and fails application startup when any dependency is missing. The Nix
-flake exposes the Git/OpenSpec closure used by development and release images;
-the mounted checkout remains immutable for one process lifetime. The closure
-and the application command boundary both force OpenSpec telemetry off, so an
-ambient environment cannot turn a read-only workflow into local configuration
-writes or outbound telemetry.
+A supervised readiness check runs before Oban, validates a clean,
+self-contained checkout plus the mounted `HEAD`, the tracked
+`openspec/project.md`, and bounded parseable `openspec list --json` output, and
+fails application startup when any dependency is missing. Each OpenSpec request
+also carries the captured repository revision and rechecks `HEAD` before
+invoking the CLI. The Nix flake exposes the Git/OpenSpec closure used by
+development and release images; the mounted checkout remains immutable for one
+process lifetime. The closure and the application command boundary both force
+OpenSpec telemetry off, so an ambient environment cannot turn a read-only
+workflow into local configuration writes or outbound telemetry.
 
 ## Risks / Trade-offs
 

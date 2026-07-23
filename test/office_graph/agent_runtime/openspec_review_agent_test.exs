@@ -92,6 +92,12 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     def insert(_changeset), do: {:error, :forced_continuation_enqueue_failure}
   end
 
+  defmodule UnavailableOutputRouter do
+    def route!(_operation, _execution, _context_package, _step_key, _output) do
+      raise Ash.Error.Unknown, errors: []
+    end
+  end
+
   defmodule BlockingRepositoryCommandRunner do
     def run(executable, ["-C", _root, "cat-file", "-s", _object] = argv, opts) do
       test_pid = Application.fetch_env!(:office_graph, :openspec_review_test_pid)
@@ -311,6 +317,26 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
              Application.fetch_env!(:office_graph, :openspec_review_retry_coordinator),
              & &1.route
            ) == 3
+  end
+
+  test "output routing storage failures preserve the bounded retry path", context do
+    invoked = invoke_automatic!(context, "route-storage-unavailable")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+    assert :ok = perform_step(invoked.execution.id, "model:review", 1)
+
+    configure_output_router(UnavailableOutputRouter)
+
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "output:route", 1)
+
+    retrying = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    route_request = request_for!(ToolRequest, invoked.execution.id, "output:route")
+
+    assert retrying.state == "retry_scheduled"
+    assert retrying.failure_code == "integration_storage_unavailable"
+    assert route_request.state == "retry_scheduled"
+    assert route_request.failure_code == "integration_storage_unavailable"
   end
 
   test "missing automatic adapter durably fails the queued execution", context do
@@ -1120,6 +1146,13 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     registry = original |> Map.new() |> update.()
     Application.put_env(:office_graph, :agent_runtime_adapters, registry)
     on_exit(fn -> Application.put_env(:office_graph, :agent_runtime_adapters, original) end)
+  end
+
+  defp configure_output_router(router) when is_atom(router) do
+    original = Application.get_env(:office_graph, :agent_runtime_output_router)
+    Application.put_env(:office_graph, :agent_runtime_output_router, router)
+
+    on_exit(fn -> restore_env(:agent_runtime_output_router, original) end)
   end
 
   defp records_for(resource, execution_id) do

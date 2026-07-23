@@ -15,6 +15,28 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadinessTest do
       {:ok, String.duplicate("a", 40) <> "\n"}
     end
 
+    def run(git, ["-C", root, "rev-parse", "--absolute-git-dir"], opts) do
+      send(Application.fetch_env!(:office_graph, :runtime_readiness_test_pid), {
+        :git_directory_readiness,
+        git,
+        root,
+        opts
+      })
+
+      {:ok, Path.join(root, ".git") <> "\n"}
+    end
+
+    def run(git, ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"], opts) do
+      send(Application.fetch_env!(:office_graph, :runtime_readiness_test_pid), {
+        :git_worktree_readiness,
+        git,
+        root,
+        opts
+      })
+
+      {:ok, ""}
+    end
+
     def run(git, ["-C", root, "show", "HEAD:openspec/project.md"], opts) do
       send(Application.fetch_env!(:office_graph, :runtime_readiness_test_pid), {
         :git_project_readiness,
@@ -46,6 +68,12 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadinessTest do
       case {Application.fetch_env!(:office_graph, :runtime_readiness_failure_stage), argv} do
         {:revision, ["-C", _root, "rev-parse", "HEAD"]} ->
           {:ok, "not-a-revision\n"}
+
+        {:git_directory, ["-C", _root, "rev-parse", "--absolute-git-dir"]} ->
+          {:ok, "/outside/runtime/repository.git\n"}
+
+        {:working_tree, ["-C", _root, "status", "--porcelain=v1", "--untracked-files=all"]} ->
+          {:ok, " M openspec/project.md\n"}
 
         {:project, ["-C", _root, "show", "HEAD:openspec/project.md"]} ->
           {:error, :command_failed}
@@ -86,6 +114,12 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadinessTest do
 
     assert_receive {:git_revision_readiness, "/runtime/bin/git", ^root,
                     [timeout_ms: 5_000, max_bytes: 128]}
+
+    assert_receive {:git_directory_readiness, "/runtime/bin/git", ^root,
+                    [timeout_ms: 5_000, max_bytes: 4_096]}
+
+    assert_receive {:git_worktree_readiness, "/runtime/bin/git", ^root,
+                    [timeout_ms: 5_000, max_bytes: 65_536]}
 
     assert_receive {:git_project_readiness, "/runtime/bin/git", ^root,
                     [timeout_ms: 5_000, max_bytes: 65_536]}
@@ -129,6 +163,8 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadinessTest do
   } do
     for {stage, expected} <- [
           {:revision, :agent_runtime_repository_unavailable},
+          {:git_directory, :agent_runtime_repository_unavailable},
+          {:working_tree, :agent_runtime_repository_unavailable},
           {:project, :agent_runtime_repository_unavailable},
           {:openspec_command, :agent_runtime_openspec_unavailable},
           {:openspec_json, :agent_runtime_openspec_unavailable}

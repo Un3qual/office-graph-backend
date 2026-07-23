@@ -7,7 +7,8 @@ config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.Tes
 config :office_graph, :agent_runtime_repository_tooling,
   repository_root: Path.expand("..", __DIR__),
   git_executable: System.find_executable("git"),
-  openspec_executable: System.find_executable("openspec")
+  openspec_executable: System.find_executable("openspec"),
+  immutable_checkout: false
 
 # Configure your database
 #

@@ -324,7 +324,11 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
   defp tool_payload(%{step: %{adapter_key: "repository.read"}, repository_revision: revision}),
     do: %{path: "openspec/project.md", revision: revision}
 
-  defp tool_payload(%{step: %{adapter_key: "openspec.read"}}), do: %{action: "list"}
+  defp tool_payload(%{
+         step: %{adapter_key: "openspec.read"},
+         repository_revision: revision
+       }),
+       do: %{action: "list", revision: revision}
 
   defp tool_payload(%{step: %{kind: :route}, model_review_request: request}) do
     %{
@@ -378,7 +382,7 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
     with {:ok, %RoutedOutputBatch{outputs: outputs}} <-
            RoutedOutputBatch.from_tool_output(output) do
       Enum.each(outputs, fn routed_output ->
-        OutputRouter.route!(
+        output_router().route!(
           context.operation,
           execution,
           context.context_package,
@@ -506,6 +510,14 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
       :office_graph,
       :agent_runtime_openspec_review_store,
       OpenSpecReviewStore
+    )
+  end
+
+  defp output_router do
+    Application.get_env(
+      :office_graph,
+      :agent_runtime_output_router,
+      OutputRouter
     )
   end
 

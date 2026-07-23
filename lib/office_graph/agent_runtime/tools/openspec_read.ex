@@ -13,10 +13,15 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   @version "1"
   @max_bytes 64 * 1_024
   @target_pattern ~r/\A[a-z0-9][a-z0-9._-]*\z/
+  @revision_pattern ~r/\A[0-9a-f]{40}\z/
 
   @payload_schema AdapterContract.schema(
-                    [:action],
-                    %{action: {:string, 32}, target: {:string, 255}},
+                    [:action, :revision],
+                    %{
+                      action: {:string, 32},
+                      revision: {:string, 40},
+                      target: {:string, 255}
+                    },
                     1_024
                   )
 
@@ -59,8 +64,15 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   @impl true
   def invoke(%ToolInput{} = input) do
     with :ok <- AdapterContract.validate_tool_input(manifest(), input),
+         :ok <- validate_revision(input.adapter_payload.revision),
          {:ok, argv, reference} <- command(input.adapter_payload),
-         {:ok, content} <- execute(argv, input.timeout_ms, input.budget_units),
+         {:ok, content} <-
+           execute(
+             argv,
+             input.adapter_payload.revision,
+             input.timeout_ms,
+             input.budget_units
+           ),
          output <- output(reference, content),
          :ok <- AdapterContract.validate_tool_output(manifest(), output) do
       {:ok, output}
@@ -76,8 +88,9 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   def dereference(reference, timeout_ms, budget_units)
       when is_binary(reference) and is_integer(timeout_ms) and is_integer(budget_units) do
     with {:ok, payload} <- reference_payload(reference),
+         :ok <- validate_revision(payload.revision),
          {:ok, argv, ^reference} <- command(payload) do
-      execute(argv, timeout_ms, budget_units)
+      execute(argv, payload.revision, timeout_ms, budget_units)
     else
       {:error, _reason} = error -> error
       _invalid -> {:error, {:terminal, :invalid_openspec_reference}}
@@ -87,12 +100,14 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   def dereference(_reference, _timeout_ms, _budget_units),
     do: {:error, {:terminal, :invalid_openspec_reference}}
 
-  defp reference_payload("openspec://list"), do: {:ok, %{action: "list"}}
-
   defp reference_payload("openspec://" <> reference) do
-    case String.split(reference, "/", parts: 2) do
-      [action, target] when action in ["show", "status", "validate"] and target != "" ->
-        {:ok, %{action: action, target: target}}
+    case String.split(reference, "/", parts: 3) do
+      [revision, "list"] ->
+        {:ok, %{action: "list", revision: revision}}
+
+      [revision, action, target]
+      when action in ["show", "status", "validate"] and target != "" ->
+        {:ok, %{action: action, revision: revision, target: target}}
 
       _invalid ->
         {:error, {:terminal, :invalid_openspec_reference}}
@@ -102,20 +117,27 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   defp reference_payload(_reference),
     do: {:error, {:terminal, :invalid_openspec_reference}}
 
-  defp command(%{action: "list"} = payload) do
-    if Map.keys(payload) == [:action] do
-      {:ok, ["list", "--json"], "openspec://list"}
+  defp command(%{action: "list", revision: revision} = payload) do
+    if Enum.sort(Map.keys(payload)) == [:action, :revision] do
+      {:ok, ["list", "--json"], "openspec://#{revision}/list"}
     else
       {:error, {:terminal, :invalid_openspec_target}}
     end
   end
 
-  defp command(%{action: action, target: target}) when action in ["show", "status", "validate"] do
+  defp command(%{action: action, revision: revision, target: target})
+       when action in ["show", "status", "validate"] do
     with :ok <- validate_target(target) do
       case action do
-        "show" -> {:ok, ["show", target, "--json"], "openspec://show/#{target}"}
-        "status" -> {:ok, ["status", "--change", target, "--json"], "openspec://status/#{target}"}
-        "validate" -> {:ok, ["validate", target, "--strict"], "openspec://validate/#{target}"}
+        "show" ->
+          {:ok, ["show", target, "--json"], "openspec://#{revision}/show/#{target}"}
+
+        "status" ->
+          {:ok, ["status", "--change", target, "--json"],
+           "openspec://#{revision}/status/#{target}"}
+
+        "validate" ->
+          {:ok, ["validate", target, "--strict"], "openspec://#{revision}/validate/#{target}"}
       end
     end
   end
@@ -136,26 +158,54 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
 
   defp validate_target(_target), do: {:error, {:terminal, :invalid_openspec_target}}
 
-  defp execute(argv, timeout_ms, requested_budget) do
+  defp validate_revision(revision) when is_binary(revision) do
+    if Regex.match?(@revision_pattern, revision),
+      do: :ok,
+      else: {:error, {:terminal, :invalid_openspec_revision}}
+  end
+
+  defp validate_revision(_revision),
+    do: {:error, {:terminal, :invalid_openspec_revision}}
+
+  defp execute(argv, revision, timeout_ms, requested_budget) do
     byte_limit = min(requested_budget, @max_bytes)
 
-    case command_runner().run(openspec_executable(), argv,
-           cd: repository_root(),
-           environment: %{"OPENSPEC_TELEMETRY" => "0"},
+    with :ok <- validate_current_revision(revision, timeout_ms) do
+      case command_runner().run(openspec_executable(), argv,
+             cd: repository_root(),
+             environment: %{"OPENSPEC_TELEMETRY" => "0"},
+             timeout_ms: timeout_ms,
+             max_bytes: byte_limit
+           ) do
+        {:ok, content} when byte_size(content) > 0 ->
+          {:ok, content}
+
+        {:error, :output_limit_exceeded} ->
+          {:error, {:terminal, :openspec_read_limit_exceeded}}
+
+        {:ok, _empty_content} ->
+          {:error, {:terminal, :openspec_read_failed}}
+
+        {:error, _reason} ->
+          {:error, {:terminal, :openspec_read_failed}}
+      end
+    end
+  end
+
+  defp validate_current_revision(expected, timeout_ms) do
+    case command_runner().run(
+           git_executable(),
+           ["-C", repository_root(), "rev-parse", "HEAD"],
            timeout_ms: timeout_ms,
-           max_bytes: byte_limit
+           max_bytes: 128
          ) do
-      {:ok, content} when byte_size(content) > 0 ->
-        {:ok, content}
-
-      {:error, :output_limit_exceeded} ->
-        {:error, {:terminal, :openspec_read_limit_exceeded}}
-
-      {:ok, _empty_content} ->
-        {:error, {:terminal, :openspec_read_failed}}
+      {:ok, revision} ->
+        if String.trim(revision) == expected,
+          do: :ok,
+          else: {:error, {:terminal, :openspec_repository_revision_changed}}
 
       {:error, _reason} ->
-        {:error, {:terminal, :openspec_read_failed}}
+        {:error, {:terminal, :openspec_repository_revision_changed}}
     end
   end
 
@@ -181,6 +231,8 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   defp repository_root do
     tooling_config() |> Keyword.fetch!(:repository_root)
   end
+
+  defp git_executable, do: tooling_config() |> Keyword.fetch!(:git_executable)
 
   defp openspec_executable, do: tooling_config() |> Keyword.fetch!(:openspec_executable)
 

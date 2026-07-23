@@ -15,11 +15,19 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
       })
 
       case argv do
+        ["-C", _root, "rev-parse", "HEAD"] -> {:ok, String.duplicate("a", 40) <> "\n"}
         ["-C", _root, "cat-file", "-s", _object] -> {:ok, "18\n"}
         ["-C", _root, "show", _object] -> {:ok, "authorized content"}
         _other -> {:ok, ~s({"changes":[]})}
       end
     end
+  end
+
+  defmodule ChangedRevisionCommandRunner do
+    def run(_executable, ["-C", _root, "rev-parse", "HEAD"], _opts),
+      do: {:ok, String.duplicate("b", 40) <> "\n"}
+
+    def run(_executable, _argv, _opts), do: {:ok, ~s({"changes":[]})}
   end
 
   setup do
@@ -88,10 +96,13 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
   end
 
   test "OpenSpec reads deny mutation commands, arbitrary flags, and shell-shaped targets" do
+    revision = String.duplicate("a", 40)
+
     assert {:error, {:terminal, :unsupported_openspec_action}} =
              OpenSpecRead.invoke(
                tool_input("openspec.read", ["agent.tool.read", "openspec.read"], %{
-                 action: "archive"
+                 action: "archive",
+                 revision: revision
                })
              )
 
@@ -99,7 +110,8 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
              OpenSpecRead.invoke(
                tool_input("openspec.read", ["agent.tool.read", "openspec.read"], %{
                  action: "show",
-                 target: "change --flags"
+                 target: "change --flags",
+                 revision: revision
                })
              )
 
@@ -107,7 +119,24 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
              OpenSpecRead.invoke(
                tool_input("openspec.read", ["agent.tool.read", "openspec.read"], %{
                  action: "list",
+                 revision: revision,
                  flags: ["--json", "&&", "touch", "/tmp/not-allowed"]
+               })
+             )
+  end
+
+  test "OpenSpec reads reject mutable revision drift before invoking the CLI" do
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_command_runner,
+      ChangedRevisionCommandRunner
+    )
+
+    assert {:error, {:terminal, :openspec_repository_revision_changed}} =
+             OpenSpecRead.invoke(
+               tool_input("openspec.read", ["agent.tool.read", "openspec.read"], %{
+                 action: "list",
+                 revision: String.duplicate("a", 40)
                })
              )
   end
@@ -122,15 +151,26 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
     tooling = Application.fetch_env!(:office_graph, :agent_runtime_repository_tooling)
     openspec_executable = Keyword.fetch!(tooling, :openspec_executable)
     repository_root = Keyword.fetch!(tooling, :repository_root)
+    git_executable = Keyword.fetch!(tooling, :git_executable)
+    revision = String.duplicate("a", 40)
 
     cases = [
-      {%{action: "list"}, ["list", "--json"]},
-      {%{action: "show", target: "implement-internal-agent-runtime"},
-       ["show", "implement-internal-agent-runtime", "--json"]},
-      {%{action: "status", target: "implement-internal-agent-runtime"},
-       ["status", "--change", "implement-internal-agent-runtime", "--json"]},
-      {%{action: "validate", target: "implement-internal-agent-runtime"},
-       ["validate", "implement-internal-agent-runtime", "--strict"]}
+      {%{action: "list", revision: revision}, ["list", "--json"]},
+      {%{
+         action: "show",
+         target: "implement-internal-agent-runtime",
+         revision: revision
+       }, ["show", "implement-internal-agent-runtime", "--json"]},
+      {%{
+         action: "status",
+         target: "implement-internal-agent-runtime",
+         revision: revision
+       }, ["status", "--change", "implement-internal-agent-runtime", "--json"]},
+      {%{
+         action: "validate",
+         target: "implement-internal-agent-runtime",
+         revision: revision
+       }, ["validate", "implement-internal-agent-runtime", "--strict"]}
     ]
 
     for {payload, expected_argv} <- cases do
@@ -145,12 +185,20 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
 
       assert output.classification == :observation
 
+      assert_receive {:command_run, ^git_executable,
+                      ["-C", ^repository_root, "rev-parse", "HEAD"], revision_opts}
+
+      assert revision_opts == [timeout_ms: 1_000, max_bytes: 128]
+
       assert_receive {:command_run, ^openspec_executable, ^expected_argv, opts}
       assert opts[:timeout_ms] == 1_000
       assert opts[:max_bytes] == 64 * 1_024
       assert opts[:cd] == repository_root
       assert opts[:environment] == %{"OPENSPEC_TELEMETRY" => "0"}
       refute Keyword.has_key?(opts, :shell)
+
+      reference = output.structured_content["observation"]["reference"]
+      assert String.starts_with?(reference, "openspec://#{revision}/")
     end
   end
 
