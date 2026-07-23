@@ -1,14 +1,15 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { GraphQLResponse } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRelayEnvironment } from "../../relay/environment";
 import * as support from "./routeTestSupport";
 
-const unsafeFailure =
-  "GraphQL transport authorization provider model credential secret should stay private";
+const rawErrorSentinel = "RAW_RUN_DETAIL_ERROR_SENTINEL_7f91c6";
 
 describe("all-runs route recovery", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("retries list and detail reads independently with safe public copy", async () => {
@@ -18,13 +19,13 @@ describe("all-runs route recovery", () => {
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
         listAttempts += 1;
-        if (listAttempts === 1) throw new Error(unsafeFailure);
+        if (listAttempts === 1) throw new Error(rawErrorSentinel);
         return support.runsConnectionResponse([support.runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
         detailAttempts += 1;
-        if (detailAttempts === 1) throw new Error(unsafeFailure);
+        if (detailAttempts === 1) throw new Error(rawErrorSentinel);
         return { data: { operatorRunState: support.runState() } };
       }
 
@@ -35,7 +36,7 @@ describe("all-runs route recovery", () => {
 
     expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
     expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
-    expectUnsafeFailureHidden();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
 
     fireEvent.click(screen.getByRole("button", { name: "Retry runs" }));
 
@@ -65,7 +66,7 @@ describe("all-runs route recovery", () => {
 
       if (request.name === "RunsRouteQuery") {
         continuationAttempts += 1;
-        if (continuationAttempts === 1) throw new Error(unsafeFailure);
+        if (continuationAttempts === 1) throw new Error(rawErrorSentinel);
         return support.runsConnectionResponse([
           support.runSummary({
             id: "run_next_page",
@@ -87,7 +88,7 @@ describe("all-runs route recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByText("Unable to load next run page.")).toBeInTheDocument();
-    expectUnsafeFailureHidden();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
     expect(
       screen.getByRole("button", { name: /Review the newest authorized run/i }),
     ).toHaveAttribute("aria-current", "true");
@@ -118,7 +119,7 @@ describe("all-runs route recovery", () => {
 
         if (request.name === "RunDetailQuery") {
           expect(variables.id).toBe(runId);
-          if (kind === "forbidden") throw new Error(unsafeFailure);
+          if (kind === "forbidden") throw new Error(rawErrorSentinel);
           return { data: { operatorRunState: null } };
         }
 
@@ -132,11 +133,52 @@ describe("all-runs route recovery", () => {
         await screen.findByRole("button", { name: /Review the newest authorized run/i }),
       ).not.toHaveAttribute("aria-current");
       expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
-      expectUnsafeFailureHidden();
+      expect(document.body).not.toHaveTextContent(rawErrorSentinel);
       expect(screen.getByTestId("route-location")).toHaveTextContent(`/runs?${encodedSelection}`);
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({ id: runId });
     },
   );
+
+  it("retains a stale runId through the production Relay error path without enumeration", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, unknown>;
+        };
+
+        if (body.query.includes("RunsRouteQuery")) {
+          return Response.json(support.runsConnectionResponse([support.runSummary()]));
+        }
+
+        expect(body.query).toContain("RunDetailQuery");
+        expect(body.variables.id).toBe("run_stale");
+
+        return Response.json({
+          data: { operatorRunState: null },
+          errors: [
+            {
+              message: rawErrorSentinel,
+              path: ["operatorRunState"],
+              extensions: { code: "stale_run_state" },
+            },
+          ],
+        });
+      }),
+    );
+
+    support.renderWithRelayEnvironment(createRelayEnvironment(), "/runs?runId=run_stale");
+
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).not.toHaveAttribute("aria-current");
+    expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_stale");
+    expect(screen.queryByRole("heading", { name: "Newest packet" })).not.toBeInTheDocument();
+  });
 
   it("retains loaded activity after continuation failure and clears it with detail on selection", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -155,7 +197,7 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery" && variables.activityAfter !== null) {
-        throw new Error(unsafeFailure);
+        throw new Error(rawErrorSentinel);
       }
 
       if (request.name === "RunDetailQuery") {
@@ -172,7 +214,7 @@ describe("all-runs route recovery", () => {
 
     expect(await within(activity).findByText("Unable to load more activity.")).toBeInTheDocument();
     expect(within(activity).getByText("Release verification")).toBeInTheDocument();
-    expectUnsafeFailureHidden();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
 
     fireEvent.click(screen.getByRole("button", { name: /Second visible run/i }));
 
@@ -184,17 +226,3 @@ describe("all-runs route recovery", () => {
     expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
   });
 });
-
-function expectUnsafeFailureHidden() {
-  for (const detail of [
-    "GraphQL",
-    "transport",
-    "authorization",
-    "provider",
-    "model",
-    "credential",
-    "secret",
-  ]) {
-    expect(document.body).not.toHaveTextContent(detail);
-  }
-}

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { parse, visit as visitGraphQL } from "graphql";
 import ts from "typescript";
 
@@ -144,4 +146,291 @@ function staticStringValue(expression: ts.Expression): string | null {
   }
 
   return null;
+}
+
+export function routeRegistrationOffenders(
+  source: string,
+  {
+    canonicalPath,
+    ownedModulePrefix,
+  }: {
+    canonicalPath: string;
+    ownedModulePrefix: string;
+  },
+) {
+  const routeCalls = analyzeTypeScript(source, "routes.ts").stringCallArguments.get("route") ?? [];
+  const ownedRegistrations = routeCalls.filter(
+    ([, target]) => target === ownedModulePrefix || target.startsWith(`${ownedModulePrefix}/`),
+  );
+  const canonicalRegistrations = ownedRegistrations.filter(([path]) => path === canonicalPath);
+  const offenders = ownedRegistrations
+    .filter(([path]) => path !== canonicalPath)
+    .map(([path, target]) => `${path} targets runs-owned module "${target}"`);
+
+  if (canonicalRegistrations.length !== 1) {
+    offenders.unshift(`canonical ${canonicalPath} route must target one owned module`);
+  }
+
+  return offenders;
+}
+
+export function bareModuleSpecifierOffenders(
+  specifiers: Iterable<string>,
+  allowedSpecifiers: ReadonlySet<string>,
+) {
+  return [...specifiers]
+    .filter(
+      (specifier) =>
+        specifier === "<non-static dynamic import>" ||
+        (!specifier.startsWith(".") &&
+          !specifier.startsWith("/") &&
+          !specifier.startsWith("node:") &&
+          !allowedSpecifiers.has(specifier)),
+    )
+    .sort();
+}
+
+export function normalizeModuleSpecifier(specifier: string, filename: string, projectRoot: string) {
+  if (!specifier.startsWith(".")) return specifier;
+
+  return relative(projectRoot, resolve(dirname(filename), specifier)).replaceAll("\\", "/");
+}
+
+export function localDependencyFiles(entries: string[]) {
+  const pending = [...entries];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || visited.has(file)) continue;
+
+    visited.add(file);
+    const source = readFileSync(file, "utf8");
+
+    for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
+      if (!fileName.startsWith(".")) continue;
+
+      const dependency = resolveSourceFile(resolve(dirname(file), fileName));
+      if (dependency && !visited.has(dependency)) pending.push(dependency);
+    }
+  }
+
+  return [...visited];
+}
+
+export function emittedClassNames(source: string, filename: string) {
+  const sourceFile = ts.createSourceFile(
+    filename,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const names = new Set<string>();
+
+  const addTokens = (value: string) => {
+    for (const token of value.split(/\s+/)) {
+      if (/^[a-z][\w-]*$/i.test(token)) names.add(token);
+    }
+  };
+
+  const collectExpression = (expression: ts.Expression, passThrough = new Set<string>()) => {
+    if (ts.isStringLiteralLike(expression)) {
+      addTokens(expression.text);
+      return;
+    }
+
+    if (ts.isTemplateExpression(expression)) {
+      for (const value of finiteTemplateValues(expression, sourceFile)) addTokens(value);
+      return;
+    }
+
+    if (ts.isConditionalExpression(expression)) {
+      collectExpression(expression.whenTrue, passThrough);
+      collectExpression(expression.whenFalse, passThrough);
+      return;
+    }
+
+    if (ts.isArrowFunction(expression) && !ts.isBlock(expression.body)) {
+      const arrowPassThrough = new Set(passThrough);
+      for (const parameter of expression.parameters) {
+        if (ts.isIdentifier(parameter.name)) arrowPassThrough.add(parameter.name.text);
+        if (ts.isObjectBindingPattern(parameter.name)) {
+          for (const binding of parameter.name.elements) {
+            if (ts.isIdentifier(binding.name)) arrowPassThrough.add(binding.name.text);
+          }
+        }
+      }
+      collectExpression(expression.body, arrowPassThrough);
+      return;
+    }
+
+    if (ts.isArrayLiteralExpression(expression)) {
+      for (const element of expression.elements) {
+        if (ts.isSpreadElement(element)) unsupportedClassExpression(element, sourceFile);
+        collectExpression(element, passThrough);
+      }
+      return;
+    }
+
+    if (ts.isParenthesizedExpression(expression)) {
+      collectExpression(expression.expression, passThrough);
+      return;
+    }
+
+    if (ts.isIdentifier(expression)) {
+      if (expression.text === "undefined" || passThrough.has(expression.text)) return;
+      unsupportedClassExpression(expression, sourceFile);
+    }
+
+    if (expression.kind === ts.SyntaxKind.NullKeyword) return;
+
+    if (ts.isCallExpression(expression)) {
+      if (
+        ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "composeRenderProps" &&
+        expression.arguments.length === 2 &&
+        ts.isIdentifier(expression.arguments[0]) &&
+        passThrough.has(expression.arguments[0].text) &&
+        ts.isArrowFunction(expression.arguments[1])
+      ) {
+        collectExpression(expression.arguments[1], passThrough);
+        return;
+      }
+
+      if (
+        ts.isPropertyAccessExpression(expression.expression) &&
+        expression.expression.name.text === "filter" &&
+        expression.arguments.length === 1 &&
+        ts.isIdentifier(expression.arguments[0]) &&
+        expression.arguments[0].text === "Boolean"
+      ) {
+        collectExpression(expression.expression.expression, passThrough);
+        return;
+      }
+
+      if (
+        ts.isPropertyAccessExpression(expression.expression) &&
+        expression.expression.name.text === "join" &&
+        expression.arguments.length === 1 &&
+        ts.isStringLiteralLike(expression.arguments[0]) &&
+        expression.arguments[0].text === " "
+      ) {
+        collectExpression(expression.expression.expression, passThrough);
+        return;
+      }
+    }
+
+    unsupportedClassExpression(expression, sourceFile);
+  };
+
+  walk(sourceFile, (node) => {
+    const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
+
+    if (
+      ts.isJsxAttribute(node) &&
+      (attributeName === "className" || attributeName?.endsWith("ClassName")) &&
+      node.initializer
+    ) {
+      if (ts.isStringLiteral(node.initializer)) {
+        addTokens(node.initializer.text);
+      } else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+        collectExpression(node.initializer.expression, destructuredClassNameParameters(node));
+      } else {
+        throw new Error(`Unsupported ${attributeName} initializer in ${filename}`);
+      }
+    }
+  });
+
+  return [...names];
+}
+
+export function stylesheetOwnerClasses(styles: string) {
+  const withoutComments = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  const owners = new Set<string>();
+
+  for (const match of withoutComments.matchAll(/(?:^|[{}])\s*([^@{}\s][^{}]*?)\s*\{/g)) {
+    const selectorList = match[1];
+    for (const selector of selectorList.split(",")) {
+      const owner = selector.match(/\.([a-z_][\w-]*)/i)?.[1];
+      if (owner) owners.add(owner);
+    }
+  }
+
+  return owners;
+}
+
+export function unownedClassNames(classes: Iterable<string>, owners: ReadonlySet<string>) {
+  return [...new Set(classes)].filter((className) => !owners.has(className)).sort();
+}
+
+function resolveSourceFile(path: string) {
+  for (const candidate of [
+    path,
+    `${path}.ts`,
+    `${path}.tsx`,
+    join(path, "index.ts"),
+    join(path, "index.tsx"),
+  ]) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.SourceFile) {
+  let values = [template.head.text];
+
+  for (const span of template.templateSpans) {
+    if (!ts.isConditionalExpression(span.expression)) {
+      throw new Error(
+        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
+      );
+    }
+
+    const spanValues = [span.expression.whenTrue, span.expression.whenFalse].flatMap((branch) =>
+      ts.isStringLiteralLike(branch) ? [branch.text] : [],
+    );
+    if (spanValues.length !== 2) {
+      throw new Error(
+        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
+      );
+    }
+
+    values = values.flatMap((prefix) =>
+      spanValues.map((spanValue) => `${prefix}${spanValue}${span.literal.text}`),
+    );
+  }
+
+  return values;
+}
+
+function destructuredClassNameParameters(node: ts.Node) {
+  let current = node.parent;
+  while (current && !ts.isFunctionLike(current)) current = current.parent;
+
+  const parameters = new Set<string>();
+  for (const parameter of current?.parameters ?? []) {
+    if (!ts.isObjectBindingPattern(parameter.name)) continue;
+
+    for (const binding of parameter.name.elements) {
+      if (
+        ts.isIdentifier(binding.name) &&
+        (binding.name.text === "className" || binding.name.text.endsWith("ClassName"))
+      ) {
+        parameters.add(binding.name.text);
+      }
+    }
+  }
+
+  return parameters;
+}
+
+function unsupportedClassExpression(expression: ts.Node, sourceFile: ts.SourceFile): never {
+  throw new Error(`Unsupported className expression: ${expression.getText(sourceFile)}`);
+}
+
+function walk(node: ts.Node, visit: (node: ts.Node) => void) {
+  visit(node);
+  ts.forEachChild(node, (child) => walk(child, visit));
 }

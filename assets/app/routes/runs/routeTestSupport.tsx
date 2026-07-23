@@ -20,6 +20,10 @@ export function renderWithRelay(network: FetchFunction, initialEntry = "/runs") 
     store: new Store(new RecordSource()),
   });
 
+  return renderWithRelayEnvironment(environment, initialEntry);
+}
+
+export function renderWithRelayEnvironment(environment: Environment, initialEntry = "/runs") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <RelayEnvironmentProvider environment={environment}>

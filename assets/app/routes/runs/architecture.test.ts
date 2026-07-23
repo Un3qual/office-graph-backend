@@ -1,29 +1,34 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import ts from "typescript";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { analyzeTypeScript } from "../architectureTestSupport";
+import {
+  analyzeTypeScript,
+  bareModuleSpecifierOffenders,
+  emittedClassNames,
+  localDependencyFiles,
+  normalizeModuleSpecifier,
+  routeRegistrationOffenders,
+  stylesheetOwnerClasses,
+  unownedClassNames,
+} from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
 const routeRoot = join(assetsRoot, "app/routes/runs");
+const allowedRoutePackages = new Set(["react", "react-relay", "react-router"]);
 
 describe("all-runs route architecture", () => {
-  it("owns the canonical registered route and keeps generated artifacts outside route source", () => {
-    const routeCalls = analyzeTypeScript(
-      readFileSync(join(assetsRoot, "app/routes.ts"), "utf8"),
-      "routes.ts",
-    ).stringCallArguments.get("route");
-    const registeredRunsRoutes = routeCalls?.filter(([path]) => path === "runs") ?? [];
+  it("owns exactly the canonical registered route and keeps generated artifacts outside source", () => {
+    const routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8");
+    const routeFiles = routeOwnedDependencyFiles(routesSource);
 
-    expect(existsSync(join(routeRoot, "route.tsx"))).toBe(true);
-    expect(existsSync(join(routeRoot, "RunWorkspace.tsx"))).toBe(true);
-    expect(existsSync(join(routeRoot, "components/RunList.tsx"))).toBe(true);
-    expect(existsSync(join(routeRoot, "components/RunDetail.tsx"))).toBe(true);
-    expect(existsSync(join(routeRoot, "components/RunsLayout.tsx"))).toBe(true);
-    expect(registeredRunsRoutes).toEqual([["runs", "./routes/runs/route.tsx"]]);
-    expect(existsSync(join(routeRoot, "__generated__"))).toBe(false);
+    expect(routeRegistrationOffenders(routesSource, runsRegistration)).toEqual([]);
+    expect(routeFiles.length).toBeGreaterThan(0);
+    expect(existsSync(join(assetsRoot, "src/runs"))).toBe(false);
+    expect(
+      treeFiles(routeRoot).filter((file) => file.split(/[\\/]/).includes("__generated__")),
+    ).toEqual([]);
 
-    const generatedImports = productionSourceFiles(routeRoot).flatMap((file) =>
+    const generatedImports = routeFiles.flatMap((file) =>
       normalizedImports(file).filter((specifier) => specifier.includes("/__generated__/")),
     );
     expect(generatedImports).not.toEqual([]);
@@ -32,144 +37,186 @@ describe("all-runs route architecture", () => {
     ).toBe(true);
   });
 
-  it("uses shared UI and Relay without importing operator or packet route internals", () => {
-    const imports = productionSourceFiles(routeRoot).flatMap((file) =>
-      normalizedImports(file).map((specifier) => [relative(assetsRoot, file), specifier] as const),
-    );
-    const crossRouteImports = imports.filter(
-      ([, specifier]) =>
-        specifier.startsWith("app/routes/") && !specifier.startsWith("app/routes/runs/"),
+  it("uses shared UI and Relay with product navigation as its only cross-route dependency", () => {
+    const imports = routeOwnedDependencyFiles().flatMap(normalizedImports);
+    const crossRouteImports = new Set(
+      imports.filter(
+        (specifier) =>
+          specifier.startsWith("app/routes/") && !specifier.startsWith("app/routes/runs/"),
+      ),
     );
 
-    expect(crossRouteImports).toEqual([
-      ["app/routes/runs/components/RunsLayout.tsx", "app/routes/productNavigation"],
-    ]);
-    expect(imports.some(([, specifier]) => specifier.startsWith("src/ui/"))).toBe(true);
-    expect(imports.some(([, specifier]) => specifier.startsWith("app/relay/"))).toBe(true);
-    expect(
-      imports.filter(
-        ([, specifier]) =>
-          specifier.startsWith("app/routes/operator/") ||
-          specifier.startsWith("app/routes/packets/"),
-      ),
-    ).toEqual([]);
+    expect(crossRouteImports).toEqual(new Set(["app/routes/productNavigation"]));
+    expect(imports.some((specifier) => specifier.startsWith("src/ui/"))).toBe(true);
+    expect(imports.some((specifier) => specifier.startsWith("app/relay/"))).toBe(true);
   });
 
-  it("owns route styles through global runs.css without borrowing route-specific styles", () => {
+  it("requires a shared or runs stylesheet owner for every emitted route dependency class", () => {
     const globalStyles = readFileSync(join(assetsRoot, "src/styles/global.css"), "utf8");
     const runsStyles = readFileSync(join(assetsRoot, "src/styles/runs.css"), "utf8");
     const sharedStyles = readFileSync(join(assetsRoot, "src/styles/shared.css"), "utf8");
-    const operatorStyles = readFileSync(join(assetsRoot, "src/styles/operator.css"), "utf8");
-    const packetStyles = readFileSync(join(assetsRoot, "src/styles/packets.css"), "utf8");
-    const routeClasses = productionSourceFiles(routeRoot).flatMap((file) =>
-      staticClassNames(readFileSync(file, "utf8"), file),
+    const dependencyFiles = routeDependencyFiles();
+    const emittedClasses = dependencyFiles.flatMap((file) =>
+      emittedClassNames(readFileSync(file, "utf8"), file),
     );
-    const runsClasses = stylesheetClasses(runsStyles);
-    const sharedClasses = stylesheetClasses(sharedStyles);
-    const operatorOnly = setDifference(stylesheetClasses(operatorStyles), sharedClasses);
-    const packetOnly = setDifference(stylesheetClasses(packetStyles), sharedClasses);
+    const owners = new Set([
+      ...stylesheetOwnerClasses(sharedStyles),
+      ...stylesheetOwnerClasses(runsStyles),
+    ]);
 
     expect(globalStyles.match(/@import\s+["']\.\/runs\.css["'];/g)).toHaveLength(1);
-    expect(routeClasses.filter((className) => className.startsWith("runs-"))).not.toEqual([]);
-    expect(
-      routeClasses.filter(
-        (className) =>
-          !runsClasses.has(className) &&
-          !sharedClasses.has(className) &&
-          (operatorOnly.has(className) || packetOnly.has(className)),
-      ),
-    ).toEqual([]);
-    expect(
-      routeClasses.filter(
-        (className) =>
-          className.startsWith("runs-") &&
-          !runsClasses.has(className) &&
-          !sharedClasses.has(className),
-      ),
-    ).toEqual([]);
+    expect(emittedClasses).toContain("runs-workspace");
+    expect(unownedClassNames(emittedClasses, owners)).toEqual([]);
   });
 
-  it("does not add Tailwind, dependent UI libraries, utility classes, or a route framework", () => {
-    const packageJson = JSON.parse(readFileSync(join(assetsRoot, "package.json"), "utf8")) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    const dependencies = Object.keys({
-      ...packageJson.dependencies,
-      ...packageJson.devDependencies,
-    });
-    const routeImports = productionSourceFiles(routeRoot).flatMap(normalizedImports);
-    const routeClasses = productionSourceFiles(routeRoot).flatMap((file) =>
-      staticClassNames(readFileSync(file, "utf8"), file),
+  it("allows only the route's explicit React, Router, and Relay packages", () => {
+    const routeImports = routeOwnedDependencyFiles().flatMap((file) => [
+      ...analyzeTypeScript(readFileSync(file, "utf8"), file).moduleSpecifiers,
+    ]);
+
+    expect(bareModuleSpecifierOffenders(routeImports, allowedRoutePackages)).toEqual([]);
+  });
+
+  it("keeps Tailwind and utility-class conventions out of the project and route", () => {
+    const packageSource = readFileSync(join(assetsRoot, "package.json"), "utf8");
+    const lockSource = readFileSync(join(assetsRoot, "pnpm-lock.yaml"), "utf8");
+    const allStyles = readdirSync(join(assetsRoot, "src/styles"))
+      .filter((entry) => entry.endsWith(".css"))
+      .map((entry) => readFileSync(join(assetsRoot, "src/styles", entry), "utf8"))
+      .join("\n");
+    const emittedClasses = routeDependencyFiles().flatMap((file) =>
+      emittedClassNames(readFileSync(file, "utf8"), file),
     );
-    const forbiddenDependency =
-      /(?:^|[-/@])(tailwind|daisyui|flowbite|headlessui|heroicons|shadcn|twind)(?:[-/@]|$)/i;
+    const tailwindPackage = /(?:^|["'\s/@])(?:@tailwindcss\/[\w-]+|tailwindcss)(?=["'\s/:@]|$)/i;
     const utilityClass =
       /^(?:[a-z]+:)*(?:bg|border|col-span|flex|gap|grid-cols|h|items|justify|m[trblxy]?|max-w|min-h|min-w|p[trblxy]?|rounded|space-[xy]|text|w)-/;
-    const styles = readFileSync(join(assetsRoot, "src/styles/runs.css"), "utf8");
 
-    expect(dependencies.filter((dependency) => forbiddenDependency.test(dependency))).toEqual([]);
-    expect(routeImports.filter((specifier) => forbiddenDependency.test(specifier))).toEqual([]);
-    expect(routeClasses.filter((className) => utilityClass.test(className))).toEqual([]);
-    expect(styles).not.toMatch(/@(apply|tailwind)\b/);
+    expect(packageSource).not.toMatch(tailwindPackage);
+    expect(lockSource).not.toMatch(tailwindPackage);
+    expect(readdirSync(assetsRoot).filter((entry) => /^tailwind\.config\./i.test(entry))).toEqual(
+      [],
+    );
+    expect(allStyles).not.toMatch(/@(apply|tailwind)\b/);
+    expect(emittedClasses.filter((className) => utilityClass.test(className))).toEqual([]);
+  });
+
+  it("rejects route aliases that target any runs-owned module", () => {
+    const source = `
+      import { route } from "@react-router/dev/routes";
+      export default [
+        route("runs", "./routes/runs/route.tsx"),
+        route("all-runs", "./routes/runs/route.tsx"),
+      ];
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
+      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    ]);
+  });
+
+  it("rejects every emitted class without a shared or runs stylesheet owner", () => {
+    const classes = emittedClassNames(
+      `export function Fixture() { return <div className="orphan-card" />; }`,
+      "fixture.tsx",
+    );
+
+    expect(unownedClassNames(classes, new Set(["ui-owned", "runs-owned"]))).toEqual([
+      "orphan-card",
+    ]);
+  });
+
+  it("rejects MUI, Chakra, Ant, Bootstrap, styled-components, and any new bare package", () => {
+    const source = `
+      import mui from "@mui/material";
+      import chakra from "@chakra-ui/react";
+      import ant from "antd";
+      import bootstrap from "react-bootstrap";
+      import styled from "styled-components";
+      import unknown from "new-route-framework";
+    `;
+    const imports = analyzeTypeScript(source).moduleSpecifiers;
+
+    expect(bareModuleSpecifierOffenders(imports, allowedRoutePackages)).toEqual([
+      "@chakra-ui/react",
+      "@mui/material",
+      "antd",
+      "new-route-framework",
+      "react-bootstrap",
+      "styled-components",
+    ]);
+  });
+
+  it("accepts finite conditional and render-prop class expressions", () => {
+    const source = `
+      function Fixture({ active, className }: { active: boolean; className?: string }) {
+        return (
+          <>
+            <div className={active ? "state-active" : "state-idle"} />
+            <NavLink className={({ isActive }) =>
+              isActive ? "nav-item nav-item-active" : "nav-item"
+            } />
+            <AriaButton
+              className={composeRenderProps(className, (className) =>
+                ["ui-button", active ? "ui-button-primary" : "ui-button-secondary", className]
+                  .filter(Boolean)
+                  .join(" ")
+              )}
+            />
+          </>
+        );
+      }
+    `;
+
+    expect(emittedClassNames(source, "fixture.tsx").sort()).toEqual([
+      "nav-item",
+      "nav-item-active",
+      "state-active",
+      "state-idle",
+      "ui-button",
+      "ui-button-primary",
+      "ui-button-secondary",
+    ]);
   });
 });
 
-function productionSourceFiles(path: string): string[] {
-  return readdirSync(path).flatMap((entry) => {
-    const fullPath = join(path, entry);
-    const stats = statSync(fullPath);
-    if (stats.isDirectory()) return productionSourceFiles(fullPath);
-    return /\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry) ? [fullPath] : [];
-  });
-}
+const runsRegistration = {
+  canonicalPath: "runs",
+  ownedModulePrefix: "./routes/runs",
+} as const;
 
 function normalizedImports(file: string) {
   const facts = analyzeTypeScript(readFileSync(file, "utf8"), file);
   return [...facts.moduleSpecifiers].map((specifier) =>
-    specifier.startsWith(".")
-      ? relative(assetsRoot, resolve(dirname(file), specifier)).replaceAll("\\", "/")
-      : specifier,
+    normalizeModuleSpecifier(specifier, file, assetsRoot),
   );
 }
 
-function staticClassNames(source: string, filename: string) {
-  const sourceFile = ts.createSourceFile(
-    filename,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+function routeDependencyFiles(
+  routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8"),
+) {
+  return localDependencyFiles([canonicalRouteEntry(routesSource)]);
+}
+
+function routeOwnedDependencyFiles(
+  routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8"),
+) {
+  const ownedPrefix = `${routeRoot}/`;
+  return routeDependencyFiles(routesSource).filter(
+    (file) => file === routeRoot || file.startsWith(ownedPrefix),
   );
-  const classes = new Set<string>();
-
-  const visit = (node: ts.Node) => {
-    const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
-    if (
-      ts.isJsxAttribute(node) &&
-      (attributeName === "className" || attributeName?.endsWith("ClassName"))
-    ) {
-      const initializer = node.initializer;
-      if (!initializer) throw new Error(`Missing className initializer in ${filename}`);
-
-      if (ts.isStringLiteral(initializer)) {
-        for (const className of initializer.text.split(/\s+/)) classes.add(className);
-      } else {
-        throw new Error(`All-runs className must be a static string in ${filename}`);
-      }
-    }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return [...classes];
 }
 
-function stylesheetClasses(source: string) {
-  return new Set([...source.matchAll(/\.([a-z_][\w-]*)/gi)].map((match) => match[1]));
+function canonicalRouteEntry(routesSource: string) {
+  const routeCalls = analyzeTypeScript(routesSource, "routes.ts").stringCallArguments.get("route");
+  const target = routeCalls?.find(([path]) => path === runsRegistration.canonicalPath)?.[1];
+  if (!target) throw new Error("Canonical runs route is not registered.");
+
+  return resolve(dirname(join(assetsRoot, "app/routes.ts")), target);
 }
 
-function setDifference(values: Set<string>, excluded: Set<string>) {
-  return new Set([...values].filter((value) => !excluded.has(value)));
+function treeFiles(path: string): string[] {
+  return readdirSync(path).flatMap((entry) => {
+    const fullPath = join(path, entry);
+    return statSync(fullPath).isDirectory() ? treeFiles(fullPath) : [fullPath];
+  });
 }

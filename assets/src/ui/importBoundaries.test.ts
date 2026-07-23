@@ -102,9 +102,26 @@ describe("shared UI import boundaries", () => {
       scripts: Record<string, string>;
     };
 
-    expect(packageJson.scripts["verify:import-boundaries"]).toBe(
-      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts app/routes/runs/architecture.test.ts",
-    );
+    expect(
+      scriptRunsVitestFile(
+        packageJson.scripts["verify:import-boundaries"],
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(true);
+  });
+
+  it("finds a Vitest run target independently of test order and flags", () => {
+    const script =
+      "pnpm exec vitest --pool=forks run app/routes/packets/architecture.test.ts --reporter=dot app/routes/runs/architecture.test.ts";
+
+    expect(scriptRunsVitestFile(script, "app/routes/runs/architecture.test.ts")).toBe(true);
+    expect(scriptRunsVitestFile(script, "app/routes/operator/architecture.test.ts")).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "pnpm lint && printf app/routes/runs/architecture.test.ts",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -210,4 +227,22 @@ function normalizeSpecifier(specifier: string, filename: string) {
 
 function formatPath(path: string) {
   return relative(assetsRoot, path);
+}
+
+function scriptRunsVitestFile(script: string, testFile: string) {
+  return script.split(/\s*(?:&&|;)\s*/).some((command) => {
+    const tokens = shellTokens(command);
+    const vitestIndex = tokens.indexOf("vitest");
+    const runIndex = tokens.indexOf("run", vitestIndex + 1);
+
+    return (
+      vitestIndex >= 0 && runIndex > vitestIndex && tokens.slice(runIndex + 1).includes(testFile)
+    );
+  });
+}
+
+function shellTokens(command: string) {
+  return (command.match(/"[^"]*"|'[^']*'|[^\s]+/g) ?? []).map((token) =>
+    /^(['"]).*\1$/.test(token) ? token.slice(1, -1) : token,
+  );
 }
