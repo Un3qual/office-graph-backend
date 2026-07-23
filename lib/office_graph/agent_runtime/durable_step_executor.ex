@@ -394,7 +394,7 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
   end
 
   defp retry_or_exhaust(claim, job, failure_code) do
-    if claim.execution.attempt_count >= bounded_attempt_budget(job) do
+    if job.attempt >= bounded_attempt_budget(job) do
       fail_claim(claim, job, "attempts_exhausted")
     else
       case finalize_claim(claim, "retry_scheduled", "retry_scheduled", failure_code) do

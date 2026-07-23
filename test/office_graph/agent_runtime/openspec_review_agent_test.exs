@@ -4,15 +4,18 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
   alias OfficeGraph.{AgentRuntime, Operations}
 
   alias OfficeGraph.AgentRuntime.{
+    AdapterContract,
     AgentExecution,
     AuthoritySnapshot,
     ContextPackage,
     ExecutionWorker,
     ModelRequest,
+    RoutedOutputBatch,
     ToolReferenceResolver,
     ToolRequest
   }
 
+  alias OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute
   alias OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow
   alias OfficeGraph.AgentRuntime.Tools.CommandRunner
 
@@ -69,13 +72,238 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     def revalidate_step(_execution_id, _opts), do: {:error, :agent_principal_inactive}
   end
 
+  defmodule RetryTwiceModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+
+    @impl true
+    def manifest, do: DeterministicModel.manifest()
+
+    @impl true
+    def invoke(input) do
+      if next_attempt(:model) <= 2,
+        do: {:error, {:retryable, :model_temporarily_unavailable}},
+        else: DeterministicModel.invoke(input)
+    end
+
+    @impl true
+    def cancel(request_id), do: DeterministicModel.cancel(request_id)
+
+    defp next_attempt(step) do
+      coordinator = Application.fetch_env!(:office_graph, :openspec_review_retry_coordinator)
+
+      Agent.get_and_update(coordinator, fn attempts ->
+        next = Map.get(attempts, step, 0) + 1
+        {next, Map.put(attempts, step, next)}
+      end)
+    end
+  end
+
+  defmodule RetryTwiceOutputRoute do
+    @behaviour OfficeGraph.AgentRuntime.ToolAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute
+
+    @impl true
+    def manifest, do: DeterministicOutputRoute.manifest()
+
+    @impl true
+    def invoke(input) do
+      if next_attempt(:route) <= 2,
+        do: {:error, {:retryable, :route_temporarily_unavailable}},
+        else: DeterministicOutputRoute.invoke(input)
+    end
+
+    @impl true
+    def cancel(request_id), do: DeterministicOutputRoute.cancel(request_id)
+
+    defp next_attempt(step) do
+      coordinator = Application.fetch_env!(:office_graph, :openspec_review_retry_coordinator)
+
+      Agent.get_and_update(coordinator, fn attempts ->
+        next = Map.get(attempts, step, 0) + 1
+        {next, Map.put(attempts, step, next)}
+      end)
+    end
+  end
+
+  defmodule MalformedOutputRoute do
+    @behaviour OfficeGraph.AgentRuntime.ToolAdapter
+
+    alias OfficeGraph.AgentRuntime.{
+      AdapterContract,
+      ToolInput,
+      ToolOutput
+    }
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute
+
+    @impl true
+    def manifest, do: DeterministicOutputRoute.manifest()
+
+    @impl true
+    def invoke(%ToolInput{} = input) do
+      with :ok <- AdapterContract.validate_tool_input(manifest(), input) do
+        {:ok,
+         %ToolOutput{
+           classification: :observation,
+           safe_summary: input.adapter_payload.review_summary,
+           structured_content: %{
+             "observation" => %{"subject" => "unvalidated_placeholder"}
+           }
+         }}
+      end
+    end
+
+    @impl true
+    def cancel(request_id), do: DeterministicOutputRoute.cancel(request_id)
+  end
+
+  defmodule MaximumSummaryModel do
+    @behaviour OfficeGraph.AgentRuntime.ModelAdapter
+
+    alias OfficeGraph.AgentRuntime.Adapters.DeterministicModel
+
+    @impl true
+    def manifest, do: DeterministicModel.manifest()
+
+    @impl true
+    def invoke(input) do
+      with {:ok, output} <- DeterministicModel.invoke(input) do
+        {:ok, %{output | safe_summary: String.duplicate("x", 1_000)}}
+      end
+    end
+
+    @impl true
+    def cancel(request_id), do: DeterministicModel.cancel(request_id)
+  end
+
   setup do
+    retry_coordinator = start_supervised!({Agent, fn -> %{} end})
+    Application.put_env(:office_graph, :openspec_review_retry_coordinator, retry_coordinator)
+
+    on_exit(fn ->
+      Application.delete_env(:office_graph, :openspec_review_retry_coordinator)
+    end)
+
     fixture =
       "test/support/fixtures/agent_runtime/openspec_review_case.json"
       |> File.read!()
       |> Jason.decode!()
 
     {:ok, Map.put(AgentRuntimeSupport.invocation_fixture(), :review_fixture, fixture)}
+  end
+
+  test "model review receives a full retry budget after both context phases", context do
+    configure_adapter_registry(fn registry ->
+      put_in(registry, [:models, "deterministic"], RetryTwiceModel)
+    end)
+
+    invoked = invoke_automatic!(context, "model-retry-budget")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "model:review", 1)
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "model:review", 2)
+    assert :ok = perform_step(invoked.execution.id, "model:review", 3)
+    assert :ok = perform_step(invoked.execution.id, "output:route", 1)
+
+    completed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    model_request = request_for!(ModelRequest, invoked.execution.id, "model:review")
+
+    assert completed.state == "completed"
+    assert completed.attempt_count == 6
+    assert model_request.state == "succeeded"
+
+    assert Agent.get(
+             Application.fetch_env!(:office_graph, :openspec_review_retry_coordinator),
+             & &1.model
+           ) == 3
+  end
+
+  test "output route receives a full retry budget after the preceding three phases", context do
+    configure_adapter_registry(fn registry ->
+      put_in(registry, [:tools, "internal.output.route"], RetryTwiceOutputRoute)
+    end)
+
+    invoked = invoke_automatic!(context, "route-retry-budget")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+    assert :ok = perform_step(invoked.execution.id, "model:review", 1)
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "output:route", 1)
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "output:route", 2)
+    assert :ok = perform_step(invoked.execution.id, "output:route", 3)
+
+    completed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    route_request = request_for!(ToolRequest, invoked.execution.id, "output:route")
+
+    assert completed.state == "completed"
+    assert completed.attempt_count == 6
+    assert route_request.state == "succeeded"
+
+    assert Agent.get(
+             Application.fetch_env!(:office_graph, :openspec_review_retry_coordinator),
+             & &1.route
+           ) == 3
+  end
+
+  test "malformed routed batch is rejected before any governed output is written", context do
+    configure_adapter_registry(fn registry ->
+      put_in(registry, [:tools, "internal.output.route"], MalformedOutputRoute)
+    end)
+
+    invoked = invoke_automatic!(context, "malformed-routed-batch")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+    assert :ok = perform_step(invoked.execution.id, "model:review", 1)
+
+    assert {:cancel, "malformed_tool_output"} =
+             perform_step(invoked.execution.id, "output:route", 1)
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "malformed_tool_output"
+    assert governed_output_counts(invoked.execution.id) == empty_governed_output_counts()
+  end
+
+  test "maximum-sized model summary cannot create an oversized routed batch", context do
+    configure_adapter_registry(fn registry ->
+      put_in(registry, [:models, "deterministic"], MaximumSummaryModel)
+    end)
+
+    invoked = invoke_automatic!(context, "bounded-routed-batch")
+
+    assert :ok = perform_all_agent_jobs(invoked.execution.id)
+
+    [message] = records_for(ConversationMessage, invoked.execution.id)
+    proposals = records_for(ProposedGraphChange, invoked.execution.id)
+    [observation] = records_for(ExecutionObservation, invoked.execution.id)
+    [candidate] = records_for(EvidenceCandidate, invoked.execution.id)
+
+    routed_summaries =
+      [message.body, observation.rationale, candidate.claim] ++
+        Enum.flat_map(proposals, &[&1.payload["title"], &1.payload["body"]])
+
+    assert Enum.all?(routed_summaries, &(byte_size(&1) <= 1_000))
+  end
+
+  test "oversized routed batch is rejected by its declared nested schema" do
+    oversized_output =
+      "bounded review"
+      |> RoutedOutputBatch.build()
+      |> put_in(
+        [Access.key!(:structured_content), "observation", "message", "safe_summary"],
+        String.duplicate("x", 1_001)
+      )
+
+    assert {:error, {:terminal, :malformed_tool_output}} =
+             AdapterContract.validate_tool_output(
+               DeterministicOutputRoute.manifest(),
+               oversized_output
+             )
   end
 
   test "automatic OpenSpec review reads authorized context and produces governed records",
@@ -435,6 +663,42 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     |> Ash.read!(authorize?: false)
   end
 
+  defp request_for!(resource, execution_id, step_key) do
+    resource
+    |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp invoke_automatic!(context, suffix) do
+    request =
+      AgentRuntimeSupport.request(context, %{
+        origin: "system_trigger",
+        invocation_mode: "automatic",
+        idempotency_key: "automatic-#{suffix}-#{context.suffix}",
+        requested_capabilities: context.definition.requested_capabilities
+      })
+
+    {:ok, operation} = AgentRuntimeSupport.system_operation(context, request)
+    {:ok, invoked} = AgentRuntime.invoke_system(operation, request)
+    invoked
+  end
+
+  defp perform_step(execution_id, step_key, attempt) do
+    job =
+      execution_id
+      |> AgentRuntimeSupport.execution_jobs()
+      |> Enum.find(&(&1.args["step_key"] == step_key))
+
+    ExecutionWorker.perform(%{job | attempt: attempt, max_attempts: 3})
+  end
+
+  defp configure_adapter_registry(update) when is_function(update, 1) do
+    original = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    registry = original |> Map.new() |> update.()
+    Application.put_env(:office_graph, :agent_runtime_adapters, registry)
+    on_exit(fn -> Application.put_env(:office_graph, :agent_runtime_adapters, original) end)
+  end
+
   defp records_for(resource, execution_id) do
     resource
     |> Ash.Query.filter(execution_id == ^execution_id)
@@ -457,6 +721,10 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
       observations: length(records_for(ExecutionObservation, execution_id)),
       candidates: length(records_for(EvidenceCandidate, execution_id))
     }
+  end
+
+  defp empty_governed_output_counts do
+    %{messages: 0, proposals: 0, observations: 0, candidates: 0}
   end
 
   defp snapshot_for!(execution_id) do

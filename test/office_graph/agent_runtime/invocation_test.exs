@@ -87,6 +87,35 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     assert operation.subject_id == context.run.id
   end
 
+  test "automatic invocation rejects definitions without a registered workflow before dispatch",
+       context do
+    unsupported_key = "unsupported-automatic-#{context.suffix}"
+
+    Repo.query!("UPDATE agent_definitions SET key = $1 WHERE id = $2", [
+      unsupported_key,
+      Ecto.UUID.dump!(context.definition.id)
+    ])
+
+    request =
+      AgentRuntimeSupport.request(context, %{
+        origin: "system_trigger",
+        invocation_mode: "automatic",
+        idempotency_key: "unsupported-automatic-invocation-#{context.suffix}"
+      })
+
+    assert {:ok, operation} = AgentRuntimeSupport.system_operation(context, request)
+
+    operation_count = Repo.aggregate(Operations.OperationCorrelation, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :automatic_workflow_not_registered} =
+             AgentRuntime.invoke_system(operation, request)
+
+    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Repo.aggregate(Operations.OperationCorrelation, :count) == operation_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+  end
+
   test "automatic invocation requires the exact binding and run trigger lineage", context do
     request =
       AgentRuntimeSupport.request(context, %{

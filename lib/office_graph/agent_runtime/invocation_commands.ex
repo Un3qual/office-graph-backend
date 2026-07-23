@@ -319,7 +319,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     {context_package, context_entries} =
       ContextAssembler.persist_initial!(execution, snapshot, operation, projected_entries)
 
-    case ExecutionWorker.prepare_initial(execution, snapshot) do
+    case ExecutionWorker.prepare_initial(execution, snapshot, definition) do
       {:ok, _prepared_step} -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end

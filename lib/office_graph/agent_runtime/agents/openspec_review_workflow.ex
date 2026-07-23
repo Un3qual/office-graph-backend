@@ -14,9 +14,9 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
     DurableStepExecutor,
     ExecutionWorker,
     ModelInput,
-    ModelOutput,
     ModelRequest,
     OutputRouter,
+    RoutedOutputBatch,
     ToolInput,
     ToolReferenceResolver,
     ToolRequest
@@ -287,7 +287,7 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
 
   defp advance(context, execution, _request, output, now) do
     if context.step.kind == :route do
-      route_outputs!(context, execution, output.safe_summary)
+      route_outputs!(context, execution, output)
     end
 
     case next_step(context.step.key) do
@@ -325,31 +325,21 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
     end
   end
 
-  defp route_outputs!(context, execution, review_summary) do
-    for {classification, suffix, content} <- review_outputs() do
-      OutputRouter.route!(
-        context.operation,
-        execution,
-        context.context_package,
-        context.step.key,
-        %ModelOutput{
-          classification: classification,
-          safe_summary: "#{review_summary} #{suffix}",
-          structured_content: %{Atom.to_string(classification) => content}
-        }
-      )
+  defp route_outputs!(context, execution, output) do
+    with {:ok, %RoutedOutputBatch{outputs: outputs}} <-
+           RoutedOutputBatch.from_tool_output(output) do
+      Enum.each(outputs, fn routed_output ->
+        OutputRouter.route!(
+          context.operation,
+          execution,
+          context.context_package,
+          context.step.key,
+          routed_output
+        )
+      end)
+    else
+      {:error, reason} -> Repo.rollback(reason)
     end
-  end
-
-  defp review_outputs do
-    [
-      {:message, "completed against authorized context", %{"body" => "review_complete"}},
-      {:finding, "found a bounded follow-up", %{"summary" => "bounded_follow_up"}},
-      {:proposal, "proposed a bounded task", %{"intent" => "follow_up"}},
-      {:observation, "recorded a non-authoritative check", %{"subject" => "review_check"}},
-      {:evidence_candidate, "produced candidate verification material",
-       %{"check" => "openspec_review"}}
-    ]
   end
 
   defp resolve_adapter(%{kind: :model}, snapshot, key, version)

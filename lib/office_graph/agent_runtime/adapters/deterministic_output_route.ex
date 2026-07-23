@@ -3,7 +3,12 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute do
 
   @behaviour OfficeGraph.AgentRuntime.ToolAdapter
 
-  alias OfficeGraph.AgentRuntime.{AdapterContract, ToolInput, ToolManifest, ToolOutput}
+  alias OfficeGraph.AgentRuntime.{
+    AdapterContract,
+    RoutedOutputBatch,
+    ToolInput,
+    ToolManifest
+  }
 
   @payload_schema %{
     required: [:model_request_id, :model_output_hash, :review_summary],
@@ -12,12 +17,6 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute do
       model_output_hash: {:string, 64},
       review_summary: {:string, 1_000}
     },
-    max_serialized_bytes: 2_048
-  }
-
-  @observation_schema %{
-    required: ["subject"],
-    fields: %{"subject" => {:string, 1_000}},
     max_serialized_bytes: 2_048
   }
 
@@ -38,7 +37,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute do
           safe_summary: {:string, 1_000},
           structured_content: :classified_content
         },
-        content_schemas: %{observation: @observation_schema},
+        content_schemas: %{observation: RoutedOutputBatch.content_schema()},
         max_serialized_bytes: 16_384
       },
       capability_keys: ["agent.model.generate"],
@@ -56,15 +55,9 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute do
 
   @impl true
   def invoke(%ToolInput{} = input) do
-    with :ok <- AdapterContract.validate_tool_input(manifest(), input) do
-      output = %ToolOutput{
-        classification: :observation,
-        safe_summary: input.adapter_payload.review_summary,
-        structured_content: %{
-          "observation" => %{"subject" => "governed_openspec_review_output"}
-        }
-      }
-
+    with :ok <- AdapterContract.validate_tool_input(manifest(), input),
+         output <- RoutedOutputBatch.build(input.adapter_payload.review_summary),
+         :ok <- AdapterContract.validate_tool_output(manifest(), output) do
       {:ok, output}
     end
   end
