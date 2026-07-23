@@ -8,7 +8,7 @@ export const PacketsRouteQuery = graphql`
     $loadCreatedPacket: Boolean!
     $packetId: ID!
     $loadLinkedPacket: Boolean!
-  ) {
+  ) @throwOnFieldError {
     operatorPacketCreateAffordance {
       identity
       state

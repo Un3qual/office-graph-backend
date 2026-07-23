@@ -24,13 +24,17 @@ export const secondPacketIdentity = {
 } as const;
 
 export function renderWithRelay(network: FetchFunction, initialEntry = "/packets") {
-  let navigate: NavigateFunction | null = null;
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
     store: new Store(new RecordSource()),
   });
 
+  return renderWithRelayEnvironment(environment, initialEntry);
+}
+
+export function renderWithRelayEnvironment(environment: Environment, initialEntry = "/packets") {
+  let navigate: NavigateFunction | null = null;
   const result = render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <RelayEnvironmentProvider environment={environment}>
