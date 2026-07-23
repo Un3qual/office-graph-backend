@@ -178,16 +178,18 @@ linked to an existing authorized work run and selected graph context.
 - **WHEN** an operator or automatic invocation requests the definition's
   declared capabilities
 - **THEN** the immutable authority snapshot MUST contain only capabilities
-  currently granted to the bound agent principal and also present in the
-  delegating principal's or system trigger's authority, and MUST reject any
-  requested capability outside that intersection
+  currently granted to the bound agent principal and MUST reject any requested
+  capability outside that intersection
+- **AND** an operator invocation MUST further intersect those capabilities with
+  the delegating principal's current grants
 
 #### Scenario: Automatic run review starts
 
 - **WHEN** a declared system trigger requests the bound run-review agent for an
   authorized run and selected graph context
-- **THEN** AgentRuntime MUST validate the generic system operation, definition
-  binding, run, scope, and trigger authority before enqueueing execution
+- **THEN** AgentRuntime MUST separately validate the exact system operation,
+  definition binding, run, scope, and binding/run trigger lineage before
+  enqueueing execution
 
 #### Scenario: Automatic trigger lineage does not match the run binding
 
