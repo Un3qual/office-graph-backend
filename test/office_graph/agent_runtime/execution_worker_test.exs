@@ -69,6 +69,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       do: {:error, :integration_storage_unavailable}
   end
 
+  defmodule StorageUnavailableOutputRouter do
+    @moduledoc false
+
+    def route!(_operation, _execution, _context_package, _step_key, _output) do
+      raise Ash.Error.Unknown, errors: []
+    end
+  end
+
   defmodule RotatedModel do
     @behaviour OfficeGraph.AgentRuntime.ModelAdapter
 
@@ -413,6 +421,38 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert is_nil(execution.lease_expires_at)
     assert request.state == "failed"
     assert request.failure_code == "agent_output_kind_not_allowed"
+  end
+
+  test "storage-unavailable output routing schedules a retry" do
+    configured = Application.get_env(:office_graph, :agent_runtime_output_router)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_output_router,
+      StorageUnavailableOutputRouter
+    )
+
+    on_exit(fn ->
+      if is_nil(configured) do
+        Application.delete_env(:office_graph, :agent_runtime_output_router)
+      else
+        Application.put_env(:office_graph, :agent_runtime_output_router, configured)
+      end
+    end)
+
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    [job] = execution_jobs(invoked.execution.id)
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    request = Ash.read_one!(ModelRequest, authorize?: false)
+
+    assert execution.state == "retry_scheduled"
+    assert execution.failure_code == "integration_storage_unavailable"
+    assert request.state == "retry_scheduled"
+    assert request.failure_code == "integration_storage_unavailable"
   end
 
   test "missing configured adapter terminalizes queued execution instead of stranding it" do

@@ -24,7 +24,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     GateExpiryWorker,
     ModelInput,
     ModelRequest,
-    OutputRouter
+    OutputRouter,
+    StorageResult
   }
 
   require Ash.Query
@@ -311,6 +312,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     revalidator.revalidate_step(execution_id, opts)
   end
 
+  defp output_router do
+    Application.get_env(:office_graph, :agent_runtime_output_router, OutputRouter)
+  end
+
   defp create_step_operation(execution, snapshot, step_key) do
     attrs = %{
       organization_id: execution.organization_id,
@@ -496,53 +501,55 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp complete(claim, operation, output) do
-    Repo.transaction(fn ->
-      execution = lock_execution!(claim.execution.id)
-      request = lock_model_request!(claim.request.id)
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        execution = lock_execution!(claim.execution.id)
+        request = lock_model_request!(claim.request.id)
 
-      cond do
-        execution.state == "cancelled" ->
-          maybe_cancel_request!(request, "cancelled")
-          :ok
+        cond do
+          execution.state == "cancelled" ->
+            maybe_cancel_request!(request, "cancelled")
+            :ok
 
-        execution.lease_token == claim.lease_token and execution.state == "running" ->
-          now = DateTime.utc_now()
+          execution.lease_token == claim.lease_token and execution.state == "running" ->
+            now = DateTime.utc_now()
 
-          OutputRouter.route!(
-            operation,
-            execution,
-            claim.context_package,
-            request.step_key,
-            output
-          )
+            output_router().route!(
+              operation,
+              execution,
+              claim.context_package,
+              request.step_key,
+              output
+            )
 
-          request
-          |> Ash.Changeset.for_update(:record_result, %{
-            state: "succeeded",
-            output_hash: hash(output),
-            output_classification: Atom.to_string(output.classification),
-            failure_code: nil,
-            completed_at: now
-          })
-          |> Repo.ash_update!()
+            request
+            |> Ash.Changeset.for_update(:record_result, %{
+              state: "succeeded",
+              output_hash: hash(output),
+              output_classification: Atom.to_string(output.classification),
+              failure_code: nil,
+              completed_at: now
+            })
+            |> Repo.ash_update!()
 
-          transition!(execution, operation, "completed", %{
-            completed_at: now,
-            failure_code: nil,
-            lease_token: nil,
-            lease_expires_at: nil
-          })
+            transition!(execution, operation, "completed", %{
+              completed_at: now,
+              failure_code: nil,
+              lease_token: nil,
+              lease_expires_at: nil
+            })
 
-          :ok
+            :ok
 
-        request.state == "succeeded" and execution.state == "completed" ->
-          :ok
+          request.state == "succeeded" and execution.state == "completed" ->
+            :ok
 
-        true ->
-          Repo.rollback(:stale_agent_execution_lease)
-      end
+          true ->
+            Repo.rollback(:stale_agent_execution_lease)
+        end
+      end)
+      |> normalize_step_transaction()
     end)
-    |> normalize_step_transaction()
   end
 
   defp fail_unclaimed_step(execution_id, operation, failure_code \\ "agent_authority_revoked") do
