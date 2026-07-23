@@ -281,8 +281,8 @@ In `lib/office_graph/agent_runtime.ex`:
 Rename both clauses to `bind_run_review_agent/2`, update the docstring, and use
 an agent email prefixed `run-review+`. Use
 `agent-runtime:run-review:<organization_id>:<workspace_id>` as the binding
-advisory-lock namespace/key returned by `binding_lock_key/2`; it is not an
-operation `idempotency_scope`.
+advisory-lock value passed directly to `pg_advisory_xact_lock` inside
+`lock_binding_scope!/2`; it is not an operation `idempotency_scope`.
 
 Remove `agent_openspec_read: "openspec.read"` from
 `OfficeGraph.Authorization`. Keep `agent_repository_read` unchanged because it
