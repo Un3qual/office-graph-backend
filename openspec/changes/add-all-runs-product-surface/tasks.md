@@ -12,15 +12,15 @@
 ## 3. All Runs Route
 
 - [x] 3.1 Create the route-owned `assets/app/routes/runs/` package, read-only Relay documents, canonical `/runs` registration with no alias/compatibility route or query, and global stylesheet integration without Tailwind or a route-specific UI framework.
-- [ ] 3.2 Implement the run list, default selection only when `runId` is absent, authoritative detail for every present `?runId=<id>` selection (including off-page and unavailable ids), detail summary, first bounded activity page, and explicit list/activity load-more behavior.
+- [x] 3.2 Implement the run list, default selection only when `runId` is absent, authoritative detail for every present `?runId=<id>` selection (including off-page and unavailable ids), detail summary, first bounded activity page, and explicit list/activity load-more behavior.
 - [x] 3.3 Implement empty, loading, list-error, detail-error, paging-error, retry, and stale-detail-clearing states without a second client-side run source of truth.
 - [ ] 3.4 Add route coverage for visible and off-page URL selections, present invalid/missing/forbidden/stale values that never default, selection URL updates, activity/list pagination, safe product fields, canonical route/session behavior, and route/import/style architecture boundaries that prohibit Tailwind and a route-specific UI framework.
 
 ## 4. Navigation And Packet Context
 
 - [x] 4.1 Enable the `All Runs` product-navigation destination while retaining disabled `Entities` and `Reports`, and cover the app-shell and navigation states.
-- [ ] 4.2 Add packet-route `?packetId=<id>` selection that defaults only when the parameter is absent, authoritatively resolves every present value, safely preserves unavailable selections without fallback, and covers URL updates, shared-session behavior, deep links, existing list/detail/paging, and command ownership.
-- [ ] 4.3 Add `/runs` packet and operator links to `/packets?packetId=<id>` and `/operator?runId=<id>`, and verify the all-runs route introduces no mutation or duplicated command owner.
+- [x] 4.2 Add packet-route `?packetId=<id>` selection that defaults only when the parameter is absent, authoritatively resolves every present value, safely preserves unavailable selections without fallback, and covers URL updates, shared-session behavior, deep links, existing list/detail/paging, and command ownership.
+- [x] 4.3 Add `/runs` packet and operator links to `/packets?packetId=<id>` and `/operator?runId=<id>`, and verify the all-runs route introduces no mutation or duplicated command owner.
 
 ## 5. Verification
 

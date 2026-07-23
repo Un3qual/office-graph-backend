@@ -109,9 +109,15 @@ function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selec
         title="Verification results"
       />
 
-      <RunActivity activity={detail.activity} />
+      <RunActivity activity={detail.activity} key={selectedId} runId={selectedId} />
 
       <div className="runs-detail-actions">
+        <Link
+          className="ui-button ui-button-secondary"
+          to={`/packets?packetId=${encodeURIComponent(detail.packet.id)}`}
+        >
+          Open packet history
+        </Link>
         <Link
           className="ui-button ui-button-primary"
           to={`/operator?runId=${encodeURIComponent(selectedId)}`}

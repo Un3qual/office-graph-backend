@@ -219,6 +219,8 @@ describe("packet workspace route reads", () => {
       after: null,
       createdOperationId: "operation_created",
       loadCreatedPacket: true,
+      packetId: null,
+      loadLinkedPacket: false,
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });

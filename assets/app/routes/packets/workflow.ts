@@ -20,6 +20,7 @@ type PacketsWorkflowInput = {
 
 export type PacketSelection =
   | { kind: "relay_id"; value: string }
+  | { kind: "packet_id"; value: string }
   | { kind: "operation_id"; value: string };
 
 type RelayPageInfo = {
@@ -40,12 +41,15 @@ export function usePacketsWorkflow({
 }: PacketsWorkflowInput) {
   const createdOperationId =
     requestedSelection?.kind === "operation_id" ? requestedSelection.value : null;
+  const packetId = requestedSelection?.kind === "packet_id" ? requestedSelection.value : null;
   const data = useLazyLoadQuery<PacketsRouteOperation>(
     PacketsRouteQuery,
     {
       ...page,
       createdOperationId,
       loadCreatedPacket: createdOperationId !== null,
+      packetId,
+      loadLinkedPacket: packetId !== null,
     },
     {
       fetchKey,
@@ -53,9 +57,9 @@ export function usePacketsWorkflow({
     },
   );
   const connection = packetConnectionFromRelay(data);
-  const rows = mergeCreatedPacket(
-    connection.rows,
-    packetRowsFromRelayConnection(data.createdPacket)[0] ?? null,
+  const rows = mergePacket(
+    mergePacket(connection.rows, packetRowsFromRelayConnection(data.createdPacket)[0] ?? null),
+    packetRowsFromRelayConnection(data.linkedPacket)[0] ?? null,
   );
   const selectedId = selectedPacketId(rows, requestedSelection);
   const selectedPacket = rows.find((packet) => packet.id === selectedId) ?? null;
@@ -132,9 +136,9 @@ export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operati
 ) {
   const selectedPacket = requestedSelection
     ? rows.find((packet) =>
-        requestedSelection.kind === "relay_id"
-          ? packet.id === requestedSelection.value
-          : packet.operationId === requestedSelection.value,
+        requestedSelection.kind === "operation_id"
+          ? packet.operationId === requestedSelection.value
+          : packet.id === requestedSelection.value,
       )
     : null;
 
@@ -142,7 +146,9 @@ export function selectedPacketId<TPacket extends Pick<PacketRow, "id" | "operati
     return selectedPacket.id;
   }
 
-  return requestedSelection?.kind === "operation_id" ? null : (rows[0]?.id ?? null);
+  return requestedSelection?.kind === "operation_id" || requestedSelection?.kind === "packet_id"
+    ? null
+    : (rows[0]?.id ?? null);
 }
 
 function packetConnectionFromRelay(
@@ -175,13 +181,13 @@ function packetRowsFromRelayConnection(
   });
 }
 
-function mergeCreatedPacket<TPacket extends Pick<PacketRow, "id">>(
+function mergePacket<TPacket extends Pick<PacketRow, "id">>(
   rows: readonly TPacket[],
-  createdPacket: TPacket | null,
+  packet: TPacket | null,
 ): TPacket[] {
-  if (!createdPacket || rows.some((packet) => packet.id === createdPacket.id)) {
+  if (!packet || rows.some((row) => row.id === packet.id)) {
     return [...rows];
   }
 
-  return [createdPacket, ...rows];
+  return [packet, ...rows];
 }

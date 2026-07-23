@@ -254,6 +254,9 @@ describe("all-runs route reads", () => {
 
     support.renderWithRelay(network);
 
+    await waitFor(() => {
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+    });
     fireEvent.click(await screen.findByRole("button", { name: /Second visible run/i }));
 
     await waitFor(() => {
@@ -442,7 +445,10 @@ describe("all-runs route reads", () => {
       activityFirst: 5,
       activityAfter: null,
     });
-    expect(screen.queryByRole("button", { name: /more activity/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more activity" })).toBeInTheDocument();
+    expect(
+      network.mock.calls.filter(([request]) => request.name === "RunDetailQuery"),
+    ).toHaveLength(1);
   });
 
   it("links to the operator workspace while preserving the selected run id", async () => {

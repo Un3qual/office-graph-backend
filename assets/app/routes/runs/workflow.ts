@@ -15,13 +15,17 @@ export function useRunsPage(page: RunsPage, fetchKey?: number, forceNetwork = fa
   return runsConnectionFromRelay(data);
 }
 
-export function useRunDetail(runId: string, fetchKey?: number): RunDetailState {
+export function useRunDetail(
+  runId: string,
+  fetchKey?: number,
+  activityAfter: string | null = null,
+): RunDetailState {
   const data = useLazyLoadQuery<RunDetailOperation>(
     RunDetailQuery,
     {
       id: runId,
       activityFirst: 5,
-      activityAfter: null,
+      activityAfter,
     },
     { fetchKey, fetchPolicy: "network-only" },
   );
