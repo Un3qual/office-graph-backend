@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.RoutedOutputBatch do
   @moduledoc false
 
-  alias OfficeGraph.AgentRuntime.{ModelOutput, ToolOutput}
+  alias OfficeGraph.AgentRuntime.{AdapterContract, ModelOutput, ToolOutput}
 
   @max_summary_bytes 1_000
 
@@ -48,21 +48,17 @@ defmodule OfficeGraph.AgentRuntime.RoutedOutputBatch do
       Map.new(@output_specs, fn spec ->
         {classification_key(spec),
          {:map,
-          %{
-            required: ["safe_summary", spec.content_field],
-            fields: %{
+          AdapterContract.schema(
+            ["safe_summary", spec.content_field],
+            %{
               "safe_summary" => {:string, @max_summary_bytes},
               spec.content_field => {:string, @max_summary_bytes}
             },
-            max_serialized_bytes: 1_200
-          }}}
+            1_200
+          )}}
       end)
 
-    %{
-      required: Enum.map(@output_specs, &classification_key/1),
-      fields: fields,
-      max_serialized_bytes: 8_192
-    }
+    AdapterContract.schema(Enum.map(@output_specs, &classification_key/1), fields, 8_192)
   end
 
   def build(review_summary) when is_binary(review_summary) do
@@ -120,13 +116,20 @@ defmodule OfficeGraph.AgentRuntime.RoutedOutputBatch do
   defp truncate_utf8(value, max_bytes) when byte_size(value) <= max_bytes, do: value
 
   defp truncate_utf8(value, max_bytes) do
-    value
-    |> String.graphemes()
-    |> Enum.reduce_while("", fn grapheme, bounded ->
-      if byte_size(bounded) + byte_size(grapheme) <= max_bytes,
-        do: {:cont, bounded <> grapheme},
-        else: {:halt, bounded}
-    end)
+    {reversed, _byte_count} =
+      value
+      |> String.graphemes()
+      |> Enum.reduce_while({[], 0}, fn grapheme, {bounded, byte_count} ->
+        next_byte_count = byte_count + byte_size(grapheme)
+
+        if next_byte_count <= max_bytes,
+          do: {:cont, {[grapheme | bounded], next_byte_count}},
+          else: {:halt, {bounded, byte_count}}
+      end)
+
+    reversed
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
   end
 
   defp classification_key(%{classification: classification}), do: Atom.to_string(classification)

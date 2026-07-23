@@ -10,36 +10,32 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute do
     ToolManifest
   }
 
-  @payload_schema %{
-    required: [:model_request_id, :model_output_hash, :review_summary],
-    fields: %{
-      model_request_id: :uuid,
-      model_output_hash: {:string, 64},
-      review_summary: {:string, 1_000}
-    },
-    max_serialized_bytes: 2_048
-  }
+  @payload_schema AdapterContract.schema(
+                    [:model_request_id, :model_output_hash, :review_summary],
+                    %{
+                      model_request_id: :uuid,
+                      model_output_hash: {:string, 64},
+                      review_summary: {:string, 1_000}
+                    },
+                    2_048
+                  )
 
   @impl true
   def manifest do
     %ToolManifest{
       key: "internal.output.route",
       version: "1",
-      input_schema: %{
-        required: [:adapter_payload],
-        fields: AdapterContract.input_schema_fields(:tool, @payload_schema),
-        max_serialized_bytes: 16_384
-      },
-      output_schema: %{
-        required: [:classification, :safe_summary, :structured_content],
-        fields: %{
-          classification: {:enum, [:observation]},
-          safe_summary: {:string, 1_000},
-          structured_content: :classified_content
-        },
-        content_schemas: %{observation: RoutedOutputBatch.content_schema()},
-        max_serialized_bytes: 16_384
-      },
+      input_schema:
+        AdapterContract.schema(
+          [:adapter_payload],
+          AdapterContract.input_schema_fields(:tool, @payload_schema),
+          16_384
+        ),
+      output_schema:
+        AdapterContract.output_schema(
+          [:observation],
+          %{observation: RoutedOutputBatch.content_schema()}
+        ),
       capability_keys: ["agent.model.generate"],
       credential_kinds: [],
       sensitivity: :internal,

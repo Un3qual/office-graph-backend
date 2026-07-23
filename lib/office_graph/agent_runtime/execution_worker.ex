@@ -41,7 +41,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     if execution.invocation_mode == "automatic" do
       AutomaticWorkflowRegistry.prepare_initial(definition, execution, snapshot)
     else
-      with {:ok, operation} <- create_step_operation(execution, snapshot, @initial_step_key),
+      with {:ok, operation} <-
+             DurableStepExecutor.create_step_operation(execution, snapshot, @initial_step_key),
            {:ok, job} <-
              execution
              |> initial_args(operation.id)
@@ -218,7 +219,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
              execution.workspace_id == workspace_id,
          {:ok, %AuthoritySnapshot{} = snapshot} <- authority_snapshot(execution.id),
          {:ok, operation} <- load_operation(operation_id),
-         :ok <- validate_step_operation(operation, execution, snapshot, step_key) do
+         :ok <-
+           DurableStepExecutor.validate_step_operation(operation, execution, snapshot, step_key) do
       load_runtime_context(execution, operation, snapshot)
     else
       false -> {:error, :forbidden}
@@ -337,14 +339,6 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp revalidate_step(execution_id, opts) do
     revalidator = Application.get_env(:office_graph, :agent_runtime_revalidator, AgentRuntime)
     revalidator.revalidate_step(execution_id, opts)
-  end
-
-  defp create_step_operation(execution, snapshot, step_key) do
-    DurableStepExecutor.create_step_operation(execution, snapshot, step_key)
-  end
-
-  defp validate_step_operation(operation, execution, snapshot, step_key) do
-    DurableStepExecutor.validate_step_operation(operation, execution, snapshot, step_key)
   end
 
   defp wait_available_step(

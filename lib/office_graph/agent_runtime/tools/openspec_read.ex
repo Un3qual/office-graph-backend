@@ -14,33 +14,34 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   @max_bytes 64 * 1_024
   @target_pattern ~r/\A[a-z0-9][a-z0-9._-]*\z/
 
-  @payload_schema %{
-    required: [:action],
-    fields: %{action: {:string, 32}, target: {:string, 255}},
-    max_serialized_bytes: 1_024
-  }
+  @payload_schema AdapterContract.schema(
+                    [:action],
+                    %{action: {:string, 32}, target: {:string, 255}},
+                    1_024
+                  )
 
-  @observation_schema %{
-    required: ["subject", "reference", "content_hash", "byte_count"],
-    fields: %{
-      "subject" => {:string, 1_000},
-      "reference" => {:string, 1_000},
-      "content_hash" => {:string, 64},
-      "byte_count" => :positive_integer
-    },
-    max_serialized_bytes: 4_096
-  }
+  @observation_schema AdapterContract.schema(
+                        ["subject", "reference", "content_hash", "byte_count"],
+                        %{
+                          "subject" => {:string, 1_000},
+                          "reference" => {:string, 1_000},
+                          "content_hash" => {:string, 64},
+                          "byte_count" => :positive_integer
+                        },
+                        4_096
+                      )
 
   @impl true
   def manifest do
     %ToolManifest{
       key: "openspec.read",
       version: @version,
-      input_schema: %{
-        required: [:adapter_payload],
-        fields: AdapterContract.input_schema_fields(:tool, @payload_schema),
-        max_serialized_bytes: 16_384
-      },
+      input_schema:
+        AdapterContract.schema(
+          [:adapter_payload],
+          AdapterContract.input_schema_fields(:tool, @payload_schema),
+          16_384
+        ),
       output_schema: output_schema(),
       capability_keys: ["agent.tool.read", "openspec.read"],
       credential_kinds: [],
@@ -173,16 +174,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   end
 
   defp output_schema do
-    %{
-      required: [:classification, :safe_summary, :structured_content],
-      fields: %{
-        classification: {:enum, [:observation]},
-        safe_summary: {:string, 1_000},
-        structured_content: :classified_content
-      },
-      content_schemas: %{observation: @observation_schema},
-      max_serialized_bytes: 16_384
-    }
+    AdapterContract.output_schema([:observation], %{observation: @observation_schema})
   end
 
   defp repository_root do

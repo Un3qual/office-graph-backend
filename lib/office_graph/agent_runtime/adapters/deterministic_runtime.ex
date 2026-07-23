@@ -17,44 +17,24 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     defstruct @enforce_keys
   end
 
-  @adapter_payload_schema %{
-    required: [:fixture_id],
-    fields: %{
-      fixture_id: :string,
-      context_entry_ids: {:list, :uuid},
-      context_hashes: {:list, :string},
-      tool_reference_ids: {:list, :uuid},
-      tool_reference_hashes: {:list, :string},
-      review_digest: {:string, 64}
-    },
-    max_serialized_bytes: 8_192
-  }
+  @adapter_payload_schema AdapterContract.schema(
+                            [:fixture_id],
+                            %{
+                              fixture_id: :string,
+                              context_entry_ids: {:list, :uuid},
+                              context_hashes: {:list, :string},
+                              tool_reference_ids: {:list, :uuid},
+                              tool_reference_hashes: {:list, :string},
+                              review_digest: {:string, 64}
+                            },
+                            8_192
+                          )
   @content_schemas %{
-    proposal: %{
-      required: ["intent"],
-      fields: %{"intent" => {:string, 1_000}},
-      max_serialized_bytes: 16_384
-    },
-    finding: %{
-      required: ["summary"],
-      fields: %{"summary" => {:string, 1_000}},
-      max_serialized_bytes: 16_384
-    },
-    evidence_candidate: %{
-      required: ["check"],
-      fields: %{"check" => {:string, 1_000}},
-      max_serialized_bytes: 16_384
-    },
-    message: %{
-      required: ["body"],
-      fields: %{"body" => {:string, 1_000}},
-      max_serialized_bytes: 16_384
-    },
-    observation: %{
-      required: ["subject"],
-      fields: %{"subject" => {:string, 1_000}},
-      max_serialized_bytes: 16_384
-    }
+    proposal: AdapterContract.schema(["intent"], %{"intent" => {:string, 1_000}}, 16_384),
+    finding: AdapterContract.schema(["summary"], %{"summary" => {:string, 1_000}}, 16_384),
+    evidence_candidate: AdapterContract.schema(["check"], %{"check" => {:string, 1_000}}, 16_384),
+    message: AdapterContract.schema(["body"], %{"body" => {:string, 1_000}}, 16_384),
+    observation: AdapterContract.schema(["subject"], %{"subject" => {:string, 1_000}}, 16_384)
   }
 
   def input_schema(:model) do
@@ -66,16 +46,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   def output_schema(classifications) when is_list(classifications) do
-    %{
-      required: [:classification, :safe_summary, :structured_content],
-      fields: %{
-        classification: {:enum, classifications},
-        safe_summary: {:string, 1_000},
-        structured_content: :classified_content
-      },
-      content_schemas: @content_schemas,
-      max_serialized_bytes: 16_384
-    }
+    AdapterContract.output_schema(classifications, @content_schemas)
   end
 
   def invoke(input, %Configuration{} = configuration) do
@@ -111,7 +82,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
   end
 
   defp build_input_schema(fields) do
-    %{required: [:adapter_payload], fields: fields, max_serialized_bytes: 16_384}
+    AdapterContract.schema([:adapter_payload], fields, 16_384)
   end
 
   defp invoke_new(input, replay_key, fingerprint, deadline, configuration) do

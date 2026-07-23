@@ -227,12 +227,11 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
   defp claim(context, step, opts) do
     lease_token = Ecto.UUID.generate()
     build_input = Keyword.fetch!(opts, :build_input)
-    preflight = Keyword.get(opts, :preflight, Keyword.fetch!(opts, :validate_input))
+    validate_input = Keyword.fetch!(opts, :validate_input)
+    preflight = Keyword.get(opts, :preflight, validate_input)
 
     before_claim =
       Keyword.get(opts, :before_claim, fn _context, _execution, _input -> :continue end)
-
-    validate_input = Keyword.fetch!(opts, :validate_input)
 
     Repo.transaction(fn ->
       execution = lock_execution!(context.execution.id)

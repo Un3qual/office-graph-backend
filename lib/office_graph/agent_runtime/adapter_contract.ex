@@ -72,6 +72,22 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
     |> Map.put(:adapter_payload, {:map, payload_schema})
   end
 
+  def schema(required, fields, max_serialized_bytes)
+      when is_list(required) and is_map(fields) and is_integer(max_serialized_bytes) do
+    %{
+      required: required,
+      fields: fields,
+      max_serialized_bytes: max_serialized_bytes
+    }
+  end
+
+  def output_schema(classifications, content_schemas)
+      when is_list(classifications) and is_map(content_schemas) do
+    [:classification, :safe_summary, :structured_content]
+    |> schema(output_fields(classifications), 16_384)
+    |> Map.put(:content_schemas, content_schemas)
+  end
+
   def fingerprint(input) when is_struct(input) do
     input
     |> Map.from_struct()
@@ -193,11 +209,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
 
     valid_schema?(schema) and
       schema.required == [:classification, :safe_summary, :structured_content] and
-      schema.fields == %{
-        classification: {:enum, classifications},
-        safe_summary: {:string, 1_000},
-        structured_content: :classified_content
-      } and
+      schema.fields == output_fields(classifications) and
       is_map(content_schemas) and
       valid_classifications?(classifications, kind) and
       Enum.all?(classifications, fn classification ->
@@ -325,14 +337,26 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
 
   defp minimum_output_envelope_fits?(schema, classification, content_schema) do
     with {:ok, content} <- minimum_schema_value(content_schema) do
-      schema_accepts?(schema, %{
-        classification: classification,
-        safe_summary: "x",
-        structured_content: %{Atom.to_string(classification) => content}
-      })
+      schema_accepts?(schema, minimum_output_envelope(classification, content))
     else
       :error -> false
     end
+  end
+
+  defp minimum_output_envelope(classification, content) do
+    %{
+      classification: classification,
+      safe_summary: "x",
+      structured_content: %{Atom.to_string(classification) => content}
+    }
+  end
+
+  defp output_fields(classifications) do
+    %{
+      classification: {:enum, classifications},
+      safe_summary: {:string, 1_000},
+      structured_content: :classified_content
+    }
   end
 
   defp minimum_schema_value(%{required: required, fields: fields} = schema) do

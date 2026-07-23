@@ -15,33 +15,34 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
   @default_allowlist ["openspec/project.md", "openspec/specs", "openspec/changes"]
   @revision_pattern ~r/\A[0-9a-f]{40}\z/
 
-  @payload_schema %{
-    required: [:path, :revision],
-    fields: %{path: {:string, 1_024}, revision: {:string, 40}},
-    max_serialized_bytes: 2_048
-  }
+  @payload_schema AdapterContract.schema(
+                    [:path, :revision],
+                    %{path: {:string, 1_024}, revision: {:string, 40}},
+                    2_048
+                  )
 
-  @observation_schema %{
-    required: ["subject", "reference", "content_hash", "byte_count"],
-    fields: %{
-      "subject" => {:string, 1_000},
-      "reference" => {:string, 2_048},
-      "content_hash" => {:string, 64},
-      "byte_count" => :positive_integer
-    },
-    max_serialized_bytes: 4_096
-  }
+  @observation_schema AdapterContract.schema(
+                        ["subject", "reference", "content_hash", "byte_count"],
+                        %{
+                          "subject" => {:string, 1_000},
+                          "reference" => {:string, 2_048},
+                          "content_hash" => {:string, 64},
+                          "byte_count" => :positive_integer
+                        },
+                        4_096
+                      )
 
   @impl true
   def manifest do
     %ToolManifest{
       key: "repository.read",
       version: @version,
-      input_schema: %{
-        required: [:adapter_payload],
-        fields: AdapterContract.input_schema_fields(:tool, @payload_schema),
-        max_serialized_bytes: 16_384
-      },
+      input_schema:
+        AdapterContract.schema(
+          [:adapter_payload],
+          AdapterContract.input_schema_fields(:tool, @payload_schema),
+          16_384
+        ),
       output_schema: output_schema(),
       capability_keys: ["agent.tool.read", "repository.read"],
       credential_kinds: [],
@@ -212,16 +213,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
   end
 
   defp output_schema do
-    %{
-      required: [:classification, :safe_summary, :structured_content],
-      fields: %{
-        classification: {:enum, [:observation]},
-        safe_summary: {:string, 1_000},
-        structured_content: :classified_content
-      },
-      content_schemas: %{observation: @observation_schema},
-      max_serialized_bytes: 16_384
-    }
+    AdapterContract.output_schema([:observation], %{observation: @observation_schema})
   end
 
   defp command(executable, argv, opts), do: command_runner().run(executable, argv, opts)
