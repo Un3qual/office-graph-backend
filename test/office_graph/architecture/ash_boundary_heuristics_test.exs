@@ -235,6 +235,12 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
            """
   end
 
+  test "direct operation scanning counts nested pattern arguments at their declared arity" do
+    assert function_name(
+             "def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do"
+           ) == "start/3"
+  end
+
   test "direct Ecto exception ledger entries still point to current code" do
     operations = direct_ecto_operations()
 

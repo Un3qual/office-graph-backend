@@ -45,19 +45,53 @@
   padding: 14px;
 }
 
-.operator-command-form label {
+.operator-command-form label,
+.agent-gate-form label {
   color: var(--og-color-text-muted);
   font-size: var(--og-typography-small-size);
 }
 
 .operator-command-form input,
-.operator-command-form textarea {
+.operator-command-form textarea,
+.agent-gate-form textarea {
   width: 100%;
   border: 1px solid var(--og-color-border-strong);
   border-radius: var(--og-radius-control);
   padding: 8px 10px;
   color: var(--og-color-text);
   resize: vertical;
+}
+
+.agent-activity-sections {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.agent-activity-sections > section {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-activity-card {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--og-color-border);
+  padding-top: 10px;
+}
+
+.agent-activity-card p,
+.agent-activity-card h4 {
+  margin: 0;
+}
+
+.agent-context-note {
+  font-size: var(--og-typography-small-size);
+}
+
+.agent-gate-form {
+  display: grid;
+  gap: 8px;
 }
 
 .inbox-list {

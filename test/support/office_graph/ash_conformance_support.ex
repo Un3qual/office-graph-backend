@@ -1890,11 +1890,29 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def arity(args) do
+    case Code.string_to_quoted("def __arity__(#{args}), do: :ok") do
+      {:ok, {:def, _metadata, [function_head, _body]}} ->
+        function_head_arity(function_head, args)
+
+      {:error, _parse_error} ->
+        fallback_arity(args)
+    end
+  end
+
+  defp function_head_arity({:when, _metadata, [function_head | _guards]}, args),
+    do: function_head_arity(function_head, args)
+
+  defp function_head_arity({:__arity__, _metadata, parsed_args}, _args),
+    do: length(parsed_args || [])
+
+  defp function_head_arity(_unrecognized, args), do: fallback_arity(args)
+
+  defp fallback_arity(args) do
     args
     |> String.trim()
     |> case do
       "" -> 0
-      args -> args |> String.split(",") |> length()
+      unparsed_args -> unparsed_args |> String.split(",") |> length()
     end
   end
 

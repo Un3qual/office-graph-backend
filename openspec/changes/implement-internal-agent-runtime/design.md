@@ -131,6 +131,12 @@ Conversation and message resources retain graph item, run, execution, author or
 source, visibility, operation, and contribution provenance. The operator route
 adds one focused conversation/approval panel. Messages that suggest durable work
 create proposals or evidence candidates rather than hidden side effects.
+Human conversation writes use a dedicated owner capability, validate the exact
+command input digest, and prove that the selected graph item belongs to the
+run's packet-source contract. Proposal and domain-operation links are separately
+scope checked. The read projection is bounded, redacts context packages that do
+not independently match the reader's tenant/run/graph scope, and exposes only
+safe execution and gate-request metadata needed by the focused operator panel.
 
 ### 9. Retention defaults to typed metadata
 

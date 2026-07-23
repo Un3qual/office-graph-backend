@@ -10,6 +10,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
     :context_expansion_request_id,
     :current_version_id,
     :evidence_candidate_id,
+    :execution_id,
     :id,
     :normalized_event_id,
     :observation_id,
@@ -26,7 +27,17 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
     "create_task",
     "create_verification_check"
   ]
-  @execution_states ["completed", "failed", "pending", "running"]
+  @execution_states ~w(
+    cancelled
+    completed
+    failed
+    pending
+    queued
+    retry_scheduled
+    running
+    waiting_approval
+    waiting_context
+  )
   @verification_states ["failed", "missing_evidence", "pending", "unverified", "verified"]
   @evidence_results ["failed", "passed", "waived"]
   @agent_request_states ["approved", "cancelled", "denied", "expired", "pending", "superseded"]
@@ -105,6 +116,20 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
       "The context expansion request version is stale.",
       context_expansion_request_id: request_id,
       current_version: current_version
+    )
+  end
+
+  def classify({:stale_agent_execution, execution_id, current_version}) do
+    result(:conflict, "stale_agent_execution", "The agent execution version is stale.",
+      execution_id: execution_id,
+      current_version: current_version
+    )
+  end
+
+  def classify({:agent_execution_terminal, execution_id, state}) do
+    result(:conflict, "agent_execution_terminal", "The agent execution is already terminal.",
+      execution_id: execution_id,
+      execution_state: state
     )
   end
 

@@ -263,4 +263,92 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
       end)
     end
   end
+
+  test "conversation creation is serialized across distinct commands for one run scope" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "conversation-create-race-#{suffix}"
+    workspace_slug = "conversation-create-race-workspace-#{suffix}"
+    owner_email = "conversation-create-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, run, graph_item_id, operations, attrs} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Conversation Create Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Conversation Create Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Conversation Create Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(bootstrap.session, "conversation-#{suffix}")
+
+          {:ok, packet_result} =
+            create_concurrency_ready_packet(bootstrap.session, [verification_check], suffix)
+
+          {:ok, run_operation} =
+            Operations.start_operation(bootstrap.session, :work_run_start,
+              idempotency_key: "conversation-run-#{suffix}"
+            )
+
+          {:ok, run_result} =
+            Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+              source_surface: "concurrency_test",
+              reason: "Create a run-scoped conversation concurrently.",
+              authority_posture: "human_supervised"
+            })
+
+          attrs = %{run_id: run_result.run.id, graph_item_id: verification_check.graph_item_id}
+
+          operations =
+            for attempt <- 1..2 do
+              {:ok, operation} =
+                Operations.start_command(
+                  bootstrap.session,
+                  :conversation_start,
+                  "conversation-create-race-#{suffix}-#{attempt}",
+                  attrs
+                )
+
+              operation
+            end
+
+          install_conversation_insert_barrier!(
+            run_result.run.id,
+            verification_check.graph_item_id
+          )
+
+          {bootstrap, run_result.run, verification_check.graph_item_id, operations, attrs}
+        end)
+
+      results =
+        operations
+        |> Enum.map(fn operation ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              NodeConversations.start(bootstrap.session, operation, attrs)
+            end)
+          end)
+        end)
+        |> Task.await_many(10_000)
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.id == second.id
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 conversation_count(run.id, graph_item_id)
+               end)
+    after
+      with_unboxed_connection(fn ->
+        drop_conversation_insert_barrier!()
+        cleanup_conversation_scope!(organization_slug)
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
 end

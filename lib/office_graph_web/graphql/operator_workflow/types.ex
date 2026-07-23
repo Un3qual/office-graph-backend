@@ -337,6 +337,123 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   connection(node_type: :operator_run_activity)
 
+  object :operator_run_conversation_context_entry do
+    field :posture, non_null(:string)
+    field :rationale_code, non_null(:string)
+  end
+
+  object :operator_run_conversation_referenced_context do
+    field :visibility, non_null(:string)
+    field :package_id, :id
+    field :version, :integer
+
+    field :entries,
+          non_null(list_of(non_null(:operator_run_conversation_context_entry))) do
+      resolve(fn context, _, _ -> {:ok, Map.get(context, :entries, [])} end)
+    end
+  end
+
+  object :operator_run_conversation_record do
+    field :id, non_null(:id)
+    field :run_id, non_null(:id)
+    field :graph_item_id, non_null(:id)
+    field :created_by_principal_id, non_null(:id)
+    field :operation_id, non_null(:id)
+    field :purpose, non_null(:string)
+    field :visibility, non_null(:string)
+    field :state, non_null(:string)
+    field :state_version, non_null(:integer)
+    field :inserted_at, non_null(:datetime)
+    field :updated_at, non_null(:datetime)
+  end
+
+  object :operator_run_conversation_message do
+    field :id, non_null(:id)
+    field :source, non_null(:string)
+    field :body, non_null(:string)
+    field :visibility, non_null(:string)
+    field :author_principal_id, :id
+    field :execution_id, :id
+    field :context_package_id, :id
+    field :operation_id, non_null(:id)
+    field :proposed_graph_change_id, :id
+    field :domain_action_operation_id, :id
+    field :inserted_at, non_null(:datetime)
+    field :referenced_context, :operator_run_conversation_referenced_context
+  end
+
+  object :operator_run_conversation do
+    field :type, non_null(:string)
+    field :source_watermark, non_null(:id)
+    field :allowed_next_actions, non_null(list_of(non_null(:string)))
+    field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
+    field :conversation, :operator_run_conversation_record
+    field :messages, non_null(list_of(non_null(:operator_run_conversation_message)))
+    field :executions, non_null(list_of(non_null(:operator_run_conversation_execution)))
+
+    field :approval_requests,
+          non_null(list_of(non_null(:operator_run_conversation_approval_request)))
+
+    field :context_expansion_requests,
+          non_null(list_of(non_null(:operator_run_conversation_context_expansion_request)))
+  end
+
+  object :operator_run_conversation_execution do
+    field :id, non_null(:id)
+    field :binding_id, non_null(:id)
+    field :state, non_null(:string)
+    field :state_version, non_null(:integer)
+    field :current_step_key, :string
+    field :attempt_count, non_null(:integer)
+    field :failure_code, :string
+    field :requested_outcome, non_null(:string)
+    field :invocation_mode, non_null(:string)
+    field :origin, non_null(:string)
+    field :autonomy_mode, non_null(:string)
+    field :inserted_at, non_null(:datetime)
+    field :updated_at, non_null(:datetime)
+  end
+
+  object :operator_run_conversation_approval_request do
+    field :id, non_null(:id)
+    field :execution_id, non_null(:id)
+    field :step_key, non_null(:string)
+    field :requested_action, non_null(:string)
+    field :reason, non_null(:string)
+    field :scope_type, non_null(:string)
+    field :scope_id, non_null(:id)
+    field :capability_key, :string
+    field :sensitivity, non_null(:string)
+    field :external_write, non_null(:boolean)
+    field :state, non_null(:string)
+    field :version, non_null(:integer)
+    field :expires_at, non_null(:datetime)
+    field :resolution_reason, :string
+    field :inserted_at, non_null(:datetime)
+    field :updated_at, non_null(:datetime)
+  end
+
+  object :operator_run_conversation_context_expansion_request do
+    field :id, non_null(:id)
+    field :execution_id, non_null(:id)
+    field :step_key, non_null(:string)
+    field :target_resource_type, non_null(:string)
+    field :target_resource_id, non_null(:id)
+    field :target_scope_type, non_null(:string)
+    field :target_scope_id, non_null(:id)
+    field :access_mode, non_null(:string)
+    field :capability_key, :string
+    field :reason, non_null(:string)
+    field :sensitivity, non_null(:string)
+    field :expected_duration_seconds, non_null(:integer)
+    field :state, non_null(:string)
+    field :version, non_null(:integer)
+    field :expires_at, non_null(:datetime)
+    field :resolution_reason, :string
+    field :inserted_at, non_null(:datetime)
+    field :updated_at, non_null(:datetime)
+  end
+
   object :operator_run_child_summary do
     field :required_checks, non_null(:integer)
     field :observations, non_null(:integer)

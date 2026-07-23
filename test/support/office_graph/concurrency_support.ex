@@ -30,6 +30,8 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
       {:before_insert, "office_graph_test_work_packet_insert_barrier", "work_packets"},
     work_run_insert_barrier:
       {:before_insert, "office_graph_test_work_run_insert_barrier", "runs"},
+    conversation_insert_barrier:
+      {:before_insert, "office_graph_test_conversation_insert_barrier", "conversations"},
     evidence_candidate_insert_barrier:
       {:before_insert, "office_graph_test_evidence_candidate_insert_barrier",
        "evidence_candidates"},
@@ -64,6 +66,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
       alias OfficeGraph.{
         Foundation,
         Integrations,
+        NodeConversations,
         Operations,
         Repo,
         Runs,
@@ -1067,6 +1070,89 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   def drop_work_run_insert_barrier! do
     Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_work_run_insert_barrier ON runs")
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_work_run_insert_barrier()")
+  end
+
+  def install_conversation_insert_barrier!(run_id, graph_item_id) do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_conversation_insert_barrier ON conversations"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_conversation_insert_barrier()")
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_conversation_insert_barrier()
+    RETURNS trigger AS $$
+    DECLARE
+      scope_hash integer := hashtext(NEW.run_id::text || ':' || NEW.graph_item_id::text);
+      started_at timestamp := clock_timestamp();
+    BEGIN
+      IF NEW.run_id = TG_ARGV[0]::uuid AND NEW.graph_item_id = TG_ARGV[1]::uuid THEN
+        IF pg_try_advisory_lock(98211, scope_hash) THEN
+          LOOP
+            IF pg_try_advisory_lock(98212, scope_hash) THEN
+              PERFORM pg_advisory_unlock(98212, scope_hash);
+              EXIT WHEN clock_timestamp() - started_at > interval '500 milliseconds';
+              PERFORM pg_sleep(0.01);
+            ELSE
+              EXIT;
+            END IF;
+          END LOOP;
+
+          PERFORM pg_advisory_unlock(98211, scope_hash);
+        ELSE
+          PERFORM pg_advisory_lock(98212, scope_hash);
+          PERFORM pg_sleep(0.05);
+          PERFORM pg_advisory_unlock(98212, scope_hash);
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    create_test_trigger!(:conversation_insert_barrier, [run_id, graph_item_id])
+  end
+
+  def drop_conversation_insert_barrier! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_conversation_insert_barrier ON conversations"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_conversation_insert_barrier()")
+  end
+
+  def conversation_count(run_id, graph_item_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM conversations WHERE run_id = $1 AND graph_item_id = $2",
+        [db_uuid(run_id), db_uuid(graph_item_id)]
+      )
+
+    count
+  end
+
+  def cleanup_conversation_scope!(organization_slug) do
+    Repo.query!(
+      """
+      DELETE FROM conversation_messages
+      WHERE conversation_id IN (
+        SELECT conversation.id
+        FROM conversations AS conversation
+        JOIN organizations AS organization ON organization.id = conversation.organization_id
+        WHERE organization.slug = $1
+      )
+      """,
+      [organization_slug]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM conversations
+      WHERE organization_id IN (SELECT id FROM organizations WHERE slug = $1)
+      """,
+      [organization_slug]
+    )
   end
 
   def install_evidence_candidate_insert_barrier!(operation_id) do

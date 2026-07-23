@@ -55,6 +55,14 @@ const conflictCodes = new Set([
   "packet_version_not_ready",
   "stale_packet_version",
   "stale_run_state",
+  "stale_agent_approval",
+  "agent_approval_expired",
+  "agent_approval_resolved",
+  "stale_agent_context_expansion",
+  "agent_context_expansion_expired",
+  "agent_context_expansion_resolved",
+  "stale_agent_execution",
+  "agent_execution_terminal",
   "verification_result_slot_conflict",
 ]);
 
@@ -147,13 +155,28 @@ export function commandMutationSuccess<TResult>(
 export function mapCommandFailure(
   failure: Error,
 ): Exclude<CommandMutationState<never>, { status: "idle" | "pending" | "success" }> {
-  if (!(failure instanceof GraphQLResponseError)) {
+  const errors = graphQLErrors(failure);
+
+  if (!errors) {
     return unknownFailure;
   }
 
-  const errors =
-    !Array.isArray(failure.source) && "errors" in failure.source ? failure.source.errors : null;
   return errors && errors.length > 0 ? mapPayloadErrors(errors) : unknownFailure;
+}
+
+function graphQLErrors(failure: Error): readonly SafePayloadError[] | null {
+  const source =
+    failure instanceof GraphQLResponseError
+      ? failure.source
+      : "source" in failure
+        ? failure.source
+        : null;
+
+  if (!source || typeof source !== "object" || Array.isArray(source) || !("errors" in source)) {
+    return null;
+  }
+
+  return Array.isArray(source.errors) ? (source.errors as readonly SafePayloadError[]) : null;
 }
 
 function mapPayloadErrors(

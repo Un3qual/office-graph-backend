@@ -71,7 +71,7 @@ export function OperatorWorkspace({
       inspector={
         <OperatorInspector
           fetchKey={fetchKey}
-          key={`${workflow.selectedId ?? "none"}:${linkedRunId ?? "derived"}`}
+          graphItemId={workflow.primarySourceGraphItemId}
           readiness={workflow.readiness}
           readinessInput={workflow.readinessInput}
           onRefresh={onRefresh}

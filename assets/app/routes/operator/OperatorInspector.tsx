@@ -2,6 +2,8 @@ import { startTransition, useCallback, useState } from "react";
 import { readInlineData, useLazyLoadQuery } from "react-relay";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { Button } from "../../../src/ui/Button";
+import { Panel } from "../../../src/ui/Panel";
+import { AgentActivityPanel } from "./components/AgentActivityPanel";
 import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
 import { RunPanel } from "./components/RunPanel";
 import { VerificationPanel } from "./components/VerificationPanel";
@@ -21,6 +23,7 @@ import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
 import {
   type PacketReadinessState,
+  useOperatorRunConversation,
   type OperatorRunState,
   useOperatorRunState,
   useValidatedPacketReadiness,
@@ -28,6 +31,7 @@ import {
 
 type Props = {
   fetchKey: number;
+  graphItemId: string | null;
   readiness: PacketReadinessState | null;
   readinessInput: PacketReadinessInput | null;
   onRefresh: () => void;
@@ -37,13 +41,16 @@ type Props = {
 
 export function OperatorInspector({
   fetchKey,
+  graphItemId,
   readiness,
   readinessInput,
   onRefresh,
   runId,
   selectedId,
 }: Props) {
-  const [validationRequested, setValidationRequested] = useState(false);
+  const validationScope = `${selectedId ?? "none"}:${runId ?? "none"}:${graphItemId ?? "none"}`;
+  const [requestedValidationScope, setRequestedValidationScope] = useState<string | null>(null);
+  const validationRequested = requestedValidationScope === validationScope;
 
   return (
     <>
@@ -63,12 +70,17 @@ export function OperatorInspector({
         </AsyncBoundary>
       ) : (
         <ReadinessPanel
-          onValidateReadiness={() => setValidationRequested(true)}
+          onValidateReadiness={() => setRequestedValidationScope(validationScope)}
           readiness={readiness}
           readinessInput={readinessInput}
         />
       )}
-      <RunStatePanels onRefresh={onRefresh} runId={runId} selectedId={selectedId} />
+      <RunStatePanels
+        graphItemId={graphItemId}
+        onRefresh={onRefresh}
+        runId={runId}
+        selectedId={selectedId}
+      />
     </>
   );
 }
@@ -98,10 +110,12 @@ function ValidatedReadinessPanel({
 }
 
 function RunStatePanels({
+  graphItemId,
   runId,
   onRefresh,
   selectedId,
 }: {
+  graphItemId: string | null;
   runId: string | null;
   onRefresh: () => void;
   selectedId: string | null;
@@ -137,17 +151,25 @@ function RunStatePanels({
       }
       resetKey={`${selectedId ?? "none"}:run:${runId}:${fetchKey}`}
     >
-      <LoadedRunStatePanels key={runId} fetchKey={fetchKey} onRefresh={refresh} runId={runId} />
+      <LoadedRunStatePanels
+        fetchKey={fetchKey}
+        graphItemId={graphItemId}
+        key={runId}
+        onRefresh={refresh}
+        runId={runId}
+      />
     </AsyncBoundary>
   );
 }
 
 function LoadedRunStatePanels({
   fetchKey,
+  graphItemId,
   onRefresh,
   runId,
 }: {
   fetchKey: number;
+  graphItemId: string | null;
   onRefresh: () => void;
   runId: string;
 }) {
@@ -155,6 +177,8 @@ function LoadedRunStatePanels({
   const activityAfter = activityCursors.at(-1) ?? null;
   const runState = useOperatorRunState(runId, fetchKey, activityAfter);
   const verification = verificationOutcomeFromRunState(runState);
+  const agentGraphItemId =
+    graphItemId ?? runState.requiredChecks[0]?.graphItemId ?? runState.observations[0]?.graphItemId;
 
   return (
     <>
@@ -184,8 +208,52 @@ function LoadedRunStatePanels({
           <EvidenceCommandForm onRefresh={onRefresh} runState={runState} />
         </>
       )}
+      {agentGraphItemId ? (
+        <AsyncBoundary
+          errorFallback={
+            <AgentActivityLoadState message="Agent activity is unavailable." onRetry={onRefresh} />
+          }
+          loadingFallback={<AgentActivityLoadState message="Loading agent activity..." />}
+          resetKey={`${runId}:${agentGraphItemId}:${fetchKey}`}
+        >
+          <LoadedAgentActivity
+            fetchKey={fetchKey}
+            graphItemId={agentGraphItemId}
+            key={`${runId}:${agentGraphItemId}`}
+            onRefresh={onRefresh}
+            runId={runId}
+          />
+        </AsyncBoundary>
+      ) : (
+        <AgentActivityLoadState message="No run graph context is available yet." />
+      )}
       <VerificationPanel state="loaded" verification={verification} />
     </>
+  );
+}
+
+function LoadedAgentActivity({
+  fetchKey,
+  graphItemId,
+  onRefresh,
+  runId,
+}: {
+  fetchKey: number;
+  graphItemId: string;
+  onRefresh: () => void;
+  runId: string;
+}) {
+  const activity = useOperatorRunConversation(runId, graphItemId, fetchKey);
+  return <AgentActivityPanel activity={activity} onRefresh={onRefresh} />;
+}
+
+function AgentActivityLoadState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <Panel ariaLabel="Agent Activity">
+      <h2>Agent Activity</h2>
+      <p>{message}</p>
+      {onRetry ? <Button onPress={onRetry}>Retry agent activity</Button> : null}
+    </Panel>
   );
 }
 

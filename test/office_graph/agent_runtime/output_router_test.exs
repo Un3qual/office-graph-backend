@@ -2,7 +2,7 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Audit, Operations, Repo, Revisions}
-  alias OfficeGraph.AgentRuntime.{ExecutionWorker, ModelOutput, OutputRouter}
+  alias OfficeGraph.AgentRuntime.{ModelOutput, OutputRouter}
   alias OfficeGraph.NodeConversations.ConversationMessage
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Runs.{ExecutionObservation, Run}
@@ -228,7 +228,7 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
           }),
         else: AgentRuntimeSupport.invoke_human(context)
 
-    [job] = execution_jobs(invoked.execution.id)
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     {:ok, operation} = Operations.read_operation(job.args["operation_id"])
 
     %{
@@ -295,15 +295,5 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
       _other ->
         :ok
     end
-  end
-
-  defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> Repo.all()
   end
 end

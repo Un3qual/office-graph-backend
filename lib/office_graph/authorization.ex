@@ -41,6 +41,7 @@ defmodule OfficeGraph.Authorization do
     agent_cancel: "agent.cancel",
     agent_approval_resolve: "agent.approval.resolve",
     agent_context_expansion_resolve: "agent.context_expansion.resolve",
+    conversation_write: "conversation.write",
     agent_model_generate: "agent.model.generate",
     agent_tool_read: "agent.tool.read",
     agent_proposal_create: "proposal.create",

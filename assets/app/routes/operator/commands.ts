@@ -166,3 +166,75 @@ export const OperatorWaiveVerificationCheckMutation = graphql`
     }
   }
 `;
+
+export const OperatorInvokeAgentMutation = graphql`
+  mutation OperatorInvokeAgentMutation($input: InvokeAgentInput!) {
+    invokeAgent(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      execution { id state stateVersion currentStepKey }
+      contextPackageId
+    }
+  }
+`;
+
+export const OperatorCancelAgentExecutionMutation = graphql`
+  mutation OperatorCancelAgentExecutionMutation($input: CancelAgentExecutionInput!) {
+    cancelAgentExecution(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      execution { id state stateVersion currentStepKey }
+    }
+  }
+`;
+
+export const OperatorStartRunConversationMutation = graphql`
+  mutation OperatorStartRunConversationMutation($input: StartRunConversationInput!) {
+    startRunConversation(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      conversation { id runId graphItemId state stateVersion }
+    }
+  }
+`;
+
+export const OperatorAppendConversationMessageMutation = graphql`
+  mutation OperatorAppendConversationMessageMutation($input: AppendConversationMessageInput!) {
+    appendConversationMessage(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      message { id }
+    }
+  }
+`;
+
+export const OperatorResolveAgentApprovalMutation = graphql`
+  mutation OperatorResolveAgentApprovalMutation($input: ResolveAgentApprovalInput!) {
+    resolveAgentApproval(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      request { id state version }
+      execution { id state stateVersion currentStepKey }
+    }
+  }
+`;
+
+export const OperatorResolveAgentContextExpansionMutation = graphql`
+  mutation OperatorResolveAgentContextExpansionMutation(
+    $input: ResolveAgentContextExpansionInput!
+  ) {
+    resolveAgentContextExpansion(input: $input) {
+      command
+      operationId
+      affectedIds { type id }
+      request { id state version }
+      execution { id state stateVersion currentStepKey }
+      contextPackageId
+    }
+  }
+`;

@@ -389,3 +389,92 @@ export const OperatorRunStateQuery = graphql`
     }
   }
 `;
+
+export const OperatorRunConversationQuery = graphql`
+  query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) {
+    operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
+      type
+      sourceWatermark
+      allowedNextActions
+      commandAffordances {
+        identity
+        state
+        reasonCodes
+        blockerReasons
+        safeExplanation
+        requiredFields
+        inputDefaults { field value values }
+        targetIds { type id }
+      }
+      conversation {
+        id
+        runId
+        graphItemId
+        state
+        stateVersion
+      }
+      messages {
+        id
+        source
+        body
+        executionId
+        insertedAt
+        referencedContext {
+          visibility
+          packageId
+          version
+          entries { posture rationaleCode }
+        }
+      }
+      executions {
+        id
+        bindingId
+        state
+        stateVersion
+        currentStepKey
+        attemptCount
+        failureCode
+        requestedOutcome
+        invocationMode
+        origin
+        autonomyMode
+        insertedAt
+        updatedAt
+      }
+      approvalRequests {
+        id
+        executionId
+        stepKey
+        requestedAction
+        reason
+        scopeType
+        scopeId
+        capabilityKey
+        sensitivity
+        externalWrite
+        state
+        version
+        expiresAt
+        resolutionReason
+      }
+      contextExpansionRequests {
+        id
+        executionId
+        stepKey
+        targetResourceType
+        targetResourceId
+        targetScopeType
+        targetScopeId
+        accessMode
+        capabilityKey
+        reason
+        sensitivity
+        expectedDurationSeconds
+        state
+        version
+        expiresAt
+        resolutionReason
+      }
+    }
+  }
+`;

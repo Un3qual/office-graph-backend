@@ -17,7 +17,7 @@ defmodule OfficeGraph.Projections do
       OfficeGraph.WorkGraph,
       OfficeGraph.WorkPackets
     ],
-    exports: []
+    exports: [CommandAffordance]
 
   alias OfficeGraph.Projections.{
     AgentContext,

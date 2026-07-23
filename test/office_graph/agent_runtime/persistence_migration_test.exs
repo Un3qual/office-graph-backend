@@ -132,4 +132,11 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert %{rows: [["agent.invoke"]]} =
              OfficeGraph.Repo.query!("SELECT key FROM capabilities WHERE key = 'agent.invoke'")
   end
+
+  test "the migration installs the human conversation write capability" do
+    assert %{rows: [["conversation.write"]]} =
+             OfficeGraph.Repo.query!(
+               "SELECT key FROM capabilities WHERE key = 'conversation.write'"
+             )
+  end
 end

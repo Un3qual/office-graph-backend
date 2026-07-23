@@ -43,6 +43,8 @@ defmodule OfficeGraph.Operations do
     agent_cancel: "agent.cancel",
     agent_approval_resolve: "agent.approval.resolve",
     agent_context_expansion_resolve: "agent.context_expansion.resolve",
+    conversation_start: "conversation.start",
+    conversation_message_create: "conversation.message.create",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",

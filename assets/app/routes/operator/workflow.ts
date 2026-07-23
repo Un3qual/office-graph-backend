@@ -9,6 +9,7 @@ import type {
   OperatorRunStateFragment$key,
 } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorRunStateQuery as OperatorRunStateOperation } from "../../relay/__generated__/OperatorRunStateQuery.graphql";
+import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorWorkflowItemFragment$data,
   OperatorWorkflowItemFragment$key,
@@ -18,11 +19,17 @@ import {
   OperatorPacketReadinessFragment,
   OperatorPacketReadinessQuery,
   OperatorRunStateFragment,
+  OperatorRunConversationQuery,
   OperatorRunStateQuery,
   OperatorWorkflowItemFragment,
   OperatorWorkflowRouteQuery,
 } from "./data";
-import { packetReadinessInputForItem, packetReadinessForItem, runIdForItem } from "./derived";
+import {
+  packetReadinessInputForItem,
+  packetReadinessForItem,
+  primarySourceGraphItemIdForItem,
+  runIdForItem,
+} from "./derived";
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
 type OperatorWorkflowInput = {
@@ -34,6 +41,9 @@ type OperatorWorkflowInput = {
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
 export type OperatorRunState = OperatorRunStateFragment$data;
+export type OperatorRunConversation = NonNullable<
+  OperatorRunConversationOperation["response"]["operatorRunConversation"]
+>;
 export type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
@@ -62,12 +72,16 @@ export function useOperatorWorkflow({
   const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
   const readiness =
     selectedItem && readinessInput ? packetReadinessForItem(selectedItem, readinessInput) : null;
+  const primarySourceGraphItemId = selectedItem
+    ? primarySourceGraphItemIdForItem(selectedItem)
+    : null;
 
   return {
     canSubmitManualIntake:
       rootData.operatorManualIntakeAffordance.identity === "submit_manual_intake" &&
       rootData.operatorManualIntakeAffordance.state === "enabled",
     inbox,
+    primarySourceGraphItemId,
     readiness,
     readinessInput,
     rows: inbox.rows,
@@ -101,6 +115,20 @@ export function useOperatorRunState(
   );
 
   return runStateFromRelay(data);
+}
+
+export function useOperatorRunConversation(runId: string, graphItemId: string, fetchKey?: number) {
+  const data = useLazyLoadQuery<OperatorRunConversationOperation>(
+    OperatorRunConversationQuery,
+    { runId, graphItemId },
+    { fetchKey, fetchPolicy: "network-only" },
+  );
+
+  if (!data.operatorRunConversation) {
+    throw new Error("The GraphQL operator run conversation projection was empty.");
+  }
+
+  return data.operatorRunConversation;
 }
 
 function workflowConnectionFromRelay(

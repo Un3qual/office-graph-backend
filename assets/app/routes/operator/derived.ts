@@ -25,6 +25,13 @@ export function packetReadinessInputForItem(
   };
 }
 
+export function primarySourceGraphItemIdForItem(
+  item: OperatorWorkflowItemFragment$data,
+): string | null {
+  const defaults = commandInputDefaults(createWorkPacketAffordance(item));
+  return defaultValue(defaults, "primary_source_graph_item_id") || null;
+}
+
 export function packetReadinessForItem(
   item: OperatorWorkflowItemFragment$data,
   input: PacketReadinessInput,
