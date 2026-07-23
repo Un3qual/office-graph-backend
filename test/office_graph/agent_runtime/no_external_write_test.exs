@@ -108,27 +108,41 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
              )
   end
 
-  test "OpenSpec reads dispatch fixed argv with bounded execution and no shell" do
+  test "OpenSpec reads dispatch exact allowlisted argv with bounded execution and no shell" do
     Application.put_env(
       :office_graph,
       :agent_runtime_command_runner,
       CapturingCommandRunner
     )
 
-    assert {:ok, output} =
-             OpenSpecRead.invoke(
-               tool_input("openspec.read", ["agent.tool.read", "openspec.read"], %{
-                 action: "list"
-               })
-             )
+    cases = [
+      {%{action: "list"}, ["list", "--json"]},
+      {%{action: "show", target: "implement-internal-agent-runtime"},
+       ["show", "implement-internal-agent-runtime", "--json"]},
+      {%{action: "status", target: "implement-internal-agent-runtime"},
+       ["status", "--change", "implement-internal-agent-runtime", "--json"]},
+      {%{action: "validate", target: "implement-internal-agent-runtime"},
+       ["validate", "implement-internal-agent-runtime", "--strict"]}
+    ]
 
-    assert output.classification == :observation
+    for {payload, expected_argv} <- cases do
+      assert {:ok, output} =
+               OpenSpecRead.invoke(
+                 tool_input(
+                   "openspec.read",
+                   ["agent.tool.read", "openspec.read"],
+                   payload
+                 )
+               )
 
-    assert_receive {:command_run, "openspec", ["list", "--json"], opts}
-    assert opts[:timeout_ms] == 1_000
-    assert opts[:max_bytes] == 64 * 1_024
-    assert is_binary(opts[:cd])
-    refute Keyword.has_key?(opts, :shell)
+      assert output.classification == :observation
+
+      assert_receive {:command_run, "openspec", ^expected_argv, opts}
+      assert opts[:timeout_ms] == 1_000
+      assert opts[:max_bytes] == 64 * 1_024
+      assert is_binary(opts[:cd])
+      refute Keyword.has_key?(opts, :shell)
+    end
   end
 
   defp tool_input(tool_key, capabilities, adapter_payload) do

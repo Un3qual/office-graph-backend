@@ -34,6 +34,7 @@ defmodule OfficeGraph.AgentRuntime.ModelRequest do
     attribute :input_hash, :string, allow_nil?: false, public?: true
     attribute :output_hash, :string, public?: true
     attribute :output_classification, :string, public?: true
+    attribute :output_safe_summary, :string, public?: true
     attribute :failure_code, :string, public?: true
     attribute :requested_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :completed_at, :utc_datetime_usec, public?: true
@@ -77,7 +78,16 @@ defmodule OfficeGraph.AgentRuntime.ModelRequest do
 
     update :record_result do
       public? false
-      accept [:state, :output_hash, :output_classification, :failure_code, :completed_at]
+
+      accept [
+        :state,
+        :output_hash,
+        :output_classification,
+        :output_safe_summary,
+        :failure_code,
+        :completed_at
+      ]
+
       validate one_of(:state, @states)
     end
   end

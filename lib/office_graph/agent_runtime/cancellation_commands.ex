@@ -11,7 +11,8 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     ContextExpansionRequest,
     ExecutionStateMachine,
     ModelRequest,
-    StorageResult
+    StorageResult,
+    ToolRequest
   }
 
   require Ash.Query
@@ -79,7 +80,9 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
           true ->
             with :ok <- ExecutionStateMachine.validate(execution.state, "cancelled") do
               model_request = lock_active_model_request(execution.id, execution.current_step_key)
-              cancel_model_request!(model_request)
+              tool_request = lock_active_tool_request(execution.id, execution.current_step_key)
+              cancel_request!(model_request)
+              cancel_request!(tool_request)
 
               cancelled_gate =
                 cancel_pending_gate!(session_context, operation, execution, pending_gates)
@@ -100,6 +103,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
               %{
                 execution: cancelled,
                 model_request: model_request,
+                tool_request: tool_request,
                 replayed?: false
               }
             else
@@ -176,6 +180,29 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     |> Ash.read_one!(authorize?: false)
   end
 
+  defp lock_active_tool_request(_execution_id, nil), do: nil
+
+  defp lock_active_tool_request(execution_id, step_key) do
+    ToolRequest
+    |> Ash.Query.filter(
+      execution_id == ^execution_id and step_key == ^step_key and
+        state in ["pending", "running", "retry_scheduled"]
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp lock_tool_request(_execution_id, nil), do: nil
+
+  defp lock_tool_request(execution_id, step_key) do
+    ToolRequest
+    |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
+    |> Ash.Query.sort(requested_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+  end
+
   defp cancellation_replay?(operation_id, execution_id) do
     DomainEvent
     |> Ash.Query.filter(
@@ -191,13 +218,14 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     %{
       execution: execution,
       model_request: lock_model_request(execution.id, execution.current_step_key),
+      tool_request: lock_tool_request(execution.id, execution.current_step_key),
       replayed?: replayed?
     }
   end
 
-  defp cancel_model_request!(nil), do: :ok
+  defp cancel_request!(nil), do: :ok
 
-  defp cancel_model_request!(request) do
+  defp cancel_request!(request) do
     request
     |> Ash.Changeset.for_update(:record_result, %{
       state: "cancelled",
@@ -287,10 +315,28 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     ]
   end
 
-  defp signal_active_adapter(%{model_request: nil}), do: :ok
+  defp signal_active_adapter(result) do
+    signal_model_adapter(result.model_request)
+    signal_tool_adapter(result.tool_request)
+    :ok
+  end
 
-  defp signal_active_adapter(%{model_request: request}) do
+  defp signal_model_adapter(nil), do: :ok
+
+  defp signal_model_adapter(request) do
     with {:ok, adapter} <- AdapterRegistry.model(request.adapter_key, request.adapter_version) do
+      adapter.cancel(request.id)
+    else
+      _unavailable -> :ok
+    end
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp signal_tool_adapter(nil), do: :ok
+
+  defp signal_tool_adapter(request) do
+    with {:ok, adapter} <- AdapterRegistry.tool(request.tool_key, request.adapter_version) do
       adapter.cancel(request.id)
     else
       _unavailable -> :ok

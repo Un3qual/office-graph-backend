@@ -35,6 +35,9 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
     attribute :input_hash, :string, allow_nil?: false, public?: true
     attribute :output_hash, :string, public?: true
     attribute :output_classification, :string, public?: true
+    attribute :output_reference, :string, public?: true
+    attribute :output_content_hash, :string, public?: true
+    attribute :output_byte_count, :integer, constraints: [min: 1], public?: true
     attribute :failure_code, :string, public?: true
     attribute :requested_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :completed_at, :utc_datetime_usec, public?: true
@@ -80,7 +83,18 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
 
     update :record_result do
       public? false
-      accept [:state, :output_hash, :output_classification, :failure_code, :completed_at]
+
+      accept [
+        :state,
+        :output_hash,
+        :output_classification,
+        :output_reference,
+        :output_content_hash,
+        :output_byte_count,
+        :failure_code,
+        :completed_at
+      ]
+
       validate one_of(:state, @states)
     end
   end

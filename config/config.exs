@@ -51,6 +51,7 @@ config :office_graph, :agent_runtime_adapters,
   models: %{"deterministic" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
   tools: %{
     "deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool,
+    "internal.output.route" => OfficeGraph.AgentRuntime.Adapters.DeterministicOutputRoute,
     "repository.read" => OfficeGraph.AgentRuntime.Tools.RepositoryRead,
     "openspec.read" => OfficeGraph.AgentRuntime.Tools.OpenSpecRead
   }

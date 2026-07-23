@@ -98,6 +98,34 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
     end
   end
 
+  @doc false
+  def dereference(reference, timeout_ms, budget_units)
+      when is_binary(reference) and is_integer(timeout_ms) and is_integer(budget_units) do
+    with {:ok, revision, path} <- parse_reference(reference),
+         :ok <- validate_revision(revision),
+         {:ok, canonical_path} <- canonical_path(path),
+         true <- canonical_path == path,
+         :ok <- validate_allowlist(canonical_path) do
+      read_revision(canonical_path, revision, timeout_ms, budget_units)
+    else
+      false -> {:error, {:terminal, :repository_reference_invalid}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def dereference(_reference, _timeout_ms, _budget_units),
+    do: {:error, {:terminal, :repository_reference_invalid}}
+
+  defp parse_reference("repository://" <> reference) do
+    case String.split(reference, "/", parts: 2) do
+      [revision, path] when path != "" -> {:ok, revision, path}
+      _invalid -> {:error, {:terminal, :repository_reference_invalid}}
+    end
+  end
+
+  defp parse_reference(_reference),
+    do: {:error, {:terminal, :repository_reference_invalid}}
+
   defp canonical_path(path) when is_binary(path) do
     parts = Path.split(path)
 

@@ -22,7 +22,10 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
     fields: %{
       fixture_id: :string,
       context_entry_ids: {:list, :uuid},
-      context_hashes: {:list, :string}
+      context_hashes: {:list, :string},
+      tool_reference_ids: {:list, :uuid},
+      tool_reference_hashes: {:list, :string},
+      review_digest: {:string, 64}
     },
     max_serialized_bytes: 8_192
   }

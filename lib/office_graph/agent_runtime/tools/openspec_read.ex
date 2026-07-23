@@ -71,6 +71,36 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   @impl true
   def cancel(_request_id), do: {:error, :not_found}
 
+  @doc false
+  def dereference(reference, timeout_ms, budget_units)
+      when is_binary(reference) and is_integer(timeout_ms) and is_integer(budget_units) do
+    with {:ok, payload} <- reference_payload(reference),
+         {:ok, argv, ^reference} <- command(payload) do
+      execute(argv, timeout_ms, budget_units)
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:terminal, :invalid_openspec_reference}}
+    end
+  end
+
+  def dereference(_reference, _timeout_ms, _budget_units),
+    do: {:error, {:terminal, :invalid_openspec_reference}}
+
+  defp reference_payload("openspec://list"), do: {:ok, %{action: "list"}}
+
+  defp reference_payload("openspec://" <> reference) do
+    case String.split(reference, "/", parts: 2) do
+      [action, target] when action in ["show", "status", "validate"] and target != "" ->
+        {:ok, %{action: action, target: target}}
+
+      _invalid ->
+        {:error, {:terminal, :invalid_openspec_reference}}
+    end
+  end
+
+  defp reference_payload(_reference),
+    do: {:error, {:terminal, :invalid_openspec_reference}}
+
   defp command(%{action: "list"} = payload) do
     if Map.keys(payload) == [:action] do
       {:ok, ["list", "--json"], "openspec://list"}

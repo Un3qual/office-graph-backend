@@ -56,7 +56,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
     manifest = manifest()
 
     with :ok <- AdapterContract.validate_model_input(manifest, input) do
-      DeterministicRuntime.invoke(input, runtime_configuration(manifest))
+      DeterministicRuntime.invoke(input, runtime_configuration(manifest, input.adapter_payload))
     end
   end
 
@@ -69,9 +69,9 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
 
   def cancel(_request_id), do: {:error, :not_found}
 
-  defp runtime_configuration(manifest) do
+  defp runtime_configuration(manifest, adapter_payload) do
     %Configuration{
-      fixture_loader: &deterministic_fixture/1,
+      fixture_loader: &deterministic_fixture(&1, adapter_payload),
       malformed_output_code: :malformed_model_output,
       manifest: manifest,
       output_module: ModelOutput,
@@ -80,7 +80,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
     }
   end
 
-  defp deterministic_fixture("proposal") do
+  defp deterministic_fixture("proposal", _adapter_payload) do
     {:ok,
      %{
        "classification" => "proposal",
@@ -89,7 +89,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
-  defp deterministic_fixture("message") do
+  defp deterministic_fixture("message", _adapter_payload) do
     {:ok,
      %{
        "classification" => "message",
@@ -98,7 +98,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
-  defp deterministic_fixture("finding") do
+  defp deterministic_fixture("finding", _adapter_payload) do
     {:ok,
      %{
        "classification" => "finding",
@@ -107,7 +107,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
-  defp deterministic_fixture("observation") do
+  defp deterministic_fixture("observation", _adapter_payload) do
     {:ok,
      %{
        "classification" => "observation",
@@ -116,7 +116,7 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
-  defp deterministic_fixture("evidence_candidate") do
+  defp deterministic_fixture("evidence_candidate", _adapter_payload) do
     {:ok,
      %{
        "classification" => "evidence_candidate",
@@ -125,10 +125,34 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
-  defp deterministic_fixture("retryable"),
+  defp deterministic_fixture(
+         "openspec_review",
+         %{
+           review_digest: review_digest,
+           tool_reference_ids: reference_ids,
+           tool_reference_hashes: reference_hashes
+         }
+       )
+       when is_binary(review_digest) and byte_size(review_digest) == 64 and
+              is_list(reference_ids) and is_list(reference_hashes) do
+    {:ok,
+     %{
+       "classification" => "observation",
+       "safe_summary" => "OpenSpec review #{review_digest}",
+       "structured_content" => %{
+         "observation" => %{"subject" => "openspec_review:#{review_digest}"}
+       }
+     }}
+  end
+
+  defp deterministic_fixture("retryable", _adapter_payload),
     do: {:ok, {:error, {:retryable, :provider_unavailable}}}
 
-  defp deterministic_fixture("terminal"), do: {:ok, {:error, {:terminal, :invalid_request}}}
-  defp deterministic_fixture("malformed"), do: {:ok, %{"unexpected" => true}}
-  defp deterministic_fixture(_fixture_id), do: {:error, {:terminal, :fixture_not_found}}
+  defp deterministic_fixture("terminal", _adapter_payload),
+    do: {:ok, {:error, {:terminal, :invalid_request}}}
+
+  defp deterministic_fixture("malformed", _adapter_payload), do: {:ok, %{"unexpected" => true}}
+
+  defp deterministic_fixture(_fixture_id, _adapter_payload),
+    do: {:error, {:terminal, :fixture_not_found}}
 end
