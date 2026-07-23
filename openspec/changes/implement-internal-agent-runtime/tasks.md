@@ -1,8 +1,8 @@
 ## 1. Runtime Persistence And Definitions
 
 - [x] 1.1 Add failing migration/resource tests for agent definitions/bindings, executions, authority snapshots, context packages/entries, model/tool requests, approval/expansion requests, conversations, and messages.
-- [x] 1.2 Add focused AgentRuntime and NodeConversations resources/domains/migrations, indexes, lifecycle constraints, ownership/API ledgers, and migration-owned OpenSpec-review definition.
-- [x] 1.3 Add failing tests and implement the authorized organization-binding command for the OpenSpec-review definition and backend agent principal.
+- [x] 1.2 Add focused AgentRuntime and NodeConversations resources/domains/migrations, indexes, lifecycle constraints, ownership/API ledgers, and the migration-owned run-review definition.
+- [x] 1.3 Add failing tests and implement the authorized organization-binding command for the run-review definition and backend agent principal.
 
 ## 2. Model And Tool Adapter Contracts
 
@@ -34,8 +34,9 @@
 
 ## 7. First Automatic Agent
 
-- [ ] 7.1 Add end-to-end deterministic tests for the OpenSpec-review agent reading authorized repo/OpenSpec context and producing messages, findings, proposals, checks, and evidence candidates.
-- [ ] 7.2 Implement the read-only repository/OpenSpec tool adapters and canonical review workflow, proving it has no GitHub schema dependency or external-write path.
+- [x] 7.1 Add end-to-end deterministic tests for the run-review agent consuming authorized Office Graph context and producing messages, findings, proposals, checks, and evidence candidates.
+- [x] 7.2 Implement the tool-free canonical run-review workflow over immutable context packages, proving it has no local repository, planning-tool, external-write, or direct-mutation path.
+- [x] 7.3 Verify automatic run review through the existing durable model step, product-native operator affordances, and deterministic no-network acceptance coverage.
 
 ## 8. Verification And Archive
 

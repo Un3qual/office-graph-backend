@@ -20,9 +20,10 @@ linked to an existing authorized work run and selected graph context.
   granted to the delegating principal and MUST reject any requested capability
   outside that intersection
 
-#### Scenario: Automatic OpenSpec review starts
+#### Scenario: Automatic run review starts
 
-- **WHEN** a declared system trigger requests the bound OpenSpec review agent
+- **WHEN** a declared system trigger requests the bound run-review agent for an
+  authorized run and selected graph context
 - **THEN** AgentRuntime MUST validate the generic system operation, definition
   binding, run, scope, and trigger authority before enqueueing execution
 

@@ -21,7 +21,8 @@ credential metadata are allowed.
 - Supervise model/tool work durably with retries, cancellation, and recovery.
 - Route structured output to proposals and evidence candidates only.
 - Persist approval/context-expansion requests and run-aware conversations.
-- Deliver one deterministic OpenSpec/spec-review agent and focused operator UI.
+- Deliver one deterministic product-native run-review agent and focused operator
+  UI.
 
 **Non-Goals:**
 
@@ -147,12 +148,13 @@ payloads, and secrets require a separate policy-approved raw archive path.
 Always retaining raw model/tool traffic was rejected for sensitivity and cost;
 retaining only logs was rejected because product provenance would disappear.
 
-### 10. The first automatic agent reviews OpenSpec artifacts
+### 10. The first automatic agent is a tool-free run review
 
-Install one migration-owned definition for read-only repository/OpenSpec tools,
-graph context, findings, proposals, checks, and evidence candidates. An
-authorized backend command binds it to an organization. GitHub tools remain
-optional after the integration change and do not shape core runtime schemas.
+Install one migration-owned, tool-free `run-review` definition that consumes
+the existing immutable context package and routes validated outputs through the
+existing proposal, evidence, and conversation owners. An authorized backend
+command binds it to an organization. Production execution MUST NOT depend on
+Git, the Office Graph checkout, OpenSpec files, or the OpenSpec CLI.
 
 ## Risks / Trade-offs
 
@@ -177,7 +179,7 @@ optional after the integration change and do not shape core runtime schemas.
 3. Add invocation, context assembly, durable step orchestration, cancellation,
    retry, and recovery.
 4. Add proposal/evidence routing, approvals, expansion, and realtime projections.
-5. Install and bind the OpenSpec review agent and add the focused operator UI.
+5. Install and bind the run-review agent and add the focused operator UI.
 
 When adapter lineage is added to pre-existing authority snapshots, recompute
 their canonical hashes after the backfill and recompute the legacy form before

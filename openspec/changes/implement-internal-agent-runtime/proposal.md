@@ -20,8 +20,9 @@ models direct graph, credential, tool, or verification authority.
   external writes, or verification completion.
 - Add node-scoped conversations and messages plus one run-aware conversation
   surface inside the operator workflow.
-- Add the first automatic OpenSpec/spec-review agent using authorized graph
-  context and read-only repository/OpenSpec tooling.
+- Add the first automatic run-review agent using authorized Office Graph run,
+  work-packet, graph, check, conversation, and evidence context without local
+  repository or planning-tool access.
 - Add only backend agent principals and credential metadata. Human login,
   SSO/SCIM, identity administration, generic agent administration, and general
   chat remain deferred.

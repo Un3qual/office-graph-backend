@@ -5,11 +5,11 @@ Office Graph SHALL store agent definitions with stable key, lifecycle, agent
 principal, supported modes, requested capabilities, model adapter, tool
 allowlist, and default autonomy envelope.
 
-#### Scenario: OpenSpec review agent is installed
+#### Scenario: Run review agent is installed
 - **WHEN** the runtime migration runs
-- **THEN** the canonical OpenSpec-review definition MUST exist without an
-  application seed and MUST allow only its declared read-only tools and
-  proposal/evidence outputs
+- **THEN** the canonical run-review definition MUST exist without an
+  application seed, MUST have no tool allowlist, and MUST allow only its
+  declared proposal-first outputs
 
 #### Scenario: Definition is bound to an organization
 - **WHEN** an authorized local owner invokes the narrow binding command
