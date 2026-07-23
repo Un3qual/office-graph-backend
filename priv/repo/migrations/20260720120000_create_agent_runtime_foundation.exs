@@ -542,7 +542,7 @@ defmodule OfficeGraph.Repo.Migrations.CreateAgentRuntimeFoundation do
       'deterministic',
       ARRAY[]::text[],
       'human_supervised',
-      ARRAY['message', 'finding', 'proposal', 'check', 'evidence_candidate']::text[],
+      ARRAY['message', 'finding', 'proposal', 'observation', 'evidence_candidate']::text[],
       now(),
       now()
     )
