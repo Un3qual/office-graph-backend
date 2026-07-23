@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parse, visit as visitGraphQL } from "graphql";
 import ts from "typescript";
@@ -59,8 +59,8 @@ export function analyzeTypeScript(source: string, filename = "architecture-fixtu
       if (ts.isIdentifier(node.expression)) {
         const calls = stringCallArguments.get(node.expression.text) ?? [];
         calls.push(
-          node.arguments.map((argument) =>
-            ts.isStringLiteralLike(argument) ? argument.text : argument.getText(sourceFile),
+          node.arguments.map(
+            (argument) => staticStringValue(argument) ?? argument.getText(sourceFile),
           ),
         );
         stringCallArguments.set(node.expression.text, calls);
@@ -135,6 +135,17 @@ function importedCanonicalNames(sourceFile: ts.SourceFile) {
 function staticStringValue(expression: ts.Expression): string | null {
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isParenthesizedExpression(expression)) return staticStringValue(expression.expression);
+  if (ts.isTemplateExpression(expression)) {
+    let value = expression.head.text;
+
+    for (const span of expression.templateSpans) {
+      const spanValue = staticStringValue(span.expression);
+      if (spanValue === null) return null;
+      value += spanValue + span.literal.text;
+    }
+
+    return value;
+  }
 
   if (
     ts.isBinaryExpression(expression) &&
@@ -158,8 +169,45 @@ export function routeRegistrationOffenders(
     ownedModulePrefix: string;
   },
 ) {
-  const routeCalls = analyzeTypeScript(source, "routes.ts").stringCallArguments.get("route") ?? [];
-  const ownedRegistrations = routeCalls.filter(
+  const sourceFile = ts.createSourceFile(
+    "routes.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const registrations: string[][] = [];
+  const staticArgumentOffenders: string[] = [];
+
+  walk(sourceFile, (node) => {
+    if (
+      !ts.isCallExpression(node) ||
+      !ts.isIdentifier(node.expression) ||
+      node.expression.text !== "route"
+    ) {
+      return;
+    }
+
+    const [pathExpression, targetExpression] = node.arguments;
+    const path = pathExpression ? staticStringValue(pathExpression) : null;
+    const target = targetExpression ? staticStringValue(targetExpression) : null;
+
+    if (path === null) {
+      staticArgumentOffenders.push(
+        `route call has a non-static path: ${pathExpression?.getText(sourceFile) ?? "<missing>"}`,
+      );
+    }
+    if (target === null) {
+      staticArgumentOffenders.push(
+        `route call has a non-static target: ${targetExpression?.getText(sourceFile) ?? "<missing>"}`,
+      );
+    }
+    if (path !== null && target !== null) registrations.push([path, target]);
+  });
+
+  if (staticArgumentOffenders.length > 0) return staticArgumentOffenders;
+
+  const ownedRegistrations = registrations.filter(
     ([, target]) => target === ownedModulePrefix || target.startsWith(`${ownedModulePrefix}/`),
   );
   const canonicalRegistrations = ownedRegistrations.filter(([path]) => path === canonicalPath);
@@ -207,11 +255,17 @@ export function localDependencyFiles(entries: string[]) {
     visited.add(file);
     const source = readFileSync(file, "utf8");
 
-    for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
-      if (!fileName.startsWith(".")) continue;
+    for (const specifier of analyzeTypeScript(source, file).moduleSpecifiers) {
+      if (specifier === "<non-static dynamic import>") {
+        throw new Error(`Non-static dynamic import in ${file}`);
+      }
+      if (!specifier.startsWith(".")) continue;
 
-      const dependency = resolveSourceFile(resolve(dirname(file), fileName));
-      if (dependency && !visited.has(dependency)) pending.push(dependency);
+      const dependency = resolveSourceFile(resolve(dirname(file), specifier));
+      if (!dependency) {
+        throw new Error(`Unable to resolve relative dependency "${specifier}" from ${file}`);
+      }
+      if (!visited.has(dependency)) pending.push(dependency);
     }
   }
 
@@ -227,6 +281,7 @@ export function emittedClassNames(source: string, filename: string) {
     filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const names = new Set<string>();
+  let spreadTypeContext: ReturnType<typeof createSpreadTypeContext> | null = null;
 
   const addTokens = (value: string) => {
     for (const token of value.split(/\s+/)) {
@@ -324,6 +379,46 @@ export function emittedClassNames(source: string, filename: string) {
     unsupportedClassExpression(expression, sourceFile);
   };
 
+  const collectSpread = (expression: ts.Expression, attribute: ts.JsxSpreadAttribute) => {
+    if (ts.isParenthesizedExpression(expression)) {
+      collectSpread(expression.expression, attribute);
+      return;
+    }
+
+    if (ts.isConditionalExpression(expression)) {
+      collectSpread(expression.whenTrue, attribute);
+      collectSpread(expression.whenFalse, attribute);
+      return;
+    }
+
+    if (!ts.isObjectLiteralExpression(expression)) {
+      spreadTypeContext ??= createSpreadTypeContext(source, filename);
+      if (spreadTypeCannotConcealClasses(expression, attribute, spreadTypeContext)) return;
+
+      throw new Error(`Unsupported JSX spread: ${expression.getText(sourceFile)}`);
+    }
+
+    for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        collectSpread(property.expression, attribute);
+        continue;
+      }
+
+      const propertyName = staticPropertyName(property.name);
+      if (propertyName === null) {
+        throw new Error(`Unsupported JSX spread property: ${property.getText(sourceFile)}`);
+      }
+      if (propertyName !== "className" && !propertyName.endsWith("ClassName")) continue;
+
+      if (ts.isPropertyAssignment(property)) {
+        collectExpression(property.initializer);
+        continue;
+      }
+
+      throw new Error(`Unsupported JSX spread class property: ${property.getText(sourceFile)}`);
+    }
+  };
+
   walk(sourceFile, (node) => {
     const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
 
@@ -340,9 +435,107 @@ export function emittedClassNames(source: string, filename: string) {
         throw new Error(`Unsupported ${attributeName} initializer in ${filename}`);
       }
     }
+
+    if (ts.isJsxSpreadAttribute(node)) collectSpread(node.expression, node);
   });
 
   return [...names];
+}
+
+function createSpreadTypeContext(source: string, filename: string) {
+  const rootName = resolve(filename);
+  const options: ts.CompilerOptions = {
+    allowJs: true,
+    jsx: ts.JsxEmit.ReactJSX,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    skipLibCheck: true,
+    strict: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = ts.createCompilerHost(options);
+  const defaultGetSourceFile = host.getSourceFile.bind(host);
+  const defaultFileExists = host.fileExists.bind(host);
+  const defaultReadFile = host.readFile.bind(host);
+  const isRoot = (candidate: string) => resolve(candidate) === rootName;
+
+  host.fileExists = (candidate) => isRoot(candidate) || defaultFileExists(candidate);
+  host.readFile = (candidate) => (isRoot(candidate) ? source : defaultReadFile(candidate));
+  host.getSourceFile = (candidate, languageVersion, onError, shouldCreateNewSourceFile) =>
+    isRoot(candidate)
+      ? ts.createSourceFile(
+          candidate,
+          source,
+          languageVersion,
+          true,
+          candidate.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+        )
+      : defaultGetSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
+
+  const program = ts.createProgram([rootName], options, host);
+  const typedSourceFile = program.getSourceFile(rootName);
+  if (!typedSourceFile) throw new Error(`Unable to type-check JSX spreads in ${filename}`);
+
+  return { checker: program.getTypeChecker(), sourceFile: typedSourceFile };
+}
+
+function spreadTypeCannotConcealClasses(
+  expression: ts.Expression,
+  attribute: ts.JsxSpreadAttribute,
+  {
+    checker,
+    sourceFile,
+  }: {
+    checker: ts.TypeChecker;
+    sourceFile: ts.SourceFile;
+  },
+) {
+  const typedExpression = nodeAtSourcePosition(sourceFile, expression);
+  if (!typedExpression || !ts.isExpression(typedExpression)) return false;
+
+  const overriddenNames = new Set(
+    attribute.parent.properties
+      .slice(attribute.parent.properties.indexOf(attribute) + 1)
+      .flatMap((property) =>
+        ts.isJsxAttribute(property) ? [property.name.getText(sourceFile)] : [],
+      ),
+  );
+  const type = checker.getTypeAtLocation(typedExpression);
+  const variants = type.isUnion() ? type.types : [type];
+
+  return variants.every((variant) => {
+    if (
+      variant.flags &
+      (ts.TypeFlags.Any |
+        ts.TypeFlags.Unknown |
+        ts.TypeFlags.TypeParameter |
+        ts.TypeFlags.NonPrimitive)
+    ) {
+      return false;
+    }
+    if (!(variant.flags & ts.TypeFlags.Object)) return false;
+    if (checker.getIndexTypeOfType(variant, ts.IndexKind.String)) return false;
+
+    return checker.getPropertiesOfType(variant).every((property) => {
+      const propertyName = property.getName();
+      return (
+        (propertyName !== "className" && !propertyName.endsWith("ClassName")) ||
+        overriddenNames.has(propertyName)
+      );
+    });
+  });
+}
+
+function nodeAtSourcePosition(sourceFile: ts.SourceFile, target: ts.Node) {
+  let match: ts.Node | null = null;
+
+  walk(sourceFile, (node) => {
+    if (node.kind === target.kind && node.pos === target.pos && node.end === target.end) {
+      match = node;
+    }
+  });
+
+  return match;
 }
 
 export function stylesheetOwnerClasses(styles: string) {
@@ -365,6 +558,7 @@ export function unownedClassNames(classes: Iterable<string>, owners: ReadonlySet
 }
 
 function resolveSourceFile(path: string) {
+  const sourceExtension = /\.[cm]?[jt]sx?$/i;
   for (const candidate of [
     path,
     `${path}.ts`,
@@ -372,7 +566,9 @@ function resolveSourceFile(path: string) {
     join(path, "index.ts"),
     join(path, "index.tsx"),
   ]) {
-    if (existsSync(candidate)) return candidate;
+    if (sourceExtension.test(candidate) && existsSync(candidate) && statSync(candidate).isFile()) {
+      return candidate;
+    }
   }
 
   return null;
@@ -428,6 +624,16 @@ function destructuredClassNameParameters(node: ts.Node) {
 
 function unsupportedClassExpression(expression: ts.Node, sourceFile: ts.SourceFile): never {
   throw new Error(`Unsupported className expression: ${expression.getText(sourceFile)}`);
+}
+
+function staticPropertyName(name: ts.PropertyName | undefined) {
+  if (!name) return null;
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) return staticStringValue(name.expression);
+
+  return null;
 }
 
 function walk(node: ts.Node, visit: (node: ts.Node) => void) {

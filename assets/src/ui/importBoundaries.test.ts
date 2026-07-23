@@ -123,6 +123,21 @@ describe("shared UI import boundaries", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not treat an excluded architecture file as executed", () => {
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude app/routes/runs/architecture.test.ts",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude=app/routes/runs/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+  });
 });
 
 function sharedUiSourceFiles() {
@@ -234,9 +249,20 @@ function scriptRunsVitestFile(script: string, testFile: string) {
     const tokens = shellTokens(command);
     const vitestIndex = tokens.indexOf("vitest");
     const runIndex = tokens.indexOf("run", vitestIndex + 1);
+    const hasExclusion = tokens.some(
+      (token) =>
+        token === "--exclude" ||
+        token.startsWith("--exclude=") ||
+        token === "-x" ||
+        token.startsWith("-x=") ||
+        token.startsWith("!"),
+    );
 
     return (
-      vitestIndex >= 0 && runIndex > vitestIndex && tokens.slice(runIndex + 1).includes(testFile)
+      !hasExclusion &&
+      vitestIndex >= 0 &&
+      runIndex > vitestIndex &&
+      tokens.slice(runIndex + 1).includes(testFile)
     );
   });
 }

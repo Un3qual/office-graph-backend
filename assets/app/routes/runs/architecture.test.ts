@@ -1,5 +1,14 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   analyzeTypeScript,
@@ -177,6 +186,119 @@ describe("all-runs route architecture", () => {
       "ui-button-secondary",
     ]);
   });
+
+  it("traverses finite concatenated and template lazy imports", () => {
+    withTemporarySources(
+      {
+        "entry.tsx": `
+          const Concatenated = lazy(() => import("./" + "concatenated"));
+          const Templated = lazy(() => import(\`./\${"templated"}\`));
+        `,
+        "concatenated.tsx": `
+          export function Concatenated() {
+            return <div className="concatenated-orphan" />;
+          }
+        `,
+        "templated.tsx": `
+          import component from "@mui/material";
+          export default component;
+        `,
+      },
+      (root) => {
+        const files = localDependencyFiles([join(root, "entry.tsx")]);
+        const classes = files.flatMap((file) =>
+          emittedClassNames(readFileSync(file, "utf8"), file),
+        );
+        const imports = files.flatMap((file) => [
+          ...analyzeTypeScript(readFileSync(file, "utf8"), file).moduleSpecifiers,
+        ]);
+
+        expect(files.map((file) => relative(root, file)).sort()).toEqual([
+          "concatenated.tsx",
+          "entry.tsx",
+          "templated.tsx",
+        ]);
+        expect(classes).toContain("concatenated-orphan");
+        expect(bareModuleSpecifierOffenders(imports, allowedRoutePackages)).toContain(
+          "@mui/material",
+        );
+      },
+    );
+  });
+
+  it("fails closed on non-static and unresolved relative dependencies", () => {
+    withTemporarySources(
+      {
+        "dynamic.tsx": "const Lazy = lazy(() => import(target));",
+        "missing-entry.tsx": 'const Lazy = lazy(() => import("./absent"));',
+      },
+      (root) => {
+        expect(() => localDependencyFiles([join(root, "dynamic.tsx")])).toThrowError(
+          "Non-static dynamic import",
+        );
+        expect(() => localDependencyFiles([join(root, "missing-entry.tsx")])).toThrowError(
+          "Unable to resolve relative dependency",
+        );
+      },
+    );
+  });
+
+  it("collects finite class-bearing JSX spreads", () => {
+    const source = `
+      function Fixture({ active }: { active: boolean }) {
+        return (
+          <>
+            <Panel {...{ contentClassName: "orphan-card" }} />
+            <div {...{ className: active ? "state-active" : "state-idle", role: "status" }} />
+          </>
+        );
+      }
+    `;
+
+    expect(emittedClassNames(source, "fixture.tsx").sort()).toEqual([
+      "orphan-card",
+      "state-active",
+      "state-idle",
+    ]);
+  });
+
+  it("fails closed on unresolved JSX spreads that may conceal class props", () => {
+    expect(() =>
+      emittedClassNames(
+        `function Fixture(props: object) { return <div {...props} />; }`,
+        "fixture.tsx",
+      ),
+    ).toThrowError("Unsupported JSX spread: props");
+  });
+
+  it("evaluates static concatenated and template route arguments and still rejects aliases", () => {
+    const source = `
+      import { route } from "@react-router/dev/routes";
+      export default [
+        route("ru" + "ns", \`./routes/\${"runs"}/route.tsx\`),
+        route("all-" + "runs", "./routes/runs/" + "route.tsx"),
+      ];
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
+      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    ]);
+  });
+
+  it("fails closed on non-static route paths and targets", () => {
+    expect(
+      routeRegistrationOffenders(
+        `
+          route(routePath, "./routes/runs/route.tsx");
+          route("runs", routeTarget);
+        `,
+        runsRegistration,
+      ),
+    ).toEqual([
+      "route call has a non-static path: routePath",
+      "route call has a non-static target: routeTarget",
+    ]);
+  });
 });
 
 const runsRegistration = {
@@ -219,4 +341,19 @@ function treeFiles(path: string): string[] {
     const fullPath = join(path, entry);
     return statSync(fullPath).isDirectory() ? treeFiles(fullPath) : [fullPath];
   });
+}
+
+function withTemporarySources(
+  sources: Record<string, string>,
+  runAssertions: (root: string) => void,
+) {
+  const root = mkdtempSync(join(tmpdir(), "office-graph-runs-architecture-"));
+  try {
+    for (const [filename, source] of Object.entries(sources)) {
+      writeFileSync(join(root, filename), source);
+    }
+    runAssertions(root);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 }
