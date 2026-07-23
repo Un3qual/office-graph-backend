@@ -12,7 +12,7 @@ defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
     fixture = persistence_fixture!()
 
     assert {:ok, binding} =
-             AgentRuntime.bind_openspec_review_agent(fixture.bootstrap.session, %{
+             AgentRuntime.bind_run_review_agent(fixture.bootstrap.session, %{
                idempotency_key: "execution-state-binding"
              })
 
@@ -35,7 +35,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
           operation_id: operation.id,
           invocation_mode: "human",
           origin: "operator",
-          requested_outcome: "Review the selected OpenSpec change",
+          requested_outcome:
+            "Review the selected run, work packet, graph context, checks, and evidence.",
           autonomy_mode: "human_supervised",
           state: "queued",
           idempotency_key: "execution-state"
@@ -87,7 +88,7 @@ defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
           run_id: fixture.run.id,
           created_by_principal_id: fixture.bootstrap.principal.id,
           operation_id: fixture.operation.id,
-          purpose: "openspec_review",
+          purpose: "run_review",
           visibility: "run_participants",
           state: "active"
         },

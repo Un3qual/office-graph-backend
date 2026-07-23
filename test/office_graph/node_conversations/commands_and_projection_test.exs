@@ -489,7 +489,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
              |> Enum.sort()
 
     assert "evidence.suggest" in requested_capabilities
-    refute "openspec.read" in requested_capabilities
     refute "repository.read" in requested_capabilities
   end
 

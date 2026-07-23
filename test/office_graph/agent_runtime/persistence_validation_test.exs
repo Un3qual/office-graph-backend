@@ -150,7 +150,8 @@ defmodule OfficeGraph.AgentRuntime.PersistenceValidationTest do
       operation_id: uuid(),
       invocation_mode: "human",
       origin: "operator",
-      requested_outcome: "Review the selected OpenSpec change",
+      requested_outcome:
+        "Review the selected run, work packet, graph context, checks, and evidence.",
       autonomy_mode: "human_supervised",
       state: "queued",
       state_version: 1,

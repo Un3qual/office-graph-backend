@@ -28,7 +28,7 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
     Repo.query!("""
     UPDATE agent_definitions
     SET allowed_output_kinds = ARRAY['message']::text[]
-    WHERE key = 'openspec-review'
+    WHERE key = 'run-review'
     """)
 
     assert {:error, :forbidden} =
@@ -58,7 +58,7 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
              Repo.query!("""
              SELECT allowed_output_kinds
              FROM agent_definitions
-             WHERE key = 'openspec-review'
+             WHERE key = 'run-review'
              """)
 
     assert Enum.sort(allowed_output_kinds) ==
