@@ -110,6 +110,7 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
                tool_allowlist,
                allowed_output_kinds
              FROM agent_definitions
+             WHERE key = 'run-review'
              """)
 
     assert key == "run-review"
@@ -128,6 +129,13 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
 
     assert Enum.sort(allowed_output_kinds) ==
              ~w(evidence_candidate finding message observation proposal)
+
+    assert %{rows: []} =
+             OfficeGraph.Repo.query!("""
+             SELECT key
+             FROM agent_definitions
+             WHERE key = 'openspec-review'
+             """)
 
     for forbidden <- ~w(secret api_key token raw_prompt raw_response raw_input raw_output) do
       refute column_exists?("agent_definitions", forbidden)

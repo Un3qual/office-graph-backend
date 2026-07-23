@@ -65,10 +65,10 @@ terminal failure reason codes without raw provider/model exception text.
   retry or terminal-failure path and MUST NOT remain running with an expired
   lease
 
-#### Scenario: Output validation encounters transient storage failure
+#### Scenario: Owning-domain output routing encounters transient storage failure
 
-- **WHEN** system-principal authorization storage is temporarily unavailable
-  while a completed adapter result is being routed
-- **THEN** output validation MUST preserve the storage-availability
-  classification so the worker uses its bounded retry path instead of recording
-  a terminal authorization or routing failure
+- **WHEN** Ash or database storage is temporarily unavailable anywhere while a
+  completed adapter result is being routed through its owning domain
+- **THEN** output routing MUST preserve the retryable infrastructure-failure
+  classification so the worker uses its bounded retry path and MUST NOT record
+  a terminal business failure

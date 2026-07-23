@@ -34,7 +34,7 @@
 
 ## 7. First Automatic Agent
 
-- [x] 7.1 Add end-to-end deterministic tests for the run-review agent consuming authorized Office Graph context and producing messages, findings, proposals, checks, and evidence candidates.
+- [x] 7.1 Add end-to-end deterministic tests for the run-review agent consuming authorized Office Graph context and producing messages, findings, proposals, observations, and check-related evidence candidates.
 - [x] 7.2 Implement the tool-free canonical run-review workflow over immutable context packages, proving it has no local repository, planning-tool, external-write, or direct-mutation path.
 - [x] 7.3 Verify automatic run review through the existing durable model step, product-native operator affordances, and deterministic no-network acceptance coverage.
 

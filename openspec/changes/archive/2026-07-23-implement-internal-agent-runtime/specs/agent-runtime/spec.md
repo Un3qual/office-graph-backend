@@ -12,13 +12,14 @@ linked to an existing authorized work run and selected graph context.
 - **THEN** AgentRuntime MUST create or replay one execution with operation,
   agent principal, delegator, context package, and immutable authority snapshot
 
-#### Scenario: Delegator requests capabilities
+#### Scenario: Invocation requests capabilities
 
-- **WHEN** an operator invocation requests the definition's declared
-  capabilities
-- **THEN** the immutable authority snapshot MUST contain only capabilities also
-  granted to the delegating principal and MUST reject any requested capability
-  outside that intersection
+- **WHEN** an operator or automatic invocation requests the definition's
+  declared capabilities
+- **THEN** the immutable authority snapshot MUST contain only capabilities
+  currently granted to the bound agent principal and also present in the
+  delegating principal's or system trigger's authority, and MUST reject any
+  requested capability outside that intersection
 
 #### Scenario: Automatic run review starts
 
@@ -89,6 +90,14 @@ durable step.
 - **WHEN** a queued or retrying step reaches execution after revocation
 - **THEN** the runtime MUST fail closed or request new authority without erasing
   prior execution history
+
+#### Scenario: Agent principal capability is revoked mid-run
+
+- **WHEN** any capability captured in the immutable authority snapshot is
+  revoked from the bound agent principal before a queued or retrying step
+  executes
+- **THEN** mutable-authority revalidation MUST fail closed before executing the
+  step
 
 #### Scenario: Definition credential rotates during an active execution
 
