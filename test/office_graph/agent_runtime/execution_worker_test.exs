@@ -245,6 +245,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     assert ["agent_execution.completed", "agent_execution.running"] ==
              DomainEvent
+             |> Ash.Query.filter(subject_id == ^execution.id)
              |> Ash.read!(authorize?: false)
              |> Enum.map(& &1.event_kind)
              |> Enum.sort()
@@ -273,7 +274,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert {:snooze, delay} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     assert delay in 1..30
     assert Ash.get!(AgentExecution, leased.id, authorize?: false).state == "running"
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, leased.id) == 0
 
     leased
     |> Ash.Changeset.for_update(:transition, %{
@@ -287,7 +288,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     recovered = Ash.get!(AgentExecution, leased.id, authorize?: false)
     assert recovered.state == "completed"
     assert recovered.attempt_count == 2
-    assert Repo.aggregate(ModelRequest, :count) == 1
+    assert execution_record_count(ModelRequest, leased.id) == 1
   end
 
   test "completed step replay does not repeat effects or state transitions" do
@@ -297,15 +298,15 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     completed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
-    event_count = Repo.aggregate(DomainEvent, :count)
+    event_count = execution_event_count(invoked.execution.id)
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 2, max_attempts: 3})
     replayed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
 
     assert replayed.state_version == completed.state_version
     assert replayed.attempt_count == completed.attempt_count
-    assert Repo.aggregate(ModelRequest, :count) == 1
-    assert Repo.aggregate(DomainEvent, :count) == event_count
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 1
+    assert execution_event_count(invoked.execution.id) == event_count
   end
 
   test "retryable failures schedule bounded retries and exhaust into one safe terminal result" do
@@ -396,7 +397,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert execution.failure_code == "malformed_model_output"
     assert request.state == "failed"
     assert request.failure_code == "malformed_model_output"
-    assert Repo.aggregate(ProposedGraphChange, :count) == 0
+    assert execution_record_count(ProposedGraphChange, invoked.execution.id) == 0
   end
 
   test "output routing rejection terminalizes the claimed request and execution" do
@@ -473,7 +474,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert execution.state == "failed"
     assert execution.failure_code == "agent_adapter_unavailable"
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "transient authority storage failure retries without recording false revocation" do
@@ -502,7 +503,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     queued = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert queued.state == "queued"
     assert queued.attempt_count == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
 
     Application.delete_env(:office_graph, :agent_runtime_revalidator)
 
@@ -598,7 +599,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert failed.state == "failed"
     assert failed.failure_code == "agent_adapter_unavailable"
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "credentialed adapters require matching credential metadata captured by authority" do
@@ -629,7 +630,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
     refute_receive {:credentialed_model_invoked, _request_id}
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
 
     failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert failed.state == "failed"
@@ -672,11 +673,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert {:cancel, "cancelled_by_operator"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
 
     assert [event] =
              DomainEvent
-             |> Ash.Query.filter(event_kind == "agent_execution.cancelled")
+             |> Ash.Query.filter(
+               subject_id == ^invoked.execution.id and event_kind == "agent_execution.cancelled"
+             )
              |> Ash.read!(authorize?: false)
 
     assert event.operation_id == operation.id
@@ -711,7 +714,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert 1 ==
              DomainEvent
              |> Ash.Query.filter(
-               operation_id == ^operation.id and event_kind == "agent_execution.cancelled"
+               subject_id == ^invoked.execution.id and operation_id == ^operation.id and
+                 event_kind == "agent_execution.cancelled"
              )
              |> Ash.read!(authorize?: false)
              |> length()
@@ -821,7 +825,18 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     Application.put_env(:office_graph, :deterministic_model_approval_required, false)
     expansion_context = AgentRuntimeSupport.invocation_fixture()
-    expansion_invocation = AgentRuntimeSupport.invoke_human(expansion_context)
+    allow_generic_context_expansion!(expansion_context)
+
+    expansion_invocation =
+      AgentRuntimeSupport.invoke_human(expansion_context, %{
+        requested_capabilities: [
+          "agent.model.generate",
+          "agent.tool.read",
+          "evidence.suggest",
+          "proposal.create"
+        ]
+      })
+
     [expansion_job] = execution_jobs(expansion_invocation.execution.id)
 
     Repo.query!(
@@ -873,11 +888,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert waiting.current_step_key == "model:review"
     assert waiting.attempt_count == 0
     assert is_nil(waiting.lease_token)
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
 
     assert 1 ==
              DomainEvent
-             |> Ash.Query.filter(event_kind == "agent_execution.waiting_approval")
+             |> Ash.Query.filter(
+               subject_id == ^invoked.execution.id and
+                 event_kind == "agent_execution.waiting_approval"
+             )
              |> Ash.read!(authorize?: false)
              |> length()
   end
@@ -899,7 +917,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     invoked =
       AgentRuntimeSupport.invoke_human(context, %{
         idempotency_key: "approval-without-model-authority-#{context.suffix}",
-        requested_capabilities: ["agent.tool.read", "proposal.create", "repository.read"]
+        requested_capabilities: ["evidence.suggest", "proposal.create"]
       })
 
     [job] = execution_jobs(invoked.execution.id)
@@ -910,13 +928,24 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert failed.state == "failed"
     assert failed.failure_code == "missing_capability"
-    assert Repo.aggregate(ApprovalRequest, :count) == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ApprovalRequest, invoked.execution.id) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "expansion-required context persists waiting context before adapter dispatch" do
     context = AgentRuntimeSupport.invocation_fixture()
-    invoked = AgentRuntimeSupport.invoke_human(context)
+    allow_generic_context_expansion!(context)
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        requested_capabilities: [
+          "agent.model.generate",
+          "agent.tool.read",
+          "evidence.suggest",
+          "proposal.create"
+        ]
+      })
+
     [job] = execution_jobs(invoked.execution.id)
 
     Repo.query!(
@@ -939,7 +968,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert waiting.state == "waiting_context"
     assert waiting.current_step_key == "model:review"
     assert waiting.attempt_count == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "context expansion fails closed when the invocation did not capture its capability" do
@@ -948,7 +977,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     invoked =
       AgentRuntimeSupport.invoke_human(context, %{
         idempotency_key: "agent-without-expansion-#{context.suffix}",
-        requested_capabilities: ["agent.model.generate", "proposal.create", "repository.read"]
+        requested_capabilities: ["agent.model.generate", "evidence.suggest", "proposal.create"]
       })
 
     [job] = execution_jobs(invoked.execution.id)
@@ -965,8 +994,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert failed.state == "failed"
     assert failed.failure_code == "agent_context_expansion_not_authorized"
-    assert Repo.aggregate(ContextExpansionRequest, :count) == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ContextExpansionRequest, invoked.execution.id) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "mutable authority is revalidated before a step and revocation fails it closed" do
@@ -985,11 +1014,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert failed.state == "failed"
     assert failed.failure_code == "agent_authority_revoked"
     assert failed.attempt_count == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
 
     assert [event] =
              DomainEvent
-             |> Ash.Query.filter(event_kind == "agent_execution.failed")
+             |> Ash.Query.filter(
+               subject_id == ^failed.id and event_kind == "agent_execution.failed"
+             )
              |> Ash.read!(authorize?: false)
 
     assert event.subject_id == failed.id
@@ -1013,7 +1044,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert failed.state == "failed"
     assert failed.failure_code == "agent_authority_revoked"
     assert failed.attempt_count == 0
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 0
   end
 
   test "concurrent duplicate dispatch has one lease owner and one durable effect" do
@@ -1052,8 +1083,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     completed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     assert completed.state == "completed"
     assert completed.attempt_count == 1
-    assert Repo.aggregate(ModelRequest, :count) == 1
-    assert Repo.aggregate(DomainEvent, :count) == 2
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 1
+    assert execution_event_count(invoked.execution.id) == 2
   end
 
   test "worker restart reclaims an expired persisted request with the same step identity" do
@@ -1105,7 +1136,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert recovered.state == "completed"
     assert recovered.attempt_count == 2
     assert recovered_request.state == "succeeded"
-    assert Repo.aggregate(ModelRequest, :count) == 1
+    assert execution_record_count(ModelRequest, invoked.execution.id) == 1
   end
 
   test "cancellation rejects missing capability and stale execution versions" do
@@ -1157,6 +1188,56 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
         fragment("?->>'execution_id'", job.args) == ^execution_id
     )
     |> Repo.all()
+  end
+
+  defp execution_record_count(resource, execution_id) do
+    resource
+    |> Ash.Query.filter(execution_id == ^execution_id)
+    |> Ash.read!(authorize?: false)
+    |> length()
+  end
+
+  defp execution_event_count(execution_id) do
+    DomainEvent
+    |> Ash.Query.filter(subject_id == ^execution_id)
+    |> Ash.read!(authorize?: false)
+    |> length()
+  end
+
+  defp allow_generic_context_expansion!(context) do
+    Repo.query!(
+      """
+      UPDATE agent_definitions
+      SET requested_capabilities = ARRAY[
+            'agent.model.generate',
+            'agent.tool.read',
+            'evidence.suggest',
+            'proposal.create'
+          ]::text[],
+          updated_at = now()
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
+      FROM role_assignments AS assignments
+      JOIN capabilities ON capabilities.key = 'agent.tool.read'
+      WHERE assignments.principal_id IN ($1, $2)
+        AND assignments.organization_id = $3
+        AND assignments.workspace_id = $4
+      ON CONFLICT (role_id, capability_id) DO NOTHING
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
   end
 
   defp configure_adapter_registry(update) when is_function(update, 1) do
