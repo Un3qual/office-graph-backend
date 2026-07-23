@@ -3,13 +3,17 @@
 ### Requirement: Work Runs Have An Authorized Bounded Index Projection
 
 Office Graph SHALL provide a read-only work-run index projection that returns
-only safe run-summary fields for the resolved session's authorized organization
-and workspace: run id, owning packet id and title, packet-version id and
-version number, objective, aggregate/execution/verification states, insertion
-time, and a stable source watermark. The projection SHALL require the existing
-skeleton-read capability, join packet and packet-version labels in its bounded
-list query, and SHALL NOT duplicate `operatorRunState` detail assembly or own a
-command.
+only this safe output for the resolved session's authorized organization and
+workspace: run id, objective, aggregate state, execution state, verification
+state, insertion time, and stable source watermark; packet id, title, and
+state; and packet-version id, version number, lifecycle state, and objective.
+The GraphQL layer SHALL derive an opaque packet Relay id from the projected
+packet id for canonical product deep links; that Relay id is not an additional
+projection field. The projection SHALL require the existing skeleton-read
+capability and use one actor-authorized run-page read plus two actor-authorized,
+scope-filtered, page-batched enrichment reads for packets and packet versions.
+It SHALL NOT load enrichment per row, duplicate `operatorRunState` detail
+assembly, or own a command.
 
 #### Scenario: Authorized scope receives only its runs
 
@@ -43,8 +47,10 @@ command.
 
 - **WHEN** the number of runs in the authorized scope grows while the requested
   page size stays fixed
-- **THEN** the index MUST retain a constant query-count bound and MUST NOT load
-  packet or packet-version labels one row at a time
+- **THEN** the index MUST retain its constant bound of one actor-authorized
+  run-page read plus two actor-authorized, scope-filtered, page-batched
+  enrichment reads and MUST NOT load packet or packet-version data one row at a
+  time
 
 ### Requirement: Work Run Index Has A Read-Only Relay Connection
 

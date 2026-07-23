@@ -1,7 +1,7 @@
 ## 1. Run Index Projection
 
 - [x] 1.1 Add a focused `OfficeGraph.Projections` work-run index read that resolves the existing session scope and skeleton-read capability before returning only safe summary fields.
-- [x] 1.2 Implement newest-first `(inserted_at DESC, id DESC)` keyset pagination, opaque cursor encoding/decoding, existing safe validation errors, and bounded packet/packet-version joins.
+- [x] 1.2 Implement newest-first `(inserted_at DESC, id DESC)` keyset pagination, opaque cursor encoding/decoding, existing safe validation errors, and actor-authorized page-batched packet/packet-version enrichment with a constant read bound.
 - [x] 1.3 Add projection coverage for organization/workspace isolation, authorization denial, invalid input, stable forward pagination across inserts, summary field safety, and constant query count as list size grows.
 
 ## 2. GraphQL Run Connection

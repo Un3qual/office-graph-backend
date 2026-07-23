@@ -54,13 +54,15 @@ only the bounded list read and does not duplicate the existing detailed
 
 Each summary contains:
 
-- run id;
-- owning packet id and title;
-- packet-version id and version number;
-- run objective;
-- aggregate, execution, and verification states;
-- run insertion time; and
-- a stable source watermark suitable for authoritative refresh.
+- run id, objective, aggregate state, execution state, verification state,
+  insertion time, and a stable source watermark suitable for authoritative
+  refresh;
+- owning packet id, title, and state; and
+- packet-version id, version number, lifecycle state, and objective.
+
+The GraphQL layer derives an opaque packet Relay id from the projected packet
+id for canonical product deep links. That Relay id is not an additional
+projection field.
 
 Rows are limited to the resolved session's organization and workspace. The
 projection requires the existing skeleton-read capability and returns only
@@ -68,11 +70,12 @@ safe, already-modeled product fields. It uses keyset pagination ordered by
 `inserted_at DESC, id DESC`; cursors encode those stable values. Inserts before
 the current page do not duplicate or skip rows on forward pagination.
 
-The query count remains constant as the number of runs grows. Packet and
-packet-version labels are joined in the bounded list query rather than loaded
-per row. Invalid cursors and limits return the same safe validation shape used
-by existing operator and packet connections. Cross-tenant ids never appear in
-the result.
+The read count remains constant as the number of runs grows: one
+actor-authorized run-page read plus two actor-authorized, scope-filtered,
+page-batched enrichment reads for packets and packet versions. Enrichment is
+never loaded per row. Invalid cursors and limits return the same safe
+validation shape used by existing operator and packet connections. Cross-tenant
+ids never appear in the result.
 
 The existing `operatorRunState` projection remains the detail source. Its
 activity connection already covers observations, evidence, verification
@@ -116,12 +119,12 @@ deep link. It continues to own its current list, detail, paging, and mutation
 behavior; this batch does not introduce a second packet projection or command
 path.
 
-The first visible run becomes the default only when the URL does not already
-name a valid visible run. Selection changes update the URL and clear
-selection-scoped detail while the authoritative replacement loads. A run id
-that is absent from the current page is fetched through `operatorRunState`;
-forbidden or missing results use the safe detail error state and do not reveal
-whether the run exists in another tenant.
+The first visible run becomes the default only when `runId` is absent.
+Selection changes update the URL and clear selection-scoped detail while the
+authoritative replacement loads. Every present `runId` remains the requested
+selection, including one absent from the current page or one that resolves as
+invalid, missing, forbidden, or stale; those unavailable results use the safe
+detail error state and do not reveal whether the run exists in another tenant.
 
 `All Runs` becomes a real navigation link. `Entities` and `Reports` remain
 disabled.

@@ -49,12 +49,16 @@ their own.
 
 ### Add a focused run-index projection
 
-`OfficeGraph.Projections` will own a small list read for safe run-summary
-fields: run, packet, and packet-version identities and labels; objective;
-aggregate, execution, and verification states; insertion time; and a source
-watermark. It resolves the existing session scope and skeleton-read capability
-before reading, filters by organization and workspace, and joins packet labels
-in the bounded query.
+`OfficeGraph.Projections` will own a small list read whose safe output is:
+run id, objective, aggregate state, execution state, verification state,
+insertion time, and source watermark; packet id, title, and state; and
+packet-version id, version number, lifecycle state, and objective. The GraphQL
+layer derives an opaque packet Relay id from the projected packet id for
+canonical product deep links; that Relay id is not an additional projection
+field. The projection resolves the existing session scope and skeleton-read
+capability before reading, filters every read by organization and workspace,
+and uses one actor-authorized run-page read plus two actor-authorized,
+page-batched enrichment reads for packets and packet versions.
 
 The projection orders by `inserted_at DESC, id DESC` and encodes those two
 values in opaque cursors. This makes the ordering total and keeps a forward
@@ -125,8 +129,10 @@ those responsibilities.
 - [Cursor implementation skips or duplicates rows during inserts] → Use the
   total `(inserted_at DESC, id DESC)` keyset and cover forward-pagination
   stability with tests.
-- [Route reads grow per row] → Join bounded labels in the index query and add a
-  query-count regression test at different list sizes.
+- [Route reads grow per row] → Keep one actor-authorized run-page read plus two
+  actor-authorized, scope-filtered, page-batched enrichment reads, prohibit
+  per-row enrichment loading, and add a query-count regression test at
+  different list sizes.
 - [Selection changes render stale verification information] → Reset the
   detail boundary by selected id before Relay resolves the replacement.
 - [New UI grows a second command surface] → Keep all-runs GraphQL documents
