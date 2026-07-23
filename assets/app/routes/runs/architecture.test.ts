@@ -65,9 +65,7 @@ describe("all-runs route architecture", () => {
     const runsStyles = readFileSync(join(assetsRoot, "src/styles/runs.css"), "utf8");
     const sharedStyles = readFileSync(join(assetsRoot, "src/styles/shared.css"), "utf8");
     const dependencyFiles = routeDependencyFiles();
-    const emittedClasses = dependencyFiles.flatMap((file) =>
-      emittedClassNames(readFileSync(file, "utf8"), file),
-    );
+    const emittedClasses = dependencyFiles.flatMap(routeDependencyClassNames);
     const owners = new Set([
       ...stylesheetOwnerClasses(sharedStyles),
       ...stylesheetOwnerClasses(runsStyles),
@@ -93,9 +91,7 @@ describe("all-runs route architecture", () => {
       .filter((entry) => entry.endsWith(".css"))
       .map((entry) => readFileSync(join(assetsRoot, "src/styles", entry), "utf8"))
       .join("\n");
-    const emittedClasses = routeDependencyFiles().flatMap((file) =>
-      emittedClassNames(readFileSync(file, "utf8"), file),
-    );
+    const emittedClasses = routeDependencyFiles().flatMap(routeDependencyClassNames);
     const tailwindPackage = /(?:^|["'\s/@])(?:@tailwindcss\/[\w-]+|tailwindcss)(?=["'\s/:@]|$)/i;
     const utilityClass =
       /^(?:[a-z]+:)*(?:bg|border|col-span|flex|gap|grid-cols|h|items|justify|m[trblxy]?|max-w|min-h|min-w|p[trblxy]?|rounded|space-[xy]|text|w)-/;
@@ -271,6 +267,19 @@ describe("all-runs route architecture", () => {
     ).toThrowError("Unsupported JSX spread: props");
   });
 
+  it("rejects structurally narrowed spreads that retain wider runtime class props", () => {
+    const source = `
+      function Fixture(wide: { className?: string; role: string }) {
+        const narrow: { role: string } = wide;
+        return <div {...narrow} />;
+      }
+    `;
+
+    expect(() => emittedClassNames(source, "fixture.tsx")).toThrowError(
+      "Unsupported JSX spread: narrow",
+    );
+  });
+
   it("evaluates static concatenated and template route arguments and still rejects aliases", () => {
     const source = `
       import { route } from "@react-router/dev/routes";
@@ -282,6 +291,33 @@ describe("all-runs route architecture", () => {
 
     expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
       'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    ]);
+  });
+
+  it("accepts equivalent normalized canonical route targets", () => {
+    const source = `
+      import { route } from "@react-router/dev/routes";
+      export default [
+        route("runs", "./routes/neighbor/../runs/./route"),
+      ];
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([]);
+  });
+
+  it("rejects normalized aliases that target the runs route", () => {
+    const source = `
+      import { route } from "@react-router/dev/routes";
+      export default [
+        route("runs", "./routes/runs/route.tsx"),
+        route("all-runs", "./routes/neighbor/../runs/route.ts"),
+        route("runs-index", "./routes/runs/./index.tsx"),
+      ];
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
+      'all-runs targets runs-owned module "./routes/neighbor/../runs/route.ts"',
+      'runs-index targets runs-owned module "./routes/runs/./index.tsx"',
     ]);
   });
 
@@ -311,6 +347,13 @@ function normalizedImports(file: string) {
   return [...facts.moduleSpecifiers].map((specifier) =>
     normalizeModuleSpecifier(specifier, file, assetsRoot),
   );
+}
+
+function routeDependencyClassNames(file: string) {
+  const routeOwned = file === routeRoot || file.startsWith(`${routeRoot}/`);
+  return emittedClassNames(readFileSync(file, "utf8"), file, {
+    unresolvedSpreads: routeOwned ? "reject" : "skip",
+  });
 }
 
 function routeDependencyFiles(

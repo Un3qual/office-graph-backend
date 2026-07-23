@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import { parse, visit as visitGraphQL } from "graphql";
 import ts from "typescript";
 
@@ -176,7 +176,7 @@ export function routeRegistrationOffenders(
     true,
     ts.ScriptKind.TS,
   );
-  const registrations: string[][] = [];
+  const registrations: Array<{ path: string; target: string; targetIdentity: string }> = [];
   const staticArgumentOffenders: string[] = [];
 
   walk(sourceFile, (node) => {
@@ -202,24 +202,41 @@ export function routeRegistrationOffenders(
         `route call has a non-static target: ${targetExpression?.getText(sourceFile) ?? "<missing>"}`,
       );
     }
-    if (path !== null && target !== null) registrations.push([path, target]);
+    if (path !== null && target !== null) {
+      registrations.push({ path, target, targetIdentity: routeModuleIdentity(target) });
+    }
   });
 
   if (staticArgumentOffenders.length > 0) return staticArgumentOffenders;
 
+  const ownedModuleIdentity = routeModuleIdentity(ownedModulePrefix);
+  const canonicalModuleIdentity = routeModuleIdentity(`${ownedModulePrefix}/route.tsx`);
   const ownedRegistrations = registrations.filter(
-    ([, target]) => target === ownedModulePrefix || target.startsWith(`${ownedModulePrefix}/`),
+    ({ targetIdentity }) =>
+      targetIdentity === ownedModuleIdentity ||
+      targetIdentity.startsWith(`${ownedModuleIdentity}/`),
   );
-  const canonicalRegistrations = ownedRegistrations.filter(([path]) => path === canonicalPath);
+  const canonicalRegistrations = ownedRegistrations.filter(
+    ({ path, targetIdentity }) =>
+      path === canonicalPath && targetIdentity === canonicalModuleIdentity,
+  );
   const offenders = ownedRegistrations
-    .filter(([path]) => path !== canonicalPath)
-    .map(([path, target]) => `${path} targets runs-owned module "${target}"`);
+    .filter(({ path }) => path !== canonicalPath)
+    .map(({ path, target }) => `${path} targets runs-owned module "${target}"`);
 
   if (canonicalRegistrations.length !== 1) {
     offenders.unshift(`canonical ${canonicalPath} route must target one owned module`);
   }
 
   return offenders;
+}
+
+function routeModuleIdentity(target: string) {
+  let identity = posix.normalize(target.replaceAll("\\", "/")).replace(/^\.\//, "");
+  identity = identity.replace(/\.[cm]?[jt]sx?$/i, "");
+  if (identity.endsWith("/index")) identity = identity.slice(0, -"/index".length);
+
+  return identity;
 }
 
 export function bareModuleSpecifierOffenders(
@@ -272,7 +289,11 @@ export function localDependencyFiles(entries: string[]) {
   return [...visited];
 }
 
-export function emittedClassNames(source: string, filename: string) {
+export function emittedClassNames(
+  source: string,
+  filename: string,
+  { unresolvedSpreads = "reject" }: { unresolvedSpreads?: "reject" | "skip" } = {},
+) {
   const sourceFile = ts.createSourceFile(
     filename,
     source,
@@ -281,7 +302,6 @@ export function emittedClassNames(source: string, filename: string) {
     filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const names = new Set<string>();
-  let spreadTypeContext: ReturnType<typeof createSpreadTypeContext> | null = null;
 
   const addTokens = (value: string) => {
     for (const token of value.split(/\s+/)) {
@@ -379,28 +399,26 @@ export function emittedClassNames(source: string, filename: string) {
     unsupportedClassExpression(expression, sourceFile);
   };
 
-  const collectSpread = (expression: ts.Expression, attribute: ts.JsxSpreadAttribute) => {
+  const collectSpread = (expression: ts.Expression) => {
     if (ts.isParenthesizedExpression(expression)) {
-      collectSpread(expression.expression, attribute);
+      collectSpread(expression.expression);
       return;
     }
 
     if (ts.isConditionalExpression(expression)) {
-      collectSpread(expression.whenTrue, attribute);
-      collectSpread(expression.whenFalse, attribute);
+      collectSpread(expression.whenTrue);
+      collectSpread(expression.whenFalse);
       return;
     }
 
     if (!ts.isObjectLiteralExpression(expression)) {
-      spreadTypeContext ??= createSpreadTypeContext(source, filename);
-      if (spreadTypeCannotConcealClasses(expression, attribute, spreadTypeContext)) return;
-
+      if (unresolvedSpreads === "skip") return;
       throw new Error(`Unsupported JSX spread: ${expression.getText(sourceFile)}`);
     }
 
     for (const property of expression.properties) {
       if (ts.isSpreadAssignment(property)) {
-        collectSpread(property.expression, attribute);
+        collectSpread(property.expression);
         continue;
       }
 
@@ -436,106 +454,10 @@ export function emittedClassNames(source: string, filename: string) {
       }
     }
 
-    if (ts.isJsxSpreadAttribute(node)) collectSpread(node.expression, node);
+    if (ts.isJsxSpreadAttribute(node)) collectSpread(node.expression);
   });
 
   return [...names];
-}
-
-function createSpreadTypeContext(source: string, filename: string) {
-  const rootName = resolve(filename);
-  const options: ts.CompilerOptions = {
-    allowJs: true,
-    jsx: ts.JsxEmit.ReactJSX,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    skipLibCheck: true,
-    strict: true,
-    target: ts.ScriptTarget.Latest,
-  };
-  const host = ts.createCompilerHost(options);
-  const defaultGetSourceFile = host.getSourceFile.bind(host);
-  const defaultFileExists = host.fileExists.bind(host);
-  const defaultReadFile = host.readFile.bind(host);
-  const isRoot = (candidate: string) => resolve(candidate) === rootName;
-
-  host.fileExists = (candidate) => isRoot(candidate) || defaultFileExists(candidate);
-  host.readFile = (candidate) => (isRoot(candidate) ? source : defaultReadFile(candidate));
-  host.getSourceFile = (candidate, languageVersion, onError, shouldCreateNewSourceFile) =>
-    isRoot(candidate)
-      ? ts.createSourceFile(
-          candidate,
-          source,
-          languageVersion,
-          true,
-          candidate.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-        )
-      : defaultGetSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
-
-  const program = ts.createProgram([rootName], options, host);
-  const typedSourceFile = program.getSourceFile(rootName);
-  if (!typedSourceFile) throw new Error(`Unable to type-check JSX spreads in ${filename}`);
-
-  return { checker: program.getTypeChecker(), sourceFile: typedSourceFile };
-}
-
-function spreadTypeCannotConcealClasses(
-  expression: ts.Expression,
-  attribute: ts.JsxSpreadAttribute,
-  {
-    checker,
-    sourceFile,
-  }: {
-    checker: ts.TypeChecker;
-    sourceFile: ts.SourceFile;
-  },
-) {
-  const typedExpression = nodeAtSourcePosition(sourceFile, expression);
-  if (!typedExpression || !ts.isExpression(typedExpression)) return false;
-
-  const overriddenNames = new Set(
-    attribute.parent.properties
-      .slice(attribute.parent.properties.indexOf(attribute) + 1)
-      .flatMap((property) =>
-        ts.isJsxAttribute(property) ? [property.name.getText(sourceFile)] : [],
-      ),
-  );
-  const type = checker.getTypeAtLocation(typedExpression);
-  const variants = type.isUnion() ? type.types : [type];
-
-  return variants.every((variant) => {
-    if (
-      variant.flags &
-      (ts.TypeFlags.Any |
-        ts.TypeFlags.Unknown |
-        ts.TypeFlags.TypeParameter |
-        ts.TypeFlags.NonPrimitive)
-    ) {
-      return false;
-    }
-    if (!(variant.flags & ts.TypeFlags.Object)) return false;
-    if (checker.getIndexTypeOfType(variant, ts.IndexKind.String)) return false;
-
-    return checker.getPropertiesOfType(variant).every((property) => {
-      const propertyName = property.getName();
-      return (
-        (propertyName !== "className" && !propertyName.endsWith("ClassName")) ||
-        overriddenNames.has(propertyName)
-      );
-    });
-  });
-}
-
-function nodeAtSourcePosition(sourceFile: ts.SourceFile, target: ts.Node) {
-  let match: ts.Node | null = null;
-
-  walk(sourceFile, (node) => {
-    if (node.kind === target.kind && node.pos === target.pos && node.end === target.end) {
-      match = node;
-    }
-  });
-
-  return match;
 }
 
 export function stylesheetOwnerClasses(styles: string) {

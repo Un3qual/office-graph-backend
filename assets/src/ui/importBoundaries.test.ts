@@ -137,6 +137,21 @@ describe("shared UI import boundaries", () => {
         "app/routes/runs/architecture.test.ts",
       ),
     ).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts !app/routes/runs/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+  });
+
+  it("allows exclusions that cannot match the required architecture file", () => {
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude app/routes/operator/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -249,22 +264,63 @@ function scriptRunsVitestFile(script: string, testFile: string) {
     const tokens = shellTokens(command);
     const vitestIndex = tokens.indexOf("vitest");
     const runIndex = tokens.indexOf("run", vitestIndex + 1);
-    const hasExclusion = tokens.some(
-      (token) =>
-        token === "--exclude" ||
-        token.startsWith("--exclude=") ||
-        token === "-x" ||
-        token.startsWith("-x=") ||
-        token.startsWith("!"),
-    );
+    const exclusions = vitestExclusionPatterns(tokens.slice(runIndex + 1));
 
     return (
-      !hasExclusion &&
       vitestIndex >= 0 &&
       runIndex > vitestIndex &&
-      tokens.slice(runIndex + 1).includes(testFile)
+      tokens.slice(runIndex + 1).includes(testFile) &&
+      !exclusions.some((pattern) => globMatchesPath(pattern, testFile))
     );
   });
+}
+
+function vitestExclusionPatterns(arguments_: string[]) {
+  const patterns: string[] = [];
+
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--exclude" || argument === "-x") {
+      const pattern = arguments_[index + 1];
+      if (pattern) patterns.push(pattern);
+      index += 1;
+    } else if (argument.startsWith("--exclude=") || argument.startsWith("-x=")) {
+      patterns.push(argument.slice(argument.indexOf("=") + 1));
+    } else if (argument.startsWith("!")) {
+      patterns.push(argument.slice(1));
+    }
+  }
+
+  return patterns;
+}
+
+function globMatchesPath(pattern: string, path: string) {
+  const normalizedPattern = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
+  const normalizedPath = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  let expression = "^";
+
+  for (let index = 0; index < normalizedPattern.length; index += 1) {
+    const character = normalizedPattern[index];
+    if (character === "*") {
+      if (normalizedPattern[index + 1] === "*") {
+        index += 1;
+        if (normalizedPattern[index + 1] === "/") {
+          index += 1;
+          expression += "(?:.*/)?";
+        } else {
+          expression += ".*";
+        }
+      } else {
+        expression += "[^/]*";
+      }
+    } else if (character === "?") {
+      expression += "[^/]";
+    } else {
+      expression += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+    }
+  }
+
+  return new RegExp(`${expression}$`).test(normalizedPath);
 }
 
 function shellTokens(command: string) {

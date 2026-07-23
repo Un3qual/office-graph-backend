@@ -164,7 +164,9 @@ describe("packet route data architecture", () => {
   it("does not depend on operator-owned styles through shared components", () => {
     const packetDependencies = localDependencyFiles(sourceFiles(routeRoot));
     const consumedClasses = new Set(
-      packetDependencies.flatMap((file) => classNames(readFileSync(file, "utf8"), file)),
+      packetDependencies.flatMap((file) =>
+        classNames(readFileSync(file, "utf8"), file, { unresolvedSpreads: "skip" }),
+      ),
     );
     const sharedClasses = stylesheetClasses("src/styles/shared.css");
     const operatorClasses = stylesheetClasses("src/styles/operator.css");
@@ -188,7 +190,9 @@ describe("packet route data architecture", () => {
 
   it("collects Button's explicit finite emitted classes", () => {
     const buttonPath = join(assetsRoot, "src/ui/Button.tsx");
-    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath);
+    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath, {
+      unresolvedSpreads: "skip",
+    });
 
     expect(buttonClasses).toEqual(
       expect.arrayContaining(["ui-button", "ui-button-primary", "ui-button-secondary"]),
