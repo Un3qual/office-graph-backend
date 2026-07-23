@@ -46,6 +46,13 @@ versioned transitions.
   execution state and MUST snooze or complete the obsolete job without a
   terminal transition
 
+#### Scenario: Persisted step becomes terminally invalid before recovery
+
+- **WHEN** a matching retry-scheduled request or lease-expired running request
+  discovers a terminal authority or runtime-configuration failure
+- **THEN** the worker MUST atomically fail that typed request and execution,
+  clear the expired lease, and preserve their shared failure classification
+
 #### Scenario: Transient storage failure occurs before a claim
 
 - **WHEN** context loading or mutable-authority revalidation returns a storage

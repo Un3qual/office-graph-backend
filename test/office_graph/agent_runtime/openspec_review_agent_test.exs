@@ -117,6 +117,21 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     def revalidate_step(_execution_id, _opts), do: {:error, :agent_principal_inactive}
   end
 
+  defmodule RetryingRepositoryRead do
+    @behaviour OfficeGraph.AgentRuntime.ToolAdapter
+
+    alias OfficeGraph.AgentRuntime.Tools.RepositoryRead
+
+    @impl true
+    def manifest, do: RepositoryRead.manifest()
+
+    @impl true
+    def invoke(_input), do: {:error, {:retryable, :repository_temporarily_unavailable}}
+
+    @impl true
+    def cancel(request_id), do: RepositoryRead.cancel(request_id)
+  end
+
   defmodule DatabaseUnavailableExecutionLock do
     def lock_execution(_execution_id), do: {:error, :integration_storage_unavailable}
   end
@@ -445,6 +460,107 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     assert unchanged.current_step_key == "context:openspec"
     assert unchanged.state_version == advanced.state_version
     refute_failed_event(invoked.execution.id)
+  end
+
+  test "terminal authority failure reconciles a matching persisted retry", context do
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+    original_revalidator = Application.get_env(:office_graph, :agent_runtime_revalidator)
+
+    retrying_registry =
+      original_registry
+      |> Map.new()
+      |> put_in([:tools, "repository.read"], RetryingRepositoryRead)
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, retrying_registry)
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      restore_env(:agent_runtime_revalidator, original_revalidator)
+    end)
+
+    invoked = invoke_automatic!(context, "retry-authority-failure")
+
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "context:repository", 1)
+
+    retrying = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    retrying_request = request_for!(ToolRequest, invoked.execution.id, "context:repository")
+    assert retrying.state == "retry_scheduled"
+    assert retrying_request.state == "retry_scheduled"
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    Application.put_env(:office_graph, :agent_runtime_revalidator, RevokedRevalidator)
+
+    assert {:cancel, "agent_principal_inactive"} =
+             perform_step(invoked.execution.id, "context:repository", 2)
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    failed_request = request_for!(ToolRequest, invoked.execution.id, "context:repository")
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_principal_inactive"
+    assert failed_request.state == "failed"
+    assert failed_request.failure_code == "agent_principal_inactive"
+    assert_failed_event(invoked.execution.id)
+  end
+
+  test "terminal adapter failure reconciles a matching expired request", context do
+    invoked = invoke_automatic!(context, "expired-adapter-failure")
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+    original_runner = Application.get_env(:office_graph, :agent_runtime_command_runner)
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_command_runner,
+      BlockingRepositoryCommandRunner
+    )
+
+    Application.put_env(:office_graph, :openspec_review_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:agent_runtime_command_runner, original_runner)
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      Application.delete_env(:office_graph, :openspec_review_test_pid)
+    end)
+
+    worker =
+      Elixir.Task.async(fn ->
+        ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+      end)
+
+    assert_receive {:blocking_repository_read, command_pid}, 1_000
+
+    running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+
+    running
+    |> Ash.Changeset.for_update(:transition, %{
+      state: "running",
+      lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+    })
+    |> Ash.update!(authorize?: false)
+
+    registry_without_adapter =
+      original_registry
+      |> Map.new()
+      |> update_in([:tools], &Map.delete(&1, "repository.read"))
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, registry_without_adapter)
+
+    assert {:cancel, "agent_adapter_unavailable"} =
+             ExecutionWorker.perform(%{job | attempt: 2, max_attempts: 3})
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    failed_request = request_for!(ToolRequest, invoked.execution.id, "context:repository")
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_adapter_unavailable"
+    assert is_nil(failed.lease_token)
+    assert is_nil(failed.lease_expires_at)
+    assert failed_request.state == "failed"
+    assert failed_request.failure_code == "agent_adapter_unavailable"
+    assert_failed_event(invoked.execution.id)
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    send(command_pid, :release_repository_read)
+    assert {:snooze, 1} = Elixir.Task.await(worker, 1_000)
   end
 
   test "automatic operation lookup storage failure retries before claim", context do

@@ -475,13 +475,18 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
 
           case unclaimed_failure_posture(execution, step.key) do
             :available ->
-              transition!(execution, context.operation, "failed", %{
-                current_step_key: step.key,
-                completed_at: DateTime.utc_now(),
+              fail_execution!(execution, context.operation, step.key, failure_code)
+
+              :failed
+
+            {:reconcile, request} ->
+              record_request_result!(request, %{
+                state: "failed",
                 failure_code: failure_code,
-                lease_token: nil,
-                lease_expires_at: nil
+                completed_at: DateTime.utc_now()
               })
+
+              fail_execution!(execution, context.operation, step.key, failure_code)
 
               :failed
 
@@ -524,10 +529,22 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
   defp unclaimed_failure_posture(execution, step_key) do
     case execution_posture(execution, step_key) do
       :available ->
-        if execution.state == "queued" and is_nil(execution.lease_token) and
-             is_nil(execution.lease_expires_at) and unclaimed_step?(execution.id, step_key),
-           do: :available,
-           else: {:claimed, @retry_delay_seconds}
+        request = step_request(execution.id, step_key)
+
+        cond do
+          execution.state == "queued" and is_nil(execution.lease_token) and
+            is_nil(execution.lease_expires_at) and is_nil(request) ->
+            :available
+
+          matching_retry?(execution, request) ->
+            {:reconcile, request}
+
+          matching_expired_request?(execution, request) ->
+            {:reconcile, request}
+
+          true ->
+            {:claimed, @retry_delay_seconds}
+        end
 
       {:terminal, state} ->
         {:terminal, state, execution}
@@ -537,9 +554,27 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
     end
   end
 
-  defp unclaimed_step?(execution_id, step_key) do
-    is_nil(request(ModelRequest, execution_id, step_key)) and
-      is_nil(request(ToolRequest, execution_id, step_key))
+  defp step_request(execution_id, step_key) do
+    request(ModelRequest, execution_id, step_key) ||
+      request(ToolRequest, execution_id, step_key)
+  end
+
+  defp matching_retry?(%{state: "retry_scheduled"}, %{state: "retry_scheduled"}), do: true
+  defp matching_retry?(_execution, _request), do: false
+
+  defp matching_expired_request?(%{state: "running"} = execution, %{state: "running"}),
+    do: not active_lease?(execution)
+
+  defp matching_expired_request?(_execution, _request), do: false
+
+  defp fail_execution!(execution, operation, step_key, failure_code) do
+    transition!(execution, operation, "failed", %{
+      current_step_key: step_key,
+      completed_at: DateTime.utc_now(),
+      failure_code: failure_code,
+      lease_token: nil,
+      lease_expires_at: nil
+    })
   end
 
   defp lock_unclaimed_execution!(execution_id) do
