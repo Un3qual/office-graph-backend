@@ -59,9 +59,9 @@ models direct graph, credential, tool, or verification authority.
 
 ## Impact
 
-- Depends on `implement-typed-graph-relationships` and on the generic
-  system-operation contract delivered by `add-github-review-integration`; agent
-  implementation must stack on or follow that change.
+- Depends on typed relationships and on the provider-neutral generic
+  system-operation contract owned by `OfficeGraph.Operations`; agent
+  implementation must follow those contracts.
 - Adds migrations, Ash resources, AgentRuntime commands, Oban workers, model and
   tool adapters, GraphQL/JSON commands and reads, Relay artifacts, operator UI,
   and deterministic execution fakes.

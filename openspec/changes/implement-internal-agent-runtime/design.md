@@ -6,8 +6,8 @@ evidence candidates, audit/revision traces, and typed relationships. The runtime
 must orchestrate those owners rather than become an alternate graph or policy
 engine.
 
-This change depends on the typed relationship change and the generic
-system-operation contract delivered by the GitHub change. Human identity and
+This change requires typed relationships and the provider-neutral generic
+system-operation contract owned by `OfficeGraph.Operations`. Human identity and
 governance administration remains deferred; backend-only agent principals and
 credential metadata are allowed.
 
