@@ -185,6 +185,46 @@ describe("packet workspace route reads", () => {
     expect(screen.getByTestId("route-location")).toHaveTextContent(`/packets?packetId=${packetId}`);
   });
 
+  it("preserves a present empty packetId as an authoritative unavailable selection", async () => {
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "PacketsRouteQuery") {
+        expect(variables).toEqual({
+          first: 50,
+          after: null,
+          createdOperationId: null,
+          loadCreatedPacket: false,
+          packetId: "",
+          loadLinkedPacket: true,
+        });
+
+        return {
+          ...support.packetConnectionResponse([
+            support.packet({ id: support.packetIdentity.relayId }),
+          ]),
+          errors: [
+            {
+              message: "invalid primary key provided",
+              path: ["linkedPacket"],
+              locations: [{ line: 1, column: 1 }],
+            },
+          ],
+        } as GraphQLResponse;
+      }
+
+      throw new Error(`The unavailable selection must not load detail: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/packets?packetId=");
+
+    expect(await screen.findByRole("button", { name: /First packet/i })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
+      "No packet selected.",
+    );
+    expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=");
+  });
+
   it("clears stale detail when the URL changes to an unavailable packetId", async () => {
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {

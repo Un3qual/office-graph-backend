@@ -119,6 +119,34 @@ describe("all-runs route architecture", () => {
     ]);
   });
 
+  it("resolves local aliases imported for the canonical route registrar", () => {
+    const source = `
+      import { type RouteConfig, route as registerRoute } from "@react-router/dev/routes";
+      export default [
+        registerRoute("runs", "./routes/runs/route.tsx"),
+        registerRoute("all-runs", "./routes/runs/route.tsx"),
+      ] satisfies RouteConfig;
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
+      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    ]);
+  });
+
+  it("fails closed when the default route config uses an unrecognized registration form", () => {
+    const source = `
+      import { type RouteConfig, route } from "@react-router/dev/routes";
+      const registerRoute = (...args: Parameters<typeof route>) => route(...args);
+      export default [
+        registerRoute("runs", "./routes/runs/route.tsx"),
+      ] satisfies RouteConfig;
+    `;
+
+    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
+      'unrecognized route registration: registerRoute("runs", "./routes/runs/route.tsx")',
+    ]);
+  });
+
   it("rejects every emitted class without a shared or runs stylesheet owner", () => {
     const classes = emittedClassNames(
       `export function Fixture() { return <div className="orphan-card" />; }`,
@@ -148,6 +176,20 @@ describe("all-runs route architecture", () => {
       "new-route-framework",
       "react-bootstrap",
       "styled-components",
+    ]);
+  });
+
+  it("rejects node and absolute module specifiers outside the explicit allowlist", () => {
+    const source = `
+      import fs from "node:fs";
+      import localMachineModule from "/opt/private/local-machine-module.ts";
+      import React from "react";
+    `;
+    const imports = analyzeTypeScript(source).moduleSpecifiers;
+
+    expect(bareModuleSpecifierOffenders(imports, allowedRoutePackages)).toEqual([
+      "/opt/private/local-machine-module.ts",
+      "node:fs",
     ]);
   });
 

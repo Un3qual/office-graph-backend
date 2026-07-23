@@ -42,6 +42,7 @@ export function usePacketsWorkflow({
   const createdOperationId =
     requestedSelection?.kind === "operation_id" ? requestedSelection.value : null;
   const packetId = requestedSelection?.kind === "packet_id" ? requestedSelection.value : "";
+  const loadLinkedPacket = requestedSelection?.kind === "packet_id";
   const data = useLazyLoadQuery<PacketsRouteOperation>(
     PacketsRouteQuery,
     {
@@ -49,7 +50,7 @@ export function usePacketsWorkflow({
       createdOperationId,
       loadCreatedPacket: createdOperationId !== null,
       packetId,
-      loadLinkedPacket: packetId !== "",
+      loadLinkedPacket,
     },
     {
       fetchKey,

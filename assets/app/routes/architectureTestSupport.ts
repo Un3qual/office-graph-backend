@@ -178,16 +178,54 @@ export function routeRegistrationOffenders(
   );
   const registrations: Array<{ path: string; target: string; targetIdentity: string }> = [];
   const staticArgumentOffenders: string[] = [];
+  const canonicalRouteNames = importedRouteNames(sourceFile);
+  const defaultExport = sourceFile.statements.find(
+    (statement): statement is ts.ExportAssignment =>
+      ts.isExportAssignment(statement) && !statement.isExportEquals,
+  );
+  const defaultRouteConfig = defaultExport
+    ? unwrapRouteConfigExpression(defaultExport.expression)
+    : null;
+  const routeCalls: ts.CallExpression[] = [];
 
-  walk(sourceFile, (node) => {
-    if (
-      !ts.isCallExpression(node) ||
-      !ts.isIdentifier(node.expression) ||
-      node.expression.text !== "route"
-    ) {
-      return;
+  if (defaultExport && !defaultRouteConfig) {
+    return [
+      `default route config must be a static registration array: ${defaultExport.expression.getText(sourceFile)}`,
+    ];
+  }
+
+  if (defaultRouteConfig) {
+    const unrecognizedRegistrations: string[] = [];
+
+    for (const element of defaultRouteConfig.elements) {
+      if (
+        !ts.isCallExpression(element) ||
+        !ts.isIdentifier(element.expression) ||
+        !canonicalRouteNames.has(element.expression.text)
+      ) {
+        unrecognizedRegistrations.push(
+          `unrecognized route registration: ${element.getText(sourceFile)}`,
+        );
+        continue;
+      }
+
+      routeCalls.push(element);
     }
 
+    if (unrecognizedRegistrations.length > 0) return unrecognizedRegistrations;
+  } else {
+    walk(sourceFile, (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "route"
+      ) {
+        routeCalls.push(node);
+      }
+    });
+  }
+
+  for (const node of routeCalls) {
     const [pathExpression, targetExpression] = node.arguments;
     const path = pathExpression ? staticStringValue(pathExpression) : null;
     const target = targetExpression ? staticStringValue(targetExpression) : null;
@@ -205,7 +243,7 @@ export function routeRegistrationOffenders(
     if (path !== null && target !== null) {
       registrations.push({ path, target, targetIdentity: routeModuleIdentity(target) });
     }
-  });
+  }
 
   if (staticArgumentOffenders.length > 0) return staticArgumentOffenders;
 
@@ -231,6 +269,43 @@ export function routeRegistrationOffenders(
   return offenders;
 }
 
+function importedRouteNames(sourceFile: ts.SourceFile) {
+  const names = new Set<string>();
+
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteralLike(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@react-router/dev/routes" ||
+      !statement.importClause?.namedBindings ||
+      !ts.isNamedImports(statement.importClause.namedBindings)
+    ) {
+      continue;
+    }
+
+    for (const specifier of statement.importClause.namedBindings.elements) {
+      if ((specifier.propertyName?.text ?? specifier.name.text) === "route") {
+        names.add(specifier.name.text);
+      }
+    }
+  }
+
+  return names;
+}
+
+function unwrapRouteConfigExpression(expression: ts.Expression): ts.ArrayLiteralExpression | null {
+  if (ts.isArrayLiteralExpression(expression)) return expression;
+  if (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    return unwrapRouteConfigExpression(expression.expression);
+  }
+
+  return null;
+}
+
 function routeModuleIdentity(target: string) {
   let identity = posix.normalize(target.replaceAll("\\", "/")).replace(/^\.\//, "");
   identity = identity.replace(/\.[cm]?[jt]sx?$/i, "");
@@ -244,14 +319,7 @@ export function bareModuleSpecifierOffenders(
   allowedSpecifiers: ReadonlySet<string>,
 ) {
   return [...specifiers]
-    .filter(
-      (specifier) =>
-        specifier === "<non-static dynamic import>" ||
-        (!specifier.startsWith(".") &&
-          !specifier.startsWith("/") &&
-          !specifier.startsWith("node:") &&
-          !allowedSpecifiers.has(specifier)),
-    )
+    .filter((specifier) => !specifier.startsWith(".") && !allowedSpecifiers.has(specifier))
     .sort();
 }
 

@@ -108,14 +108,6 @@ export function packetWorkspaceResponse(
   };
 }
 
-export function linkedPacketResponse(linkedPacket: ReturnType<typeof packet> | null) {
-  return {
-    data: {
-      linkedPacket,
-    },
-  };
-}
-
 export function runStartResponse(runId: string, operationId: string): GraphQLResponse {
   return {
     data: {

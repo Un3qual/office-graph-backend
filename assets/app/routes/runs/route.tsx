@@ -2,7 +2,6 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { useSearchParams } from "react-router";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { RunList, RunListFallback, RunPageStatus } from "./components/RunList";
-import { RunsRouteQuery } from "./data";
 import { RunWorkspace } from "./RunWorkspace";
 import type { RunsPage } from "./types";
 import { defaultRunsPage, useRunsPage } from "./workflow";
@@ -16,8 +15,6 @@ type PendingRunsNavigation = {
   direction: "next" | "previous";
   navigation: RunsNavigation;
 };
-
-export const routeOwnedRunsQuery = RunsRouteQuery;
 
 export default function RunsRoute() {
   const [searchParams, setSearchParams] = useSearchParams();
