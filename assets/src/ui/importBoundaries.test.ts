@@ -103,7 +103,7 @@ describe("shared UI import boundaries", () => {
     };
 
     expect(packageJson.scripts["verify:import-boundaries"]).toBe(
-      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
+      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts app/routes/runs/architecture.test.ts",
     );
   });
 });

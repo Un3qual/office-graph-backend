@@ -14,7 +14,7 @@
 - [x] 3.1 Create the route-owned `assets/app/routes/runs/` package, read-only Relay documents, canonical `/runs` registration with no alias/compatibility route or query, and global stylesheet integration without Tailwind or a route-specific UI framework.
 - [x] 3.2 Implement the run list, default selection only when `runId` is absent, authoritative detail for every present `?runId=<id>` selection (including off-page and unavailable ids), detail summary, first bounded activity page, and explicit list/activity load-more behavior.
 - [x] 3.3 Implement empty, loading, list-error, detail-error, paging-error, retry, and stale-detail-clearing states without a second client-side run source of truth.
-- [ ] 3.4 Add route coverage for visible and off-page URL selections, present invalid/missing/forbidden/stale values that never default, selection URL updates, activity/list pagination, safe product fields, canonical route/session behavior, and route/import/style architecture boundaries that prohibit Tailwind and a route-specific UI framework.
+- [x] 3.4 Add route coverage for visible and off-page URL selections, present invalid/missing/forbidden/stale values that never default, selection URL updates, activity/list pagination, safe product fields, canonical route/session behavior, and route/import/style architecture boundaries that prohibit Tailwind and a route-specific UI framework.
 
 ## 4. Navigation And Packet Context
 

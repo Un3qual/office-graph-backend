@@ -83,6 +83,22 @@ describe("packet route data architecture", () => {
     expect(routeCalls).toContainEqual(["packets", "./routes/packets/route.tsx"]);
   });
 
+  it("does not import presentation internals from sibling product routes", () => {
+    const siblingRouteImports = sourceFiles(routeRoot).flatMap((file) => {
+      const source = readFileSync(file, "utf8");
+
+      return [...analyzeTypeScript(source, file).moduleSpecifiers]
+        .filter((specifier) => specifier.startsWith("."))
+        .map((specifier) => resolve(dirname(file), specifier).replaceAll("\\", "/"))
+        .filter(
+          (specifier) =>
+            specifier.includes("/app/routes/operator/") || specifier.includes("/app/routes/runs/"),
+        );
+    });
+
+    expect(siblingRouteImports).toEqual([]);
+  });
+
   it("shares one route-local updated-at formatter across packet list and detail", () => {
     const formatterPath = join(routeRoot, "formatters.ts");
     const packetListSource = readFileSync(join(routeRoot, "components/PacketList.tsx"), "utf8");

@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint app/relay app/routes src scripts *.ts *.json",
     "format:check": "biome format app/relay app/routes src scripts *.ts *.json",
-    "verify:import-boundaries": "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
+    "verify:import-boundaries": "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts app/routes/runs/architecture.test.ts",
     "verify:app-shell": "node scripts/verify-app-shell-assets.mjs",
     "verify": "pnpm run relay:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run router:deploy && pnpm run verify:app-shell"
   },
