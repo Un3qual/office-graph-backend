@@ -5,6 +5,7 @@ import routes from "../routes";
 import { OperatorLayout } from "./operator/components/OperatorLayout";
 import { PacketsLayout } from "./packets/components/PacketsLayout";
 import { PRODUCT_DESTINATIONS } from "./productNavigation";
+import { RunsLayout } from "./runs/components/RunsLayout";
 
 describe("product navigation configuration", () => {
   it("exports the product destination values directly", () => {
@@ -49,7 +50,7 @@ describe("product navigation configuration", () => {
   it("renders all-runs active navigation behavior from the shared destinations", () => {
     render(
       <MemoryRouter initialEntries={["/runs"]}>
-        <PacketsLayout detail={<p>Detail</p>} list={<p>List</p>} />
+        <RunsLayout detail={<p>Detail</p>} list={<p>List</p>} />
       </MemoryRouter>,
     );
 

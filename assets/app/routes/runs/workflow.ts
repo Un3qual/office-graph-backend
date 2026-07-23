@@ -6,10 +6,10 @@ import type { RunDetailState, RunsConnectionState, RunsPage } from "./types";
 
 export const defaultRunsPage: RunsPage = { first: 50, after: null };
 
-export function useRunsPage(page: RunsPage, fetchKey?: number) {
+export function useRunsPage(page: RunsPage, fetchKey?: number, forceNetwork = false) {
   const data = useLazyLoadQuery<RunsRouteOperation>(RunsRouteQuery, page, {
     fetchKey,
-    fetchPolicy: "network-only",
+    fetchPolicy: forceNetwork ? "network-only" : "store-or-network",
   });
 
   return runsConnectionFromRelay(data);

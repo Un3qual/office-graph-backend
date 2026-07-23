@@ -1,14 +1,17 @@
 import { Badge } from "../../../../src/ui/Badge";
 import { Button } from "../../../../src/ui/Button";
 import { EmptyState } from "../../../../src/ui/EmptyState";
+import type { ReactNode } from "react";
 import type { RunSummary } from "../types";
 
 type Props = {
   canPageBackward: boolean;
   hasNextPage: boolean;
+  isPaging: boolean;
   onNextPage: () => void;
   onPreviousPage: () => void;
   onSelect: (id: string) => void;
+  pageAttempt: ReactNode;
   rows: RunSummary[];
   selectedId: string | null;
 };
@@ -16,9 +19,11 @@ type Props = {
 export function RunList({
   canPageBackward,
   hasNextPage,
+  isPaging,
   onNextPage,
   onPreviousPage,
   onSelect,
+  pageAttempt,
   rows,
   selectedId,
 }: Props) {
@@ -26,10 +31,11 @@ export function RunList({
     <RunListFrame
       footer={
         <>
-          <Button isDisabled={!canPageBackward} onPress={onPreviousPage}>
+          {pageAttempt}
+          <Button isDisabled={isPaging || !canPageBackward} onPress={onPreviousPage}>
             Previous
           </Button>
-          <Button isDisabled={!hasNextPage} onPress={onNextPage}>
+          <Button isDisabled={isPaging || !hasNextPage} onPress={onNextPage}>
             Next
           </Button>
         </>
@@ -68,6 +74,31 @@ export function RunList({
   );
 }
 
+export function RunPageStatus({
+  direction,
+  onRetry,
+  state,
+}: {
+  direction: "next" | "previous";
+  onRetry?: () => void;
+  state: "error" | "loading";
+}) {
+  if (state === "loading") {
+    return (
+      <div className="runs-page-status" role="status">
+        Loading {direction} run page...
+      </div>
+    );
+  }
+
+  return (
+    <div className="runs-page-status" role="alert">
+      Unable to load {direction} run page.
+      {onRetry ? <Button onPress={onRetry}>Retry run page</Button> : null}
+    </div>
+  );
+}
+
 export function RunListFallback({
   canPageBackward = false,
   onPreviousPage,
@@ -77,10 +108,8 @@ export function RunListFallback({
   canPageBackward?: boolean;
   onPreviousPage?: () => void;
   onRetry?: () => void;
-  state: "error" | "initial-loading" | "page-loading";
+  state: "error" | "initial-loading";
 }) {
-  const loadingMessage = state === "page-loading" ? "Loading run page..." : "Loading runs...";
-
   return (
     <RunListFrame
       footer={
@@ -102,7 +131,7 @@ export function RunListFallback({
         </div>
       ) : (
         <p className="runs-loading" role="status">
-          {loadingMessage}
+          Loading runs...
         </p>
       )}
     </RunListFrame>

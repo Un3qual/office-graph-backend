@@ -1,33 +1,21 @@
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { RunDetail } from "./components/RunDetail";
-import { RunList } from "./components/RunList";
 import { RunsLayout } from "./components/RunsLayout";
-import type { RunSummary } from "./types";
 import { useRunDetail } from "./workflow";
 
 type Props = {
-  canPageBackward: boolean;
   detailFetchKey: number;
-  hasNextPage: boolean;
   isSelectionPending: boolean;
-  loadNextPage: () => void;
-  loadPreviousPage: () => void;
+  list: React.ReactNode;
   onDetailRetry: () => void;
-  onSelectRun: (id: string) => void;
-  rows: RunSummary[];
   selectedId: string | null;
 };
 
 export function RunWorkspace({
-  canPageBackward,
   detailFetchKey,
-  hasNextPage,
   isSelectionPending,
-  loadNextPage,
-  loadPreviousPage,
+  list,
   onDetailRetry,
-  onSelectRun,
-  rows,
   selectedId,
 }: Props) {
   return (
@@ -54,17 +42,7 @@ export function RunWorkspace({
           </AsyncBoundary>
         )
       }
-      list={
-        <RunList
-          canPageBackward={canPageBackward}
-          hasNextPage={hasNextPage}
-          onNextPage={loadNextPage}
-          onPreviousPage={loadPreviousPage}
-          onSelect={onSelectRun}
-          rows={rows}
-          selectedId={selectedId}
-        />
-      }
+      list={list}
     />
   );
 }

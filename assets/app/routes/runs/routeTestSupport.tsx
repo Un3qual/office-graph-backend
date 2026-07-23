@@ -207,11 +207,13 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
 
 export function deferredGraphQLResponse() {
   let resolve!: (value: GraphQLResponse) => void;
-  const promise = new Promise<GraphQLResponse>((resolvePromise) => {
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<GraphQLResponse>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 export function lastVariablesFor(network: ReturnType<typeof vi.fn>, requestName: string) {

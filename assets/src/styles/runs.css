@@ -46,6 +46,14 @@
   margin-right: auto;
 }
 
+.runs-page-status {
+  align-items: center;
+  color: var(--og-color-text-muted);
+  display: flex;
+  font-size: var(--og-typography-small-size);
+  gap: 8px;
+}
+
 .runs-list-content {
   min-height: 0;
   overflow: auto;

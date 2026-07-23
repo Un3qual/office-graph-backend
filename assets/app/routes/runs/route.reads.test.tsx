@@ -16,6 +16,102 @@ describe("all-runs route reads", () => {
     );
   });
 
+  it("loads explicit detail independently when the initial list fails and retries only the list", async () => {
+    let listAttempts = 0;
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        listAttempts += 1;
+
+        if (listAttempts === 1) {
+          throw new Error("credential-bearing list transport failure");
+        }
+
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
+    expect(screen.queryByText(/credential-bearing/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry runs" }));
+
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(listAttempts).toBe(2);
+    expect(
+      network.mock.calls.filter(([request]) => request.name === "RunDetailQuery"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the list visible when detail fails and retries only the selected detail", async () => {
+    let detailAttempts = 0;
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        detailAttempts += 1;
+
+        if (detailAttempts === 1) {
+          throw new Error("raw detail authorization failure");
+        }
+
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
+    expect(screen.queryByText(/raw detail authorization/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run details" }));
+
+    expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    expect(detailAttempts).toBe(2);
+    expect(
+      network.mock.calls.filter(([request]) => request.name === "RunsRouteQuery"),
+    ).toHaveLength(1);
+  });
+
+  it("retains an unavailable explicit run id and renders the safe detail error", async () => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return { data: { operatorRunState: null } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_unavailable");
+
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
+    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_unavailable");
+  });
+
   it("renders the server's newest-first rows and lifecycle labels", async () => {
     const older = support.runSummary({
       id: "run_old",
@@ -166,6 +262,101 @@ describe("all-runs route reads", () => {
         id: "run_second",
       });
     });
+  });
+
+  it("retains the loaded page and selected detail while the next list page loads", async () => {
+    const nextPage = support.deferredGraphQLResponse();
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return variables.after
+          ? nextPage.promise
+          : support.runsConnectionResponse([support.runSummary()], {
+              endCursor: "cursor_next",
+              hasNextPage: true,
+            });
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("Loading next run page...")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+
+    nextPage.resolve(
+      support.runsConnectionResponse([
+        support.runSummary({
+          id: "run_second_page",
+          objective: "Second page run",
+        }),
+      ]),
+    );
+
+    expect(await screen.findByRole("button", { name: /Second page run/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+  });
+
+  it("retains the loaded page and selected detail when next-page loading fails and retries paging", async () => {
+    let pageAttempts = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        if (!variables.after) {
+          return support.runsConnectionResponse([support.runSummary()], {
+            endCursor: "cursor_next",
+            hasNextPage: true,
+          });
+        }
+
+        pageAttempts += 1;
+
+        if (pageAttempts === 1) {
+          throw new Error("raw paging transport failure");
+        }
+
+        return support.runsConnectionResponse([
+          support.runSummary({
+            id: "run_retried_page",
+            objective: "Retried page run",
+          }),
+        ]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Unable to load next run page.")).toBeInTheDocument();
+    expect(screen.queryByText(/raw paging transport/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run page" }));
+
+    expect(await screen.findByRole("button", { name: /Retried page run/i })).toBeInTheDocument();
+    expect(pageAttempts).toBe(2);
+    expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
   });
 
   it("clears stale detail while replacement detail suspends", async () => {
