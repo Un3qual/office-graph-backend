@@ -31,8 +31,11 @@ export function AgentInvocationForm({
   onRefresh: () => void;
 }) {
   const affordance = enabledAffordance(activity.commandAffordances, "invoke_agent");
-  const command = useInvokeAgentCommand(onRefresh);
   const attempt = useRef<Attempt>(null);
+  const command = useInvokeAgentCommand((success) => {
+    if (success) attempt.current = null;
+    onRefresh();
+  });
   const formRef = useRef<HTMLFormElement>(null);
   const [outcome, setOutcome] = useState(
     affordance ? defaultValue(affordance, "requested_outcome") : "",
@@ -132,10 +135,16 @@ function MessageForm({
   activity: OperatorRunConversation;
   onRefresh: () => void;
 }) {
-  const command = useAppendConversationMessageCommand(onRefresh);
   const attempt = useRef<Attempt>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [body, setBody] = useState("");
+  const command = useAppendConversationMessageCommand((success) => {
+    if (success) {
+      attempt.current = null;
+      setBody("");
+    }
+    onRefresh();
+  });
   const conversationId = activity.conversation?.id;
   if (!conversationId) return null;
 
@@ -178,7 +187,10 @@ export function AgentExecutionAction({
   execution: Execution;
   onRefresh: () => void;
 }) {
-  const affordance = enabledAffordance(affordances, "cancel_agent_execution");
+  const affordance = enabledAffordance(affordances, "cancel_agent_execution", {
+    type: "agent_execution",
+    id: execution.id,
+  });
   const command = useCancelAgentExecutionCommand(onRefresh);
   const attempt = useRef<Attempt>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -212,7 +224,10 @@ export function ApprovalDecisionForm({
   onRefresh: () => void;
   request: ApprovalRequest;
 }) {
-  const affordance = enabledAffordance(affordances, "resolve_agent_approval");
+  const affordance = enabledAffordance(affordances, "resolve_agent_approval", {
+    type: "agent_approval_request",
+    id: request.id,
+  });
   const command = useResolveAgentApprovalCommand(onRefresh);
   const attempt = useRef<Attempt>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -267,7 +282,10 @@ export function ContextExpansionDecisionForm({
   onRefresh: () => void;
   request: ExpansionRequest;
 }) {
-  const affordance = enabledAffordance(affordances, "resolve_agent_context_expansion");
+  const affordance = enabledAffordance(affordances, "resolve_agent_context_expansion", {
+    type: "agent_context_expansion_request",
+    id: request.id,
+  });
   const command = useResolveAgentContextExpansionCommand(onRefresh);
   const attempt = useRef<Attempt>(null);
   const formRef = useRef<HTMLFormElement>(null);

@@ -17,8 +17,19 @@ type Affordance = {
 export function enabledAffordance<T extends Affordance>(
   affordances: readonly T[],
   identity: string,
+  target?: { readonly type: string; readonly id: string },
 ) {
-  return affordances.find((item) => item.identity === identity && item.state === "enabled") ?? null;
+  return (
+    affordances.find(
+      (item) =>
+        item.identity === identity &&
+        item.state === "enabled" &&
+        (!target ||
+          item.targetIds?.some(
+            (candidate) => candidate.type === target.type && candidate.id === target.id,
+          )),
+    ) ?? null
+  );
 }
 
 export function defaultValue(affordance: Affordance, field: string) {

@@ -91,6 +91,31 @@ describe("operator run agent surface", () => {
     });
   });
 
+  it("uses a fresh idempotency key for a repeated invocation after success", async () => {
+    const network = agentNetwork();
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const outcome = await screen.findByLabelText("Requested outcome");
+    fireEvent.change(outcome, { target: { value: "Repeat this bounded review." } });
+    fireEvent.click(screen.getByRole("button", { name: "Invoke agent" }));
+
+    await waitFor(() =>
+      expect(variablesFor(network, "OperatorInvokeAgentMutation")).toHaveLength(1),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Invoke agent" }));
+
+    await waitFor(() =>
+      expect(variablesFor(network, "OperatorInvokeAgentMutation")).toHaveLength(2),
+    );
+
+    const [first, second] = variablesFor(network, "OperatorInvokeAgentMutation");
+    expect(first.input.requestedOutcome).toBe("Repeat this bounded review.");
+    expect(second.input.requestedOutcome).toBe("Repeat this bounded review.");
+    expect(first.input.idempotencyKey).not.toBe(second.input.idempotencyKey);
+  });
+
   it("submits messages and versioned approval and expansion decisions", async () => {
     const network = agentNetwork();
 
@@ -144,6 +169,39 @@ describe("operator run agent surface", () => {
         },
       });
     });
+  });
+
+  it("clears a successful message draft and gives repeated text a fresh idempotency key", async () => {
+    const network = agentNetwork();
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const message = await screen.findByLabelText("Run message");
+    fireEvent.change(message, { target: { value: "Repeat this instruction." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(message).toHaveValue(""));
+
+    fireEvent.change(message, { target: { value: "Repeat this instruction." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() =>
+      expect(variablesFor(network, "OperatorAppendConversationMessageMutation")).toHaveLength(2),
+    );
+
+    const [first, second] = variablesFor(network, "OperatorAppendConversationMessageMutation");
+    expect(first.input.body).toBe("Repeat this instruction.");
+    expect(second.input.body).toBe("Repeat this instruction.");
+    expect(first.input.idempotencyKey).not.toBe(second.input.idempotencyKey);
+  });
+
+  it("renders gate decisions only for exact affordance targets", async () => {
+    const network = agentNetwork({ untargetedPendingGates: true });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findAllByLabelText("Approval resolution reason")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Context expansion resolution reason")).toHaveLength(1);
   });
 
   it("does not expose message submission without the append affordance", async () => {
@@ -256,6 +314,7 @@ function agentNetwork({
   noConversation = false,
   onConversationRead,
   staleApproval = false,
+  untargetedPendingGates = false,
   workflowItems = [operatorWorkflowItem()],
 }: {
   appendEnabled?: boolean;
@@ -264,6 +323,7 @@ function agentNetwork({
   noConversation?: boolean;
   onConversationRead?: () => void;
   staleApproval?: boolean;
+  untargetedPendingGates?: boolean;
   workflowItems?: ReturnType<typeof operatorWorkflowItem>[];
 } = {}) {
   const handlers: Record<
@@ -307,7 +367,7 @@ function agentNetwork({
         graphItemId: variables.graphItemId,
         runId: variables.runId,
       });
-      const projectedSurface = appendEnabled
+      const appendScopedSurface = appendEnabled
         ? surface
         : {
             ...surface,
@@ -320,6 +380,25 @@ function agentNetwork({
                 : affordance,
             ),
           };
+      const projectedSurface = untargetedPendingGates
+        ? {
+            ...appendScopedSurface,
+            approvalRequests: [
+              ...appendScopedSurface.approvalRequests,
+              {
+                ...appendScopedSurface.approvalRequests[0],
+                id: "approval_untargeted",
+              },
+            ],
+            contextExpansionRequests: [
+              ...appendScopedSurface.contextExpansionRequests,
+              {
+                ...appendScopedSurface.contextExpansionRequests[0],
+                id: "expansion_untargeted",
+              },
+            ],
+          }
+        : appendScopedSurface;
       return {
         data: {
           operatorRunConversation: noConversation
@@ -412,6 +491,12 @@ function commandResponse(field: string, command: string): GraphQLResponse {
   };
 }
 
+function variablesFor(network: ReturnType<typeof agentNetwork>, requestName: string) {
+  return network.mock.calls
+    .filter(([request]) => request.name === requestName)
+    .map(([_request, variables]) => variables);
+}
+
 function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: string }) {
   return {
     type: "operator_run_conversation",
@@ -441,9 +526,21 @@ function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: stri
           values: [],
         },
       ]),
-      enabledCommandAffordance("cancel_agent_execution"),
-      enabledCommandAffordance("resolve_agent_approval"),
-      enabledCommandAffordance("resolve_agent_context_expansion"),
+      enabledCommandAffordance(
+        "cancel_agent_execution",
+        [],
+        [{ type: "agent_execution", id: "execution_1" }],
+      ),
+      enabledCommandAffordance(
+        "resolve_agent_approval",
+        [],
+        [{ type: "agent_approval_request", id: "approval_1" }],
+      ),
+      enabledCommandAffordance(
+        "resolve_agent_context_expansion",
+        [],
+        [{ type: "agent_context_expansion_request", id: "expansion_1" }],
+      ),
     ],
     conversation: {
       id: "conversation_1",

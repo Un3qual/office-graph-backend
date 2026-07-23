@@ -402,7 +402,9 @@ export function useWaiveVerificationCheckCommand(onAuthoritativeChange?: () => v
   >(waiveVerificationCheckConfig, onAuthoritativeChange);
 }
 
-export function useInvokeAgentCommand(onAuthoritativeChange?: () => void) {
+export function useInvokeAgentCommand(
+  onAuthoritativeChange?: (success?: CommandMutationSuccess<InvokeAgentResult>) => void,
+) {
   return useOperatorCommand<InvokeAgentMutation, InvokeAgentVariables["input"], InvokeAgentResult>(
     invokeAgentConfig,
     onAuthoritativeChange,
@@ -425,7 +427,11 @@ export function useStartRunConversationCommand(onAuthoritativeChange?: () => voi
   >(startRunConversationConfig, onAuthoritativeChange);
 }
 
-export function useAppendConversationMessageCommand(onAuthoritativeChange?: () => void) {
+export function useAppendConversationMessageCommand(
+  onAuthoritativeChange?: (
+    success?: CommandMutationSuccess<AppendConversationMessageResult>,
+  ) => void,
+) {
   return useOperatorCommand<
     AppendConversationMessageMutation,
     AppendConversationMessageVariables["input"],

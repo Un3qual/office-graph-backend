@@ -408,9 +408,13 @@ defmodule OfficeGraph.NodeConversations do
   defp read_messages(conversation) do
     ConversationMessage
     |> Ash.Query.filter(conversation_id == ^conversation.id)
-    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(100)
     |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, messages} -> {:ok, Enum.reverse(messages)}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp read_referenced_context(_session_context, nil, _messages), do: {:ok, %{}}
@@ -534,11 +538,18 @@ defmodule OfficeGraph.NodeConversations do
              SELECT id::text, state, state_version, current_step_key, attempt_count,
                     failure_code, requested_outcome, invocation_mode, origin, autonomy_mode,
                     organization_binding_id::text, inserted_at, updated_at
-             FROM agent_executions
-             WHERE organization_id = $1 AND workspace_id = $2 AND run_id = $3
-               AND graph_item_id = $4
+             FROM (
+               SELECT execution.*
+               FROM agent_executions AS execution
+               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
+                 AND execution.run_id = $3 AND execution.graph_item_id = $4
+               ORDER BY
+                 CASE WHEN execution.state IN ('completed', 'failed', 'cancelled') THEN 1 ELSE 0 END,
+                 execution.inserted_at DESC,
+                 execution.id DESC
+               LIMIT 100
+             ) AS bounded_executions
              ORDER BY inserted_at, id
-             LIMIT 100
              """,
              scope_params(session_context, run_id, graph_item_id)
            ),
@@ -550,12 +561,19 @@ defmodule OfficeGraph.NodeConversations do
                     request.scope_id::text, request.capability_key, request.sensitivity,
                     request.external_write, request.state, request.version, request.expires_at,
                     request.resolution_reason, request.inserted_at, request.updated_at
-             FROM agent_approval_requests AS request
-             JOIN agent_executions AS execution ON execution.id = request.execution_id
-             WHERE execution.organization_id = $1 AND execution.workspace_id = $2
-               AND execution.run_id = $3 AND execution.graph_item_id = $4
+             FROM (
+               SELECT request.*
+               FROM agent_approval_requests AS request
+               JOIN agent_executions AS execution ON execution.id = request.execution_id
+               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
+                 AND execution.run_id = $3 AND execution.graph_item_id = $4
+               ORDER BY
+                 CASE WHEN request.state = 'pending' THEN 0 ELSE 1 END,
+                 request.inserted_at DESC,
+                 request.id DESC
+               LIMIT 100
+             ) AS request
              ORDER BY request.inserted_at, request.id
-             LIMIT 100
              """,
              scope_params(session_context, run_id, graph_item_id)
            ),
@@ -569,12 +587,19 @@ defmodule OfficeGraph.NodeConversations do
                     request.sensitivity, request.expected_duration_seconds, request.state,
                     request.version, request.expires_at, request.resolution_reason,
                     request.inserted_at, request.updated_at
-             FROM agent_context_expansion_requests AS request
-             JOIN agent_executions AS execution ON execution.id = request.execution_id
-             WHERE execution.organization_id = $1 AND execution.workspace_id = $2
-               AND execution.run_id = $3 AND execution.graph_item_id = $4
+             FROM (
+               SELECT request.*
+               FROM agent_context_expansion_requests AS request
+               JOIN agent_executions AS execution ON execution.id = request.execution_id
+               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
+                 AND execution.run_id = $3 AND execution.graph_item_id = $4
+               ORDER BY
+                 CASE WHEN request.state = 'pending' THEN 0 ELSE 1 END,
+                 request.inserted_at DESC,
+                 request.id DESC
+               LIMIT 100
+             ) AS request
              ORDER BY request.inserted_at, request.id
-             LIMIT 100
              """,
              scope_params(session_context, run_id, graph_item_id)
            ),
@@ -747,6 +772,8 @@ defmodule OfficeGraph.NodeConversations do
   defp invocation_target(_rows), do: nil
 
   defp command_affordances(session_context, conversation, agent_state, run, graph_item_id) do
+    now = DateTime.utc_now()
+
     [
       conversation_affordance(session_context, conversation, run.id, graph_item_id),
       invocation_affordance(
@@ -756,8 +783,12 @@ defmodule OfficeGraph.NodeConversations do
         graph_item_id
       ),
       cancellation_affordance(session_context, agent_state.executions),
-      approval_affordance(session_context, agent_state.approval_requests),
-      context_expansion_affordance(session_context, agent_state.context_expansion_requests)
+      approval_affordance(session_context, agent_state.approval_requests, now),
+      context_expansion_affordance(
+        session_context,
+        agent_state.context_expansion_requests,
+        now
+      )
     ]
   end
 
@@ -808,37 +839,7 @@ defmodule OfficeGraph.NodeConversations do
        when not is_nil(target) do
     case Runs.validate_agent_invocation_scope(run, graph_item_id, target.autonomy_mode) do
       :ok ->
-        capability_affordance(
-          session_context,
-          :agent_invoke,
-          "invoke_agent",
-          "Invoke the approved OpenSpec review agent for this run context.",
-          required_fields: [
-            "binding_id",
-            "run_id",
-            "graph_item_id",
-            "requested_outcome",
-            "requested_capabilities",
-            "autonomy_mode"
-          ],
-          input_defaults: [
-            CommandAffordance.input_default("binding_id", target.binding_id),
-            CommandAffordance.input_default("run_id", run.id),
-            CommandAffordance.input_default("graph_item_id", graph_item_id),
-            CommandAffordance.input_default(
-              "requested_outcome",
-              "Review the selected run and OpenSpec artifacts."
-            ),
-            CommandAffordance.input_default(
-              "requested_capabilities",
-              target.requested_capabilities
-            ),
-            CommandAffordance.input_default("autonomy_mode", target.autonomy_mode)
-          ],
-          target_ids: [
-            CommandAffordance.target_id("agent_organization_binding", target.binding_id)
-          ]
-        )
+        authorized_invocation_affordance(session_context, target, run.id, graph_item_id)
 
       {:error, _reason} ->
         CommandAffordance.disabled(
@@ -853,6 +854,50 @@ defmodule OfficeGraph.NodeConversations do
       "invoke_agent",
       "No approved OpenSpec review agent is bound to this workspace."
     )
+  end
+
+  defp authorized_invocation_affordance(session_context, target, run_id, graph_item_id) do
+    with true <- CommandAffordance.authorized?(session_context, :agent_invoke),
+         {:ok, granted} <-
+           Authorization.intersect_principal_capabilities(
+             session_context.principal_id,
+             session_context.organization_id,
+             session_context.workspace_id,
+             target.requested_capabilities
+           ),
+         [] <- target.requested_capabilities -- granted do
+      CommandAffordance.enabled(
+        "invoke_agent",
+        "Invoke the approved OpenSpec review agent for this run context.",
+        required_fields: [
+          "binding_id",
+          "run_id",
+          "graph_item_id",
+          "requested_outcome",
+          "requested_capabilities",
+          "autonomy_mode"
+        ],
+        input_defaults: [
+          CommandAffordance.input_default("binding_id", target.binding_id),
+          CommandAffordance.input_default("run_id", run_id),
+          CommandAffordance.input_default("graph_item_id", graph_item_id),
+          CommandAffordance.input_default(
+            "requested_outcome",
+            "Review the selected run and OpenSpec artifacts."
+          ),
+          CommandAffordance.input_default(
+            "requested_capabilities",
+            target.requested_capabilities
+          ),
+          CommandAffordance.input_default("autonomy_mode", target.autonomy_mode)
+        ],
+        target_ids: [
+          CommandAffordance.target_id("agent_organization_binding", target.binding_id)
+        ]
+      )
+    else
+      _unauthorized_or_unavailable -> CommandAffordance.policy_restricted("invoke_agent")
+    end
   end
 
   defp lock_conversation_scope!(organization_id, workspace_id, run_id, graph_item_id) do
@@ -881,8 +926,8 @@ defmodule OfficeGraph.NodeConversations do
     end
   end
 
-  defp approval_affordance(session_context, requests) do
-    pending = Enum.filter(requests, &(&1.state == "pending"))
+  defp approval_affordance(session_context, requests, now) do
+    pending = Enum.filter(requests, &resolvable_request?(&1, now))
 
     request_affordance(
       session_context,
@@ -894,8 +939,8 @@ defmodule OfficeGraph.NodeConversations do
     )
   end
 
-  defp context_expansion_affordance(session_context, requests) do
-    pending = Enum.filter(requests, &(&1.state == "pending"))
+  defp context_expansion_affordance(session_context, requests, now) do
+    pending = Enum.filter(requests, &resolvable_request?(&1, now))
 
     request_affordance(
       session_context,
@@ -906,6 +951,12 @@ defmodule OfficeGraph.NodeConversations do
       "agent_context_expansion_request"
     )
   end
+
+  defp resolvable_request?(%{state: "pending", expires_at: %DateTime{} = expires_at}, now) do
+    DateTime.compare(expires_at, now) == :gt
+  end
+
+  defp resolvable_request?(_request, _now), do: false
 
   defp request_affordance(_session_context, _capability, identity, explanation, [], _type) do
     CommandAffordance.disabled(identity, explanation)

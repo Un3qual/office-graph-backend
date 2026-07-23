@@ -2,7 +2,16 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{NodeConversations, Operations, Repo, SessionCaseHelpers}
-  alias OfficeGraph.AgentRuntime.{ExecutionWorker, ModelOutput, OutputRouter}
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentExecution,
+    ApprovalRequest,
+    ContextExpansionRequest,
+    ExecutionWorker,
+    ModelOutput,
+    OutputRouter
+  }
+
   alias OfficeGraph.NodeConversations.ConversationMessage
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
@@ -315,6 +324,149 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     assert %DateTime{} = request.expires_at
   end
 
+  test "projects the latest one hundred messages in chronological order" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    conversation = start_conversation!(context)
+    base_time = ~U[2026-01-01 00:00:00.000000Z]
+
+    for index <- 1..101 do
+      attrs = %{
+        conversation_id: conversation.id,
+        body: "Bounded message #{index}",
+        contribution_kind: "comment",
+        proposed_graph_change_id: nil,
+        domain_action_operation_id: nil
+      }
+
+      operation =
+        command!(context.session, :conversation_message_create, "bounded-message-#{index}", attrs)
+
+      assert {:ok, message} =
+               NodeConversations.append_human_message(context.session, operation, attrs)
+
+      Repo.query!(
+        "UPDATE conversation_messages SET inserted_at = $1 WHERE id = $2",
+        [DateTime.add(base_time, index, :second), Ecto.UUID.dump!(message.id)]
+      )
+    end
+
+    assert {:ok, projection} =
+             NodeConversations.project(context.session, context.run.id, context.graph_item_id)
+
+    assert length(projection.messages) == 100
+    assert hd(projection.messages).body == "Bounded message 2"
+    assert List.last(projection.messages).body == "Bounded message 101"
+  end
+
+  test "keeps active executions inside the bounded agent history" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    for index <- 1..100 do
+      create_execution!(context, "historical-execution-#{index}", "completed")
+    end
+
+    current = create_execution!(context, "current-execution", "running")
+
+    assert {:ok, projection} =
+             NodeConversations.project(context.session, context.run.id, context.graph_item_id)
+
+    assert length(projection.executions) == 100
+    assert Enum.any?(projection.executions, &(&1.id == current.id and &1.state == "running"))
+
+    cancel_affordance =
+      Enum.find(projection.command_affordances, &(&1.identity == "cancel_agent_execution"))
+
+    assert %{state: "enabled"} = cancel_affordance
+    assert %{type: "agent_execution", id: current.id} in cancel_affordance.target_ids
+  end
+
+  test "keeps pending gates inside bounded history but excludes expired decisions" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+    future = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    expired = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    for index <- 1..100 do
+      create_approval_request!(
+        context,
+        invoked,
+        "historical-approval-#{index}",
+        "approved",
+        future
+      )
+
+      create_expansion_request!(
+        context,
+        invoked,
+        "historical-expansion-#{index}",
+        "approved",
+        future
+      )
+    end
+
+    current_approval =
+      create_approval_request!(context, invoked, "current-approval", "pending", future)
+
+    expired_approval =
+      create_approval_request!(context, invoked, "expired-approval", "pending", expired)
+
+    current_expansion =
+      create_expansion_request!(context, invoked, "current-expansion", "pending", future)
+
+    expired_expansion =
+      create_expansion_request!(context, invoked, "expired-expansion", "pending", expired)
+
+    assert {:ok, projection} =
+             NodeConversations.project(context.session, context.run.id, context.graph_item_id)
+
+    assert length(projection.approval_requests) == 100
+    assert Enum.any?(projection.approval_requests, &(&1.id == current_approval.id))
+    assert Enum.any?(projection.approval_requests, &(&1.id == expired_approval.id))
+    assert length(projection.context_expansion_requests) == 100
+    assert Enum.any?(projection.context_expansion_requests, &(&1.id == current_expansion.id))
+    assert Enum.any?(projection.context_expansion_requests, &(&1.id == expired_expansion.id))
+
+    approval_affordance =
+      Enum.find(projection.command_affordances, &(&1.identity == "resolve_agent_approval"))
+
+    assert %{state: "enabled"} = approval_affordance
+
+    assert %{type: "agent_approval_request", id: current_approval.id} in approval_affordance.target_ids
+
+    refute %{type: "agent_approval_request", id: expired_approval.id} in approval_affordance.target_ids
+
+    expansion_affordance =
+      Enum.find(
+        projection.command_affordances,
+        &(&1.identity == "resolve_agent_context_expansion")
+      )
+
+    assert %{state: "enabled"} = expansion_affordance
+
+    assert %{type: "agent_context_expansion_request", id: current_expansion.id} in expansion_affordance.target_ids
+
+    refute %{type: "agent_context_expansion_request", id: expired_expansion.id} in expansion_affordance.target_ids
+  end
+
+  test "hides invocation when the operator cannot delegate every requested capability" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    limited =
+      SessionCaseHelpers.create_session_with_capabilities!(
+        context.bootstrap,
+        ["skeleton.read", "agent.invoke"],
+        prefix: "limited-agent-invoker"
+      )
+
+    assert {:ok, projection} =
+             NodeConversations.project(limited, context.run.id, context.graph_item_id)
+
+    assert %{state: "hidden"} =
+             Enum.find(projection.command_affordances, &(&1.identity == "invoke_agent"))
+
+    refute "invoke_agent" in projection.allowed_next_actions
+  end
+
   test "disables invocation when the selected run is terminal or its autonomy changed" do
     terminal_context = AgentRuntimeSupport.invocation_fixture()
 
@@ -357,6 +509,83 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
              Enum.find(projection.command_affordances, &(&1.identity == "invoke_agent"))
 
     refute "invoke_agent" in projection.allowed_next_actions
+  end
+
+  defp create_execution!(context, key, state) do
+    request =
+      AgentRuntimeSupport.request(context, %{idempotency_key: key, requested_outcome: key})
+
+    {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
+
+    Repo.ash_create!(AgentExecution, %{
+      id: Ecto.UUID.generate(),
+      definition_id: context.definition.id,
+      organization_binding_id: context.binding.id,
+      organization_id: context.bootstrap.organization.id,
+      workspace_id: context.bootstrap.workspace.id,
+      run_id: context.run.id,
+      graph_item_id: context.graph_item_id,
+      agent_principal_id: context.agent_principal.id,
+      delegator_principal_id: context.session.principal_id,
+      operation_id: operation.id,
+      invocation_mode: "human",
+      origin: "operator",
+      requested_outcome: key,
+      autonomy_mode: "human_supervised",
+      state: state,
+      state_version: 1,
+      attempt_count: 0,
+      idempotency_key: key
+    })
+  end
+
+  defp create_approval_request!(context, invoked, step_key, state, expires_at) do
+    Repo.ash_create!(ApprovalRequest, %{
+      id: Ecto.UUID.generate(),
+      execution_id: invoked.execution.id,
+      authority_snapshot_id: invoked.authority_snapshot.id,
+      organization_id: context.bootstrap.organization.id,
+      workspace_id: context.bootstrap.workspace.id,
+      operation_id: invoked.operation.id,
+      step_key: step_key,
+      execution_state_version: invoked.execution.state_version,
+      requested_action: "repository.read",
+      reason: "Read the exact bounded repository context.",
+      scope_type: "workspace",
+      scope_id: context.bootstrap.workspace.id,
+      capability_key: "repository.read",
+      sensitivity: "internal",
+      external_write: false,
+      state: state,
+      version: 1,
+      expires_at: expires_at
+    })
+  end
+
+  defp create_expansion_request!(context, invoked, step_key, state, expires_at) do
+    Repo.ash_create!(ContextExpansionRequest, %{
+      id: Ecto.UUID.generate(),
+      execution_id: invoked.execution.id,
+      current_context_package_id: invoked.context_package.id,
+      authority_snapshot_id: invoked.authority_snapshot.id,
+      organization_id: context.bootstrap.organization.id,
+      workspace_id: context.bootstrap.workspace.id,
+      operation_id: invoked.operation.id,
+      step_key: step_key,
+      execution_state_version: invoked.execution.state_version,
+      target_resource_type: "repository",
+      target_resource_id: context.graph_item_id,
+      target_scope_type: "workspace",
+      target_scope_id: context.bootstrap.workspace.id,
+      access_mode: "read",
+      capability_key: "repository.read",
+      reason: "Read the exact bounded repository context.",
+      sensitivity: "internal",
+      expected_duration_seconds: 300,
+      state: state,
+      version: 1,
+      expires_at: expires_at
+    })
   end
 
   defp command!(session, action, key, attrs) do
