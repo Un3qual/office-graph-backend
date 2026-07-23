@@ -89,6 +89,42 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicModel do
      }}
   end
 
+  defp deterministic_fixture("message") do
+    {:ok,
+     %{
+       "classification" => "message",
+       "safe_summary" => "OpenSpec review completed against authorized context",
+       "structured_content" => %{"message" => %{"body" => "review_complete"}}
+     }}
+  end
+
+  defp deterministic_fixture("finding") do
+    {:ok,
+     %{
+       "classification" => "finding",
+       "safe_summary" => "OpenSpec review found a bounded follow-up",
+       "structured_content" => %{"finding" => %{"summary" => "bounded_follow_up"}}
+     }}
+  end
+
+  defp deterministic_fixture("observation") do
+    {:ok,
+     %{
+       "classification" => "observation",
+       "safe_summary" => "OpenSpec review recorded a non-authoritative check observation",
+       "structured_content" => %{"observation" => %{"subject" => "review_check"}}
+     }}
+  end
+
+  defp deterministic_fixture("evidence_candidate") do
+    {:ok,
+     %{
+       "classification" => "evidence_candidate",
+       "safe_summary" => "OpenSpec review produced candidate verification material",
+       "structured_content" => %{"evidence_candidate" => %{"check" => "openspec_review"}}
+     }}
+  end
+
   defp deterministic_fixture("retryable"),
     do: {:ok, {:error, {:retryable, :provider_unavailable}}}
 

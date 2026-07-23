@@ -1,0 +1,22 @@
+{
+  "definition_key": "openspec-review",
+  "repository_path": "openspec/project.md",
+  "tool_steps": [
+    "context:repository",
+    "context:openspec"
+  ],
+  "model_steps": [
+    "review:message",
+    "review:finding",
+    "review:proposal",
+    "review:check",
+    "review:evidence"
+  ],
+  "output_classifications": [
+    "message",
+    "finding",
+    "proposal",
+    "observation",
+    "evidence_candidate"
+  ]
+}

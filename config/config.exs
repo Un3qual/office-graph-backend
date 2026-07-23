@@ -49,9 +49,15 @@ config :office_graph, :github_api_url, "https://api.github.com"
 
 config :office_graph, :agent_runtime_adapters,
   models: %{"deterministic" => OfficeGraph.AgentRuntime.Adapters.DeterministicModel},
-  tools: %{"deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool}
+  tools: %{
+    "deterministic-tool" => OfficeGraph.AgentRuntime.Adapters.DeterministicTool,
+    "repository.read" => OfficeGraph.AgentRuntime.Tools.RepositoryRead,
+    "openspec.read" => OfficeGraph.AgentRuntime.Tools.OpenSpecRead
+  }
 
 config :office_graph, :agent_runtime_retention_limit, 32
+
+config :office_graph, :agent_runtime_repository_root, Path.expand("..", __DIR__)
 
 config :office_graph,
        :github_record_loader,

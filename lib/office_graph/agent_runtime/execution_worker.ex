@@ -27,6 +27,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     OutputRouter
   }
 
+  alias OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow
+
   require Ash.Query
 
   @initial_step_key "model:review"
@@ -36,13 +38,17 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   @terminal_retry_delay_seconds 5
 
   def prepare_initial(%AgentExecution{} = execution, %AuthoritySnapshot{} = snapshot) do
-    with {:ok, operation} <- create_step_operation(execution, snapshot, @initial_step_key),
-         {:ok, job} <-
-           execution
-           |> initial_args(operation.id)
-           |> new()
-           |> Oban.insert() do
-      {:ok, %{operation: operation, job: job}}
+    if execution.invocation_mode == "automatic" do
+      OpenSpecReviewWorkflow.prepare_initial(execution, snapshot)
+    else
+      with {:ok, operation} <- create_step_operation(execution, snapshot, @initial_step_key),
+           {:ok, job} <-
+             execution
+             |> initial_args(operation.id)
+             |> new()
+             |> Oban.insert() do
+        {:ok, %{operation: operation, job: job}}
+      end
     end
   end
 
@@ -74,6 +80,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"workflow_key" => "openspec-review"}} = job),
+    do: OpenSpecReviewWorkflow.perform(job)
+
   def perform(
         %Oban.Job{
           args:

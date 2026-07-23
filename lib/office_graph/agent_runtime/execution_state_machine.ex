@@ -5,7 +5,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionStateMachine do
   @transitions %{
     "queued" => ~w(running waiting_approval waiting_context failed cancelled),
     "running" =>
-      ~w(running waiting_approval waiting_context retry_scheduled completed failed cancelled),
+      ~w(queued running waiting_approval waiting_context retry_scheduled completed failed cancelled),
     "waiting_approval" => ~w(queued running failed cancelled),
     "waiting_context" => ~w(queued running failed cancelled),
     "retry_scheduled" => ~w(running failed cancelled),

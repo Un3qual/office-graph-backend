@@ -19,8 +19,12 @@ defmodule OfficeGraph.AgentRuntime.Adapters.DeterministicRuntime do
 
   @adapter_payload_schema %{
     required: [:fixture_id],
-    fields: %{fixture_id: :string},
-    max_serialized_bytes: 1_024
+    fields: %{
+      fixture_id: :string,
+      context_entry_ids: {:list, :uuid},
+      context_hashes: {:list, :string}
+    },
+    max_serialized_bytes: 8_192
   }
   @content_schemas %{
     proposal: %{

@@ -34,8 +34,8 @@
 
 ## 7. First Automatic Agent
 
-- [ ] 7.1 Add end-to-end deterministic tests for the OpenSpec-review agent reading authorized repo/OpenSpec context and producing messages, findings, proposals, checks, and evidence candidates.
-- [ ] 7.2 Implement the read-only repository/OpenSpec tool adapters and canonical review workflow, proving it has no GitHub schema dependency or external-write path.
+- [x] 7.1 Add end-to-end deterministic tests for the OpenSpec-review agent reading authorized repo/OpenSpec context and producing messages, findings, proposals, checks, and evidence candidates.
+- [x] 7.2 Implement the read-only repository/OpenSpec tool adapters and canonical review workflow, proving it has no GitHub schema dependency or external-write path.
 
 ## 8. Verification And Archive
 

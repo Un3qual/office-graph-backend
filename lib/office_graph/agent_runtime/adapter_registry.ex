@@ -22,6 +22,14 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistry do
 
   def model_manifest(_key), do: {:error, :adapter_not_found}
 
+  def tool_manifest(key) when is_binary(key) do
+    with {:ok, adapter} <- tool(key) do
+      read_manifest(adapter, key, &AdapterContract.valid_tool_manifest?/1)
+    end
+  end
+
+  def tool_manifest(_key), do: {:error, :adapter_not_found}
+
   def validate(configuration \\ configured()) do
     with {:ok, configuration} <- normalize_configuration(configuration),
          :ok <- validate_adapters(:model, configuration.models),
