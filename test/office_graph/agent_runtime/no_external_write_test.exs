@@ -149,6 +149,7 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
       assert opts[:timeout_ms] == 1_000
       assert opts[:max_bytes] == 64 * 1_024
       assert opts[:cd] == repository_root
+      assert opts[:environment] == %{"OPENSPEC_TELEMETRY" => "0"}
       refute Keyword.has_key?(opts, :shell)
     end
   end

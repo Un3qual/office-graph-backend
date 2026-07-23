@@ -32,7 +32,7 @@
           ];
           nativeBuildInputs = [ pkgs.makeWrapper ];
           postBuild = ''
-            wrapProgram "$out/bin/openspec" --set-default OPENSPEC_TELEMETRY 0
+            wrapProgram "$out/bin/openspec" --set OPENSPEC_TELEMETRY 0
           '';
         };
     in
@@ -40,6 +40,25 @@
       packages = forAllSystems (system: {
         agent-runtime-tools = agentRuntimeTools system;
       });
+
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          runtimeTools = agentRuntimeTools system;
+        in
+        {
+          agent-runtime-tools-no-telemetry = pkgs.runCommand "agent-runtime-tools-no-telemetry" { } ''
+            export HOME="$TMPDIR/home"
+            mkdir -p "$HOME"
+            export OPENSPEC_TELEMETRY=1
+            cd ${./.}
+            ${runtimeTools}/bin/openspec list --json > /dev/null
+            test -z "$(find "$HOME" -mindepth 1 -print -quit)"
+            mkdir "$out"
+          '';
+        }
+      );
 
       devShells = forAllSystems (
         system:

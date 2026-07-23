@@ -6,6 +6,7 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
   alias OfficeGraph.AgentRuntime.{
     AdapterContract,
     AgentExecution,
+    AutomaticWorkflowContext,
     AuthoritySnapshot,
     ContextPackage,
     ExecutionWorker,
@@ -114,6 +115,10 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
 
   defmodule RevokedRevalidator do
     def revalidate_step(_execution_id, _opts), do: {:error, :agent_principal_inactive}
+  end
+
+  defmodule DatabaseUnavailableExecutionLock do
+    def lock_execution(_execution_id), do: {:error, :integration_storage_unavailable}
   end
 
   defmodule RetryTwiceModel do
@@ -343,6 +348,105 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     assert_failed_event(invoked.execution.id)
   end
 
+  test "pre-claim failures cannot preempt an active leased request", context do
+    invoked = invoke_automatic!(context, "leased-preclaim-failure")
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+    original_runner = Application.get_env(:office_graph, :agent_runtime_command_runner)
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_command_runner,
+      BlockingRepositoryCommandRunner
+    )
+
+    Application.put_env(:office_graph, :openspec_review_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:agent_runtime_command_runner, original_runner)
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+      Application.delete_env(:office_graph, :openspec_review_test_pid)
+    end)
+
+    worker =
+      Elixir.Task.async(fn ->
+        ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+      end)
+
+    assert_receive {:blocking_repository_read, command_pid}, 1_000
+
+    running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    [request] = requests_for(ToolRequest, invoked.execution.id)
+    assert running.state == "running"
+    assert request.state == "running"
+
+    registry_without_adapter =
+      original_registry
+      |> Map.new()
+      |> update_in([:tools], &Map.delete(&1, "repository.read"))
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, registry_without_adapter)
+
+    assert {:snooze, adapter_delay} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+    unregistered_job = put_in(job.args["workflow_key"], "not-registered")
+
+    assert {:snooze, workflow_delay} =
+             ExecutionWorker.perform(%{unregistered_job | attempt: 1, max_attempts: 3})
+
+    assert adapter_delay in 1..30
+    assert workflow_delay in 1..30
+
+    still_running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert still_running.state == "running"
+    assert still_running.lease_token == running.lease_token
+
+    assert request_for!(ToolRequest, invoked.execution.id, "context:repository").state ==
+             "running"
+
+    refute_failed_event(invoked.execution.id)
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    send(command_pid, :release_repository_read)
+    assert :ok = Elixir.Task.await(worker, 1_000)
+  end
+
+  test "pre-claim failures cannot overwrite a later workflow step", context do
+    invoked = invoke_automatic!(context, "stale-preclaim-failure")
+    [repository_job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+
+    assert :ok = ExecutionWorker.perform(%{repository_job | attempt: 1, max_attempts: 3})
+
+    advanced = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert advanced.state == "queued"
+    assert advanced.current_step_key == "context:openspec"
+
+    original_registry = Application.fetch_env!(:office_graph, :agent_runtime_adapters)
+
+    registry_without_adapter =
+      original_registry
+      |> Map.new()
+      |> update_in([:tools], &Map.delete(&1, "repository.read"))
+
+    Application.put_env(:office_graph, :agent_runtime_adapters, registry_without_adapter)
+
+    on_exit(fn ->
+      Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
+    end)
+
+    assert :ok = ExecutionWorker.perform(%{repository_job | attempt: 2, max_attempts: 3})
+
+    unregistered_job = put_in(repository_job.args["workflow_key"], "not-registered")
+    assert :ok = ExecutionWorker.perform(%{unregistered_job | attempt: 2, max_attempts: 3})
+
+    unchanged = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert unchanged.state == "queued"
+    assert unchanged.current_step_key == "context:openspec"
+    assert unchanged.state_version == advanced.state_version
+    refute_failed_event(invoked.execution.id)
+  end
+
   test "automatic operation lookup storage failure retries before claim", context do
     invoked = invoke_automatic!(context, "operation-storage")
     [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
@@ -351,6 +455,42 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
 
     assert {:snooze, 1} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     assert_unclaimed_execution(invoked.execution.id, 0)
+  end
+
+  test "database failure during an unclaimed terminal transition retries", context do
+    invoked = invoke_automatic!(context, "unclaimed-transition-storage")
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+
+    assert {:ok, runtime_context} =
+             AutomaticWorkflowContext.load(
+               job.args["execution_id"],
+               job.args["operation_id"],
+               job.args["organization_id"],
+               job.args["workspace_id"],
+               job.args["step_key"]
+             )
+
+    original = Application.get_env(:office_graph, :agent_runtime_unclaimed_execution_lock)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_unclaimed_execution_lock,
+      DatabaseUnavailableExecutionLock
+    )
+
+    on_exit(fn -> restore_env(:agent_runtime_unclaimed_execution_lock, original) end)
+
+    assert {:snooze, 1} =
+             OfficeGraph.AgentRuntime.DurableStepExecutor.fail_unclaimed(
+               runtime_context,
+               %{key: job.args["step_key"]},
+               job,
+               "agent_adapter_unavailable"
+             )
+
+    restore_env(:agent_runtime_unclaimed_execution_lock, original)
+    assert_unclaimed_execution(invoked.execution.id, 0)
+    refute_failed_event(invoked.execution.id)
   end
 
   test "automatic review context and read-request storage failures retry before claim" do
@@ -983,6 +1123,16 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
 
   defp assert_failed_event(execution_id) do
     assert [_event] =
+             DomainEvent
+             |> Ash.Query.filter(
+               subject_kind == "agent_execution" and subject_id == ^execution_id and
+                 event_kind == "agent_execution.failed"
+             )
+             |> Ash.read!(authorize?: false)
+  end
+
+  defp refute_failed_event(execution_id) do
+    assert [] ==
              DomainEvent
              |> Ash.Query.filter(
                subject_kind == "agent_execution" and subject_id == ^execution_id and

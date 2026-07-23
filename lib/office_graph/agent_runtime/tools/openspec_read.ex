@@ -141,6 +141,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
 
     case command_runner().run(openspec_executable(), argv,
            cd: repository_root(),
+           environment: %{"OPENSPEC_TELEMETRY" => "0"},
            timeout_ms: timeout_ms,
            max_bytes: byte_limit
          ) do

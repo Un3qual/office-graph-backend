@@ -161,7 +161,10 @@ A supervised readiness check runs before Oban, validates the mounted `HEAD`,
 the tracked `openspec/project.md`, and bounded parseable `openspec list --json`
 output, and fails application startup when any dependency is missing. The Nix
 flake exposes the Git/OpenSpec closure used by development and release images;
-the mounted checkout remains immutable for one process lifetime.
+the mounted checkout remains immutable for one process lifetime. The closure
+and the application command boundary both force OpenSpec telemetry off, so an
+ambient environment cannot turn a read-only workflow into local configuration
+writes or outbound telemetry.
 
 ## Risks / Trade-offs
 

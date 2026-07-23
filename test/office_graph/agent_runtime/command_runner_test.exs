@@ -68,6 +68,26 @@ defmodule OfficeGraph.AgentRuntime.CommandRunnerTest do
              )
   end
 
+  test "an explicit child environment overrides ambient process settings" do
+    previous = System.get_env("OPENSPEC_TELEMETRY")
+    System.put_env("OPENSPEC_TELEMETRY", "1")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("OPENSPEC_TELEMETRY", previous),
+        else: System.delete_env("OPENSPEC_TELEMETRY")
+    end)
+
+    script = ~S|IO.binwrite(System.fetch_env!("OPENSPEC_TELEMETRY"))|
+
+    assert {:ok, "0"} =
+             CommandRunner.run("elixir", ["-e", script],
+               environment: %{"OPENSPEC_TELEMETRY" => "0"},
+               timeout_ms: 1_000,
+               max_bytes: 1_024
+             )
+  end
+
   defp eventually_stopped?(pid, attempts \\ 20)
 
   defp eventually_stopped?(pid, 0), do: not process_running?(pid)

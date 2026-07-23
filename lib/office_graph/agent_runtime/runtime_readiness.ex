@@ -101,6 +101,7 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadiness do
            config.openspec_executable,
            ["list", "--json"],
            cd: config.repository_root,
+           environment: %{"OPENSPEC_TELEMETRY" => "0"},
            timeout_ms: 5_000,
            max_bytes: 65_536
          ) do

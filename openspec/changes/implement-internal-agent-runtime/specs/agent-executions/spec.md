@@ -37,6 +37,15 @@ versioned transitions.
 - **THEN** the execution MUST transition to a durable failed state instead of
   completing its only job while remaining queued
 
+#### Scenario: Duplicate or stale worker cannot overwrite active execution state
+
+- **WHEN** runtime configuration failure is discovered by a duplicate worker
+  while the matching step has a lease or by a prior-step worker after the
+  execution has advanced
+- **THEN** the worker MUST preserve the active request, lease, current step, and
+  execution state and MUST snooze or complete the obsolete job without a
+  terminal transition
+
 #### Scenario: Transient storage failure occurs before a claim
 
 - **WHEN** context loading or mutable-authority revalidation returns a storage

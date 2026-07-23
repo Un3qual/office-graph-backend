@@ -69,3 +69,11 @@ runtime configuration rather than a build checkout or ambient executable path.
   OpenSpec inventory cannot be read safely
 - **THEN** application startup MUST fail closed before an automatic job can be
   consumed
+
+#### Scenario: Ambient telemetry configuration is enabled
+
+- **WHEN** the runtime process inherits an environment that enables OpenSpec
+  telemetry
+- **THEN** both the packaged executable and every application invocation MUST
+  force telemetry off so repository reads perform no telemetry configuration
+  writes or outbound telemetry requests

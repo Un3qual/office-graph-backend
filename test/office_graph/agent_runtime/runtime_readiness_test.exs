@@ -91,7 +91,12 @@ defmodule OfficeGraph.AgentRuntime.RuntimeReadinessTest do
                     [timeout_ms: 5_000, max_bytes: 65_536]}
 
     assert_receive {:openspec_readiness, "/runtime/bin/openspec",
-                    [cd: ^root, timeout_ms: 5_000, max_bytes: 65_536]}
+                    [
+                      cd: ^root,
+                      environment: %{"OPENSPEC_TELEMETRY" => "0"},
+                      timeout_ms: 5_000,
+                      max_bytes: 65_536
+                    ]}
   end
 
   test "rejects relative or missing repository mounts before starting workers", %{root: root} do

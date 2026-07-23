@@ -7,6 +7,7 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
     AdapterContract,
     AdapterResult,
     AgentExecution,
+    ExecutionLock,
     ExecutionStateMachine,
     ModelInput,
     ModelRequest,
@@ -470,30 +471,91 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
     result =
       StorageResult.run(fn ->
         Repo.transaction(fn ->
-          execution = lock_execution!(context.execution.id)
+          execution = lock_unclaimed_execution!(context.execution.id)
 
-          if ExecutionStateMachine.terminal?(execution.state) do
-            :ok
-          else
-            transition!(execution, context.operation, "failed", %{
-              current_step_key: step.key,
-              completed_at: DateTime.utc_now(),
-              failure_code: failure_code,
-              lease_token: nil,
-              lease_expires_at: nil
-            })
+          case unclaimed_failure_posture(execution, step.key) do
+            :available ->
+              transition!(execution, context.operation, "failed", %{
+                current_step_key: step.key,
+                completed_at: DateTime.utc_now(),
+                failure_code: failure_code,
+                lease_token: nil,
+                lease_expires_at: nil
+              })
 
-            :ok
+              :failed
+
+            posture ->
+              posture
           end
         end)
-        |> normalize_transaction()
       end)
 
     case result do
-      :ok -> finish_terminal_job(job, failure_code)
-      {:error, :integration_storage_unavailable} -> {:snooze, @retry_delay_seconds}
-      {:error, reason} -> finish_terminal_job(job, failure_code(reason))
+      {:ok, :failed} ->
+        finish_terminal_job(job, failure_code)
+
+      {:ok, :stale_step} ->
+        :ok
+
+      {:ok, {:leased, delay}} ->
+        {:snooze, delay}
+
+      {:ok, {:claimed, delay}} ->
+        {:snooze, delay}
+
+      {:ok, {:waiting, _state}} ->
+        :ok
+
+      {:ok, {:terminal, "completed", _execution}} ->
+        :ok
+
+      {:ok, {:terminal, state, execution}} ->
+        finish_terminal_job(job, terminal_failure(execution, state))
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, reason} ->
+        finish_terminal_job(job, failure_code(reason))
     end
+  end
+
+  defp unclaimed_failure_posture(execution, step_key) do
+    case execution_posture(execution, step_key) do
+      :available ->
+        if execution.state == "queued" and is_nil(execution.lease_token) and
+             is_nil(execution.lease_expires_at) and unclaimed_step?(execution.id, step_key),
+           do: :available,
+           else: {:claimed, @retry_delay_seconds}
+
+      {:terminal, state} ->
+        {:terminal, state, execution}
+
+      posture ->
+        posture
+    end
+  end
+
+  defp unclaimed_step?(execution_id, step_key) do
+    is_nil(request(ModelRequest, execution_id, step_key)) and
+      is_nil(request(ToolRequest, execution_id, step_key))
+  end
+
+  defp lock_unclaimed_execution!(execution_id) do
+    case unclaimed_execution_lock().lock_execution(execution_id) do
+      {:ok, %AgentExecution{} = execution} -> execution
+      {:ok, nil} -> Repo.rollback(:integration_storage_unavailable)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp unclaimed_execution_lock do
+    Application.get_env(
+      :office_graph,
+      :agent_runtime_unclaimed_execution_lock,
+      ExecutionLock
+    )
   end
 
   defp create_or_load_request!(context, %ModelInput{} = input) do

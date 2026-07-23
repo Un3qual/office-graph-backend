@@ -62,6 +62,10 @@ process lifetime and restart the application after atomically replacing it with
 a new revision. Do not bypass ownership checks with a broad
 `safe.directory=*` setting.
 
+The packaged OpenSpec executable and the application command boundary force
+OpenSpec telemetry off. Ambient `OPENSPEC_TELEMETRY` values cannot enable local
+telemetry configuration writes or outbound telemetry for runtime reads.
+
 ## GitHub App Runtime
 
 Development and production use the live GitHub App adapter. Set

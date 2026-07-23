@@ -12,11 +12,12 @@ defmodule OfficeGraph.AgentRuntime.Tools.CommandRunner do
          {:ok, timeout_ms} <- positive_option(opts, :timeout_ms),
          {:ok, max_bytes} <- positive_option(opts, :max_bytes),
          {:ok, directory} <- working_directory(opts),
+         {:ok, environment} <- command_environment(opts),
          executable_path when is_binary(executable_path) <- System.find_executable(executable) do
       port =
         Port.open(
           {:spawn_executable, executable_path},
-          port_options(argv, directory, max_bytes)
+          port_options(argv, directory, environment, max_bytes)
         )
 
       deadline = System.monotonic_time(:millisecond) + timeout_ms
@@ -77,7 +78,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.CommandRunner do
     end
   end
 
-  defp port_options(argv, directory, max_bytes) do
+  defp port_options(argv, directory, environment, max_bytes) do
     options = [
       :binary,
       :exit_status,
@@ -87,6 +88,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.CommandRunner do
       {:line, max_bytes + 1}
     ]
 
+    options = if environment == [], do: options, else: [{:env, environment} | options]
     if is_binary(directory), do: [{:cd, directory} | options], else: options
   end
 
@@ -108,6 +110,30 @@ defmodule OfficeGraph.AgentRuntime.Tools.CommandRunner do
       _invalid -> {:error, :invalid_option}
     end
   end
+
+  defp command_environment(opts) do
+    case Keyword.get(opts, :environment, %{}) do
+      environment when is_map(environment) ->
+        if Enum.all?(environment, fn {name, value} ->
+             valid_environment_value?(name) and valid_environment_value?(value)
+           end) do
+          {:ok,
+           Enum.map(environment, fn {name, value} ->
+             {String.to_charlist(name), String.to_charlist(value)}
+           end)}
+        else
+          {:error, :invalid_option}
+        end
+
+      _invalid ->
+        {:error, :invalid_option}
+    end
+  end
+
+  defp valid_environment_value?(value) when is_binary(value),
+    do: value != "" and not String.contains?(value, <<0>>)
+
+  defp valid_environment_value?(_value), do: false
 
   defp terminate(port) do
     port
