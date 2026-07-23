@@ -82,7 +82,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
   def cancel(_request_id), do: {:error, :not_found}
 
   def pinned_revision do
-    case command("git", ["-C", repository_root(), "rev-parse", "HEAD"],
+    case command(git_executable(), ["-C", repository_root(), "rev-parse", "HEAD"],
            timeout_ms: 5_000,
            max_bytes: 128
          ) do
@@ -167,14 +167,14 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
     byte_limit = min(requested_budget, @max_bytes)
 
     with {:ok, size_text} <-
-           command("git", ["-C", repository_root(), "cat-file", "-s", object],
+           command(git_executable(), ["-C", repository_root(), "cat-file", "-s", object],
              timeout_ms: timeout_ms,
              max_bytes: 128
            ),
          {size, ""} <- size_text |> String.trim() |> Integer.parse(),
          true <- size > 0 and size <= byte_limit,
          {:ok, content} <-
-           command("git", ["-C", repository_root(), "show", object],
+           command(git_executable(), ["-C", repository_root(), "show", object],
              timeout_ms: timeout_ms,
              max_bytes: byte_limit
            ),
@@ -227,10 +227,13 @@ defmodule OfficeGraph.AgentRuntime.Tools.RepositoryRead do
   end
 
   defp repository_root do
-    :office_graph
-    |> Application.get_env(:agent_runtime_repository_root, File.cwd!())
-    |> Path.expand()
+    tooling_config() |> Keyword.fetch!(:repository_root)
   end
+
+  defp git_executable, do: tooling_config() |> Keyword.fetch!(:git_executable)
+
+  defp tooling_config,
+    do: Application.fetch_env!(:office_graph, :agent_runtime_repository_tooling)
 
   defp repository_allowlist do
     Application.get_env(:office_graph, :agent_runtime_repository_allowlist, @default_allowlist)

@@ -36,6 +36,7 @@
 
 - [x] 7.1 Add end-to-end deterministic tests for the OpenSpec-review agent reading authorized repo/OpenSpec context and producing messages, findings, proposals, checks, and evidence candidates.
 - [x] 7.2 Implement the read-only repository/OpenSpec tool adapters and canonical review workflow, proving it has no GitHub schema dependency or external-write path.
+- [x] 7.3 Add release-time repository/tool configuration, a pinned Nix tooling closure, and fail-fast pre-worker readiness for the automatic review workflow.
 
 ## 8. Verification And Archive
 

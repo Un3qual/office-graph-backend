@@ -55,6 +55,19 @@ defmodule OfficeGraph.AgentRuntime.CommandRunnerTest do
              )
   end
 
+  test "absolute executable paths run directly and missing paths fail safely" do
+    printf = System.find_executable("printf")
+
+    assert {:ok, "bounded"} =
+             CommandRunner.run(printf, ["bounded"], timeout_ms: 1_000, max_bytes: 1_024)
+
+    assert {:error, :command_failed} =
+             CommandRunner.run("/definitely/missing/office-graph-tool", [],
+               timeout_ms: 1_000,
+               max_bytes: 1_024
+             )
+  end
+
   defp eventually_stopped?(pid, attempts \\ 20)
 
   defp eventually_stopped?(pid, 0), do: not process_running?(pid)

@@ -58,8 +58,6 @@ config :office_graph, :agent_runtime_adapters,
 
 config :office_graph, :agent_runtime_retention_limit, 32
 
-config :office_graph, :agent_runtime_repository_root, Path.expand("..", __DIR__)
-
 config :office_graph,
        :github_record_loader,
        OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter

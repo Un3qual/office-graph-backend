@@ -139,7 +139,7 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   defp execute(argv, timeout_ms, requested_budget) do
     byte_limit = min(requested_budget, @max_bytes)
 
-    case command_runner().run("openspec", argv,
+    case command_runner().run(openspec_executable(), argv,
            cd: repository_root(),
            timeout_ms: timeout_ms,
            max_bytes: byte_limit
@@ -178,10 +178,13 @@ defmodule OfficeGraph.AgentRuntime.Tools.OpenSpecRead do
   end
 
   defp repository_root do
-    :office_graph
-    |> Application.get_env(:agent_runtime_repository_root, File.cwd!())
-    |> Path.expand()
+    tooling_config() |> Keyword.fetch!(:repository_root)
   end
+
+  defp openspec_executable, do: tooling_config() |> Keyword.fetch!(:openspec_executable)
+
+  defp tooling_config,
+    do: Application.fetch_env!(:office_graph, :agent_runtime_repository_tooling)
 
   defp command_runner do
     Application.get_env(

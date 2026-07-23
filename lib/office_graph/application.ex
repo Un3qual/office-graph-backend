@@ -19,6 +19,7 @@ defmodule OfficeGraph.Application do
         {Phoenix.PubSub, name: OfficeGraph.PubSub},
         {Task.Supervisor, name: OfficeGraph.AgentRuntime.AdapterTaskSupervisor},
         OfficeGraph.AgentRuntime.AdapterState,
+        OfficeGraph.AgentRuntime.RuntimeReadiness,
         OfficeGraph.GitHubIntegration.Adapter.GitHub.TokenCache
       ] ++
         OfficeGraph.DurableDelivery.subscription_children() ++

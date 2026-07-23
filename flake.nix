@@ -17,8 +17,30 @@
       ];
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      agentRuntimeTools =
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          openspecCli = openspec.packages.${system}.default;
+        in
+        pkgs.symlinkJoin {
+          name = "office-graph-agent-runtime-tools";
+          paths = [
+            pkgs.gitMinimal
+            openspecCli
+          ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postBuild = ''
+            wrapProgram "$out/bin/openspec" --set-default OPENSPEC_TELEMETRY 0
+          '';
+        };
     in
     {
+      packages = forAllSystems (system: {
+        agent-runtime-tools = agentRuntimeTools system;
+      });
+
       devShells = forAllSystems (
         system:
         let
@@ -27,7 +49,6 @@
           # newest packaged releases for compatibility.
           erlang = pkgs.beam.interpreters.erlang_29;
           elixir = pkgs.beam.packages.erlang_29.elixir_1_20;
-          openspecCli = openspec.packages.${system}.default;
           nodejs = pkgs.nodejs_26;
           pnpm = pkgs.pnpm_11;
           dockerClient = pkgs.docker-client;
@@ -38,7 +59,7 @@
             packages = [
               erlang
               elixir
-              openspecCli
+              (agentRuntimeTools system)
               nodejs
               pnpm
               dockerClient

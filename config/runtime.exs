@@ -36,6 +36,33 @@ if github_graphql_url = System.get_env("GITHUB_GRAPHQL_URL") do
 end
 
 if config_env() == :prod do
+  repository_root =
+    System.get_env("OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT") ||
+      raise "OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT is required"
+
+  git_executable =
+    System.get_env("OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE") ||
+      raise "OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE is required"
+
+  openspec_executable =
+    System.get_env("OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE") ||
+      raise "OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE is required"
+
+  for {name, value} <- [
+        {"OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT", repository_root},
+        {"OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE", git_executable},
+        {"OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE", openspec_executable}
+      ] do
+    if Path.type(value) != :absolute do
+      raise "#{name} must be an absolute path"
+    end
+  end
+
+  config :office_graph, :agent_runtime_repository_tooling,
+    repository_root: repository_root,
+    git_executable: git_executable,
+    openspec_executable: openspec_executable
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

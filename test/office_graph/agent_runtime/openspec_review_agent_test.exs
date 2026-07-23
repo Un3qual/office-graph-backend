@@ -19,6 +19,7 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
   alias OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow
   alias OfficeGraph.AgentRuntime.Tools.CommandRunner
 
+  alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.NodeConversations.ConversationMessage
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Runs.ExecutionObservation
@@ -36,11 +37,54 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
   require Ash.Query
 
   defmodule VariantCommandRunner do
-    def run("openspec", _argv, _opts) do
-      {:ok, Application.fetch_env!(:office_graph, :openspec_review_test_content)}
+    def run(executable, ["list", "--json"] = argv, opts) do
+      openspec_executable =
+        :office_graph
+        |> Application.fetch_env!(:agent_runtime_repository_tooling)
+        |> Keyword.fetch!(:openspec_executable)
+
+      if executable == openspec_executable,
+        do: {:ok, Application.fetch_env!(:office_graph, :openspec_review_test_content)},
+        else: CommandRunner.run(executable, argv, opts)
     end
 
     def run(executable, argv, opts), do: CommandRunner.run(executable, argv, opts)
+  end
+
+  defmodule SelectiveOperationReader do
+    alias OfficeGraph.AgentRuntime.OperationReader
+
+    def read_operation(operation_id) do
+      case Application.get_env(:office_graph, :openspec_review_storage_failure) do
+        {:operation, ^operation_id} -> {:error, :integration_storage_unavailable}
+        _other -> OperationReader.read_operation(operation_id)
+      end
+    end
+  end
+
+  defmodule SelectiveReviewStore do
+    alias OfficeGraph.AgentRuntime.Agents.OpenSpecReviewStore
+
+    def context_entries(context_package_id),
+      do:
+        maybe_fail(:context_entries, fn ->
+          OpenSpecReviewStore.context_entries(context_package_id)
+        end)
+
+    def read_requests(execution_id),
+      do: maybe_fail(:read_requests, fn -> OpenSpecReviewStore.read_requests(execution_id) end)
+
+    def model_review_request(execution_id),
+      do:
+        maybe_fail(:model_review_request, fn ->
+          OpenSpecReviewStore.model_review_request(execution_id)
+        end)
+
+    defp maybe_fail(stage, load) do
+      if Application.get_env(:office_graph, :openspec_review_storage_failure) == stage,
+        do: {:error, :integration_storage_unavailable},
+        else: load.()
+    end
   end
 
   defmodule FailingContinuationEnqueuer do
@@ -48,12 +92,12 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
   end
 
   defmodule BlockingRepositoryCommandRunner do
-    def run("git", ["-C", _root, "cat-file", "-s", _object] = argv, opts) do
+    def run(executable, ["-C", _root, "cat-file", "-s", _object] = argv, opts) do
       test_pid = Application.fetch_env!(:office_graph, :openspec_review_test_pid)
       send(test_pid, {:blocking_repository_read, self()})
 
       receive do
-        :release_repository_read -> CommandRunner.run("git", argv, opts)
+        :release_repository_read -> CommandRunner.run(executable, argv, opts)
       end
     end
 
@@ -249,6 +293,112 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
            ) == 3
   end
 
+  test "missing automatic adapter durably fails the queued execution", context do
+    invoked = invoke_automatic!(context, "missing-adapter")
+
+    configure_adapter_registry(fn registry ->
+      update_in(registry, [:tools], &Map.delete(&1, "repository.read"))
+    end)
+
+    assert {:cancel, "agent_adapter_unavailable"} =
+             perform_step(invoked.execution.id, "context:repository", 1)
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_adapter_unavailable"
+    assert failed.attempt_count == 0
+    assert Repo.aggregate(ToolRequest, :count) == 0
+    assert_failed_event(invoked.execution.id)
+  end
+
+  test "malformed automatic adapter configuration durably fails the queued execution", context do
+    invoked = invoke_automatic!(context, "malformed-adapter-registry")
+
+    configure_adapter_registry(fn registry -> Map.put(registry, :tools, :invalid) end)
+
+    assert {:cancel, "agent_adapter_unavailable"} =
+             perform_step(invoked.execution.id, "context:repository", 1)
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "agent_adapter_unavailable"
+    assert failed.attempt_count == 0
+    assert Repo.aggregate(ToolRequest, :count) == 0
+    assert_failed_event(invoked.execution.id)
+  end
+
+  test "unregistered automatic workflow durably fails the queued execution", context do
+    invoked = invoke_automatic!(context, "unregistered-workflow")
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+
+    invalid_job = put_in(job.args["workflow_key"], "not-registered")
+
+    assert {:cancel, "automatic_workflow_not_registered"} =
+             ExecutionWorker.perform(invalid_job)
+
+    failed = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    assert failed.state == "failed"
+    assert failed.failure_code == "automatic_workflow_not_registered"
+    assert failed.attempt_count == 0
+    assert_failed_event(invoked.execution.id)
+  end
+
+  test "automatic operation lookup storage failure retries before claim", context do
+    invoked = invoke_automatic!(context, "operation-storage")
+    [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
+
+    configure_storage_failure({:operation, job.args["operation_id"]})
+
+    assert {:snooze, 1} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+    assert_unclaimed_execution(invoked.execution.id, 0)
+  end
+
+  test "automatic review context and read-request storage failures retry before claim" do
+    for stage <- [:context_entries, :read_requests] do
+      context = AgentRuntimeSupport.invocation_fixture()
+      invoked = invoke_automatic!(context, Atom.to_string(stage))
+
+      assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+      assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+
+      configure_storage_failure(stage)
+
+      assert {:snooze, 1} = perform_step(invoked.execution.id, "model:review", 1)
+      assert_unclaimed_execution(invoked.execution.id, 2)
+      assert is_nil(request_for(ModelRequest, invoked.execution.id, "model:review"))
+
+      Application.delete_env(:office_graph, :openspec_review_storage_failure)
+    end
+  end
+
+  test "automatic model-result storage failure retries before route claim", context do
+    invoked = invoke_automatic!(context, "model-result-storage")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+    assert :ok = perform_step(invoked.execution.id, "model:review", 1)
+
+    configure_storage_failure(:model_review_request)
+
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "output:route", 1)
+    assert_unclaimed_execution(invoked.execution.id, 3)
+    assert is_nil(request_for(ToolRequest, invoked.execution.id, "output:route"))
+  end
+
+  test "classified-reference operation storage failure retries before model claim", context do
+    invoked = invoke_automatic!(context, "reference-storage")
+
+    assert :ok = perform_step(invoked.execution.id, "context:repository", 1)
+    assert :ok = perform_step(invoked.execution.id, "context:openspec", 1)
+
+    repository_request = request_for!(ToolRequest, invoked.execution.id, "context:repository")
+    configure_storage_failure({:operation, repository_request.operation_id})
+
+    assert {:snooze, 1} = perform_step(invoked.execution.id, "model:review", 1)
+    assert_unclaimed_execution(invoked.execution.id, 2)
+    assert is_nil(request_for(ModelRequest, invoked.execution.id, "model:review"))
+  end
+
   test "malformed routed batch is rejected before any governed output is written", context do
     configure_adapter_registry(fn registry ->
       put_in(registry, [:tools, "internal.output.route"], MalformedOutputRoute)
@@ -428,7 +578,7 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     end)
   end
 
-  test "changing an authorized tool reference changes the deterministic review result" do
+  test "deterministic review is stable for identical content and sensitive to changed content" do
     original_runner = Application.get_env(:office_graph, :agent_runtime_command_runner)
     original_content = Application.get_env(:office_graph, :openspec_review_test_content)
 
@@ -439,13 +589,24 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
       restore_env(:openspec_review_test_content, original_content)
     end)
 
-    first = run_variant_review!("authorized-openspec-context-v1")
-    second = run_variant_review!("authorized-openspec-context-v2")
+    context = AgentRuntimeSupport.invocation_fixture()
+    first_invocation = invoke_variant_review!(context, "same-content-1")
+    replay_invocation = invoke_variant_review!(context, "same-content-2")
+    changed_invocation = invoke_variant_review!(context, "changed-content")
 
-    refute first.openspec_reference_hash == second.openspec_reference_hash
-    refute first.model_output_hash == second.model_output_hash
-    refute first.model_output_summary == second.model_output_summary
-    refute first.message_body_hash == second.message_body_hash
+    first = run_variant_review!(first_invocation, "authorized-openspec-context-v1")
+    replay = run_variant_review!(replay_invocation, "authorized-openspec-context-v1")
+    changed = run_variant_review!(changed_invocation, "authorized-openspec-context-v2")
+
+    assert first.reference_fingerprints == replay.reference_fingerprints
+    assert first.model_output_hash == replay.model_output_hash
+    assert first.model_output_summary == replay.model_output_summary
+    assert first.message_body_hash == replay.message_body_hash
+
+    refute first.openspec_reference_hash == changed.openspec_reference_hash
+    refute first.model_output_hash == changed.model_output_hash
+    refute first.model_output_summary == changed.model_output_summary
+    refute first.message_body_hash == changed.message_body_hash
   end
 
   test "continuation enqueue failure rolls back the completed read and its next operation",
@@ -669,6 +830,12 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     |> Ash.read_one!(authorize?: false)
   end
 
+  defp request_for(resource, execution_id, step_key) do
+    resource
+    |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
+    |> Ash.read_one!(authorize?: false)
+  end
+
   defp invoke_automatic!(context, suffix) do
     request =
       AgentRuntimeSupport.request(context, %{
@@ -740,20 +907,22 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp run_variant_review!(content) do
-    Application.put_env(:office_graph, :openspec_review_test_content, content)
-    context = AgentRuntimeSupport.invocation_fixture()
-
+  defp invoke_variant_review!(context, suffix) do
     request =
       AgentRuntimeSupport.request(context, %{
         origin: "system_trigger",
         invocation_mode: "automatic",
-        idempotency_key: "automatic-variant-#{context.suffix}",
+        idempotency_key: "automatic-variant-#{suffix}-#{context.suffix}",
         requested_capabilities: context.definition.requested_capabilities
       })
 
     {:ok, operation} = AgentRuntimeSupport.system_operation(context, request)
     {:ok, invoked} = AgentRuntime.invoke_system(operation, request)
+    invoked
+  end
+
+  defp run_variant_review!(invoked, content) do
+    Application.put_env(:office_graph, :openspec_review_test_content, content)
     :ok = perform_all_agent_jobs(invoked.execution.id)
 
     openspec_request =
@@ -768,14 +937,58 @@ defmodule OfficeGraph.AgentRuntime.OpenSpecReviewAgentTest do
       |> Ash.Query.filter(execution_id == ^invoked.execution.id and step_key == "model:review")
       |> Ash.read_one!(authorize?: false)
 
+    read_requests =
+      ToolRequest
+      |> Ash.Query.filter(
+        execution_id == ^invoked.execution.id and
+          tool_key in ["repository.read", "openspec.read"]
+      )
+      |> Ash.Query.sort(requested_at: :asc, id: :asc)
+      |> Ash.read!(authorize?: false)
+
     [message] = records_for(ConversationMessage, invoked.execution.id)
 
     %{
+      reference_fingerprints:
+        Enum.map(read_requests, &{&1.tool_key, &1.output_reference, &1.output_content_hash}),
       openspec_reference_hash: openspec_request.output_content_hash,
       model_output_hash: model_request.output_hash,
       model_output_summary: model_request.output_safe_summary,
       message_body_hash: message.body_hash
     }
+  end
+
+  defp configure_storage_failure(failure) do
+    original_reader = Application.get_env(:office_graph, :agent_runtime_operation_reader)
+    original_store = Application.get_env(:office_graph, :agent_runtime_openspec_review_store)
+    original_failure = Application.get_env(:office_graph, :openspec_review_storage_failure)
+
+    Application.put_env(:office_graph, :agent_runtime_operation_reader, SelectiveOperationReader)
+    Application.put_env(:office_graph, :agent_runtime_openspec_review_store, SelectiveReviewStore)
+    Application.put_env(:office_graph, :openspec_review_storage_failure, failure)
+
+    on_exit(fn ->
+      restore_env(:agent_runtime_operation_reader, original_reader)
+      restore_env(:agent_runtime_openspec_review_store, original_store)
+      restore_env(:openspec_review_storage_failure, original_failure)
+    end)
+  end
+
+  defp assert_unclaimed_execution(execution_id, attempt_count) do
+    execution = Ash.get!(AgentExecution, execution_id, authorize?: false)
+    assert execution.state == "queued"
+    assert execution.attempt_count == attempt_count
+    assert is_nil(execution.failure_code)
+  end
+
+  defp assert_failed_event(execution_id) do
+    assert [_event] =
+             DomainEvent
+             |> Ash.Query.filter(
+               subject_kind == "agent_execution" and subject_id == ^execution_id and
+                 event_kind == "agent_execution.failed"
+             )
+             |> Ash.read!(authorize?: false)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)

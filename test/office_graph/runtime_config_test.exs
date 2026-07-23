@@ -47,6 +47,55 @@ defmodule OfficeGraph.RuntimeConfigTest do
     assert repo_config[:database] == "office_graph_ci_partition_7"
   end
 
+  test "production repository tooling comes only from explicit absolute runtime paths" do
+    common_config = Config.Reader.read!("config/config.exs", env: :prod)
+    refute common_config[:office_graph][:agent_runtime_repository_tooling]
+
+    env = production_runtime_env()
+    originals = Map.new(env, fn {name, _value} -> {name, System.get_env(name)} end)
+    on_exit(fn -> Enum.each(originals, fn {name, value} -> restore_env(name, value) end) end)
+    Enum.each(env, fn {name, value} -> System.put_env(name, value) end)
+
+    runtime_config = Config.Reader.read!("config/runtime.exs", env: :prod)
+    tooling = runtime_config[:office_graph][:agent_runtime_repository_tooling]
+
+    assert tooling[:repository_root] == "/runtime/office-graph-repository"
+    assert tooling[:git_executable] == "/runtime/bin/git"
+    assert tooling[:openspec_executable] == "/runtime/bin/openspec"
+  end
+
+  test "production rejects missing or relative repository tooling paths" do
+    env = production_runtime_env()
+    originals = Map.new(env, fn {name, _value} -> {name, System.get_env(name)} end)
+    on_exit(fn -> Enum.each(originals, fn {name, value} -> restore_env(name, value) end) end)
+    Enum.each(env, fn {name, value} -> System.put_env(name, value) end)
+
+    System.delete_env("OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT")
+
+    assert_raise RuntimeError, ~r/OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT is required/, fn ->
+      Config.Reader.read!("config/runtime.exs", env: :prod)
+    end
+
+    System.put_env("OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT", "/runtime/repository")
+    System.put_env("OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE", "openspec")
+
+    assert_raise RuntimeError,
+                 ~r/OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE must be an absolute path/,
+                 fn ->
+                   Config.Reader.read!("config/runtime.exs", env: :prod)
+                 end
+  end
+
+  defp production_runtime_env do
+    %{
+      "DATABASE_URL" => "ecto://office_graph:office_graph@localhost/office_graph",
+      "SECRET_KEY_BASE" => String.duplicate("s", 64),
+      "OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT" => "/runtime/office-graph-repository",
+      "OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE" => "/runtime/bin/git",
+      "OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE" => "/runtime/bin/openspec"
+    }
+  end
+
   defp restore_env(name, nil), do: System.delete_env(name)
   defp restore_env(name, value), do: System.put_env(name, value)
 end

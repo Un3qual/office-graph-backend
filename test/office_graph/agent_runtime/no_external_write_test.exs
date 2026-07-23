@@ -14,7 +14,11 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
         opts
       })
 
-      {:ok, ~s({"changes":[]})}
+      case argv do
+        ["-C", _root, "cat-file", "-s", _object] -> {:ok, "18\n"}
+        ["-C", _root, "show", _object] -> {:ok, "authorized content"}
+        _other -> {:ok, ~s({"changes":[]})}
+      end
     end
   end
 
@@ -115,6 +119,10 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
       CapturingCommandRunner
     )
 
+    tooling = Application.fetch_env!(:office_graph, :agent_runtime_repository_tooling)
+    openspec_executable = Keyword.fetch!(tooling, :openspec_executable)
+    repository_root = Keyword.fetch!(tooling, :repository_root)
+
     cases = [
       {%{action: "list"}, ["list", "--json"]},
       {%{action: "show", target: "implement-internal-agent-runtime"},
@@ -137,12 +145,46 @@ defmodule OfficeGraph.AgentRuntime.NoExternalWriteTest do
 
       assert output.classification == :observation
 
-      assert_receive {:command_run, "openspec", ^expected_argv, opts}
+      assert_receive {:command_run, ^openspec_executable, ^expected_argv, opts}
       assert opts[:timeout_ms] == 1_000
       assert opts[:max_bytes] == 64 * 1_024
-      assert is_binary(opts[:cd])
+      assert opts[:cd] == repository_root
       refute Keyword.has_key?(opts, :shell)
     end
+  end
+
+  test "repository reads dispatch the configured Git path and exact mounted root" do
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_command_runner,
+      CapturingCommandRunner
+    )
+
+    tooling = Application.fetch_env!(:office_graph, :agent_runtime_repository_tooling)
+    git_executable = Keyword.fetch!(tooling, :git_executable)
+    repository_root = Keyword.fetch!(tooling, :repository_root)
+    revision = String.duplicate("a", 40)
+
+    assert {:ok, output} =
+             RepositoryRead.invoke(
+               tool_input("repository.read", ["agent.tool.read", "repository.read"], %{
+                 path: "openspec/project.md",
+                 revision: revision
+               })
+             )
+
+    assert output.classification == :observation
+
+    assert_receive {:command_run, ^git_executable,
+                    ["-C", ^repository_root, "cat-file", "-s", object], size_opts}
+
+    assert object == "#{revision}:openspec/project.md"
+    assert size_opts == [timeout_ms: 1_000, max_bytes: 128]
+
+    assert_receive {:command_run, ^git_executable, ["-C", ^repository_root, "show", ^object],
+                    read_opts}
+
+    assert read_opts == [timeout_ms: 1_000, max_bytes: 64 * 1_024]
   end
 
   defp tool_input(tool_key, capabilities, adapter_payload) do

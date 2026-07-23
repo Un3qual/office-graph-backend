@@ -1,13 +1,12 @@
 defmodule OfficeGraph.AgentRuntime.ToolReferenceResolver do
   @moduledoc false
 
-  alias OfficeGraph.Operations
-
   alias OfficeGraph.AgentRuntime.{
     AdapterRegistry,
     AgentExecution,
     AuthoritySnapshot,
     ContextPackage,
+    OperationReader,
     ToolRequest
   }
 
@@ -18,7 +17,7 @@ defmodule OfficeGraph.AgentRuntime.ToolReferenceResolver do
         %ToolRequest{} = request
       ) do
     with :ok <- validate_lineage(execution, snapshot, context_package, request),
-         {:ok, operation} <- Operations.read_operation(request.operation_id),
+         {:ok, operation} <- operation_reader().read_operation(request.operation_id),
          :ok <- validate_operation(operation, execution, snapshot, request.step_key),
          {:ok, adapter} <- AdapterRegistry.tool(request.tool_key, request.adapter_version),
          true <- function_exported?(adapter, :dereference, 3),
@@ -88,4 +87,12 @@ defmodule OfficeGraph.AgentRuntime.ToolReferenceResolver do
 
   defp validate_content(_content, _request),
     do: {:error, {:terminal, :tool_reference_invalid}}
+
+  defp operation_reader do
+    Application.get_env(
+      :office_graph,
+      :agent_runtime_operation_reader,
+      OperationReader
+    )
+  end
 end

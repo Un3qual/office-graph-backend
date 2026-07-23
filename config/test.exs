@@ -4,6 +4,11 @@ config :office_graph, allow_local_api_owner_bootstrap: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 
+config :office_graph, :agent_runtime_repository_tooling,
+  repository_root: Path.expand("..", __DIR__),
+  git_executable: System.find_executable("git"),
+  openspec_executable: System.find_executable("openspec")
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

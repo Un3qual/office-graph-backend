@@ -1,15 +1,15 @@
 defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
   @moduledoc false
 
-  alias OfficeGraph.{AgentRuntime, Operations, Repo}
+  alias OfficeGraph.{AgentRuntime, Repo}
 
   alias OfficeGraph.AgentRuntime.{
     AdapterContract,
     AdapterRegistry,
     AgentDefinition,
     AgentExecution,
+    AutomaticWorkflowContext,
     AuthoritySnapshot,
-    ContextEntry,
     ContextPackage,
     DurableStepExecutor,
     ExecutionWorker,
@@ -21,6 +21,8 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
     ToolReferenceResolver,
     ToolRequest
   }
+
+  alias OfficeGraph.AgentRuntime.Agents.OpenSpecReviewStore
 
   alias OfficeGraph.AgentRuntime.Tools.RepositoryRead
 
@@ -79,9 +81,22 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
            ) do
       perform_context(context, job)
     else
-      false -> DurableStepExecutor.finish_terminal_job(job, "invalid_openspec_review_step")
-      {:error, :integration_storage_unavailable} -> {:snooze, @retry_delay_seconds}
-      {:error, reason} -> DurableStepExecutor.finish_terminal_job(job, failure_code(reason))
+      false ->
+        DurableStepExecutor.finish_terminal_job(job, "invalid_openspec_review_step")
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, {:terminal, failure_code}, execution, operation} ->
+        DurableStepExecutor.fail_unclaimed(
+          %{execution: execution, operation: operation},
+          %{key: step_key},
+          job,
+          failure_code
+        )
+
+      {:error, reason} ->
+        DurableStepExecutor.finish_terminal_job(job, failure_code(reason))
     end
   end
 
@@ -114,36 +129,61 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
          step,
          repository_revision
        ) do
-    with {:ok, %AgentExecution{} = execution} <- get(AgentExecution, execution_id),
-         true <- execution.organization_id == organization_id,
-         true <- execution.workspace_id == workspace_id,
-         true <- execution.invocation_mode == "automatic",
-         {:ok, %AgentDefinition{key: @workflow_key}} <-
+    with {:ok, base_context} <-
+           AutomaticWorkflowContext.load(
+             execution_id,
+             operation_id,
+             organization_id,
+             workspace_id,
+             step.key
+           ) do
+      load_runtime_context(base_context, adapter_key, adapter_version, step, repository_revision)
+    end
+  end
+
+  defp load_runtime_context(base_context, adapter_key, adapter_version, step, repository_revision) do
+    execution = base_context.execution
+
+    with {:ok, %AgentDefinition{key: @workflow_key}} <-
            get(AgentDefinition, execution.definition_id),
-         {:ok, %AuthoritySnapshot{} = snapshot} <- snapshot(execution.id),
          {:ok, %ContextPackage{} = context_package} <- context_package(execution.id),
-         {:ok, operation} <- Operations.read_operation(operation_id),
-         :ok <-
-           DurableStepExecutor.validate_step_operation(operation, execution, snapshot, step.key),
          {:ok, adapter, manifest} <-
-           resolve_adapter(step, snapshot, adapter_key, adapter_version) do
+           resolve_adapter(step, base_context.snapshot, adapter_key, adapter_version) do
       {:ok,
-       %{
+       Map.merge(base_context, %{
          adapter: adapter,
          context_package: context_package,
-         execution: execution,
          manifest: manifest,
-         operation: operation,
          repository_revision: repository_revision,
-         snapshot: snapshot,
          step: step
-       }}
+       })}
     else
-      false -> {:error, :forbidden}
-      {:ok, _wrong_definition} -> {:error, :forbidden}
-      {:error, {:not_found, _resource, _id}} -> {:error, :forbidden}
-      {:error, _reason} = error -> error
+      {:error, :integration_storage_unavailable} = error ->
+        error
+
+      {:ok, _wrong_definition} ->
+        terminal_runtime_error(:agent_context_unavailable, base_context)
+
+      {:error, reason}
+      when reason in [
+             :adapter_not_found,
+             :adapter_version_mismatch,
+             :invalid_adapter_module,
+             :invalid_manifest,
+             :manifest_key_mismatch
+           ] ->
+        terminal_runtime_error(:agent_adapter_unavailable, base_context)
+
+      {:error, {:registry, :invalid_configuration}} ->
+        terminal_runtime_error(:agent_adapter_unavailable, base_context)
+
+      {:error, _reason} ->
+        terminal_runtime_error(:agent_context_unavailable, base_context)
     end
+  end
+
+  defp terminal_runtime_error(code, context) do
+    {:error, {:terminal, Atom.to_string(code)}, context.execution, context.operation}
   end
 
   defp prepare_step_context(%{step: %{kind: :model}} = context) do
@@ -153,48 +193,57 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
   end
 
   defp prepare_step_context(%{step: %{kind: :route}} = context) do
-    case model_review_request(context.execution.id) do
-      %ModelRequest{
-        state: "succeeded",
-        context_package_id: context_package_id,
-        authority_snapshot_id: authority_snapshot_id,
-        output_hash: output_hash,
-        output_safe_summary: output_safe_summary
-      } = request
-      when context_package_id == context.context_package.id and
-             authority_snapshot_id == context.snapshot.id and is_binary(output_hash) and
-             is_binary(output_safe_summary) ->
-        {:ok, Map.put(context, :model_review_request, request)}
-
-      _missing_or_invalid ->
-        {:error, {:terminal, :model_review_result_unavailable}}
+    with {:ok, request} <- review_store().model_review_request(context.execution.id) do
+      validate_model_review_request(request, context)
     end
   end
 
   defp prepare_step_context(context), do: {:ok, context}
 
-  defp review_payload(context) do
-    entries = context_entries(context.context_package.id)
-    read_requests = read_requests(context.execution.id)
+  defp validate_model_review_request(
+         %ModelRequest{
+           state: "succeeded",
+           context_package_id: context_package_id,
+           authority_snapshot_id: authority_snapshot_id,
+           output_hash: output_hash,
+           output_safe_summary: output_safe_summary
+         } = request,
+         context
+       )
+       when context_package_id == context.context_package.id and
+              authority_snapshot_id == context.snapshot.id and is_binary(output_hash) and
+              is_binary(output_safe_summary) do
+    {:ok, Map.put(context, :model_review_request, request)}
+  end
 
-    with true <-
+  defp validate_model_review_request(_missing_or_invalid, _context),
+    do: {:error, {:terminal, :model_review_result_unavailable}}
+
+  defp review_payload(context) do
+    with {:ok, entries} <- review_store().context_entries(context.context_package.id),
+         {:ok, read_requests} <- review_store().read_requests(context.execution.id),
+         true <-
            Enum.map(read_requests, & &1.step_key) == ["context:repository", "context:openspec"],
          {:ok, references} <- dereference_all(context, read_requests) do
       context_hashes =
         [context.context_package.package_hash | Enum.map(entries, & &1.content_hash)] ++
           Enum.map(references, & &1.content_hash)
 
+      stable_context_hashes =
+        context_hashes |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.sort()
+
       review_digest =
-        references
-        |> Enum.map(&{&1.reference_id, &1.reference, &1.content_hash, &1.content})
+        %{
+          context_hashes: stable_context_hashes,
+          references: Enum.map(references, &{&1.reference, &1.content_hash})
+        }
         |> DurableStepExecutor.hash()
 
       {:ok,
        %{
          fixture_id: context.step.fixture_id,
          context_entry_ids: Enum.map(entries, & &1.id),
-         context_hashes:
-           context_hashes |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.sort(),
+         context_hashes: stable_context_hashes,
          tool_reference_ids: Enum.map(references, & &1.reference_id),
          tool_reference_hashes: Enum.map(references, & &1.content_hash),
          review_digest: review_digest
@@ -414,44 +463,10 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
   defp validate_output(kind, manifest, output) when kind in [:tool, :route],
     do: AdapterContract.validate_tool_output(manifest, output)
 
-  defp context_entries(context_package_id) do
-    ContextEntry
-    |> Ash.Query.filter(context_package_id == ^context_package_id)
-    |> Ash.Query.sort(ordinal: :asc)
-    |> Ash.read!(authorize?: false)
-  end
-
-  defp read_requests(execution_id) do
-    ToolRequest
-    |> Ash.Query.filter(
-      execution_id == ^execution_id and state == "succeeded" and
-        tool_key in ["repository.read", "openspec.read"]
-    )
-    |> Ash.Query.sort(requested_at: :asc, id: :asc)
-    |> Ash.read!(authorize?: false)
-  end
-
-  defp model_review_request(execution_id) do
-    ModelRequest
-    |> Ash.Query.filter(execution_id == ^execution_id and step_key == "model:review")
-    |> Ash.read_one!(authorize?: false)
-  end
-
   defp get(resource, id) do
     case Ash.get(resource, id, authorize?: false, not_found_error?: false) do
       {:ok, nil} -> {:error, :forbidden}
       {:ok, record} -> {:ok, record}
-      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
-    end
-  end
-
-  defp snapshot(execution_id) do
-    AuthoritySnapshot
-    |> Ash.Query.filter(execution_id == ^execution_id and version == 1)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %AuthoritySnapshot{} = snapshot} -> {:ok, snapshot}
-      {:ok, nil} -> {:error, :forbidden}
       {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
@@ -486,6 +501,14 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
     Application.get_env(:office_graph, :agent_runtime_step_enqueuer, Oban)
   end
 
+  defp review_store do
+    Application.get_env(
+      :office_graph,
+      :agent_runtime_openspec_review_store,
+      OpenSpecReviewStore
+    )
+  end
+
   defp completion_failure_code(:agent_step_continuation_failed),
     do: "agent_step_continuation_failed"
 
@@ -494,7 +517,5 @@ defmodule OfficeGraph.AgentRuntime.Agents.OpenSpecReviewWorkflow do
 
   defp completion_failure_code(_reason), do: "agent_output_routing_failed"
 
-  defp failure_code({:terminal, code}), do: failure_code(code)
-  defp failure_code({:error, reason}), do: failure_code(reason)
   defp failure_code(code), do: DurableStepExecutor.safe_code(code, "openspec_review_step_failed")
 end

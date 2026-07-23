@@ -3,6 +3,11 @@ import Config
 config :office_graph, allow_local_api_owner_bootstrap: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.Environment
 
+config :office_graph, :agent_runtime_repository_tooling,
+  repository_root: Path.expand("..", __DIR__),
+  git_executable: System.find_executable("git"),
+  openspec_executable: System.find_executable("openspec")
+
 # Configure your database
 config :office_graph, OfficeGraph.Repo,
   username: "office_graph",

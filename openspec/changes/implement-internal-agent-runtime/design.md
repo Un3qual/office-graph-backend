@@ -154,6 +154,15 @@ graph context, findings, proposals, checks, and evidence candidates. An
 authorized backend command binds it to an organization. GitHub tools remain
 optional after the integration change and do not shape core runtime schemas.
 
+The workflow's repository dependency is a runtime deployment contract, not the
+release builder's checkout. Production supplies absolute paths for a complete,
+self-contained, read-only Git clone and for the pinned Git/OpenSpec executables.
+A supervised readiness check runs before Oban, validates the mounted `HEAD`,
+the tracked `openspec/project.md`, and bounded parseable `openspec list --json`
+output, and fails application startup when any dependency is missing. The Nix
+flake exposes the Git/OpenSpec closure used by development and release images;
+the mounted checkout remains immutable for one process lifetime.
+
 ## Risks / Trade-offs
 
 - Runtime scope can become a general automation platform → enforce the

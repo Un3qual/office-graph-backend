@@ -37,6 +37,31 @@ The app connects to `localhost:55432` with:
 Production runtime config enables Postgres TLS by default. Set
 `DATABASE_SSL=false` only for an explicitly trusted private database network.
 
+## Agent Runtime Repository Tooling
+
+The automatic OpenSpec-review agent requires an immutable repository mount and
+explicit Git and OpenSpec executables. Production starts fail closed before
+Oban workers are started unless all three absolute paths are configured and the
+runtime can read the mounted checkout's `HEAD`, `openspec/project.md`, and
+`openspec list --json` output:
+
+- `OFFICE_GRAPH_AGENT_RUNTIME_REPOSITORY_ROOT`
+- `OFFICE_GRAPH_AGENT_RUNTIME_GIT_EXECUTABLE`
+- `OFFICE_GRAPH_AGENT_RUNTIME_OPENSPEC_EXECUTABLE`
+
+Build the pinned tool closure with:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' build .#agent-runtime-tools
+```
+
+Mount a complete, self-contained Git clone read-only at the configured root.
+The clone must include its own object database; a linked worktree whose `.git`
+file points outside the mount is not valid. Keep the checkout fixed for the
+process lifetime and restart the application after atomically replacing it with
+a new revision. Do not bypass ownership checks with a broad
+`safe.directory=*` setting.
+
 ## GitHub App Runtime
 
 Development and production use the live GitHub App adapter. Set

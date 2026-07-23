@@ -53,3 +53,19 @@ and normal verification.
 - **WHEN** the canonical test suite executes agent workflows
 - **THEN** deterministic adapters MUST exercise success, retry, terminal,
   malformed-output, approval, and cancellation behavior without network access
+
+### Requirement: Repository Tooling Is Release Configured And Ready
+Office Graph SHALL resolve automatic repository-review dependencies from
+runtime configuration rather than a build checkout or ambient executable path.
+
+#### Scenario: Runtime starts automatic workers
+- **WHEN** the application starts with the OpenSpec-review workflow registered
+- **THEN** it MUST validate an absolute immutable repository mount, pinned Git
+  and OpenSpec executables, the mounted `HEAD`, `openspec/project.md`, and
+  bounded parseable OpenSpec inventory before starting durable workers
+
+#### Scenario: Repository tooling is unavailable
+- **WHEN** any configured mount, executable, revision, project artifact, or
+  OpenSpec inventory cannot be read safely
+- **THEN** application startup MUST fail closed before an automatic job can be
+  consumed

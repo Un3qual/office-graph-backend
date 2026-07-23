@@ -10,6 +10,7 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
     ExecutionStateMachine,
     ModelInput,
     ModelRequest,
+    StorageResult,
     ToolInput,
     ToolRequest
   }
@@ -467,27 +468,30 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
 
   def fail_unclaimed(context, step, job, failure_code) do
     result =
-      Repo.transaction(fn ->
-        execution = lock_execution!(context.execution.id)
+      StorageResult.run(fn ->
+        Repo.transaction(fn ->
+          execution = lock_execution!(context.execution.id)
 
-        if ExecutionStateMachine.terminal?(execution.state) do
-          :ok
-        else
-          transition!(execution, context.operation, "failed", %{
-            current_step_key: step.key,
-            completed_at: DateTime.utc_now(),
-            failure_code: failure_code,
-            lease_token: nil,
-            lease_expires_at: nil
-          })
+          if ExecutionStateMachine.terminal?(execution.state) do
+            :ok
+          else
+            transition!(execution, context.operation, "failed", %{
+              current_step_key: step.key,
+              completed_at: DateTime.utc_now(),
+              failure_code: failure_code,
+              lease_token: nil,
+              lease_expires_at: nil
+            })
 
-          :ok
-        end
+            :ok
+          end
+        end)
+        |> normalize_transaction()
       end)
-      |> normalize_transaction()
 
     case result do
       :ok -> finish_terminal_job(job, failure_code)
+      {:error, :integration_storage_unavailable} -> {:snooze, @retry_delay_seconds}
       {:error, reason} -> finish_terminal_job(job, failure_code(reason))
     end
   end
