@@ -9,6 +9,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
     ExecutionStateMachine,
     ExecutionWorker,
     ModelRequest,
+    RequestOutcome,
     StorageResult
   }
 
@@ -237,12 +238,10 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
         :ok
 
       model_request ->
+        attrs = RequestOutcome.classified_attrs("cancelled", failure_code, now)
+
         model_request
-        |> Ash.Changeset.for_update(:record_result, %{
-          state: "cancelled",
-          failure_code: failure_code,
-          completed_at: now
-        })
+        |> Ash.Changeset.for_update(:record_result, attrs)
         |> Repo.ash_update!()
     end
   end

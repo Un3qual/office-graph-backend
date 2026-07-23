@@ -11,6 +11,7 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
     ExecutionStateMachine,
     ModelInput,
     ModelRequest,
+    RequestOutcome,
     StorageResult,
     ToolInput,
     ToolRequest
@@ -426,11 +427,14 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
       cond do
         execution.state == "cancelled" ->
           if request.state not in ["succeeded", "failed", "cancelled"] do
-            record_request_result!(request, %{
-              state: "cancelled",
-              failure_code: execution.failure_code || failure_code,
-              completed_at: DateTime.utc_now()
-            })
+            attrs =
+              RequestOutcome.classified_attrs(
+                "cancelled",
+                execution.failure_code || failure_code,
+                DateTime.utc_now()
+              )
+
+            record_request_result!(request, attrs)
           end
 
           :ok
@@ -438,11 +442,8 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
         execution.lease_token == claim.lease_token and execution.state == "running" ->
           now = DateTime.utc_now()
 
-          record_request_result!(request, %{
-            state: request_state,
-            failure_code: failure_code,
-            completed_at: if(request_state in ["failed", "cancelled"], do: now, else: nil)
-          })
+          request_attrs = RequestOutcome.classified_attrs(request_state, failure_code, now)
+          record_request_result!(request, request_attrs)
 
           attrs = %{
             failure_code: failure_code,
@@ -480,11 +481,10 @@ defmodule OfficeGraph.AgentRuntime.DurableStepExecutor do
               :failed
 
             {:reconcile, request} ->
-              record_request_result!(request, %{
-                state: "failed",
-                failure_code: failure_code,
-                completed_at: DateTime.utc_now()
-              })
+              request_attrs =
+                RequestOutcome.classified_attrs("failed", failure_code, DateTime.utc_now())
+
+              record_request_result!(request, request_attrs)
 
               fail_execution!(execution, context.operation, step.key, failure_code)
 

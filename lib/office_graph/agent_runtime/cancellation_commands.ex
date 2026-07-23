@@ -11,6 +11,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     ContextExpansionRequest,
     ExecutionStateMachine,
     ModelRequest,
+    RequestOutcome,
     StorageResult,
     ToolRequest
   }
@@ -226,12 +227,10 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   defp cancel_request!(nil), do: :ok
 
   defp cancel_request!(request) do
+    attrs = RequestOutcome.classified_attrs("cancelled", @failure_code, DateTime.utc_now())
+
     request
-    |> Ash.Changeset.for_update(:record_result, %{
-      state: "cancelled",
-      failure_code: @failure_code,
-      completed_at: DateTime.utc_now()
-    })
+    |> Ash.Changeset.for_update(:record_result, attrs)
     |> Repo.ash_update!()
 
     :ok
