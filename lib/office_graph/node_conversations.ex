@@ -25,12 +25,7 @@ defmodule OfficeGraph.NodeConversations do
   @message_action "conversation.message.create"
   @purpose "agent_runtime"
   @visibility "run_participants"
-  @operator_requested_capabilities ~w(
-    agent.model.generate
-    agent.tool.read
-    proposal.create
-    repository.read
-  )
+  @invocation_control_capabilities ~w(agent.invoke)
   @terminal_execution_states ~w(completed failed cancelled)
 
   def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do
@@ -757,13 +752,15 @@ defmodule OfficeGraph.NodeConversations do
   defp utc_datetime(nil), do: nil
 
   defp invocation_target([[binding_id, requested_capabilities, autonomy_mode]]) do
-    capabilities =
-      Enum.filter(@operator_requested_capabilities, &(&1 in requested_capabilities))
+    delegated_capabilities =
+      requested_capabilities
+      |> Kernel.--(@invocation_control_capabilities)
+      |> Enum.sort()
 
-    if capabilities == @operator_requested_capabilities do
+    if delegated_capabilities != [] do
       %{
         binding_id: binding_id,
-        requested_capabilities: capabilities,
+        requested_capabilities: delegated_capabilities,
         autonomy_mode: autonomy_mode
       }
     end
@@ -935,7 +932,8 @@ defmodule OfficeGraph.NodeConversations do
       "resolve_agent_approval",
       "Resolve one exact pending agent approval request.",
       pending,
-      "agent_approval_request"
+      "agent_approval_request",
+      "approval_request_id"
     )
   end
 
@@ -948,7 +946,8 @@ defmodule OfficeGraph.NodeConversations do
       "resolve_agent_context_expansion",
       "Resolve one exact pending context expansion request.",
       pending,
-      "agent_context_expansion_request"
+      "agent_context_expansion_request",
+      "context_expansion_request_id"
     )
   end
 
@@ -958,17 +957,38 @@ defmodule OfficeGraph.NodeConversations do
 
   defp resolvable_request?(_request, _now), do: false
 
-  defp request_affordance(_session_context, _capability, identity, explanation, [], _type) do
+  defp request_affordance(
+         _session_context,
+         _capability,
+         identity,
+         explanation,
+         [],
+         _type,
+         _request_id_field
+       ) do
     CommandAffordance.disabled(identity, explanation)
   end
 
-  defp request_affordance(session_context, capability, identity, explanation, pending, type) do
+  defp request_affordance(
+         session_context,
+         capability,
+         identity,
+         explanation,
+         pending,
+         type,
+         request_id_field
+       ) do
     capability_affordance(
       session_context,
       capability,
       identity,
       explanation,
-      required_fields: ["expected_version", "decision", "resolution_reason"],
+      required_fields: [
+        request_id_field,
+        "expected_version",
+        "decision",
+        "resolution_reason"
+      ],
       target_ids: Enum.map(pending, &CommandAffordance.target_id(type, &1.id))
     )
   end

@@ -49,6 +49,8 @@ describe("operator run agent surface", () => {
           requestedCapabilities: [
             "agent.model.generate",
             "agent.tool.read",
+            "evidence.suggest",
+            "openspec.read",
             "proposal.create",
             "repository.read",
           ],
@@ -275,6 +277,44 @@ describe("operator run agent surface", () => {
       });
     });
     await waitFor(() => expect(screen.getByLabelText("Run message")).toHaveValue(""));
+  });
+
+  it("uses the projected primary source graph item for agent activity", async () => {
+    const item = operatorWorkflowItem({
+      graphLinks: [
+        {
+          type: "task",
+          id: "task_unrelated",
+          graphItemId: "graph_unrelated",
+          title: "Unrelated source task",
+          state: "open",
+        },
+        {
+          type: "verification_check",
+          id: "check_primary",
+          graphItemId: "graph_primary",
+          title: "Primary verification check",
+          state: "required",
+        },
+        {
+          type: "work_run",
+          id: "run_1",
+          graphItemId: null,
+          title: "Console verification run",
+          state: "running",
+        },
+      ],
+    });
+    const network = agentNetwork({ workflowItems: [item] });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    await waitFor(() => {
+      expect(lastVariablesFor(network, "OperatorRunConversationQuery")).toEqual({
+        graphItemId: "graph_primary",
+        runId: "run_1",
+      });
+    });
   });
 
   it("starts the focused run conversation when none exists", async () => {
@@ -517,7 +557,14 @@ function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: stri
         {
           field: "requested_capabilities",
           value: null,
-          values: ["agent.model.generate", "agent.tool.read", "proposal.create", "repository.read"],
+          values: [
+            "agent.model.generate",
+            "agent.tool.read",
+            "evidence.suggest",
+            "openspec.read",
+            "proposal.create",
+            "repository.read",
+          ],
         },
         { field: "autonomy_mode", value: "human_supervised", values: [] },
         {

@@ -24,7 +24,12 @@ import {
   OperatorWorkflowItemFragment,
   OperatorWorkflowRouteQuery,
 } from "./data";
-import { packetReadinessInputForItem, packetReadinessForItem, runIdForItem } from "./derived";
+import {
+  packetReadinessInputForItem,
+  packetReadinessForItem,
+  primarySourceGraphItemIdForItem,
+  runIdForItem,
+} from "./derived";
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
 type OperatorWorkflowInput = {
@@ -67,12 +72,16 @@ export function useOperatorWorkflow({
   const readinessInput = selectedItem ? packetReadinessInputForItem(selectedItem) : null;
   const readiness =
     selectedItem && readinessInput ? packetReadinessForItem(selectedItem, readinessInput) : null;
+  const primarySourceGraphItemId = selectedItem
+    ? primarySourceGraphItemIdForItem(selectedItem)
+    : null;
 
   return {
     canSubmitManualIntake:
       rootData.operatorManualIntakeAffordance.identity === "submit_manual_intake" &&
       rootData.operatorManualIntakeAffordance.state === "enabled",
     inbox,
+    primarySourceGraphItemId,
     readiness,
     readinessInput,
     rows: inbox.rows,

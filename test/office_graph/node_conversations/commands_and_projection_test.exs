@@ -361,11 +361,11 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   test "keeps active executions inside the bounded agent history" do
     context = AgentRuntimeSupport.invocation_fixture()
 
+    current = create_execution!(context, "current-execution", "running")
+
     for index <- 1..100 do
       create_execution!(context, "historical-execution-#{index}", "completed")
     end
-
-    current = create_execution!(context, "current-execution", "running")
 
     assert {:ok, projection} =
              NodeConversations.project(context.session, context.run.id, context.graph_item_id)
@@ -431,6 +431,13 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     assert %{state: "enabled"} = approval_affordance
 
+    assert approval_affordance.required_fields == [
+             "approval_request_id",
+             "expected_version",
+             "decision",
+             "resolution_reason"
+           ]
+
     assert %{type: "agent_approval_request", id: current_approval.id} in approval_affordance.target_ids
 
     refute %{type: "agent_approval_request", id: expired_approval.id} in approval_affordance.target_ids
@@ -443,9 +450,40 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     assert %{state: "enabled"} = expansion_affordance
 
+    assert expansion_affordance.required_fields == [
+             "context_expansion_request_id",
+             "expected_version",
+             "decision",
+             "resolution_reason"
+           ]
+
     assert %{type: "agent_context_expansion_request", id: current_expansion.id} in expansion_affordance.target_ids
 
     refute %{type: "agent_context_expansion_request", id: expired_expansion.id} in expansion_affordance.target_ids
+  end
+
+  test "derives invocation capability defaults from the canonical definition" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    assert {:ok, projection} =
+             NodeConversations.project(context.session, context.run.id, context.graph_item_id)
+
+    assert %{state: "enabled"} =
+             invoke_affordance =
+             Enum.find(projection.command_affordances, &(&1.identity == "invoke_agent"))
+
+    requested_capabilities =
+      invoke_affordance.input_defaults
+      |> Enum.find(&(&1.field == "requested_capabilities"))
+      |> Map.fetch!(:values)
+
+    assert Enum.sort(requested_capabilities) ==
+             context.definition.requested_capabilities
+             |> Kernel.--(["agent.invoke"])
+             |> Enum.sort()
+
+    assert "evidence.suggest" in requested_capabilities
+    assert "openspec.read" in requested_capabilities
   end
 
   test "hides invocation when the operator cannot delegate every requested capability" do
