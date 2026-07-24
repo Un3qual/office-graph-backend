@@ -328,7 +328,7 @@ defmodule OfficeGraph.Runs do
     with {:ok, run} <- get_projection_run(session_context, run_id),
          {:ok, packet} <- fetch_scoped(WorkPacket, session_context, run.work_packet_id),
          {:ok, packet_version} <-
-           fetch_scoped(WorkPacketVersion, session_context, run.work_packet_version_id),
+           fetch_projection_packet_version(session_context, run.work_packet_version_id),
          {:ok, required_checks} <- read_run_required_checks(run, limit),
          {:ok, observations} <- read_observations(run, limit),
          {:ok, evidence_items} <- read_evidence_items(run, limit),
@@ -1134,6 +1134,11 @@ defmodule OfficeGraph.Runs do
         {:error, error}
     end
   end
+
+  defp fetch_projection_packet_version(_session_context, nil), do: {:ok, nil}
+
+  defp fetch_projection_packet_version(session_context, id),
+    do: fetch_scoped(WorkPacketVersion, session_context, id)
 
   defp lock_scoped_run!(session_context, run_id) do
     Run

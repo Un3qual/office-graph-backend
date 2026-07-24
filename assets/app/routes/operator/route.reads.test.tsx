@@ -46,6 +46,24 @@ describe("operator route reads", () => {
     });
   });
 
+  it("keeps a versionless linked run inspectable", async () => {
+    const network = support.createOperatorNetwork({
+      workflowItems: [support.operatorWorkflowItem()],
+      runState: support.operatorRunState({ packetVersion: null }),
+    });
+
+    support.renderWithRelay(<OperatorRoute />, network);
+
+    await waitFor(() => {
+      const runPanel = screen.getByRole("region", { name: "Run State" });
+      expect(runPanel).toHaveTextContent("Operator console packet");
+      expect(runPanel).toHaveTextContent("Packet version");
+      expect(runPanel).toHaveTextContent("Not attached");
+      expect(runPanel).toHaveTextContent("Completed");
+      expect(runPanel).toHaveTextContent("Pending");
+    });
+  });
+
   it("requires a new readiness request after the selected item changes", async () => {
     const secondItem = support.operatorWorkflowItem({
       id: "operator_workflow_item_global_2",

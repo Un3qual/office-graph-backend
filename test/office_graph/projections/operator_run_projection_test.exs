@@ -1,6 +1,23 @@
 defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
   use OfficeGraph.TestSupport.OperatorProjectionSupport
 
+  test "operator run state projects graph-targeted runs without packet versions" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
+
+    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(run_result.run.id)
+    ])
+
+    assert {:ok, run_state} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert run_state.packet_version == nil
+    assert run_state.packet.id == run_result.run.work_packet_id
+    assert run_state.run.id == run_result.run.id
+  end
+
   test "operator run state moves from missing evidence to verified" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

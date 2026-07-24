@@ -39,6 +39,18 @@ export function RunDetail(props: Props) {
 }
 
 function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selectedId: string }) {
+  const packetVersionRows: Array<[string, string]> = detail.packetVersion
+    ? [
+        [
+          "Packet version",
+          `Version ${detail.packetVersion.versionNumber} · ${formatLabel(
+            detail.packetVersion.lifecycleState,
+          )}`,
+        ],
+        ["Objective", detail.packetVersion.objective ?? "None"],
+      ]
+    : [["Packet version", "Not attached"]];
+
   return (
     <>
       <header className="runs-detail-header">
@@ -53,13 +65,7 @@ function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selec
         rows={[
           ["Run", detail.run.id],
           ["Packet", detail.packet.title],
-          [
-            "Packet version",
-            `Version ${detail.packetVersion.versionNumber} · ${formatLabel(
-              detail.packetVersion.lifecycleState,
-            )}`,
-          ],
-          ["Objective", detail.packetVersion.objective ?? "None"],
+          ...packetVersionRows,
           ["Aggregate", formatLabel(detail.run.aggregateState)],
           ["Execution", formatLabel(detail.run.executionState)],
           ["Verification", formatLabel(detail.run.verificationState)],

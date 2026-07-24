@@ -358,8 +358,28 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
                tool_key: "repository.read"
              )
 
+    model_request_id = insert_pending_model_request!(legacy.execution.id)
+    record_reconciliation_update_order!(legacy.execution.id)
+
     run_reconciliation_migration()
     run_reconciliation_migration()
+
+    assert [["agent_executions"], ["agent_model_requests"]] =
+             Repo.query!("""
+             SELECT target
+             FROM pg_temp.reconciliation_update_order
+             ORDER BY ordinal
+             """).rows
+
+    assert %{rows: [["cancelled", "agent_definition_reconciled"]]} =
+             Repo.query!(
+               """
+               SELECT state, failure_code
+               FROM agent_model_requests
+               WHERE id = $1
+               """,
+               [model_request_id]
+             )
 
     compatible_execution =
       Ash.get!(AgentExecution, compatible.execution.id, authorize?: false)
@@ -400,6 +420,115 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
       [role_id]
     ).rows
     |> List.flatten()
+  end
+
+  defp insert_pending_model_request!(execution_id) do
+    %{rows: [[request_id]]} =
+      Repo.query!(
+        """
+        INSERT INTO agent_model_requests (
+          id,
+          execution_id,
+          context_package_id,
+          authority_snapshot_id,
+          operation_id,
+          step_key,
+          adapter_key,
+          adapter_version,
+          model_family,
+          idempotency_key,
+          state,
+          timeout_ms,
+          token_budget,
+          input_hash,
+          requested_at,
+          inserted_at
+        )
+        SELECT
+          gen_random_uuid(),
+          executions.id,
+          packages.id,
+          snapshots.id,
+          executions.operation_id,
+          'reconciliation-lock-order',
+          'deterministic',
+          '1',
+          'deterministic',
+          'reconciliation-lock-order',
+          'pending',
+          1_000,
+          100,
+          'reconciliation-lock-order',
+          NOW(),
+          NOW()
+        FROM agent_executions AS executions
+        JOIN agent_authority_snapshots AS snapshots
+          ON snapshots.execution_id = executions.id
+         AND snapshots.version = 1
+        JOIN agent_context_packages AS packages
+          ON packages.execution_id = executions.id
+         AND packages.version = 1
+        WHERE executions.id = $1
+        RETURNING id
+        """,
+        [Ecto.UUID.dump!(execution_id)]
+      )
+
+    Repo.query!(
+      """
+      UPDATE agent_executions
+      SET state = 'running',
+          current_step_key = 'reconciliation-lock-order',
+          attempt_count = 1
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(execution_id)]
+    )
+
+    request_id
+  end
+
+  defp record_reconciliation_update_order!(execution_id) do
+    Repo.query!("""
+    CREATE TEMP TABLE reconciliation_update_order (
+      ordinal bigserial PRIMARY KEY,
+      target text NOT NULL
+    )
+    """)
+
+    Repo.query!("""
+    CREATE FUNCTION pg_temp.record_reconciliation_update_order()
+    RETURNS trigger AS $$
+    BEGIN
+      IF (
+        TG_TABLE_NAME = 'agent_executions'
+        AND NEW.id = '#{execution_id}'::uuid
+      ) OR (
+        TG_TABLE_NAME = 'agent_model_requests'
+        AND to_jsonb(NEW)->>'execution_id' = '#{execution_id}'
+      ) THEN
+        INSERT INTO pg_temp.reconciliation_update_order (target)
+        VALUES (TG_TABLE_NAME);
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER record_reconciliation_execution_update
+    BEFORE UPDATE ON agent_executions
+    FOR EACH ROW
+    EXECUTE FUNCTION pg_temp.record_reconciliation_update_order()
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER record_reconciliation_model_request_update
+    BEFORE UPDATE ON agent_model_requests
+    FOR EACH ROW
+    EXECUTE FUNCTION pg_temp.record_reconciliation_update_order()
+    """)
   end
 
   defp run_reconciliation_migration do

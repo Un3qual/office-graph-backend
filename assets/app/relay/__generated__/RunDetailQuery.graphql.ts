@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<fdc5057d53e65a69f72a4c8a37ec87a4>>
+ * @generated SignedSource<<dc4a3bc38be272942ee7e4420e9dbfc6>>
  * @lightSyntaxTransform
  */
 
@@ -64,7 +64,7 @@ export type RunDetailQuery$data = {
       readonly lifecycleState: string;
       readonly objective: string | null | undefined;
       readonly versionNumber: number;
-    };
+    } | null | undefined;
     readonly requiredChecks: ReadonlyArray<{
       readonly graphItemId: string | null | undefined;
       readonly id: string;

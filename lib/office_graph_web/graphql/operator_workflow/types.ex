@@ -611,7 +611,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
     field :source_watermark, :id
     field :packet, non_null(:operator_packet_ref)
-    field :packet_version, non_null(:operator_packet_version_ref)
+    field :packet_version, :operator_packet_version_ref
     field :run, non_null(:operator_run_ref)
     field :required_checks, non_null(list_of(non_null(:operator_required_check)))
     field :observations, non_null(list_of(non_null(:operator_observation)))

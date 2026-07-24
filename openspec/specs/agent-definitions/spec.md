@@ -37,6 +37,14 @@ allowlist, and default autonomy envelope.
 - **AND** a non-terminal execution whose snapshot remains compatible with the
   canonical contract MUST remain eligible to continue
 
+#### Scenario: Reconciliation overlaps active model completion
+
+- **WHEN** the forward reconciliation migration terminalizes an incompatible
+  execution while its active model request may also be completed by a worker
+- **THEN** it MUST materialize a stable retirement set and lock or update the
+  execution before its active model request so migration and worker lock order
+  cannot deadlock
+
 #### Scenario: Legacy run review binding authority is upgraded
 
 - **WHEN** the forward reconciliation migration encounters an existing active

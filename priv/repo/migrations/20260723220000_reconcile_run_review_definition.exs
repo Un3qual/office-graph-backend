@@ -17,25 +17,21 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
     """)
 
     # Snapshots are immutable and revalidated against the current definition.
-    # Retire only work whose captured authority the canonical contract removes.
-    incompatible_execution_ids = incompatible_execution_ids_sql()
+    # Materialize the target set before changing parent state so child cleanup
+    # remains stable. Waiting gates keep their established child-before-parent
+    # order; active model work keeps execution-before-request order.
+    execute("DROP TABLE IF EXISTS pg_temp.reconcile_run_review_incompatible_executions")
 
     execute("""
-    UPDATE agent_model_requests
-    SET state = 'cancelled',
-        failure_code = '#{@reconciliation_failure_code}',
-        completed_at = COALESCE(completed_at, NOW())
-    WHERE state IN ('pending', 'running', 'retry_scheduled')
-      AND execution_id IN (#{incompatible_execution_ids})
+    CREATE TEMP TABLE reconcile_run_review_incompatible_executions (
+      id uuid PRIMARY KEY,
+      state text NOT NULL
+    ) ON COMMIT DROP
     """)
 
     execute("""
-    UPDATE agent_tool_requests
-    SET state = 'cancelled',
-        failure_code = '#{@reconciliation_failure_code}',
-        completed_at = COALESCE(completed_at, NOW())
-    WHERE state IN ('pending', 'running', 'retry_scheduled')
-      AND execution_id IN (#{incompatible_execution_ids})
+    INSERT INTO pg_temp.reconcile_run_review_incompatible_executions (id, state)
+    #{incompatible_executions_sql()}
     """)
 
     execute("""
@@ -46,7 +42,11 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
         resolved_at = NOW(),
         updated_at = NOW()
     WHERE state = 'pending'
-      AND execution_id IN (#{incompatible_execution_ids})
+      AND execution_id IN (
+        SELECT id
+        FROM pg_temp.reconcile_run_review_incompatible_executions
+        WHERE state = 'waiting_approval'
+      )
     """)
 
     execute("""
@@ -57,7 +57,11 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
         resolved_at = NOW(),
         updated_at = NOW()
     WHERE state = 'pending'
-      AND execution_id IN (#{incompatible_execution_ids})
+      AND execution_id IN (
+        SELECT id
+        FROM pg_temp.reconcile_run_review_incompatible_executions
+        WHERE state = 'waiting_context'
+      )
     """)
 
     execute("""
@@ -69,8 +73,68 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
         lease_expires_at = NULL,
         cancelled_at = NOW(),
         updated_at = NOW()
-    WHERE id IN (#{incompatible_execution_ids})
+    WHERE id IN (
+        SELECT id
+        FROM pg_temp.reconcile_run_review_incompatible_executions
+      )
+      AND state IN (
+        'queued',
+        'running',
+        'waiting_approval',
+        'waiting_context',
+        'retry_scheduled'
+      )
     """)
+
+    retired_execution_ids = """
+    SELECT targets.id
+    FROM pg_temp.reconcile_run_review_incompatible_executions AS targets
+    JOIN agent_executions AS executions ON executions.id = targets.id
+    WHERE executions.state = 'cancelled'
+      AND executions.failure_code = '#{@reconciliation_failure_code}'
+    """
+
+    execute("""
+    UPDATE agent_model_requests
+    SET state = 'cancelled',
+        failure_code = '#{@reconciliation_failure_code}',
+        completed_at = COALESCE(completed_at, NOW())
+    WHERE state IN ('pending', 'running', 'retry_scheduled')
+      AND execution_id IN (#{retired_execution_ids})
+    """)
+
+    execute("""
+    UPDATE agent_tool_requests
+    SET state = 'cancelled',
+        failure_code = '#{@reconciliation_failure_code}',
+        completed_at = COALESCE(completed_at, NOW())
+    WHERE state IN ('pending', 'running', 'retry_scheduled')
+      AND execution_id IN (#{retired_execution_ids})
+    """)
+
+    execute("""
+    UPDATE agent_approval_requests
+    SET state = 'cancelled',
+        version = version + 1,
+        resolution_reason = '#{@reconciliation_failure_code}',
+        resolved_at = NOW(),
+        updated_at = NOW()
+    WHERE state = 'pending'
+      AND execution_id IN (#{retired_execution_ids})
+    """)
+
+    execute("""
+    UPDATE agent_context_expansion_requests
+    SET state = 'cancelled',
+        version = version + 1,
+        resolution_reason = '#{@reconciliation_failure_code}',
+        resolved_at = NOW(),
+        updated_at = NOW()
+    WHERE state = 'pending'
+      AND execution_id IN (#{retired_execution_ids})
+    """)
+
+    execute("DROP TABLE pg_temp.reconcile_run_review_incompatible_executions")
 
     execute("""
     UPDATE agent_definitions
@@ -137,9 +201,9 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
     :ok
   end
 
-  defp incompatible_execution_ids_sql do
+  defp incompatible_executions_sql do
     """
-    SELECT executions.id
+    SELECT executions.id, executions.state
     FROM agent_executions AS executions
     JOIN agent_definitions AS definitions
       ON definitions.id = executions.definition_id

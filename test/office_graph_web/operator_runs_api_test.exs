@@ -30,6 +30,16 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
   }
   """
 
+  @operator_run_state_query """
+  query OperatorRunState($id: ID!) {
+    operatorRunState(id: $id) {
+      packet { id title state }
+      packetVersion { id versionNumber lifecycleState objective }
+      run { id aggregateState executionState verificationState }
+    }
+  }
+  """
+
   test "returns forward Relay pages with only safe run summary fields", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -80,6 +90,28 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
              |> Map.fetch!("node")
 
     assert packet_id == result.run.work_packet_id
+  end
+
+  test "returns selected detail for graph-targeted runs without packet versions", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
+
+    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(result.run.id)
+    ])
+
+    detail =
+      graphql(
+        conn,
+        @operator_run_state_query,
+        %{id: result.run.id},
+        "operatorRunState"
+      )
+
+    assert detail["packetVersion"] == nil
+    assert detail["packet"]["id"] == result.run.work_packet_id
+    assert detail["run"]["id"] == result.run.id
   end
 
   test "rejects invalid Relay input without returning a partial page", %{conn: conn} do

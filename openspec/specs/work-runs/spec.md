@@ -255,8 +255,8 @@ workspace: run id, objective, aggregate state, execution state, verification
 state, insertion time, and stable source watermark; packet id, title, and
 state; and, when the run has a selected packet version, packet-version id,
 version number, lifecycle state, and objective. Runs created for selected graph
-work without a packet version SHALL remain visible with an absent packet-version
-reference.
+work without a packet version SHALL remain visible in the index and inspectable
+through `operatorRunState` with an absent packet-version reference.
 The GraphQL layer SHALL derive an opaque packet Relay id from the projected
 packet id for canonical product deep links; that Relay id is not an additional
 projection field. The projection SHALL require the existing skeleton-read
@@ -276,8 +276,8 @@ assembly, or own a command.
 
 - **WHEN** an authorized scoped run represents selected graph work without a
   packet version
-- **THEN** the index MUST return the run and its packet with an absent
-  packet-version reference rather than rejecting the whole page
+- **THEN** the index and selected detail MUST return the run and its packet with
+  an absent packet-version reference rather than rejecting the page or detail
 
 #### Scenario: Read authorization is denied
 

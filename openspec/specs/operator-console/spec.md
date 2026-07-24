@@ -403,9 +403,17 @@ read resolves.
 
 ### Requirement: All Runs Preserves Product Context Through Deep Links
 
-Office Graph SHALL show selected-run packet, packet-version, aggregate,
-execution, verification, required-check, evidence, missing-evidence, and
-bounded activity summaries, and SHALL link to existing context owners.
+Office Graph SHALL show selected-run packet, aggregate, execution, verification,
+required-check, evidence, missing-evidence, and bounded activity summaries,
+plus packet-version context when the run has one, and SHALL link to existing
+context owners.
+
+#### Scenario: Selected run has no packet version
+
+- **WHEN** the selected run represents graph-targeted work without a packet
+  version
+- **THEN** the detail MUST remain inspectable, identify the packet version as
+  not attached, and MUST NOT replace the detail with a retryable error
 
 #### Scenario: Operator follows a packet link
 

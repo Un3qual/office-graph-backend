@@ -315,7 +315,7 @@ type RunSummaryPayload = {
     versionNumber: number;
     lifecycleState: string;
     objective: string | null;
-  };
+  } | null;
 };
 
 type RunStatePayload = {
@@ -328,7 +328,7 @@ type RunStatePayload = {
     versionNumber: number;
     lifecycleState: string;
     objective: string | null;
-  };
+  } | null;
   run: {
     id: string;
     aggregateState: string;

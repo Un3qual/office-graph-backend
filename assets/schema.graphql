@@ -1885,7 +1885,7 @@ type OperatorRunState {
   activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
   packet: OperatorPacketRef!
-  packetVersion: OperatorPacketVersionRef!
+  packetVersion: OperatorPacketVersionRef
   run: OperatorRunRef!
   requiredChecks: [OperatorRequiredCheck!]!
   observations: [OperatorObservation!]!

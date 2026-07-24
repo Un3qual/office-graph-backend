@@ -459,6 +459,26 @@ describe("all-runs route reads", () => {
     expect(detail).toHaveTextContent("Owner acceptance");
   });
 
+  it("renders selected graph-targeted runs without a packet version", async () => {
+    const network = support.createRunsNetwork({
+      rows: [support.runSummary({ packetVersion: null })],
+      states: {
+        run_new: support.runState({ packetVersion: null }),
+      },
+    });
+
+    support.renderWithRelay(network);
+
+    await screen.findByText("Not attached");
+    const detail = screen.getByRole("region", { name: "Run detail" });
+    expect(detail).toHaveTextContent("Newest packet");
+    expect(detail).toHaveTextContent("Packet version");
+    expect(detail).toHaveTextContent("Not attached");
+    expect(detail).toHaveTextContent("Running");
+    expect(detail).toHaveTextContent("Completed");
+    expect(detail).toHaveTextContent("Pending");
+  });
+
   it("renders the first bounded activity page without requesting a continuation", async () => {
     const network = support.createRunsNetwork();
 
