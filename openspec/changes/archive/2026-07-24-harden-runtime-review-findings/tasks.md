@@ -22,10 +22,10 @@
 ## 5. Verification
 
 - [x] 5.1 Run focused backend and frontend tests plus strict OpenSpec validation.
-- [ ] 5.2 Run the full project verification suite.
-- [ ] 5.3 Run a fresh local CodeRabbit review and resolve any remaining actionable findings.
+- [x] 5.2 Run the full project verification suite.
+- [x] 5.3 Run a fresh local CodeRabbit review and resolve any remaining actionable findings.
 
 ## 6. Delivery
 
-- [ ] 6.1 Commit the verified implementation and specification changes.
-- [ ] 6.2 Push the branch to the existing pull request.
+- [x] 6.1 Commit the verified implementation and specification changes.
+- [x] 6.2 Push the branch to the existing pull request.
