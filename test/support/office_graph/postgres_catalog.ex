@@ -85,6 +85,32 @@ defmodule OfficeGraph.TestSupport.PostgresCatalog do
     end
   end
 
+  def index_orders(name) when is_binary(name) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT ARRAY(
+          SELECT CASE
+            WHEN (index_row.indoption[position] & 1) = 1 THEN 'desc'
+            ELSE 'asc'
+          END
+          FROM generate_series(0, index_row.indnkeyatts - 1) AS position
+          ORDER BY position
+        )
+        FROM pg_index AS index_row
+        JOIN pg_class AS index_class ON index_class.oid = index_row.indexrelid
+        JOIN pg_namespace AS namespace ON namespace.oid = index_class.relnamespace
+        WHERE namespace.nspname = current_schema() AND index_class.relname = $1
+        """,
+        [name]
+      )
+
+    case rows do
+      [[orders]] -> Enum.map(orders, &String.to_existing_atom/1)
+      [] -> []
+    end
+  end
+
   def index_definition(name) when is_binary(name) do
     %{rows: rows} =
       Repo.query!(

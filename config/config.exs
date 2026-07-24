@@ -62,7 +62,7 @@ config :office_graph, Oban,
   queues: [delivery: 10, integrations: 5, agents: 5],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 30 * 24 * 60 * 60},
-    {Oban.Plugins.Lifeline, rescue_after: 5 * 60 * 1_000}
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(60)}
   ]
 
 # Configure the endpoint

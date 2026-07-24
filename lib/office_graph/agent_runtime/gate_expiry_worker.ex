@@ -26,6 +26,9 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
   end
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(30)
+
+  @impl Oban.Worker
   def perform(%Oban.Job{args: %{"request_id" => request_id, "request_kind" => request_kind}})
       when is_binary(request_id) and request_kind in ["approval", "context_expansion"] do
     expire(request_kind, request_id)

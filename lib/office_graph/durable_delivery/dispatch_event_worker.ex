@@ -9,6 +9,9 @@ defmodule OfficeGraph.DurableDelivery.DispatchEventWorker do
   @terminal_retry_delay_seconds 5
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(30)
+
+  @impl Oban.Worker
   def perform(%Oban.Job{
         args: %{
           "event_id" => event_id,

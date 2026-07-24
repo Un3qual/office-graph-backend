@@ -39,7 +39,29 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
                plugin -> plugin == Oban.Plugins.Lifeline
              end)
 
-    assert lifeline_options[:rescue_after] == 5 * 60 * 1_000
+    assert lifeline_options[:rescue_after] == :timer.minutes(60)
+  end
+
+  test "production worker deadlines expire before orphan recovery" do
+    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    oban_config = production_config[:office_graph][Oban]
+
+    {Oban.Plugins.Lifeline, lifeline_options} =
+      Enum.find(oban_config[:plugins], fn
+        {plugin, _options} -> plugin == Oban.Plugins.Lifeline
+        plugin -> plugin == Oban.Plugins.Lifeline
+      end)
+
+    {:ok, application_modules} = :application.get_key(:office_graph, :modules)
+
+    worker_deadlines =
+      application_modules
+      |> Enum.filter(&production_oban_worker?/1)
+      |> Enum.map(& &1.timeout(%Oban.Job{}))
+
+    refute worker_deadlines == []
+    assert Enum.all?(worker_deadlines, &is_integer/1)
+    assert Enum.max(worker_deadlines) < lifeline_options[:rescue_after]
   end
 
   test "durable runtime tables preserve typed event and job state" do
@@ -73,5 +95,16 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     assert index_exists?("domain_events_scope_state_occurred_at_index")
     assert index_exists?("domain_events_operation_id_index")
     assert index_exists?("domain_events_subject_index")
+  end
+
+  defp production_oban_worker?(module) do
+    source =
+      module.module_info(:compile)
+      |> Keyword.fetch!(:source)
+      |> List.to_string()
+      |> Path.relative_to_cwd()
+
+    Oban.Worker in List.wrap(module.__info__(:attributes)[:behaviour]) and
+      String.starts_with?(source, "lib/")
   end
 end

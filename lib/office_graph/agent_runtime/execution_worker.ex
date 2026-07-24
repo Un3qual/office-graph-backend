@@ -75,6 +75,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(3)
+
+  @impl Oban.Worker
   def perform(
         %Oban.Job{
           args:
