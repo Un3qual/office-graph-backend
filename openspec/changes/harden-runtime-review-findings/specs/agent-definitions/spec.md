@@ -16,7 +16,8 @@ allowlist, and default autonomy envelope.
 - **WHEN** a database containing the legacy `openspec-review` definition runs
   the forward reconciliation migration
 - **THEN** the existing definition identity MUST be preserved under the
-  canonical `run-review` key and its configuration MUST match a fresh install
+  canonical `run-review` key, its approved runtime configuration MUST match a
+  fresh install, and an existing lifecycle state MUST be preserved
 
 #### Scenario: Run review agent authority is loaded
 

@@ -166,9 +166,28 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp run_claim_result({:run, claim}, operation, job) do
-    claim.adapter
-    |> invoke_safely(claim.input)
-    |> persist_adapter_result(claim, operation, job)
+    case claim_dispatch_posture(
+           claim.execution.id,
+           claim.request.id,
+           claim.lease_token
+         ) do
+      :current ->
+        claim.adapter
+        |> invoke_safely(claim.input)
+        |> persist_adapter_result(claim, operation, job)
+
+      :completed ->
+        :ok
+
+      {:terminal, failure_code} ->
+        finish_terminal_job(job, failure_code)
+
+      :stale ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
+    end
   end
 
   defp run_claim_result({:leased, delay}, _operation, _job), do: {:snooze, delay}
@@ -177,6 +196,43 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp run_claim_result({:terminal, state, execution}, _operation, job),
     do: finish_terminal_job(job, terminal_failure(execution, state))
+
+  @doc false
+  def claim_dispatch_posture(execution_id, request_id, lease_token)
+      when is_binary(execution_id) and is_binary(request_id) and is_binary(lease_token) do
+    Repo.query(
+      """
+      SELECT
+        executions.state,
+        executions.failure_code,
+        executions.lease_token,
+        requests.state
+      FROM agent_executions AS executions
+      JOIN agent_model_requests AS requests
+        ON requests.execution_id = executions.id
+      WHERE executions.id = $1
+        AND requests.id = $2
+      """,
+      [Ecto.UUID.dump!(execution_id), Ecto.UUID.dump!(request_id)]
+    )
+    |> case do
+      {:ok, %{rows: [["running", _failure_code, ^lease_token, "running"]]}} ->
+        :current
+
+      {:ok, %{rows: [["completed", _failure_code, _persisted_lease, "succeeded"]]}} ->
+        :completed
+
+      {:ok, %{rows: [[state, failure_code, _persisted_lease, _request_state]]}}
+      when state in ["failed", "cancelled"] ->
+        {:terminal, safe_code(failure_code, "agent_execution_#{state}")}
+
+      {:ok, _result} ->
+        :stale
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
 
   defp fail_claim(execution_id, operation, job, failure_code) do
     with :ok <- fail_unclaimed_step(execution_id, operation, failure_code) do

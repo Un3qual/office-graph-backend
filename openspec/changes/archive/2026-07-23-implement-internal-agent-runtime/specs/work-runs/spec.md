@@ -12,8 +12,10 @@ without treating agent completion or output as verification completion.
 
 #### Scenario: Agent execution fails
 - **WHEN** a child execution reaches terminal failure
-- **THEN** the run timeline MUST retain the failure and the parent run MUST NOT
-  remain or become verified because of another child execution
+- **THEN** the run timeline MUST retain the failure, and that failure MUST block
+  parent verification only when it is mapped to a required check or accepted
+  evidence/result; an unrelated optional child failure MUST NOT invalidate an
+  otherwise valid verification decision
 
 ### Requirement: Run Timeline Shows Product-Relevant Agent Events
 Office Graph SHALL expose bounded execution, approval, context, tool, proposal,

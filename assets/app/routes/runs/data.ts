@@ -119,3 +119,31 @@ export const RunDetailQuery = graphql`
     }
   }
 `;
+
+export const RunActivityPageQuery = graphql`
+  query RunActivityPageQuery(
+    $id: ID!
+    $activityFirst: Int!
+    $activityAfter: String
+  ) @throwOnFieldError {
+    operatorRunState(id: $id) {
+      activity(first: $activityFirst, after: $activityAfter) {
+        edges {
+          cursor
+          node {
+            kind
+            stableId
+            title
+            status
+          }
+        }
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
+      }
+    }
+  }
+`;

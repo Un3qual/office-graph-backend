@@ -110,7 +110,8 @@ formatting, and presentation inside the run package. It renders:
 - a detail summary for packet, packet version, aggregate state, execution
   state, verification state, required checks, evidence, and missing evidence;
 - the bounded activity timeline with explicit load-more behavior;
-- a link to `/packets?packetId=<id>` for packet history; and
+- a link to `/packets?packetId=<opaque-relay-id>` for packet history, using the
+  same GraphQL-derived Relay identifier consumed by the packet route; and
 - a link to `/operator?runId=<id>` for commands, approvals, and the linked
   agent conversation.
 

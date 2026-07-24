@@ -13,10 +13,18 @@ principal, supported modes, requested capabilities, model adapter, tool
 allowlist, and default autonomy envelope.
 
 #### Scenario: Run review agent is installed
-- **WHEN** the runtime migration runs
+- **WHEN** the runtime migration runs on a fresh database
 - **THEN** the canonical definition MUST exist without an application seed with
   key exactly `run-review`, display name exactly `Run Review`, and model adapter
   exactly `deterministic`
+
+#### Scenario: Legacy run review definition is upgraded
+
+- **WHEN** a database containing the legacy `openspec-review` definition runs
+  the forward reconciliation migration
+- **THEN** the existing definition identity MUST be preserved under the
+  canonical `run-review` key, its approved runtime configuration MUST match a
+  fresh install, and an existing lifecycle state MUST be preserved
 
 #### Scenario: Run review agent authority is loaded
 

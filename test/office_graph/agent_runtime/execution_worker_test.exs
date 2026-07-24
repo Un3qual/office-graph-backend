@@ -751,6 +751,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     ])
 
     running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+    running_request = Ash.get!(ModelRequest, request_id, authorize?: false)
+
+    assert :current =
+             ExecutionWorker.claim_dispatch_posture(
+               running.id,
+               running_request.id,
+               running.lease_token
+             )
 
     attrs = %{
       execution_id: running.id,
@@ -768,6 +776,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert {:ok, cancelled} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert_receive {:blocking_model_cancelled, ^request_id}, 1_000
     refute_receive {:rotated_model_cancelled, ^request_id}
+
+    assert {:terminal, "cancelled_by_operator"} =
+             ExecutionWorker.claim_dispatch_posture(
+               running.id,
+               running_request.id,
+               running.lease_token
+             )
 
     assert {:ok, replayed} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert replayed.replayed?

@@ -196,7 +196,7 @@ describe("all-runs route recovery", () => {
         return replacement.promise;
       }
 
-      if (request.name === "RunDetailQuery" && variables.activityAfter !== null) {
+      if (request.name === "RunActivityPageQuery") {
         throw new Error(rawErrorSentinel);
       }
 

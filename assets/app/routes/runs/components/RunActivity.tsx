@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AsyncBoundary } from "../../../../src/ui/AsyncBoundary";
 import { Button } from "../../../../src/ui/Button";
 import type { RunDetailState } from "../types";
-import { useRunDetail } from "../workflow";
+import { useRunActivityPage } from "../workflow";
 import { formatLabel } from "./RunList";
 
 type ActivityPage = NonNullable<RunDetailState["activity"]>;
@@ -85,8 +85,7 @@ function LoadedActivityPage({
   onResolved?: (after: string, page: ActivityPage) => void;
   runId: string;
 }) {
-  const detail = useRunDetail(runId, fetchKey, after);
-  const activity = detail.activity;
+  const activity = useRunActivityPage(runId, after, fetchKey);
 
   useEffect(() => {
     if (activity && onResolved) {

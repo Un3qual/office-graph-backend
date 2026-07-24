@@ -259,6 +259,7 @@ verification check with durable reason and policy provenance.
 ### Requirement: Agent Verification Material Starts As A Candidate
 Office Graph SHALL store agent-produced verification material as an evidence
 candidate or observation until the owning verification workflow accepts it.
+The selected artifact type SHALL be unique for a stable execution and step.
 
 #### Scenario: Agent produces check material
 - **WHEN** a validated agent output claims a check passed, failed, or is waived
@@ -272,6 +273,7 @@ candidate or observation until the owning verification workflow accepts it.
   execution, context package, operation, and accepting actor
 
 #### Scenario: Agent attempt is replayed
-- **WHEN** the same execution step is retried after candidate creation
-- **THEN** Office Graph MUST return the existing candidate without duplicate
-  evidence or verification effects
+- **WHEN** the same execution step is retried after candidate or observation
+  creation
+- **THEN** Office Graph MUST return the existing artifact of the selected type
+  without duplicate candidate, observation, evidence, or verification effects

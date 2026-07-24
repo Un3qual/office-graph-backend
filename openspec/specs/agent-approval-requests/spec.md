@@ -30,6 +30,13 @@ authority snapshot, and operation.
 - **THEN** Office Graph MUST record the decision and operation, resume only the
   matching approved step, or terminate/downgrade the denied step
 
+#### Scenario: Approval resolution is replayed
+
+- **WHEN** the same approval decision operation is submitted again with exactly
+  the same request version and input
+- **THEN** Office Graph MUST return the persisted decision without another
+  transition or resume job, while changed replay input MUST conflict
+
 #### Scenario: Approval follows a context expansion
 
 - **WHEN** a step obtains bounded context and subsequently requires human

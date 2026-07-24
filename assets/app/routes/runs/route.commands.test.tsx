@@ -31,7 +31,7 @@ describe("all-runs route activity and command boundaries", () => {
         },
       },
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
         return support.runsConnectionResponse([support.runSummary()], {
           hasNextPage: true,
@@ -40,12 +40,11 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return {
-          data: {
-            operatorRunState:
-              variables.activityAfter === "activity_cursor_2" ? nextState : firstState,
-          },
-        };
+        return { data: { operatorRunState: firstState } };
+      }
+
+      if (request.name === "RunActivityPageQuery") {
+        return { data: { operatorRunState: { activity: nextState.activity } } };
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -63,10 +62,11 @@ describe("all-runs route activity and command boundaries", () => {
     expect(
       network.mock.calls.filter(
         ([request, variables]) =>
-          request.name === "RunDetailQuery" && variables.activityAfter === "activity_cursor_2",
+          request.name === "RunActivityPageQuery" &&
+          variables.activityAfter === "activity_cursor_2",
       ),
     ).toHaveLength(1);
-    expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
+    expect(support.lastVariablesFor(network, "RunActivityPageQuery")).toEqual({
       id: "run_new",
       activityFirst: 5,
       activityAfter: "activity_cursor_2",
@@ -81,16 +81,16 @@ describe("all-runs route activity and command boundaries", () => {
   it("keeps loaded activity visible when continuation fails and retries only that page", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let continuationAttempts = 0;
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
         return support.runsConnectionResponse([support.runSummary()]);
       }
 
-      if (request.name === "RunDetailQuery" && variables.activityAfter === null) {
+      if (request.name === "RunDetailQuery") {
         return { data: { operatorRunState: support.runState() } };
       }
 
-      if (request.name === "RunDetailQuery") {
+      if (request.name === "RunActivityPageQuery") {
         continuationAttempts += 1;
 
         if (continuationAttempts === 1) {
@@ -99,7 +99,7 @@ describe("all-runs route activity and command boundaries", () => {
 
         return {
           data: {
-            operatorRunState: support.runState({
+            operatorRunState: {
               activity: {
                 edges: [
                   {
@@ -119,7 +119,7 @@ describe("all-runs route activity and command boundaries", () => {
                   endCursor: "activity_cursor_3",
                 },
               },
-            }),
+            },
           },
         };
       }
@@ -201,10 +201,10 @@ describe("all-runs route activity and command boundaries", () => {
         };
       }
 
-      if (request.name === "RunDetailQuery" && variables.activityAfter !== null) {
+      if (request.name === "RunActivityPageQuery") {
         return {
           data: {
-            operatorRunState: support.runState({
+            operatorRunState: {
               activity: {
                 edges: [
                   {
@@ -224,7 +224,7 @@ describe("all-runs route activity and command boundaries", () => {
                   endCursor: "activity_cursor_3",
                 },
               },
-            }),
+            },
           },
         };
       }

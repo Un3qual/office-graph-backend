@@ -172,18 +172,26 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert valid["data"]["linkedPacket"]["id"] == valid_id
       refute valid["data"]["linkedPacket"]["id"] == fixtures.local.packet.id
 
-      Enum.each(["not-a-relay-id", missing_id, foreign_id], fn packet_id ->
-        unavailable =
-          conn
-          |> post(~p"/graphql", %{
-            query: packet_deep_link_query(),
-            variables: %{packetId: packet_id}
-          })
-          |> json_response(200)
+      Enum.each(
+        [
+          {"not-a-relay-id", ["invalid_primary_key"]},
+          {missing_id, []},
+          {foreign_id, []}
+        ],
+        fn {packet_id, expected_error_codes} ->
+          unavailable =
+            conn
+            |> post(~p"/graphql", %{
+              query: packet_deep_link_query(),
+              variables: %{packetId: packet_id}
+            })
+            |> json_response(200)
 
-        assert [_local_packet] = connection_nodes(unavailable["data"]["listWorkPackets"])
-        assert unavailable["data"]["linkedPacket"] == nil
-      end)
+          assert Enum.map(unavailable["errors"] || [], & &1["code"]) == expected_error_codes
+          assert [_local_packet] = connection_nodes(unavailable["data"]["listWorkPackets"])
+          assert unavailable["data"]["linkedPacket"] == nil
+        end
+      )
     end
 
     test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
