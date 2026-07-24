@@ -6,7 +6,7 @@
 ## 2. Migration Hardening
 
 - [x] 2.1 Backfill canonical model and governed-output capabilities onto existing bound workspace system roles.
-- [ ] 2.2 Prove the migration is idempotent and run focused plus repository verification.
+- [x] 2.2 Prove the migration is idempotent and run focused plus repository verification.
 
 ## 3. Specification Closeout
 
