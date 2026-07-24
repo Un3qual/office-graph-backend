@@ -248,13 +248,20 @@ function isResolvedRouteConfig(value: unknown): value is RouteConfigEntry[] {
 
 function isRouteConfigEntry(value: unknown, ancestors: Set<object>): value is RouteConfigEntry {
   if (typeof value !== "object" || value === null || ancestors.has(value)) return false;
+  if ("then" in value && "catch" in value) return false;
 
   const entry = value as Record<string, unknown>;
   const children = entry.children;
   if (
     typeof entry.file !== "string" ||
+    ("id" in entry &&
+      entry.id !== undefined &&
+      (typeof entry.id !== "string" || entry.id === "root")) ||
     ("path" in entry && entry.path !== undefined && typeof entry.path !== "string") ||
     ("index" in entry && entry.index !== undefined && typeof entry.index !== "boolean") ||
+    ("caseSensitive" in entry &&
+      entry.caseSensitive !== undefined &&
+      typeof entry.caseSensitive !== "boolean") ||
     (children !== undefined && !Array.isArray(children))
   ) {
     return false;

@@ -210,6 +210,23 @@ describe("all-runs route architecture", () => {
     expect(analyzeRunsRouteConfig([{ path: "runs" }]).offenders).toEqual([
       "resolved route config must be an array of valid route entries",
     ]);
+    const invalidEntries = [
+      { file: "./routes/runs/route.tsx", id: 42 },
+      { file: "./routes/runs/route.tsx", id: "root" },
+      { file: "./routes/runs/route.tsx", caseSensitive: "yes" },
+      {
+        file: "./routes/runs/route.tsx",
+        // biome-ignore lint/suspicious/noThenProperty: This fixture must model a promise-like route entry.
+        then() {},
+        catch() {},
+      },
+    ];
+
+    for (const entry of invalidEntries) {
+      expect
+        .soft(analyzeRunsRouteConfig([entry]).offenders)
+        .toEqual(["resolved route config must be an array of valid route entries"]);
+    }
   });
 
   it("rejects every emitted class without a shared or runs stylesheet owner", () => {
