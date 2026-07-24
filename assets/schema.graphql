@@ -504,7 +504,7 @@ input WorkRunFilterVerificationState {
   isNil: Boolean
   eq: String
   notEq: String
-  in: [String]
+  in: [String!]
   lessThan: String
   greaterThan: String
   lessThanOrEqual: String
@@ -522,7 +522,7 @@ input WorkRunFilterExecutionState {
   isNil: Boolean
   eq: String
   notEq: String
-  in: [String]
+  in: [String!]
   lessThan: String
   greaterThan: String
   lessThanOrEqual: String
@@ -540,7 +540,7 @@ input WorkRunFilterAggregateState {
   isNil: Boolean
   eq: String
   notEq: String
-  in: [String]
+  in: [String!]
   lessThan: String
   greaterThan: String
   lessThanOrEqual: String
@@ -759,9 +759,9 @@ type WorkRun implements Node {
   authorityPosture: String
   sourceSurface: String
   reason: String
-  aggregateState: String
-  executionState: String
-  verificationState: String
+  aggregateState: String!
+  executionState: String!
+  verificationState: String!
   startedAt: DateTime
   completedAt: DateTime
   state: String!
