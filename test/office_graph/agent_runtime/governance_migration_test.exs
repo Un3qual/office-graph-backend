@@ -21,7 +21,7 @@ end
 defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Authorization, Foundation, Repo}
+  alias OfficeGraph.{AgentRuntime, Authorization, Foundation, Repo}
 
   alias OfficeGraph.Repo.Migrations.{
     BackfillAgentRuntimeGovernance,
@@ -149,6 +149,161 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
                where: definition.key == "openspec-review",
                select: true
            )
+  end
+
+  test "reconciles canonical authority onto existing legacy binding roles" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+
+    assert {:ok, bound} =
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
+               idempotency_key: "legacy-binding-authority"
+             })
+
+    binding_id = bound.binding.id
+    principal_id = bound.principal.id
+    organization_id = bootstrap.organization.id
+    workspace_id = bootstrap.workspace.id
+    binding_id_dump = Ecto.UUID.dump!(binding_id)
+    principal_id_dump = Ecto.UUID.dump!(principal_id)
+
+    %{rows: [[system_role_id, assignment_id]]} =
+      Repo.query!(
+        """
+        SELECT roles.id, assignments.id
+        FROM agent_organization_bindings AS bindings
+        JOIN role_assignments AS assignments
+          ON assignments.principal_id = bindings.agent_principal_id
+         AND assignments.organization_id = bindings.organization_id
+         AND assignments.workspace_id = bindings.workspace_id
+        JOIN roles
+          ON roles.id = assignments.role_id
+         AND roles.organization_id = bindings.organization_id
+         AND roles.key =
+           'system:' || bindings.agent_principal_id::text ||
+           ':workspace:' || bindings.workspace_id::text
+        WHERE bindings.id = $1
+        """,
+        [binding_id_dump]
+      )
+
+    unrelated_role_id = Ecto.UUID.generate()
+    unrelated_assignment_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO roles (id, organization_id, key, name, inserted_at, updated_at)
+      VALUES ($1, $2, $3, 'Unrelated agent role', NOW(), NOW())
+      """,
+      [
+        Ecto.UUID.dump!(unrelated_role_id),
+        Ecto.UUID.dump!(organization_id),
+        "unrelated-agent-role-#{System.unique_integer([:positive])}"
+      ]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_assignments (
+        id,
+        principal_id,
+        role_id,
+        organization_id,
+        workspace_id,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      """,
+      [
+        Ecto.UUID.dump!(unrelated_assignment_id),
+        Ecto.UUID.dump!(principal_id),
+        Ecto.UUID.dump!(unrelated_role_id),
+        Ecto.UUID.dump!(organization_id),
+        Ecto.UUID.dump!(workspace_id)
+      ]
+    )
+
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id = $1
+        AND capability_id IN (
+          SELECT id
+          FROM capabilities
+          WHERE key IN ('agent.model.generate', 'proposal.create', 'evidence.suggest')
+        )
+      """,
+      [system_role_id]
+    )
+
+    Repo.query!("UPDATE agent_definitions SET key = 'openspec-review' WHERE id = $1", [
+      Ecto.UUID.dump!(bound.definition.id)
+    ])
+
+    assert capability_keys(system_role_id) == []
+    assert capability_keys(Ecto.UUID.dump!(unrelated_role_id)) == []
+
+    run_reconciliation_migration()
+    run_reconciliation_migration()
+
+    assert %{
+             rows: [
+               [
+                 ^binding_id_dump,
+                 ^principal_id_dump,
+                 ^system_role_id,
+                 ^assignment_id,
+                 "active"
+               ]
+             ]
+           } =
+             Repo.query!(
+               """
+               SELECT
+                 bindings.id,
+                 bindings.agent_principal_id,
+                 roles.id,
+                 assignments.id,
+                 bindings.lifecycle_state
+               FROM agent_organization_bindings AS bindings
+               JOIN role_assignments AS assignments
+                 ON assignments.principal_id = bindings.agent_principal_id
+                AND assignments.organization_id = bindings.organization_id
+                AND assignments.workspace_id = bindings.workspace_id
+               JOIN roles
+                 ON roles.id = assignments.role_id
+                AND roles.organization_id = bindings.organization_id
+                AND roles.key =
+                  'system:' || bindings.agent_principal_id::text ||
+                  ':workspace:' || bindings.workspace_id::text
+               WHERE bindings.id = $1
+               """,
+               [binding_id_dump]
+             )
+
+    assert capability_keys(system_role_id) ==
+             ~w(agent.model.generate evidence.suggest proposal.create)
+
+    assert capability_keys(Ecto.UUID.dump!(unrelated_role_id)) == []
+  end
+
+  defp capability_keys(role_id) do
+    Repo.query!(
+      """
+      SELECT capabilities.key
+      FROM role_capabilities
+      JOIN capabilities ON capabilities.id = role_capabilities.capability_id
+      WHERE role_capabilities.role_id = $1
+        AND capabilities.key IN (
+          'agent.model.generate',
+          'proposal.create',
+          'evidence.suggest'
+        )
+      ORDER BY capabilities.key
+      """,
+      [role_id]
+    ).rows
+    |> List.flatten()
   end
 
   defp run_reconciliation_migration do
