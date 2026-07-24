@@ -60,11 +60,7 @@ describe("all-runs route activity and command boundaries", () => {
     expect(within(activity).getByText("Release verification")).toBeInTheDocument();
     expect(within(activity).getAllByText("Later execution observation")).toHaveLength(1);
     expect(
-      network.mock.calls.filter(
-        ([request, variables]) =>
-          request.name === "RunActivityPageQuery" &&
-          variables.activityAfter === "activity_cursor_2",
-      ),
+      network.mock.calls.filter(([request]) => request.name === "RunActivityPageQuery"),
     ).toHaveLength(1);
     expect(support.lastVariablesFor(network, "RunActivityPageQuery")).toEqual({
       id: "run_new",

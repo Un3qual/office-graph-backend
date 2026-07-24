@@ -22,8 +22,8 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
         requested_capabilities = ARRAY[
           'agent.invoke',
           'agent.model.generate',
-          'proposal.create',
-          'evidence.suggest'
+          'evidence.suggest',
+          'proposal.create'
         ]::text[],
         model_adapter_key = 'deterministic',
         tool_allowlist = ARRAY[]::text[],

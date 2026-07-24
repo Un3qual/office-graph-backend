@@ -1620,12 +1620,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def scan_file_for_direct_ecto_operations(path) do
-    path
-    |> File.read!()
+    source = File.read!(path)
+    function_declarations = function_declarations_by_line(source)
+
+    source
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.reduce({nil, []}, fn {line, line_number}, {current_function, operations} ->
-      current_function = function_name(line) || current_function
+      current_function = Map.get(function_declarations, line_number, current_function)
 
       line_operations =
         @direct_ecto_operation_pattern
@@ -1645,6 +1647,31 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     |> elem(1)
     |> Enum.reverse()
   end
+
+  def function_declarations_by_line(source) do
+    {_ast, declarations} =
+      source
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk(%{}, fn
+        {kind, metadata, [_head, _body]} = node, declarations
+        when kind in [:def, :defp] ->
+          {node, Map.put(declarations, metadata[:line], function_signature(node))}
+
+        node, declarations ->
+          {node, declarations}
+      end)
+
+    declarations
+  end
+
+  defp function_signature({_kind, _metadata, [head, _body]}) do
+    head
+    |> function_head()
+    |> then(fn {name, arguments} -> "#{name}/#{length(arguments || [])}" end)
+  end
+
+  defp function_head({:when, _metadata, [head | _guards]}), do: function_head(head)
+  defp function_head({name, _metadata, arguments}), do: {name, arguments}
 
   def direct_ecto_ledger_entries do
     @architecture_exception_ledger
