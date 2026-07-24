@@ -154,10 +154,24 @@ defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
         organization_id,
         workspace_id,
         state,
+        aggregate_state,
+        execution_state,
+        verification_state,
         inserted_at,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'running', now(), now())
+      VALUES (
+        $1::uuid,
+        $2::uuid,
+        $3::uuid,
+        $4::uuid,
+        'running',
+        'running',
+        'pending',
+        'unverified',
+        now(),
+        now()
+      )
       """,
       Enum.map(
         [run_id, work_packet.id, bootstrap.organization.id, bootstrap.workspace.id],

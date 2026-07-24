@@ -414,10 +414,25 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
         work_packet_id,
         work_packet_version_id,
         state,
+        aggregate_state,
+        execution_state,
+        verification_state,
         inserted_at,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, NULL, 'running', NOW(), NOW())
+      VALUES (
+        $1::uuid,
+        $2::uuid,
+        $3::uuid,
+        $4::uuid,
+        NULL,
+        'running',
+        'running',
+        'pending',
+        'unverified',
+        NOW(),
+        NOW()
+      )
       """,
       [
         db_uuid(run_id),
