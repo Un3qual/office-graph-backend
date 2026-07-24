@@ -2,10 +2,15 @@ import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
 import { Environment, Network, RecordSource, Store } from "relay-runtime";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRelayEnvironment } from "../../relay/environment";
 import { useCreateWorkPacketVersionCommand } from "./commandWorkflow";
 
 describe("packet command workflow", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("returns the authoritative packet and immutable version result", async () => {
     const environment = new Environment({
       getDataID: () => null,
@@ -81,6 +86,49 @@ describe("packet command workflow", () => {
           lifecycleState: "ready",
         },
       },
+    });
+  });
+
+  it("maps production Relay mutation payload errors through onCompleted", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { createWorkPacketVersion: null },
+          errors: [
+            {
+              message: "Packet title is required.",
+              path: ["createWorkPacketVersion"],
+              extensions: { code: "validation_failed", field: "title" },
+            },
+          ],
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useCreateWorkPacketVersionCommand(), {
+      wrapper: relayWrapper(createRelayEnvironment()),
+    });
+
+    act(() => {
+      result.current.submit({
+        idempotencyKey: "version-invalid",
+        packetId: "packet-1",
+        expectedCurrentVersionId: "version-1",
+        title: "",
+        objective: "Keep the packet current.",
+        contextSummary: "Current context.",
+        requirements: "Preserve immutable history.",
+        successCriteria: "Version two is current.",
+        autonomyPosture: "human_supervised",
+        sourceGraphItemIds: ["graph-item-1"],
+        verificationCheckIds: ["check-1"],
+      });
+    });
+
+    await waitFor(() => expect(result.current.state.status).toBe("field-error"));
+    expect(result.current.state).toEqual({
+      status: "field-error",
+      fields: [{ field: "title", message: "Packet title is required." }],
     });
   });
 });

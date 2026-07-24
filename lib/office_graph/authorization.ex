@@ -46,7 +46,6 @@ defmodule OfficeGraph.Authorization do
     agent_tool_read: "agent.tool.read",
     agent_proposal_create: "proposal.create",
     agent_repository_read: "repository.read",
-    agent_openspec_read: "openspec.read",
     agent_evidence_suggest: "evidence.suggest",
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
@@ -65,7 +64,12 @@ defmodule OfficeGraph.Authorization do
   @recognized_capabilities Map.merge(@owner_capabilities, @restricted_capabilities)
   @system_capabilities Map.merge(
                          @restricted_capabilities,
-                         Map.take(@owner_capabilities, [:skeleton_read])
+                         Map.take(@owner_capabilities, [
+                           :skeleton_read,
+                           :agent_model_generate,
+                           :agent_proposal_create,
+                           :agent_evidence_suggest
+                         ])
                        )
 
   def ensure_owner_role(principal, tenant) do

@@ -42,8 +42,14 @@ defmodule OfficeGraph.AgentRuntime do
 
   alias OfficeGraph.Identity.Principal
 
-  @canonical_definition_key "openspec-review"
-  @agent_capabilities [:agent_runtime_execute, :skeleton_read]
+  @canonical_definition_key "run-review"
+  @agent_capabilities [
+    :agent_runtime_execute,
+    :skeleton_read,
+    :agent_model_generate,
+    :agent_proposal_create,
+    :agent_evidence_suggest
+  ]
 
   def invoke(session_context, operation, %InvocationRequest{} = request) do
     InvocationCommands.invoke(session_context, operation, request)
@@ -170,12 +176,12 @@ defmodule OfficeGraph.AgentRuntime do
   end
 
   @doc """
-  Binds the migration-owned OpenSpec review definition in the caller's workspace.
+  Binds the migration-owned run review definition in the caller's workspace.
 
   The command is authorized and idempotent, and it provisions only the scoped
   backend agent authority required by the canonical definition.
   """
-  def bind_openspec_review_agent(session_context, attrs)
+  def bind_run_review_agent(session_context, attrs)
       when is_map(session_context) and is_map(attrs) do
     with {:ok, idempotency_key, command_input} <- normalize_binding_input(session_context, attrs),
          {:ok, operation} <-
@@ -190,7 +196,7 @@ defmodule OfficeGraph.AgentRuntime do
     end
   end
 
-  def bind_openspec_review_agent(_session_context, _attrs), do: {:error, :forbidden}
+  def bind_run_review_agent(_session_context, _attrs), do: {:error, :forbidden}
 
   defp normalize_binding_input(session_context, attrs) do
     with :ok <- reject_unknown_binding_fields(attrs),
@@ -314,7 +320,7 @@ defmodule OfficeGraph.AgentRuntime do
   end
 
   defp ensure_agent_principal!(organization_id) do
-    email = "openspec-review+#{organization_id}@agents.office-graph.local"
+    email = "run-review+#{organization_id}@agents.office-graph.local"
 
     case Identity.ensure_system_principal(email, "agent") do
       {:ok, principal} -> principal
@@ -345,7 +351,7 @@ defmodule OfficeGraph.AgentRuntime do
 
   defp lock_binding_scope!(organization_id, workspace_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "agent-runtime:openspec-review:#{organization_id}:#{workspace_id}"
+      "agent-runtime:run-review:#{organization_id}:#{workspace_id}"
     ])
   end
 

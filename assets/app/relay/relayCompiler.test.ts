@@ -1,8 +1,14 @@
+/// <reference types="vite/client" />
+
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ConcreteRequest } from "relay-runtime";
 import { describe, expect, it } from "vitest";
 
 const assetsRoot = process.cwd();
+const generatedArtifacts = import.meta.glob<{
+  default: ConcreteRequest;
+}>("./__generated__/*.graphql.ts", { eager: true });
 
 describe("Relay compiler workflow", () => {
   it("declares a compiler workflow and runs stale-artifact checks during verification", () => {
@@ -74,6 +80,23 @@ describe("Relay compiler workflow", () => {
     expect(readGenerated(generatedDir, "OperatorRunStateQuery.graphql.ts")).toContain(
       "export type OperatorRunStateQuery$data",
     );
+  });
+
+  it("compiles an explicit uncaught field-error policy for every query", () => {
+    const queryArtifacts = Object.entries(generatedArtifacts).filter(
+      ([, module]) =>
+        module.default.kind === "Request" && module.default.params.operationKind === "query",
+    );
+
+    expect(queryArtifacts.length).toBeGreaterThan(0);
+
+    for (const [artifactPath, module] of queryArtifacts) {
+      const metadata = module.default.fragment.metadata as {
+        readonly throwOnFieldError?: boolean;
+      } | null;
+
+      expect(metadata?.throwOnFieldError, artifactPath).toBe(true);
+    }
   });
 });
 

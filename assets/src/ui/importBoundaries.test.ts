@@ -102,9 +102,56 @@ describe("shared UI import boundaries", () => {
       scripts: Record<string, string>;
     };
 
-    expect(packageJson.scripts["verify:import-boundaries"]).toBe(
-      "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
-    );
+    expect(
+      scriptRunsVitestFile(
+        packageJson.scripts["verify:import-boundaries"],
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(true);
+  });
+
+  it("finds a Vitest run target independently of test order and flags", () => {
+    const script =
+      "pnpm exec vitest --pool=forks run app/routes/packets/architecture.test.ts --reporter=dot app/routes/runs/architecture.test.ts";
+
+    expect(scriptRunsVitestFile(script, "app/routes/runs/architecture.test.ts")).toBe(true);
+    expect(scriptRunsVitestFile(script, "app/routes/operator/architecture.test.ts")).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "pnpm lint && printf app/routes/runs/architecture.test.ts",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat an excluded architecture file as executed", () => {
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude app/routes/runs/architecture.test.ts",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude=app/routes/runs/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts !app/routes/runs/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
+  });
+
+  it("allows exclusions that cannot match the required architecture file", () => {
+    expect(
+      scriptRunsVitestFile(
+        "vitest run app/routes/runs/architecture.test.ts --exclude app/routes/operator/**",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -210,4 +257,74 @@ function normalizeSpecifier(specifier: string, filename: string) {
 
 function formatPath(path: string) {
   return relative(assetsRoot, path);
+}
+
+function scriptRunsVitestFile(script: string, testFile: string) {
+  return script.split(/\s*(?:&&|;)\s*/).some((command) => {
+    const tokens = shellTokens(command);
+    const vitestIndex = tokens.indexOf("vitest");
+    const runIndex = tokens.indexOf("run", vitestIndex + 1);
+    const exclusions = vitestExclusionPatterns(tokens.slice(runIndex + 1));
+
+    return (
+      vitestIndex >= 0 &&
+      runIndex > vitestIndex &&
+      tokens.slice(runIndex + 1).includes(testFile) &&
+      !exclusions.some((pattern) => globMatchesPath(pattern, testFile))
+    );
+  });
+}
+
+function vitestExclusionPatterns(arguments_: string[]) {
+  const patterns: string[] = [];
+
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--exclude" || argument === "-x") {
+      const pattern = arguments_[index + 1];
+      if (pattern) patterns.push(pattern);
+      index += 1;
+    } else if (argument.startsWith("--exclude=") || argument.startsWith("-x=")) {
+      patterns.push(argument.slice(argument.indexOf("=") + 1));
+    } else if (argument.startsWith("!")) {
+      patterns.push(argument.slice(1));
+    }
+  }
+
+  return patterns;
+}
+
+function globMatchesPath(pattern: string, path: string) {
+  const normalizedPattern = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
+  const normalizedPath = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  let expression = "^";
+
+  for (let index = 0; index < normalizedPattern.length; index += 1) {
+    const character = normalizedPattern[index];
+    if (character === "*") {
+      if (normalizedPattern[index + 1] === "*") {
+        index += 1;
+        if (normalizedPattern[index + 1] === "/") {
+          index += 1;
+          expression += "(?:.*/)?";
+        } else {
+          expression += ".*";
+        }
+      } else {
+        expression += "[^/]*";
+      }
+    } else if (character === "?") {
+      expression += "[^/]";
+    } else {
+      expression += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+    }
+  }
+
+  return new RegExp(`${expression}$`).test(normalizedPath);
+}
+
+function shellTokens(command: string) {
+  return (command.match(/"[^"]*"|'[^']*'|[^\s]+/g) ?? []).map((token) =>
+    /^(['"]).*\1$/.test(token) ? token.slice(1, -1) : token,
+  );
 }

@@ -146,7 +146,7 @@ describe("packet workspace route reads", () => {
 
         return support.packetConnectionResponse(
           [support.packet()],
-          created ? {} : { hasNextPage: true, endCursor: "cursor_1" },
+          { hasNextPage: true, endCursor: "cursor_1" },
           support.createPacketAffordance(),
           created ? [createdPacket] : [],
         );
@@ -186,7 +186,14 @@ describe("packet workspace route reads", () => {
     support.renderWithRelay(network);
     await screen.findByRole("button", { name: /First packet/i });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("button", { name: /Second packet/i });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_2");
+      expect(screen.getByRole("region", { name: "Create packet" })).toBeInTheDocument();
+    });
 
     const createPacket = within(screen.getByRole("region", { name: "Create packet" }));
     fireEvent.change(createPacket.getByLabelText("Packet title"), {
@@ -210,7 +217,7 @@ describe("packet workspace route reads", () => {
     fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
       target: { value: "check_1" },
     });
-    fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create packet" }));
 
     const createdRow = await screen.findByRole("button", { name: /Created packet/i });
     await waitFor(() => expect(createdRow).toHaveAttribute("aria-current", "true"));
@@ -219,8 +226,42 @@ describe("packet workspace route reads", () => {
       after: null,
       createdOperationId: "operation_created",
       loadCreatedPacket: true,
+      packetId: "",
+      loadLinkedPacket: false,
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    const secondRow = await screen.findByRole("button", { name: /Second packet/i });
+    await waitFor(() => {
+      expect(secondRow).toHaveAttribute("aria-current", "true");
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_2");
+    });
+    expect(screen.queryByRole("button", { name: /Created packet/i })).not.toBeInTheDocument();
+    expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+      first: 50,
+      after: "cursor_1",
+      createdOperationId: null,
+      loadCreatedPacket: false,
+      packetId: "",
+      loadLinkedPacket: false,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    const firstRow = await screen.findByRole("button", { name: /First packet/i });
+    await waitFor(() => {
+      expect(firstRow).toHaveAttribute("aria-current", "true");
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_1");
+    });
+    expect(screen.queryByRole("button", { name: /Created packet/i })).not.toBeInTheDocument();
+    expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toMatchObject({
+      first: 50,
+      after: null,
+      createdOperationId: null,
+      loadCreatedPacket: false,
+    });
   });
 
   it("creates a new version with the exact current id and preserves immutable history", async () => {

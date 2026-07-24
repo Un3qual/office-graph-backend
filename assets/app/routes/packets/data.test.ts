@@ -10,6 +10,8 @@ describe("packet route Relay data", () => {
 
     expect(routeQuery.params.name).toBe("PacketsRouteQuery");
     expect(routeQuery.params.text).toContain("listWorkPackets(first: $first, after: $after)");
+    expect(routeQuery.params.text).not.toContain("filter: { id:");
+    expect(routeQuery.params.text).toContain("linkedPacket: getWorkPacket(id: $packetId)");
     expect(packetFragment.name).toBe("PacketsRoutePacketFragment");
     expect(packetFragment.kind).toBe("InlineDataFragment");
     expect(detailQuery.params.name).toBe("PacketsWorkspaceDetailQuery");

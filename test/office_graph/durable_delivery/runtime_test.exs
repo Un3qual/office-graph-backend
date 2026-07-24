@@ -29,6 +29,19 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     assert pruner_options[:max_age] == 30 * 24 * 60 * 60
   end
 
+  test "production recovers execution jobs orphaned by node loss" do
+    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    oban_config = production_config[:office_graph][Oban]
+
+    assert {Oban.Plugins.Lifeline, lifeline_options} =
+             Enum.find(oban_config[:plugins], fn
+               {plugin, _options} -> plugin == Oban.Plugins.Lifeline
+               plugin -> plugin == Oban.Plugins.Lifeline
+             end)
+
+    assert lifeline_options[:rescue_after] == 5 * 60 * 1_000
+  end
+
   test "durable runtime tables preserve typed event and job state" do
     assert table_exists?("oban_jobs")
     assert table_exists?("domain_events")

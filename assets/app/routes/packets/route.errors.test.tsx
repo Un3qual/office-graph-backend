@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { GraphQLResponse } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRelayEnvironment } from "../../relay/environment";
 import { GraphQLResponseError } from "../../relay/fetchGraphQL";
 
 import * as support from "./routeTestSupport";
@@ -8,6 +9,7 @@ import * as support from "./routeTestSupport";
 describe("packet workspace route reads", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("renders an explicit loading state", () => {
@@ -15,7 +17,7 @@ describe("packet workspace route reads", () => {
 
     support.renderWithRelay(vi.fn(() => request.promise));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading packets...");
+    expect(screen.getByText("Loading packets...")).toHaveAttribute("role", "status");
   });
 
   it("renders a packet-specific empty state without stale detail", async () => {
@@ -112,6 +114,36 @@ describe("packet workspace route reads", () => {
         throw new Error("authorization policy secret_alpha denied packet_9");
       }),
     );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
+    expect(document.body).not.toHaveTextContent("secret_alpha");
+    expect(document.body).not.toHaveTextContent("packet_9");
+  });
+
+  it("surfaces an uncaught production Relay field error through the route boundary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: {
+            operatorPacketCreateAffordance: {
+              identity: "create_work_packet",
+              state: "enabled",
+            },
+            listWorkPackets: null,
+          },
+          errors: [
+            {
+              message: "authorization policy secret_alpha denied packet_9",
+              path: ["listWorkPackets"],
+            },
+          ],
+        }),
+      ),
+    );
+
+    support.renderWithRelayEnvironment(createRelayEnvironment());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load packets.");
     expect(document.body).not.toHaveTextContent("secret_alpha");
@@ -274,7 +306,7 @@ describe("packet workspace route reads", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading packet page...");
+    expect(screen.getByText("Loading packet page...")).toHaveAttribute("role", "status");
     expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Packet detail" })).toHaveTextContent(
       "No packet selected.",
@@ -296,6 +328,8 @@ describe("packet workspace route reads", () => {
         after: "cursor_1",
         createdOperationId: null,
         loadCreatedPacket: false,
+        packetId: "",
+        loadLinkedPacket: false,
       });
       expect(screen.queryByRole("button", { name: /First packet/i })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
@@ -345,6 +379,8 @@ describe("packet workspace route reads", () => {
         after: null,
         createdOperationId: null,
         loadCreatedPacket: false,
+        packetId: "",
+        loadLinkedPacket: false,
       });
       expect(screen.getByRole("button", { name: /First packet/i })).toHaveAttribute(
         "aria-current",

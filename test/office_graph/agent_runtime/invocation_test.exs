@@ -106,6 +106,41 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     assert Repo.aggregate(AgentExecution, :count) == 0
   end
 
+  test "automatic invocation rejects capabilities revoked from the agent principal", context do
+    request =
+      AgentRuntimeSupport.request(context, %{
+        origin: "system_trigger",
+        invocation_mode: "automatic",
+        idempotency_key: "revoked-agent-capability-#{context.suffix}"
+      })
+
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (
+        SELECT role_id
+        FROM role_assignments
+        WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
+      )
+      AND capability_id IN (
+        SELECT id FROM capabilities WHERE key = 'agent.model.generate'
+      )
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    assert {:ok, operation} = AgentRuntimeSupport.system_operation(context, request)
+
+    assert {:error, {:unauthorized_agent_capabilities, ["agent.model.generate"]}} =
+             AgentRuntime.invoke_system(operation, request)
+
+    assert Repo.aggregate(AgentExecution, :count) == 0
+  end
+
   test "human invocation rejects capabilities that the delegator was not granted", context do
     limited_session =
       create_session_with_capabilities!(
@@ -123,7 +158,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
 
     assert {:error,
             {:unauthorized_agent_capabilities,
-             ["agent.model.generate", "agent.tool.read", "proposal.create", "repository.read"]}} =
+             ["agent.model.generate", "evidence.suggest", "proposal.create"]}} =
              AgentRuntime.invoke(limited_session, operation, request)
 
     assert Repo.aggregate(AgentExecution, :count) == 0

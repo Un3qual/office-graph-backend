@@ -269,6 +269,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   object :operator_packet_ref do
     field :id, non_null(:id)
+
+    field :relay_id, non_null(:id) do
+      resolve(fn %{id: id}, _, _ -> {:ok, relay_id("work_packet", id)} end)
+    end
+
     field :title, non_null(:string)
     field :state, non_null(:string)
   end
@@ -279,6 +284,20 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :lifecycle_state, non_null(:string)
     field :objective, :string
   end
+
+  object :operator_run_summary do
+    field :id, non_null(:id)
+    field :objective, :string
+    field :aggregate_state, non_null(:string)
+    field :execution_state, non_null(:string)
+    field :verification_state, non_null(:string)
+    field :inserted_at, non_null(:datetime)
+    field :source_watermark, non_null(:id)
+    field :packet, non_null(:operator_packet_ref)
+    field :packet_version, non_null(:operator_packet_version_ref)
+  end
+
+  connection(node_type: :operator_run_summary)
 
   object :operator_observation do
     field :id, non_null(:id)

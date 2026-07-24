@@ -220,3 +220,118 @@ GraphQL and JSON API commands over the Runs domain boundary.
 - **WHEN** the packet version is stale, draft, cross-scope, malformed, or refers
   only to checks already satisfied
 - **THEN** run start MUST fail without creating a run
+
+### Requirement: Agent Execution State Does Not Verify Parent Runs
+Office Graph SHALL project child agent execution state into the parent run
+without treating agent completion or output as verification completion.
+
+#### Scenario: Agent execution completes successfully
+- **WHEN** all steps in a child agent execution complete
+- **THEN** the parent run MAY show successful agent activity but MUST remain
+  governed by its required checks, observations, accepted evidence, and
+  verification results
+
+#### Scenario: Agent execution fails
+- **WHEN** a child execution reaches terminal failure
+- **THEN** the run timeline MUST retain the failure, and that failure MUST block
+  parent verification only when it is mapped to a required check or accepted
+  evidence/result; an unrelated optional child failure MUST NOT invalidate an
+  otherwise valid verification decision
+
+### Requirement: Run Timeline Shows Product-Relevant Agent Events
+Office Graph SHALL expose bounded execution, approval, context, tool, proposal,
+evidence, retry, cancellation, and completion summaries in run projections.
+
+#### Scenario: Low-level runtime trace exists
+- **WHEN** token, prompt-debug, or provider-internal traces are produced
+- **THEN** the run timeline MUST omit them unless a separate authorized debug
+  projection explicitly requests them
+
+### Requirement: Work Runs Have An Authorized Bounded Index Projection
+
+Office Graph SHALL provide a read-only work-run index projection that returns
+only this safe output for the resolved session's authorized organization and
+workspace: run id, objective, aggregate state, execution state, verification
+state, insertion time, and stable source watermark; packet id, title, and
+state; and packet-version id, version number, lifecycle state, and objective.
+The GraphQL layer SHALL derive an opaque packet Relay id from the projected
+packet id for canonical product deep links; that Relay id is not an additional
+projection field. The projection SHALL require the existing skeleton-read
+capability and use one actor-authorized run-page read plus two actor-authorized,
+scope-filtered, page-batched enrichment reads for packets and packet versions.
+It SHALL NOT load enrichment per row, duplicate `operatorRunState` detail
+assembly, or own a command.
+
+#### Scenario: Authorized scope receives only its runs
+
+- **WHEN** an authorized session reads the work-run index
+- **THEN** it MUST receive only summaries from its resolved organization and
+  workspace, and no row, packet label, packet-version label, or watermark from
+  another tenant or workspace may appear
+
+#### Scenario: Read authorization is denied
+
+- **WHEN** the resolved session lacks the skeleton-read capability
+- **THEN** the index MUST reject the read using the existing safe authorization
+  shape and MUST NOT return a partial or unscoped row set
+
+#### Scenario: Index uses stable newest-first keyset pagination
+
+- **WHEN** an authorized reader requests a forward page and then requests its
+  next page after newer runs are inserted
+- **THEN** the index MUST order rows by `inserted_at DESC, id DESC`, encode
+  that total order in its opaque cursor, and return the original continuation
+  without skipping or duplicating preexisting rows
+
+#### Scenario: Cursor or page limit is invalid
+
+- **WHEN** a caller supplies a malformed, stale, unsupported, or invalid cursor
+  or a limit outside the supported connection bounds
+- **THEN** the index MUST return the existing safe validation shape and MUST
+  NOT issue an unbounded or ambiguously ordered read
+
+#### Scenario: Index size grows
+
+- **WHEN** the number of runs in the authorized scope grows while the requested
+  page size stays fixed
+- **THEN** the index MUST retain its constant bound of one actor-authorized
+  run-page read plus two actor-authorized, scope-filtered, page-batched
+  enrichment reads and MUST NOT load packet or packet-version data one row at a
+  time
+
+### Requirement: Work Run Index Has A Read-Only Relay Connection
+
+Office Graph SHALL expose the bounded index as the forward `operatorRuns(first:, after:)`
+Relay connection with `OperatorRunSummary` nodes and existing connection
+validation, cursor, and safe-error conventions. It SHALL use the existing
+shared `OfficeGraphWeb.RequestSession` resolution unchanged, including the
+intentionally deferred bootstrap posture, and SHALL NOT create a route-specific
+actor, session, or fallback.
+
+#### Scenario: Client reads a run page
+
+- **WHEN** an authorized client requests `operatorRuns` with a valid forward
+  page input
+- **THEN** GraphQL MUST return ordered edges, opaque cursors, page information,
+  and only the summary fields defined by the index projection
+
+#### Scenario: Client requests a subsequent page
+
+- **WHEN** an authorized client supplies the connection's end cursor as `after`
+- **THEN** GraphQL MUST return the next stable page using the projection's
+  keyset semantics
+
+#### Scenario: Contract is extended
+
+- **WHEN** the all-runs index is implemented
+- **THEN** it MUST add no run mutation, hidden compatibility query, or second
+  detailed-run projection; `operatorRunState` remains the detail and activity
+  source
+
+#### Scenario: Shared request session resolves the read
+
+- **WHEN** `operatorRuns` or its selected `operatorRunState` detail read
+  resolves an actor
+- **THEN** it MUST consume the existing shared `RequestSession` resolution
+  unchanged and MUST NOT create a route-specific actor, session, bootstrap, or
+  fallback

@@ -24,7 +24,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     GateExpiryWorker,
     ModelInput,
     ModelRequest,
-    OutputRouter
+    OutputRouter,
+    StorageResult
   }
 
   require Ash.Query
@@ -165,9 +166,28 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp run_claim_result({:run, claim}, operation, job) do
-    claim.adapter
-    |> invoke_safely(claim.input)
-    |> persist_adapter_result(claim, operation, job)
+    case claim_dispatch_posture(
+           claim.execution.id,
+           claim.request.id,
+           claim.lease_token
+         ) do
+      :current ->
+        claim.adapter
+        |> invoke_safely(claim.input)
+        |> persist_adapter_result(claim, operation, job)
+
+      :completed ->
+        :ok
+
+      {:terminal, failure_code} ->
+        finish_terminal_job(job, failure_code)
+
+      :stale ->
+        {:snooze, @retry_delay_seconds}
+
+      {:error, :integration_storage_unavailable} ->
+        {:snooze, @retry_delay_seconds}
+    end
   end
 
   defp run_claim_result({:leased, delay}, _operation, _job), do: {:snooze, delay}
@@ -176,6 +196,43 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp run_claim_result({:terminal, state, execution}, _operation, job),
     do: finish_terminal_job(job, terminal_failure(execution, state))
+
+  @doc false
+  def claim_dispatch_posture(execution_id, request_id, lease_token)
+      when is_binary(execution_id) and is_binary(request_id) and is_binary(lease_token) do
+    Repo.query(
+      """
+      SELECT
+        executions.state,
+        executions.failure_code,
+        executions.lease_token,
+        requests.state
+      FROM agent_executions AS executions
+      JOIN agent_model_requests AS requests
+        ON requests.execution_id = executions.id
+      WHERE executions.id = $1
+        AND requests.id = $2
+      """,
+      [Ecto.UUID.dump!(execution_id), Ecto.UUID.dump!(request_id)]
+    )
+    |> case do
+      {:ok, %{rows: [["running", _failure_code, ^lease_token, "running"]]}} ->
+        :current
+
+      {:ok, %{rows: [["completed", _failure_code, _persisted_lease, "succeeded"]]}} ->
+        :completed
+
+      {:ok, %{rows: [[state, failure_code, _persisted_lease, _request_state]]}}
+      when state in ["failed", "cancelled"] ->
+        {:terminal, safe_code(failure_code, "agent_execution_#{state}")}
+
+      {:ok, _result} ->
+        :stale
+
+      {:error, _storage_error} ->
+        {:error, :integration_storage_unavailable}
+    end
+  end
 
   defp fail_claim(execution_id, operation, job, failure_code) do
     with :ok <- fail_unclaimed_step(execution_id, operation, failure_code) do
@@ -309,6 +366,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp revalidate_step(execution_id, opts) do
     revalidator = Application.get_env(:office_graph, :agent_runtime_revalidator, AgentRuntime)
     revalidator.revalidate_step(execution_id, opts)
+  end
+
+  defp output_router do
+    Application.get_env(:office_graph, :agent_runtime_output_router, OutputRouter)
   end
 
   defp create_step_operation(execution, snapshot, step_key) do
@@ -496,53 +557,55 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp complete(claim, operation, output) do
-    Repo.transaction(fn ->
-      execution = lock_execution!(claim.execution.id)
-      request = lock_model_request!(claim.request.id)
+    StorageResult.run(fn ->
+      Repo.transaction(fn ->
+        execution = lock_execution!(claim.execution.id)
+        request = lock_model_request!(claim.request.id)
 
-      cond do
-        execution.state == "cancelled" ->
-          maybe_cancel_request!(request, "cancelled")
-          :ok
+        cond do
+          execution.state == "cancelled" ->
+            maybe_cancel_request!(request, "cancelled")
+            :ok
 
-        execution.lease_token == claim.lease_token and execution.state == "running" ->
-          now = DateTime.utc_now()
+          execution.lease_token == claim.lease_token and execution.state == "running" ->
+            now = DateTime.utc_now()
 
-          OutputRouter.route!(
-            operation,
-            execution,
-            claim.context_package,
-            request.step_key,
-            output
-          )
+            output_router().route!(
+              operation,
+              execution,
+              claim.context_package,
+              request.step_key,
+              output
+            )
 
-          request
-          |> Ash.Changeset.for_update(:record_result, %{
-            state: "succeeded",
-            output_hash: hash(output),
-            output_classification: Atom.to_string(output.classification),
-            failure_code: nil,
-            completed_at: now
-          })
-          |> Repo.ash_update!()
+            request
+            |> Ash.Changeset.for_update(:record_result, %{
+              state: "succeeded",
+              output_hash: hash(output),
+              output_classification: Atom.to_string(output.classification),
+              failure_code: nil,
+              completed_at: now
+            })
+            |> Repo.ash_update!()
 
-          transition!(execution, operation, "completed", %{
-            completed_at: now,
-            failure_code: nil,
-            lease_token: nil,
-            lease_expires_at: nil
-          })
+            transition!(execution, operation, "completed", %{
+              completed_at: now,
+              failure_code: nil,
+              lease_token: nil,
+              lease_expires_at: nil
+            })
 
-          :ok
+            :ok
 
-        request.state == "succeeded" and execution.state == "completed" ->
-          :ok
+          request.state == "succeeded" and execution.state == "completed" ->
+            :ok
 
-        true ->
-          Repo.rollback(:stale_agent_execution_lease)
-      end
+          true ->
+            Repo.rollback(:stale_agent_execution_lease)
+        end
+      end)
+      |> normalize_step_transaction()
     end)
-    |> normalize_step_transaction()
   end
 
   defp fail_unclaimed_step(execution_id, operation, failure_code \\ "agent_authority_revoked") do

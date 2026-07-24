@@ -126,6 +126,74 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert response["data"]["getWorkRun"]["state"] == work_run["state"]
     end
 
+    test "packet deep-link lookup isolates malformed and unavailable Relay IDs from the list",
+         %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+
+      valid_id =
+        Absinthe.Relay.Node.to_global_id(
+          "work_packet",
+          fixtures.local.packet.id,
+          OfficeGraphWeb.GraphQL.Schema
+        )
+
+      missing_id =
+        Absinthe.Relay.Node.to_global_id(
+          "work_packet",
+          Ecto.UUID.generate(),
+          OfficeGraphWeb.GraphQL.Schema
+        )
+
+      foreign_id =
+        Absinthe.Relay.Node.to_global_id(
+          "work_packet",
+          fixtures.foreign.packet.id,
+          OfficeGraphWeb.GraphQL.Schema
+        )
+
+      listed =
+        conn
+        |> post(~p"/graphql", %{query: generated_reads_query()})
+        |> json_response(200)
+
+      [listed_packet] = connection_nodes(listed["data"]["listWorkPackets"])
+      assert listed_packet["id"] == valid_id
+
+      valid =
+        conn
+        |> post(~p"/graphql", %{
+          query: packet_deep_link_query(),
+          variables: %{packetId: valid_id}
+        })
+        |> json_response(200)
+
+      assert valid["errors"] in [nil, []]
+      assert [_local_packet] = connection_nodes(valid["data"]["listWorkPackets"])
+      assert valid["data"]["linkedPacket"]["id"] == valid_id
+      refute valid["data"]["linkedPacket"]["id"] == fixtures.local.packet.id
+
+      Enum.each(
+        [
+          {"not-a-relay-id", ["invalid_primary_key"]},
+          {missing_id, []},
+          {foreign_id, []}
+        ],
+        fn {packet_id, expected_error_codes} ->
+          unavailable =
+            conn
+            |> post(~p"/graphql", %{
+              query: packet_deep_link_query(),
+              variables: %{packetId: packet_id}
+            })
+            |> json_response(200)
+
+          assert Enum.map(unavailable["errors"] || [], & &1["code"]) == expected_error_codes
+          assert [_local_packet] = connection_nodes(unavailable["data"]["listWorkPackets"])
+          assert unavailable["data"]["linkedPacket"] == nil
+        end
+      )
+    end
+
     test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
       original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
       Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
@@ -401,6 +469,32 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
           state
           workPacketId
         }
+      }
+    }
+    """
+  end
+
+  defp packet_deep_link_query do
+    """
+    query PacketDeepLink($packetId: ID!) {
+      listWorkPackets(first: 10) {
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }
+        edges {
+          cursor
+          node {
+            id
+            title
+          }
+        }
+      }
+      linkedPacket: getWorkPacket(id: $packetId) {
+        id
+        title
       }
     }
     """

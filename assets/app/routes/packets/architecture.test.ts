@@ -1,8 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { analyzeTypeScript } from "../architectureTestSupport";
+import {
+  analyzeTypeScript,
+  emittedClassNames as classNames,
+  localDependencyFiles,
+  stylesheetOwnerClasses as stylesheetClassesFromSource,
+} from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
 const routeRoot = join(process.cwd(), "app/routes/packets");
@@ -83,6 +87,22 @@ describe("packet route data architecture", () => {
     expect(routeCalls).toContainEqual(["packets", "./routes/packets/route.tsx"]);
   });
 
+  it("does not import presentation internals from sibling product routes", () => {
+    const siblingRouteImports = sourceFiles(routeRoot).flatMap((file) => {
+      const source = readFileSync(file, "utf8");
+
+      return [...analyzeTypeScript(source, file).moduleSpecifiers]
+        .filter((specifier) => specifier.startsWith("."))
+        .map((specifier) => resolve(dirname(file), specifier).replaceAll("\\", "/"))
+        .filter(
+          (specifier) =>
+            specifier.includes("/app/routes/operator/") || specifier.includes("/app/routes/runs/"),
+        );
+    });
+
+    expect(siblingRouteImports).toEqual([]);
+  });
+
   it("shares one route-local updated-at formatter across packet list and detail", () => {
     const formatterPath = join(routeRoot, "formatters.ts");
     const packetListSource = readFileSync(join(routeRoot, "components/PacketList.tsx"), "utf8");
@@ -144,7 +164,9 @@ describe("packet route data architecture", () => {
   it("does not depend on operator-owned styles through shared components", () => {
     const packetDependencies = localDependencyFiles(sourceFiles(routeRoot));
     const consumedClasses = new Set(
-      packetDependencies.flatMap((file) => classNames(readFileSync(file, "utf8"), file)),
+      packetDependencies.flatMap((file) =>
+        classNames(readFileSync(file, "utf8"), file, { unresolvedSpreads: "skip" }),
+      ),
     );
     const sharedClasses = stylesheetClasses("src/styles/shared.css");
     const operatorClasses = stylesheetClasses("src/styles/operator.css");
@@ -168,7 +190,9 @@ describe("packet route data architecture", () => {
 
   it("collects Button's explicit finite emitted classes", () => {
     const buttonPath = join(assetsRoot, "src/ui/Button.tsx");
-    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath);
+    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath, {
+      unresolvedSpreads: "skip",
+    });
 
     expect(buttonClasses).toEqual(
       expect.arrayContaining(["ui-button", "ui-button-primary", "ui-button-secondary"]),
@@ -254,28 +278,6 @@ describe("packet route data architecture", () => {
   });
 });
 
-function localDependencyFiles(entries: string[]) {
-  const pending = [...entries];
-  const visited = new Set<string>();
-
-  while (pending.length > 0) {
-    const file = pending.pop();
-    if (!file || visited.has(file)) continue;
-
-    visited.add(file);
-    const source = readFileSync(file, "utf8");
-
-    for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
-      if (!fileName.startsWith(".")) continue;
-
-      const dependency = resolveSourceFile(resolve(dirname(file), fileName));
-      if (dependency && !visited.has(dependency)) pending.push(dependency);
-    }
-  }
-
-  return [...visited];
-}
-
 function sourceFiles(path: string): string[] {
   return readdirSync(path).flatMap((entry) => {
     const fullPath = join(path, entry);
@@ -287,217 +289,7 @@ function sourceFiles(path: string): string[] {
   });
 }
 
-function resolveSourceFile(path: string) {
-  for (const candidate of [
-    path,
-    `${path}.ts`,
-    `${path}.tsx`,
-    join(path, "index.ts"),
-    join(path, "index.tsx"),
-  ]) {
-    if (existsSync(candidate)) return candidate;
-  }
-
-  return null;
-}
-
-function classNames(source: string, filename: string) {
-  const sourceFile = ts.createSourceFile(
-    filename,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    filename.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
-  const names = new Set<string>();
-
-  const addTokens = (value: string) => {
-    for (const token of value.split(/\s+/)) {
-      if (/^[a-z][\w-]*$/i.test(token)) names.add(token);
-    }
-  };
-
-  const collectExpression = (expression: ts.Expression, passThrough = new Set<string>()) => {
-    if (ts.isStringLiteralLike(expression)) {
-      addTokens(expression.text);
-      return;
-    }
-
-    if (ts.isTemplateExpression(expression)) {
-      for (const value of finiteTemplateValues(expression, sourceFile)) addTokens(value);
-      return;
-    }
-
-    if (ts.isConditionalExpression(expression)) {
-      collectExpression(expression.whenTrue, passThrough);
-      collectExpression(expression.whenFalse, passThrough);
-      return;
-    }
-
-    if (ts.isArrowFunction(expression) && !ts.isBlock(expression.body)) {
-      const arrowPassThrough = new Set(passThrough);
-      for (const parameter of expression.parameters) {
-        if (ts.isIdentifier(parameter.name)) arrowPassThrough.add(parameter.name.text);
-      }
-      collectExpression(expression.body, arrowPassThrough);
-      return;
-    }
-
-    if (ts.isArrayLiteralExpression(expression)) {
-      for (const element of expression.elements) {
-        if (ts.isSpreadElement(element)) unsupportedClassExpression(element, sourceFile);
-        collectExpression(element, passThrough);
-      }
-      return;
-    }
-
-    if (ts.isParenthesizedExpression(expression)) {
-      collectExpression(expression.expression, passThrough);
-      return;
-    }
-
-    if (ts.isIdentifier(expression)) {
-      if (expression.text === "undefined" || passThrough.has(expression.text)) {
-        return;
-      }
-      unsupportedClassExpression(expression, sourceFile);
-    }
-
-    if (expression.kind === ts.SyntaxKind.NullKeyword) return;
-
-    if (ts.isCallExpression(expression)) {
-      if (
-        ts.isIdentifier(expression.expression) &&
-        expression.expression.text === "composeRenderProps" &&
-        expression.arguments.length === 2 &&
-        ts.isIdentifier(expression.arguments[0]) &&
-        passThrough.has(expression.arguments[0].text) &&
-        ts.isArrowFunction(expression.arguments[1])
-      ) {
-        collectExpression(expression.arguments[1], passThrough);
-        return;
-      }
-
-      if (
-        ts.isPropertyAccessExpression(expression.expression) &&
-        expression.expression.name.text === "filter" &&
-        expression.arguments.length === 1 &&
-        ts.isIdentifier(expression.arguments[0]) &&
-        expression.arguments[0].text === "Boolean"
-      ) {
-        collectExpression(expression.expression.expression, passThrough);
-        return;
-      }
-
-      if (
-        ts.isPropertyAccessExpression(expression.expression) &&
-        expression.expression.name.text === "join" &&
-        expression.arguments.length === 1 &&
-        ts.isStringLiteralLike(expression.arguments[0]) &&
-        expression.arguments[0].text === " "
-      ) {
-        collectExpression(expression.expression.expression, passThrough);
-        return;
-      }
-    }
-
-    unsupportedClassExpression(expression, sourceFile);
-  };
-
-  walk(sourceFile, (node) => {
-    const attributeName = ts.isJsxAttribute(node) ? node.name.getText(sourceFile) : null;
-
-    if (
-      ts.isJsxAttribute(node) &&
-      (attributeName === "className" || attributeName?.endsWith("ClassName")) &&
-      node.initializer
-    ) {
-      if (ts.isStringLiteral(node.initializer)) {
-        addTokens(node.initializer.text);
-      } else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
-        collectExpression(node.initializer.expression, destructuredClassNameParameters(node));
-      } else {
-        throw new Error(`Unsupported ${attributeName} initializer in ${filename}`);
-      }
-    }
-  });
-
-  return [...names];
-}
-
-function finiteTemplateValues(template: ts.TemplateExpression, sourceFile: ts.SourceFile) {
-  let values = [template.head.text];
-
-  for (const span of template.templateSpans) {
-    if (!ts.isConditionalExpression(span.expression)) {
-      throw new Error(
-        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
-      );
-    }
-
-    const spanValues = [span.expression.whenTrue, span.expression.whenFalse].flatMap((branch) =>
-      ts.isStringLiteralLike(branch) ? [branch.text] : [],
-    );
-    if (spanValues.length !== 2) {
-      throw new Error(
-        `Unsupported dynamic className template span: ${span.expression.getText(sourceFile)}`,
-      );
-    }
-
-    values = values.flatMap((prefix) =>
-      spanValues.map((spanValue) => `${prefix}${spanValue}${span.literal.text}`),
-    );
-  }
-
-  return values;
-}
-
-function destructuredClassNameParameters(node: ts.Node) {
-  let current = node.parent;
-  while (current && !ts.isFunctionLike(current)) current = current.parent;
-
-  const parameters = new Set<string>();
-  for (const parameter of current?.parameters ?? []) {
-    if (!ts.isObjectBindingPattern(parameter.name)) continue;
-
-    for (const binding of parameter.name.elements) {
-      if (
-        ts.isIdentifier(binding.name) &&
-        (binding.name.text === "className" || binding.name.text.endsWith("ClassName"))
-      ) {
-        parameters.add(binding.name.text);
-      }
-    }
-  }
-
-  return parameters;
-}
-
-function unsupportedClassExpression(expression: ts.Node, sourceFile: ts.SourceFile): never {
-  throw new Error(`Unsupported className expression: ${expression.getText(sourceFile)}`);
-}
-
-function walk(node: ts.Node, visit: (node: ts.Node) => void) {
-  visit(node);
-  ts.forEachChild(node, (child) => walk(child, visit));
-}
-
 function stylesheetClasses(relativePath: string) {
   const styles = readFileSync(join(assetsRoot, relativePath), "utf8");
   return stylesheetClassesFromSource(styles);
-}
-
-function stylesheetClassesFromSource(styles: string) {
-  const withoutComments = styles.replace(/\/\*[\s\S]*?\*\//g, "");
-  const owners = new Set<string>();
-
-  for (const match of withoutComments.matchAll(/(?:^|[{}])\s*([^@{}\s][^{}]*?)\s*\{/g)) {
-    const selectorList = match[1];
-    for (const selector of selectorList.split(",")) {
-      const owner = selector.match(/\.([a-z_][\w-]*)/i)?.[1];
-      if (owner) owners.add(owner);
-    }
-  }
-
-  return owners;
 }
