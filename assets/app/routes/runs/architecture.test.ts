@@ -8,8 +8,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
+import * as routeHelpers from "@react-router/dev/routes";
+import {
+  index as registerIndex,
+  layout as registerLayout,
+  prefix as registerPrefix,
+  relative as relativeRouteHelpers,
+  route as registerRoute,
+} from "@react-router/dev/routes";
 import { describe, expect, it } from "vitest";
+import appRouteConfig from "../../routes";
 import {
   analyzeRouteConfig,
   analyzeTypeScript,
@@ -17,21 +26,21 @@ import {
   emittedClassNames,
   localDependencyFiles,
   normalizeModuleSpecifier,
-  routeRegistrationOffenders,
   stylesheetOwnerClasses,
   unownedClassNames,
 } from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
-const routeRoot = join(assetsRoot, "app/routes/runs");
+const appDirectory = join(assetsRoot, "app");
+const routeRoot = join(appDirectory, "routes/runs");
 const allowedRoutePackages = new Set(["react", "react-relay", "react-router"]);
+const resolvedAppRouteConfig = await appRouteConfig;
 
 describe("all-runs route architecture", () => {
   it("owns exactly the canonical registered route and keeps generated artifacts outside source", () => {
-    const routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8");
-    const routeFiles = routeOwnedDependencyFiles(routesSource);
+    const routeFiles = routeOwnedDependencyFiles();
 
-    expect(routeRegistrationOffenders(routesSource, runsRegistration)).toEqual([]);
+    expect(analyzeRunsRouteConfig(resolvedAppRouteConfig).offenders).toEqual([]);
     expect(routeFiles.length).toBeGreaterThan(0);
     expect(existsSync(join(assetsRoot, "src/runs"))).toBe(false);
     expect(
@@ -106,146 +115,100 @@ describe("all-runs route architecture", () => {
     expect(emittedClasses.filter((className) => utilityClass.test(className))).toEqual([]);
   });
 
-  it("rejects route aliases that target any runs-owned module", () => {
-    const source = `
-      import { route } from "@react-router/dev/routes";
-      export default [
-        route("runs", "./routes/runs/route.tsx"),
-        route("all-runs", "./routes/runs/route.tsx"),
-      ];
-    `;
+  it("rejects absolute runs-owned targets regardless of helper import syntax", () => {
+    const absoluteRunsRoute = join(routeRoot, "route.tsx");
+    const routes = [
+      registerRoute("runs", "./routes/runs/route.tsx"),
+      routeHelpers.route("all-" + "runs", absoluteRunsRoute),
+    ];
 
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([
+      `all-runs targets runs-owned module "${absoluteRunsRoute}"`,
     ]);
   });
 
-  it("resolves local aliases imported for the canonical route registrar", () => {
-    const source = `
-      import { type RouteConfig, route as registerRoute } from "@react-router/dev/routes";
-      export default [
-        registerRoute("runs", "./routes/runs/route.tsx"),
-        registerRoute("all-runs", "./routes/runs/route.tsx"),
-      ] satisfies RouteConfig;
-    `;
+  it("rejects runs-owned aliases emitted by a reassigned relative-derived registrar", () => {
+    let mutableRegistrar = relativeRouteHelpers("app/routes").route;
+    mutableRegistrar = registerRoute;
+    const wrappedRegistrar = (path: string, file: string) => mutableRegistrar(path, file);
+    const routes = [
+      registerRoute("runs", "./routes/runs/route.tsx"),
+      wrappedRegistrar("all-runs", "./routes/runs/route.tsx"),
+    ];
 
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([
+      `all-runs targets runs-owned module "${join(routeRoot, "route.tsx")}"`,
     ]);
   });
 
-  it("uses the same aliased registration to discover the canonical route dependency", () => {
-    const source = `
-      import { type RouteConfig, route as registerRoute } from "@react-router/dev/routes";
-      export default [
-        registerRoute("runs", "./routes/runs/route.tsx"),
-      ] satisfies RouteConfig;
-    `;
+  it("does not accept a prefixed index entry as the canonical runs route", () => {
+    const routes = registerPrefix("runs", [registerIndex("./routes/runs/route.tsx")]);
 
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([]);
-    expect(routeOwnedDependencyFiles(source)).toContain(join(routeRoot, "route.tsx"));
-  });
-
-  it("requires a static default-export registration array", () => {
-    const source = `
-      import { route } from "@react-router/dev/routes";
-      route("runs", "./routes/runs/route.tsx");
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      "default route config must be a static registration array",
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([
+      "canonical runs route must target one owned module",
+      `runs targets runs-owned module "${join(routeRoot, "route.tsx")}"`,
     ]);
   });
 
   it("accepts official route helpers and nested prefixes alongside the canonical route", () => {
-    const source = `
-      import {
-        type RouteConfig,
-        index as registerIndex,
-        layout as registerLayout,
-        prefix as registerPrefix,
-        route as registerRoute,
-      } from "@react-router/dev/routes";
+    const routes = [
+      registerIndex("./routes/home.tsx"),
+      registerLayout("./routes/shell.tsx", [
+        ...registerPrefix("admin", [registerRoute("settings", "./routes/settings.tsx")]),
+      ]),
+      registerRoute("runs", "./routes/runs/route.tsx"),
+    ];
 
-      export default [
-        registerIndex("./routes/home.tsx"),
-        registerLayout("./routes/shell.tsx", [
-          ...registerPrefix("admin", [
-            registerRoute("settings", "./routes/settings.tsx"),
-          ]),
-        ]),
-        registerRoute("runs", "./routes/runs/route.tsx"),
-      ] satisfies RouteConfig;
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([]);
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([]);
   });
 
   it("analyzes runs-owned modules hidden in official helpers and nesting", () => {
-    const source = `
-      import {
-        type RouteConfig,
-        index as registerIndex,
-        layout as registerLayout,
-        prefix as registerPrefix,
-        route as registerRoute,
-      } from "@react-router/dev/routes";
-
-      export default [
-        registerRoute("runs", "./routes/runs/route.tsx"),
-        registerIndex("./routes/runs/index.tsx"),
-        registerLayout("./routes/runs/layout.tsx", [
-          ...registerPrefix("legacy", [
-            registerRoute("history", "./routes/runs/history.tsx"),
-          ]),
+    const routes = [
+      registerRoute("runs", "./routes/runs/route.tsx"),
+      registerIndex("./routes/runs/index.tsx"),
+      registerLayout("./routes/runs/layout.tsx", [
+        registerRoute("legacy", "./routes/legacy.tsx", [
+          registerRoute("history", "./routes/runs/history.tsx"),
         ]),
-      ] satisfies RouteConfig;
-    `;
+        ...registerPrefix("archive", [registerRoute("history", "./routes/runs/archive.tsx")]),
+      ]),
+    ];
 
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      '<index> targets runs-owned module "./routes/runs/index.tsx"',
-      '<layout> targets runs-owned module "./routes/runs/layout.tsx"',
-      'legacy/history targets runs-owned module "./routes/runs/history.tsx"',
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([
+      `<index> targets runs-owned module "${join(routeRoot, "index.tsx")}"`,
+      `<pathless> targets runs-owned module "${join(routeRoot, "layout.tsx")}"`,
+      `legacy/history targets runs-owned module "${join(routeRoot, "history.tsx")}"`,
+      `archive/history targets runs-owned module "${join(routeRoot, "archive.tsx")}"`,
     ]);
   });
 
-  it("supports statically analyzable helpers derived from relative", () => {
-    const source = `
-      import { type RouteConfig, relative as scopedRoutes } from "@react-router/dev/routes";
+  it("accepts relative-derived helpers and exposes one absolute canonical target", () => {
+    const {
+      index: registerRelativeIndex,
+      layout: registerRelativeLayout,
+      prefix: registerRelativePrefix,
+      route: registerRelativeRoute,
+    } = relativeRouteHelpers("app/routes");
+    const routes = [
+      registerRelativeIndex("home.tsx"),
+      registerRelativeLayout("shell.tsx", [
+        ...registerRelativePrefix("admin", [registerRelativeRoute("settings", "settings.tsx")]),
+      ]),
+      registerRelativeRoute("runs", "runs/route.tsx"),
+    ];
+    const analysis = analyzeRunsRouteConfig(routes);
 
-      const {
-        index: registerIndex,
-        layout: registerLayout,
-        prefix: registerPrefix,
-        route: registerRoute,
-      } = scopedRoutes("app/routes");
-
-      export default [
-        registerIndex("home.tsx"),
-        registerLayout("shell.tsx", [
-          ...registerPrefix("admin", [
-            registerRoute("settings", "settings.tsx"),
-          ]),
-        ]),
-        registerRoute("runs", "runs/route.tsx"),
-      ] satisfies RouteConfig;
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([]);
-    expect(routeOwnedDependencyFiles(source)).toContain(join(routeRoot, "route.tsx"));
+    expect(analysis.offenders).toEqual([]);
+    expect(analysis.canonicalTarget).toBe(join(routeRoot, "route.tsx"));
+    expect(routeOwnedDependencyFiles(routes)).toContain(join(routeRoot, "route.tsx"));
   });
 
-  it("fails closed when the default route config uses an unrecognized registration form", () => {
-    const source = `
-      import { type RouteConfig, route } from "@react-router/dev/routes";
-      const registerRoute = (...args: Parameters<typeof route>) => route(...args);
-      export default [
-        registerRoute("runs", "./routes/runs/route.tsx"),
-      ] satisfies RouteConfig;
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      'unrecognized route registration: registerRoute("runs", "./routes/runs/route.tsx")',
+  it("fails closed for invalid resolved route config values", () => {
+    expect(analyzeRunsRouteConfig(undefined).offenders).toEqual([
+      "resolved route config must be an array of valid route entries",
+    ]);
+    expect(analyzeRunsRouteConfig([{ path: "runs" }]).offenders).toEqual([
+      "resolved route config must be an array of valid route entries",
     ]);
   });
 
@@ -424,69 +387,23 @@ describe("all-runs route architecture", () => {
     );
   });
 
-  it("evaluates static concatenated and template route arguments and still rejects aliases", () => {
-    const source = `
-      import { route } from "@react-router/dev/routes";
-      export default [
-        route("ru" + "ns", \`./routes/\${"runs"}/route.tsx\`),
-        route("all-" + "runs", "./routes/runs/" + "route.tsx"),
-      ];
-    `;
+  it("normalizes dot segments before comparing canonical and owned route targets", () => {
+    const routes = [
+      registerRoute("runs", "./routes/neighbor/../runs/route.tsx"),
+      registerRoute("all-runs", "./routes/runs/../runs/index.tsx"),
+    ];
 
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      'all-runs targets runs-owned module "./routes/runs/route.tsx"',
-    ]);
-  });
-
-  it("accepts equivalent normalized canonical route targets", () => {
-    const source = `
-      import { route } from "@react-router/dev/routes";
-      export default [
-        route("runs", "./routes/neighbor/../runs/./route"),
-      ];
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([]);
-  });
-
-  it("rejects normalized aliases that target the runs route", () => {
-    const source = `
-      import { route } from "@react-router/dev/routes";
-      export default [
-        route("runs", "./routes/runs/route.tsx"),
-        route("all-runs", "./routes/neighbor/../runs/route.ts"),
-        route("runs-index", "./routes/runs/./index.tsx"),
-      ];
-    `;
-
-    expect(routeRegistrationOffenders(source, runsRegistration)).toEqual([
-      'all-runs targets runs-owned module "./routes/neighbor/../runs/route.ts"',
-      'runs-index targets runs-owned module "./routes/runs/./index.tsx"',
-    ]);
-  });
-
-  it("fails closed on non-static route paths and targets", () => {
-    expect(
-      routeRegistrationOffenders(
-        `
-          import { route } from "@react-router/dev/routes";
-          export default [
-            route(routePath, "./routes/runs/route.tsx"),
-            route("runs", routeTarget),
-          ];
-        `,
-        runsRegistration,
-      ),
-    ).toEqual([
-      "route call has a non-static path: routePath",
-      "route call has a non-static target: routeTarget",
+    expect(analyzeRunsRouteConfig(routes).offenders).toEqual([
+      `all-runs targets runs-owned module "${join(routeRoot, "index.tsx")}"`,
     ]);
   });
 });
 
 const runsRegistration = {
+  appDirectory,
+  canonicalModule: "./routes/runs/route.tsx",
   canonicalPath: "runs",
-  ownedModulePrefix: "./routes/runs",
+  ownedModuleDirectory: "./routes/runs",
 } as const;
 
 function normalizedImports(file: string) {
@@ -503,29 +420,29 @@ function routeDependencyClassNames(file: string) {
   });
 }
 
-function routeDependencyFiles(
-  routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8"),
-) {
-  return localDependencyFiles([canonicalRouteEntry(routesSource)]);
+function analyzeRunsRouteConfig(routeConfig: unknown) {
+  return analyzeRouteConfig(routeConfig, runsRegistration);
 }
 
-function routeOwnedDependencyFiles(
-  routesSource = readFileSync(join(assetsRoot, "app/routes.ts"), "utf8"),
-) {
+function routeDependencyFiles(routeConfig: unknown = resolvedAppRouteConfig) {
+  return localDependencyFiles([canonicalRouteEntry(routeConfig)]);
+}
+
+function routeOwnedDependencyFiles(routeConfig: unknown = resolvedAppRouteConfig) {
   const ownedPrefix = `${routeRoot}/`;
-  return routeDependencyFiles(routesSource).filter(
+  return routeDependencyFiles(routeConfig).filter(
     (file) => file === routeRoot || file.startsWith(ownedPrefix),
   );
 }
 
-function canonicalRouteEntry(routesSource: string) {
-  const analysis = analyzeRouteConfig(routesSource, runsRegistration);
+function canonicalRouteEntry(routeConfig: unknown) {
+  const analysis = analyzeRunsRouteConfig(routeConfig);
   if (analysis.offenders.length > 0) {
     throw new Error(`Invalid runs route registration: ${analysis.offenders.join("; ")}`);
   }
   if (!analysis.canonicalTarget) throw new Error("Canonical runs route is not registered.");
 
-  return resolve(dirname(join(assetsRoot, "app/routes.ts")), analysis.canonicalTarget);
+  return analysis.canonicalTarget;
 }
 
 function treeFiles(path: string): string[] {
