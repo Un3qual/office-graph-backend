@@ -18,6 +18,6 @@
 
 ## 4. Verification And Closeout
 
-- [ ] 4.1 Run focused tests, formatting, strict OpenSpec validation, and the
+- [x] 4.1 Run focused tests, formatting, strict OpenSpec validation, and the
   full repository verification gate
-- [ ] 4.2 Sync the durable specs and archive the completed OpenSpec change
+- [x] 4.2 Sync the durable specs and archive the completed OpenSpec change
