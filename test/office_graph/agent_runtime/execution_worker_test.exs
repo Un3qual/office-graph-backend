@@ -77,6 +77,17 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     end
   end
 
+  defmodule PermanentOutputRoutingFailure do
+    @moduledoc false
+
+    def route!(_operation, _execution, _context_package, _step_key, _output) do
+      case Application.fetch_env!(:office_graph, :execution_worker_test_output_error) do
+        :forbidden -> raise Ash.Error.Forbidden, errors: []
+        :invalid -> raise Ash.Error.Invalid, errors: []
+      end
+    end
+  end
+
   defmodule RotatedModel do
     @behaviour OfficeGraph.AgentRuntime.ModelAdapter
 
@@ -454,6 +465,50 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert execution.failure_code == "integration_storage_unavailable"
     assert request.state == "retry_scheduled"
     assert request.failure_code == "integration_storage_unavailable"
+  end
+
+  test "permanent output routing failures terminalize without retrying the model" do
+    configured = Application.get_env(:office_graph, :agent_runtime_output_router)
+
+    Application.put_env(
+      :office_graph,
+      :agent_runtime_output_router,
+      PermanentOutputRoutingFailure
+    )
+
+    on_exit(fn ->
+      Application.delete_env(:office_graph, :execution_worker_test_output_error)
+
+      if is_nil(configured) do
+        Application.delete_env(:office_graph, :agent_runtime_output_router)
+      else
+        Application.put_env(:office_graph, :agent_runtime_output_router, configured)
+      end
+    end)
+
+    for error <- [:forbidden, :invalid] do
+      Application.put_env(:office_graph, :execution_worker_test_output_error, error)
+
+      context = AgentRuntimeSupport.invocation_fixture()
+      invoked = AgentRuntimeSupport.invoke_human(context)
+      [job] = execution_jobs(invoked.execution.id)
+
+      assert {:cancel, "agent_output_routing_failed"} =
+               ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
+
+      execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
+
+      request =
+        ModelRequest
+        |> Ash.Query.filter(execution_id == ^invoked.execution.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert execution.state == "failed"
+      assert execution.attempt_count == 1
+      assert execution.failure_code == "agent_output_routing_failed"
+      assert request.state == "failed"
+      assert request.failure_code == "agent_output_routing_failed"
+    end
   end
 
   test "missing configured adapter terminalizes queued execution instead of stranding it" do

@@ -162,7 +162,8 @@ terminal failure reason codes without raw provider/model exception text.
 - **WHEN** an adapter succeeds but permanent output validation or the owning
   domain's business rules reject the routed result
 - **THEN** the model request and execution MUST transition to terminal failure
-  and MUST NOT remain running with an expired lease
+  and MUST NOT remain running with an expired lease or schedule another model
+  invocation
 
 #### Scenario: Owning-domain output routing encounters transient storage failure
 

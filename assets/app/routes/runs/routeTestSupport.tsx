@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
-import { MemoryRouter, useLocation } from "react-router";
+import { createBrowserRouter, MemoryRouter, useLocation } from "react-router";
+import { RouterProvider } from "react-router/dom";
 import {
   Environment,
   type FetchFunction,
@@ -45,6 +46,25 @@ export function renderWithRelayEnvironment(environment: Environment, initialEntr
       </RelayEnvironmentProvider>
     </MemoryRouter>,
   );
+}
+
+export function renderWithBrowserRelay(network: FetchFunction, initialEntry = "/runs") {
+  window.history.replaceState(null, "", initialEntry);
+
+  const restoreRequest = installCrossRealmRequestSignalBridge();
+  const router = createBrowserRouter([
+    {
+      path: "/runs",
+      element: (
+        <RelayEnvironmentProvider environment={createRelayTestEnvironment(network)}>
+          <RunsRoute />
+          <LocationProbe />
+        </RelayEnvironmentProvider>
+      ),
+    },
+  ]);
+
+  return { ...render(<RouterProvider router={router} />), restoreRequest };
 }
 
 export function createRunsNetwork({
@@ -251,6 +271,27 @@ function LocationProbe() {
   const location = useLocation();
 
   return <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function installCrossRealmRequestSignalBridge() {
+  const NativeRequest = globalThis.Request;
+
+  function CompatibleRequest(input: RequestInfo | URL, init?: RequestInit) {
+    const { signal, ...compatibleInit } = init ?? {};
+    const request = new NativeRequest(input, compatibleInit);
+
+    if (signal) {
+      Object.defineProperty(request, "signal", { value: signal });
+    }
+
+    return request;
+  }
+
+  globalThis.Request = CompatibleRequest as unknown as typeof Request;
+
+  return () => {
+    globalThis.Request = NativeRequest;
+  };
 }
 
 type PageInfoPayload = {

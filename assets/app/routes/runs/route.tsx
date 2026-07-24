@@ -82,7 +82,7 @@ export default function RunsRoute() {
           nextSearchParams.set("runId", id);
           return nextSearchParams;
         },
-        { flushSync: true, replace: true },
+        { replace: true },
       );
     },
     [setSearchParams],
@@ -268,14 +268,20 @@ function LoadedRunsList({
   selectedId: string | null;
 }) {
   const connection = useRunsPage(navigation.page, fetchKey, fetchKey > 0);
+  const requestedDefaultRunIdRef = useRef<string | null>(null);
+  const defaultRunId = connection.rows[0]?.id ?? null;
 
   useEffect(() => {
-    const defaultRunId = connection.rows[0]?.id;
+    if (hasRequestedRunId) {
+      requestedDefaultRunIdRef.current = null;
+      return;
+    }
 
-    if (!hasRequestedRunId && defaultRunId) {
+    if (defaultRunId && requestedDefaultRunIdRef.current !== defaultRunId) {
+      requestedDefaultRunIdRef.current = defaultRunId;
       onDefaultRun(defaultRunId);
     }
-  }, [connection.rows, hasRequestedRunId, onDefaultRun]);
+  }, [defaultRunId, hasRequestedRunId, onDefaultRun]);
 
   const pageAttempt = pendingNavigation ? (
     <AsyncBoundary

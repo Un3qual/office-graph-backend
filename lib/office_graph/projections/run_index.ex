@@ -61,7 +61,7 @@ defmodule OfficeGraph.Projections.RunIndex do
       runs
       |> Enum.reduce_while({:ok, []}, fn run, {:ok, rows} ->
         with {:ok, packet} <- Map.fetch(packets_by_id, run.work_packet_id),
-             {:ok, packet_version} <- Map.fetch(versions_by_id, run.work_packet_version_id) do
+             {:ok, packet_version} <- packet_version(run, versions_by_id) do
           {:cont, {:ok, [run_row(run, packet, packet_version) | rows]}}
         else
           :error -> {:halt, {:error, :forbidden}}
@@ -87,7 +87,7 @@ defmodule OfficeGraph.Projections.RunIndex do
   end
 
   defp read_packet_versions(session_context, runs) do
-    version_ids = Enum.map(runs, & &1.work_packet_version_id)
+    version_ids = runs |> Enum.map(& &1.work_packet_version_id) |> Enum.reject(&is_nil/1)
 
     WorkPacketVersion
     |> Ash.Query.filter(
@@ -101,6 +101,11 @@ defmodule OfficeGraph.Projections.RunIndex do
   defp map_by_id({:ok, records}), do: {:ok, Map.new(records, &{&1.id, &1})}
   defp map_by_id({:error, error}), do: {:error, error}
 
+  defp packet_version(%{work_packet_version_id: nil}, _versions_by_id), do: {:ok, nil}
+
+  defp packet_version(run, versions_by_id),
+    do: Map.fetch(versions_by_id, run.work_packet_version_id)
+
   defp run_row(run, packet, packet_version) do
     %{
       id: run.id,
@@ -110,14 +115,20 @@ defmodule OfficeGraph.Projections.RunIndex do
       verification_state: run.verification_state,
       inserted_at: run.inserted_at,
       packet: %{id: packet.id, title: packet.title, state: packet.state},
-      packet_version: %{
-        id: packet_version.id,
-        version_number: packet_version.version_number,
-        lifecycle_state: packet_version.lifecycle_state,
-        objective: packet_version.objective
-      }
+      packet_version: packet_version_ref(packet_version)
     }
     |> with_source_watermark()
+  end
+
+  defp packet_version_ref(nil), do: nil
+
+  defp packet_version_ref(packet_version) do
+    %{
+      id: packet_version.id,
+      version_number: packet_version.version_number,
+      lifecycle_state: packet_version.lifecycle_state,
+      objective: packet_version.objective
+    }
   end
 
   defp with_source_watermark(row) do

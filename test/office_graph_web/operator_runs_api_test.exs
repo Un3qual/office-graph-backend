@@ -63,6 +63,25 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     assert second_node["id"] == older.run.id
   end
 
+  test "returns a nullable packet-version reference for graph-targeted runs", %{conn: conn} do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
+
+    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(result.run.id)
+    ])
+
+    page = graphql(conn, @operator_runs_query, %{first: 10}, "operatorRuns")
+
+    assert %{"packetVersion" => nil, "packet" => %{"id" => packet_id}} =
+             page["edges"]
+             |> Enum.find(&(get_in(&1, ["node", "id"]) == result.run.id))
+             |> Map.fetch!("node")
+
+    assert packet_id == result.run.work_packet_id
+  end
+
   test "rejects invalid Relay input without returning a partial page", %{conn: conn} do
     invalid_cursor =
       conn

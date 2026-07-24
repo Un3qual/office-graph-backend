@@ -159,6 +159,29 @@ describe("all-runs route reads", () => {
     ).toHaveAttribute("aria-current", "true");
   });
 
+  it("defaults a populated browser route without re-entering lifecycle navigation", async () => {
+    const network = support.createRunsNetwork();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const rendered = support.renderWithBrowserRelay(network);
+
+    try {
+      expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+      });
+
+      const lifecycleErrors = consoleError.mock.calls
+        .flat()
+        .map(String)
+        .filter((message) => /flushSync|maximum update depth/i.test(message));
+
+      expect(lifecycleErrors).toEqual([]);
+    } finally {
+      rendered.restoreRequest();
+      consoleError.mockRestore();
+    }
+  });
+
   it("preserves an explicit visible URL selection", async () => {
     const selected = support.runSummary({
       id: "run_selected",

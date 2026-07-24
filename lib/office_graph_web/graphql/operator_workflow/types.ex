@@ -294,7 +294,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :inserted_at, non_null(:datetime)
     field :source_watermark, non_null(:id)
     field :packet, non_null(:operator_packet_ref)
-    field :packet_version, non_null(:operator_packet_version_ref)
+    field :packet_version, :operator_packet_version_ref
   end
 
   connection(node_type: :operator_run_summary)

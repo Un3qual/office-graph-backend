@@ -1605,7 +1605,7 @@ type OperatorRunSummary {
   insertedAt: DateTime!
   sourceWatermark: ID!
   packet: OperatorPacketRef!
-  packetVersion: OperatorPacketVersionRef!
+  packetVersion: OperatorPacketVersionRef
 }
 
 type OperatorRunSummaryConnection {

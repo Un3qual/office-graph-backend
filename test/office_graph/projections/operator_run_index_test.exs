@@ -67,6 +67,25 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     assert page.has_previous_page? == false
   end
 
+  test "projects graph-targeted runs that do not have a packet version" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
+    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
+
+    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(result.run.id)
+    ])
+
+    assert {:ok, page} =
+             Projections.operator_runs_page(bootstrap.session, limit: 10, after_cursor: nil)
+
+    assert {row, cursor: _cursor} =
+             Enum.find(page.row_edges, fn {row, cursor: _cursor} -> row.id == result.run.id end)
+
+    assert row.packet_version == nil
+    assert row.packet.id == result.run.work_packet_id
+  end
+
   test "paginates without duplication and keeps continuation stable after a leading insert" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)

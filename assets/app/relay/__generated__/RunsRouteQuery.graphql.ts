@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<a43c495f76d4b67413a903d10baa83b9>>
+ * @generated SignedSource<<0a5cd2464302594355296757a78a04dc>>
  * @lightSyntaxTransform
  */
 
@@ -32,7 +32,7 @@ export type RunsRouteQuery$data = {
           readonly lifecycleState: string;
           readonly objective: string | null | undefined;
           readonly versionNumber: number;
-        };
+        } | null | undefined;
         readonly sourceWatermark: string;
         readonly verificationState: string;
       } | null | undefined;

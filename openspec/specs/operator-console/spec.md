@@ -397,8 +397,9 @@ read resolves.
 #### Scenario: URL lacks a selection
 
 - **WHEN** a non-empty authorized list loads with no `runId` URL parameter
-- **THEN** the route MUST select the first visible run and represent that
-  selection in the URL
+- **THEN** the route MUST select the first visible run, represent that
+  selection in the URL exactly once, and load its detail without a repeated
+  navigation or render loop
 
 ### Requirement: All Runs Preserves Product Context Through Deep Links
 
