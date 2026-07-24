@@ -22,6 +22,8 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{AgentRuntime, Authorization, Foundation, Repo}
+  alias OfficeGraph.AgentRuntime.{AgentExecution, ExecutionWorker}
+  alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   alias OfficeGraph.Repo.Migrations.{
     BackfillAgentRuntimeGovernance,
@@ -285,6 +287,100 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
              ~w(agent.model.generate evidence.suggest proposal.create)
 
     assert capability_keys(Ecto.UUID.dump!(unrelated_role_id)) == []
+  end
+
+  test "terminalizes incompatible legacy executions before narrowing the definition" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    compatible =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "compatible-before-reconciliation-#{context.suffix}"
+      })
+
+    Repo.query!(
+      """
+      UPDATE agent_definitions
+      SET key = 'openspec-review',
+          requested_capabilities = ARRAY[
+            'agent.invoke',
+            'agent.model.generate',
+            'agent.tool.read',
+            'evidence.suggest',
+            'proposal.create',
+            'repository.read'
+          ]::text[],
+          tool_allowlist = ARRAY['repository.read']::text[],
+          updated_at = NOW()
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+      SELECT
+        gen_random_uuid(),
+        assignments.role_id,
+        capabilities.id,
+        NOW(),
+        NOW()
+      FROM role_assignments AS assignments
+      JOIN capabilities
+        ON capabilities.key = ANY(ARRAY['agent.tool.read', 'repository.read']::text[])
+      WHERE assignments.principal_id IN ($1, $2)
+        AND assignments.organization_id = $3
+        AND assignments.workspace_id = $4
+      ON CONFLICT (role_id, capability_id) DO NOTHING
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    legacy =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "legacy-before-reconciliation-#{context.suffix}",
+        requested_capabilities: [
+          "agent.model.generate",
+          "agent.tool.read",
+          "evidence.suggest",
+          "proposal.create",
+          "repository.read"
+        ]
+      })
+
+    assert :ok =
+             AgentRuntime.revalidate_step(legacy.execution.id,
+               tool_key: "repository.read"
+             )
+
+    run_reconciliation_migration()
+    run_reconciliation_migration()
+
+    compatible_execution =
+      Ash.get!(AgentExecution, compatible.execution.id, authorize?: false)
+
+    assert compatible_execution.state == "queued"
+    assert compatible_execution.state_version == compatible.execution.state_version
+    assert :ok = AgentRuntime.revalidate_step(compatible_execution.id)
+
+    legacy_execution = Ash.get!(AgentExecution, legacy.execution.id, authorize?: false)
+
+    assert legacy_execution.state == "cancelled"
+    assert legacy_execution.state_version == legacy.execution.state_version + 1
+    assert legacy_execution.failure_code == "agent_definition_reconciled"
+    assert %DateTime{} = legacy_execution.cancelled_at
+    assert is_nil(legacy_execution.lease_token)
+    assert is_nil(legacy_execution.lease_expires_at)
+
+    [job] = AgentRuntimeSupport.execution_jobs(legacy.execution.id)
+
+    assert {:cancel, "agent_definition_reconciled"} =
+             ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
   end
 
   defp capability_keys(role_id) do

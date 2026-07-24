@@ -26,6 +26,17 @@ allowlist, and default autonomy envelope.
   canonical `run-review` key, its approved runtime configuration MUST match a
   fresh install, and an existing lifecycle state MUST be preserved
 
+#### Scenario: Legacy execution authority is incompatible with the canonical definition
+
+- **WHEN** the forward reconciliation migration encounters a non-terminal
+  execution whose immutable authority snapshot contains capabilities or tools
+  removed from the canonical `run-review` contract
+- **THEN** the execution and its active model, tool, approval, and context
+  expansion work MUST be terminalized with a safe durable reason before the
+  definition is narrowed
+- **AND** a non-terminal execution whose snapshot remains compatible with the
+  canonical contract MUST remain eligible to continue
+
 #### Scenario: Legacy run review binding authority is upgraded
 
 - **WHEN** the forward reconciliation migration encounters an existing active
