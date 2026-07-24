@@ -159,7 +159,25 @@ function staticStringValue(expression: ts.Expression): string | null {
   return null;
 }
 
-export function routeRegistrationOffenders(
+type RouteConfigHelperKind = "index" | "layout" | "prefix" | "relative" | "route";
+
+type RouteConfigHelper =
+  | { kind: "index"; relativeDirectory?: string | null }
+  | { kind: "layout"; relativeDirectory?: string | null }
+  | { kind: "prefix"; relativeDirectory?: string | null }
+  | { kind: "relative" }
+  | { kind: "route"; relativeDirectory?: string | null };
+
+type RouteRegistrationHelper = Exclude<RouteConfigHelper, { kind: "prefix" | "relative" }>;
+
+type RouteRegistration = {
+  kind: RouteRegistrationHelper["kind"];
+  path: string | null;
+  target: string;
+  targetIdentity: string;
+};
+
+export function analyzeRouteConfig(
   source: string,
   {
     canonicalPath,
@@ -176,76 +194,27 @@ export function routeRegistrationOffenders(
     true,
     ts.ScriptKind.TS,
   );
-  const registrations: Array<{ path: string; target: string; targetIdentity: string }> = [];
-  const staticArgumentOffenders: string[] = [];
-  const canonicalRouteNames = importedRouteNames(sourceFile);
-  const defaultExport = sourceFile.statements.find(
+  const registrations: RouteRegistration[] = [];
+  const extractionOffenders: string[] = [];
+  const routeHelpers = routeConfigHelpers(sourceFile);
+  const defaultExports = sourceFile.statements.filter(
     (statement): statement is ts.ExportAssignment =>
       ts.isExportAssignment(statement) && !statement.isExportEquals,
   );
-  const defaultRouteConfig = defaultExport
-    ? unwrapRouteConfigExpression(defaultExport.expression)
-    : null;
-  const routeCalls: ts.CallExpression[] = [];
+  const defaultRouteConfig =
+    defaultExports.length === 1 ? unwrapRouteConfigExpression(defaultExports[0].expression) : null;
 
-  if (defaultExport && !defaultRouteConfig) {
-    return [
-      `default route config must be a static registration array: ${defaultExport.expression.getText(sourceFile)}`,
-    ];
+  if (!defaultRouteConfig) {
+    const detail =
+      defaultExports.length === 1 ? `: ${defaultExports[0].expression.getText(sourceFile)}` : "";
+    return {
+      canonicalTarget: null,
+      offenders: [`default route config must be a static registration array${detail}`],
+      registrations,
+    };
   }
 
-  if (defaultRouteConfig) {
-    const unrecognizedRegistrations: string[] = [];
-
-    for (const element of defaultRouteConfig.elements) {
-      if (
-        !ts.isCallExpression(element) ||
-        !ts.isIdentifier(element.expression) ||
-        !canonicalRouteNames.has(element.expression.text)
-      ) {
-        unrecognizedRegistrations.push(
-          `unrecognized route registration: ${element.getText(sourceFile)}`,
-        );
-        continue;
-      }
-
-      routeCalls.push(element);
-    }
-
-    if (unrecognizedRegistrations.length > 0) return unrecognizedRegistrations;
-  } else {
-    walk(sourceFile, (node) => {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "route"
-      ) {
-        routeCalls.push(node);
-      }
-    });
-  }
-
-  for (const node of routeCalls) {
-    const [pathExpression, targetExpression] = node.arguments;
-    const path = pathExpression ? staticStringValue(pathExpression) : null;
-    const target = targetExpression ? staticStringValue(targetExpression) : null;
-
-    if (path === null) {
-      staticArgumentOffenders.push(
-        `route call has a non-static path: ${pathExpression?.getText(sourceFile) ?? "<missing>"}`,
-      );
-    }
-    if (target === null) {
-      staticArgumentOffenders.push(
-        `route call has a non-static target: ${targetExpression?.getText(sourceFile) ?? "<missing>"}`,
-      );
-    }
-    if (path !== null && target !== null) {
-      registrations.push({ path, target, targetIdentity: routeModuleIdentity(target) });
-    }
-  }
-
-  if (staticArgumentOffenders.length > 0) return staticArgumentOffenders;
+  collectRouteConfigArray(defaultRouteConfig, "");
 
   const ownedModuleIdentity = routeModuleIdentity(ownedModulePrefix);
   const canonicalModuleIdentity = routeModuleIdentity(`${ownedModulePrefix}/route.tsx`);
@@ -258,19 +227,194 @@ export function routeRegistrationOffenders(
     ({ path, targetIdentity }) =>
       path === canonicalPath && targetIdentity === canonicalModuleIdentity,
   );
+  const canonicalTarget =
+    canonicalRegistrations.length === 1 ? canonicalRegistrations[0].target : null;
+
+  if (extractionOffenders.length > 0) {
+    return {
+      canonicalTarget,
+      offenders: extractionOffenders,
+      registrations,
+    };
+  }
+
   const offenders = ownedRegistrations
-    .filter(({ path }) => path !== canonicalPath)
-    .map(({ path, target }) => `${path} targets runs-owned module "${target}"`);
+    .filter(
+      ({ path, targetIdentity }) =>
+        path !== canonicalPath || targetIdentity !== canonicalModuleIdentity,
+    )
+    .map(
+      ({ kind, path, target }) => `${path ?? `<${kind}>`} targets runs-owned module "${target}"`,
+    );
 
   if (canonicalRegistrations.length !== 1) {
     offenders.unshift(`canonical ${canonicalPath} route must target one owned module`);
   }
 
-  return offenders;
+  return { canonicalTarget, offenders, registrations };
+
+  function collectRouteConfigArray(array: ts.ArrayLiteralExpression, pathPrefix: string) {
+    for (const element of array.elements) {
+      if (ts.isSpreadElement(element)) {
+        const spreadCall = unwrapCallExpression(element.expression);
+        const spreadHelper = spreadCall ? calledRouteHelper(spreadCall, routeHelpers) : null;
+
+        if (spreadCall && spreadHelper?.kind === "prefix") {
+          collectPrefix(spreadCall, pathPrefix);
+        } else {
+          extractionOffenders.push(
+            `unrecognized route registration: ${element.getText(sourceFile)}`,
+          );
+        }
+        continue;
+      }
+
+      const call = unwrapCallExpression(element);
+      const helper = call ? calledRouteHelper(call, routeHelpers) : null;
+
+      if (!call || !helper || helper.kind === "prefix" || helper.kind === "relative") {
+        extractionOffenders.push(`unrecognized route registration: ${element.getText(sourceFile)}`);
+        continue;
+      }
+
+      collectRegistration(call, helper, pathPrefix);
+    }
+  }
+
+  function collectRegistration(
+    call: ts.CallExpression,
+    helper: RouteRegistrationHelper,
+    pathPrefix: string,
+  ) {
+    if (helper.kind === "route") {
+      const [pathExpression, targetExpression, optionsOrChildren, explicitChildren] =
+        call.arguments;
+      const routePath = staticRoutePath(pathExpression);
+      const target = staticRouteTarget(targetExpression, helper);
+
+      if (!routePath.static) {
+        extractionOffenders.push(
+          `route call has a non-static path: ${pathExpression?.getText(sourceFile) ?? "<missing>"}`,
+        );
+      }
+      if (target === null) {
+        extractionOffenders.push(
+          `route call has a non-static target: ${targetExpression?.getText(sourceFile) ?? "<missing>"}`,
+        );
+      }
+      if (routePath.static && target !== null) {
+        registrations.push({
+          kind: "route",
+          path: routePath.value === null ? null : prefixedRoutePath(pathPrefix, routePath.value),
+          target,
+          targetIdentity: routeModuleIdentity(target),
+        });
+      }
+
+      const childPrefix =
+        routePath.static && routePath.value !== null
+          ? prefixedRoutePath(pathPrefix, routePath.value)
+          : pathPrefix;
+      collectOptionalChildren("route", optionsOrChildren, explicitChildren, childPrefix);
+      return;
+    }
+
+    const [targetExpression, optionsOrChildren, explicitChildren] = call.arguments;
+    const target = staticRouteTarget(targetExpression, helper);
+
+    if (target === null) {
+      extractionOffenders.push(
+        `${helper.kind} call has a non-static target: ${targetExpression?.getText(sourceFile) ?? "<missing>"}`,
+      );
+    } else {
+      registrations.push({
+        kind: helper.kind,
+        path: helper.kind === "index" && pathPrefix ? pathPrefix : null,
+        target,
+        targetIdentity: routeModuleIdentity(target),
+      });
+    }
+
+    if (helper.kind === "layout") {
+      collectOptionalChildren("layout", optionsOrChildren, explicitChildren, pathPrefix);
+    }
+  }
+
+  function collectOptionalChildren(
+    helperName: "layout" | "route",
+    optionsOrChildren: ts.Expression | undefined,
+    explicitChildren: ts.Expression | undefined,
+    pathPrefix: string,
+  ) {
+    if (!optionsOrChildren && !explicitChildren) return;
+
+    const inlineChildren = optionsOrChildren
+      ? unwrapRouteConfigExpression(optionsOrChildren)
+      : null;
+    if (inlineChildren) {
+      if (explicitChildren) {
+        extractionOffenders.push(
+          `${helperName} call has ambiguous children: ${explicitChildren.getText(sourceFile)}`,
+        );
+      } else {
+        collectRouteConfigArray(inlineChildren, pathPrefix);
+      }
+      return;
+    }
+
+    if (optionsOrChildren && !ts.isObjectLiteralExpression(unwrapExpression(optionsOrChildren))) {
+      extractionOffenders.push(
+        `${helperName} call has non-static options or children: ${optionsOrChildren.getText(sourceFile)}`,
+      );
+      return;
+    }
+
+    if (!explicitChildren) return;
+
+    const children = unwrapRouteConfigExpression(explicitChildren);
+    if (!children) {
+      extractionOffenders.push(
+        `${helperName} call has non-static children: ${explicitChildren.getText(sourceFile)}`,
+      );
+      return;
+    }
+
+    collectRouteConfigArray(children, pathPrefix);
+  }
+
+  function collectPrefix(call: ts.CallExpression, pathPrefix: string) {
+    const [prefixExpression, routesExpression] = call.arguments;
+    const prefixPath = prefixExpression ? staticStringValue(prefixExpression) : null;
+    const routes = routesExpression ? unwrapRouteConfigExpression(routesExpression) : null;
+
+    if (prefixPath === null) {
+      extractionOffenders.push(
+        `prefix call has a non-static path: ${prefixExpression?.getText(sourceFile) ?? "<missing>"}`,
+      );
+    }
+    if (!routes) {
+      extractionOffenders.push(
+        `prefix call has non-static routes: ${routesExpression?.getText(sourceFile) ?? "<missing>"}`,
+      );
+    }
+    if (prefixPath !== null && routes) {
+      collectRouteConfigArray(routes, prefixedRoutePath(pathPrefix, prefixPath));
+    }
+  }
 }
 
-function importedRouteNames(sourceFile: ts.SourceFile) {
-  const names = new Set<string>();
+export function routeRegistrationOffenders(
+  source: string,
+  registration: {
+    canonicalPath: string;
+    ownedModulePrefix: string;
+  },
+) {
+  return analyzeRouteConfig(source, registration).offenders;
+}
+
+function routeConfigHelpers(sourceFile: ts.SourceFile) {
+  const helpers = new Map<string, RouteConfigHelper>();
 
   for (const statement of sourceFile.statements) {
     if (
@@ -284,26 +428,132 @@ function importedRouteNames(sourceFile: ts.SourceFile) {
     }
 
     for (const specifier of statement.importClause.namedBindings.elements) {
-      if ((specifier.propertyName?.text ?? specifier.name.text) === "route") {
-        names.add(specifier.name.text);
+      if (statement.importClause.isTypeOnly || specifier.isTypeOnly) continue;
+
+      const importedName = specifier.propertyName?.text ?? specifier.name.text;
+      if (!isRouteConfigHelperKind(importedName)) continue;
+      helpers.set(specifier.name.text, { kind: importedName });
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isObjectBindingPattern(declaration.name) || !declaration.initializer) {
+        continue;
+      }
+
+      const initializer = unwrapCallExpression(declaration.initializer);
+      const relativeHelper = initializer ? calledRouteHelper(initializer, helpers) : null;
+      if (!initializer || relativeHelper?.kind !== "relative") continue;
+
+      const directoryExpression = initializer.arguments[0];
+      const relativeDirectory = directoryExpression ? staticStringValue(directoryExpression) : null;
+
+      for (const element of declaration.name.elements) {
+        if (element.dotDotDotToken || !ts.isIdentifier(element.name)) {
+          continue;
+        }
+
+        const importedName = element.propertyName
+          ? staticPropertyName(element.propertyName)
+          : element.name.text;
+        if (!importedName || !isRelativeRouteConfigHelperKind(importedName)) continue;
+
+        helpers.set(element.name.text, {
+          kind: importedName,
+          relativeDirectory,
+        });
       }
     }
   }
 
-  return names;
+  return helpers;
 }
 
-function unwrapRouteConfigExpression(expression: ts.Expression): ts.ArrayLiteralExpression | null {
-  if (ts.isArrayLiteralExpression(expression)) return expression;
+function isRouteConfigHelperKind(value: string): value is RouteConfigHelperKind {
+  return (
+    value === "index" ||
+    value === "layout" ||
+    value === "prefix" ||
+    value === "relative" ||
+    value === "route"
+  );
+}
+
+function isRelativeRouteConfigHelperKind(
+  value: string,
+): value is Exclude<RouteConfigHelperKind, "relative"> {
+  return value === "index" || value === "layout" || value === "prefix" || value === "route";
+}
+
+function calledRouteHelper(
+  call: ts.CallExpression,
+  helpers: ReadonlyMap<string, RouteConfigHelper>,
+) {
+  return ts.isIdentifier(call.expression) ? (helpers.get(call.expression.text) ?? null) : null;
+}
+
+function staticRouteTarget(expression: ts.Expression | undefined, helper: RouteRegistrationHelper) {
+  if (!expression) return null;
+
+  const target = staticStringValue(expression);
+  if (target === null || helper.relativeDirectory === null) return null;
+  if (helper.relativeDirectory === undefined) return target;
+
+  const appRelativeTarget = relative(
+    resolve(process.cwd(), "app"),
+    resolve(helper.relativeDirectory, target),
+  ).replaceAll("\\", "/");
+
+  return appRelativeTarget.startsWith(".") ? appRelativeTarget : `./${appRelativeTarget}`;
+}
+
+function staticRoutePath(
+  expression: ts.Expression | undefined,
+): { static: true; value: string | null } | { static: false } {
+  if (!expression) return { static: false };
+
+  const unwrapped = unwrapExpression(expression);
+  if (
+    unwrapped.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(unwrapped) && unwrapped.text === "undefined")
+  ) {
+    return { static: true, value: null };
+  }
+
+  const value = staticStringValue(unwrapped);
+  return value === null ? { static: false } : { static: true, value };
+}
+
+function prefixedRoutePath(prefix: string, path: string) {
+  return [prefix, path]
+    .flatMap((segment) => segment.split("/"))
+    .filter(Boolean)
+    .join("/");
+}
+
+function unwrapCallExpression(expression: ts.Expression) {
+  const unwrapped = unwrapExpression(expression);
+  return ts.isCallExpression(unwrapped) ? unwrapped : null;
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
   if (
     ts.isParenthesizedExpression(expression) ||
     ts.isAsExpression(expression) ||
     ts.isSatisfiesExpression(expression)
   ) {
-    return unwrapRouteConfigExpression(expression.expression);
+    return unwrapExpression(expression.expression);
   }
 
-  return null;
+  return expression;
+}
+
+function unwrapRouteConfigExpression(expression: ts.Expression): ts.ArrayLiteralExpression | null {
+  const unwrapped = unwrapExpression(expression);
+  return ts.isArrayLiteralExpression(unwrapped) ? unwrapped : null;
 }
 
 function routeModuleIdentity(target: string) {
