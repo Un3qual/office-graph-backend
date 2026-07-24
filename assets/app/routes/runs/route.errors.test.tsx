@@ -104,6 +104,71 @@ describe("all-runs route recovery", () => {
     expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
   });
 
+  it("returns to the previous run page when a committed list page fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let firstPageAttempts = 0;
+    let secondPageAttempts = 0;
+    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery" && variables.after === null) {
+        firstPageAttempts += 1;
+        return support.runsConnectionResponse([support.runSummary()], {
+          endCursor: "run_page_cursor",
+          hasNextPage: true,
+        });
+      }
+
+      if (request.name === "RunsRouteQuery") {
+        secondPageAttempts += 1;
+
+        if (secondPageAttempts > 1) {
+          throw new Error(rawErrorSentinel);
+        }
+
+        return support.runsConnectionResponse([
+          support.runSummary({
+            id: "run_second_page",
+            objective: "Second page run",
+          }),
+        ]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+    const environment = support.createRelayTestEnvironment(network);
+
+    support.renderWithRelayEnvironment(environment, "/runs?runId=run_new");
+
+    expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByRole("button", { name: /Second page run/i })).toBeInTheDocument();
+
+    support.clearRelayTestEnvironment(environment);
+
+    expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry runs" }));
+
+    await waitFor(() => expect(secondPageAttempts).toBe(2));
+    expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => expect(firstPageAttempts).toBe(2));
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(firstPageAttempts).toBe(2);
+    expect(secondPageAttempts).toBe(2);
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+  });
+
   it.each([
     ["invalid", ""],
     ["missing", "run_missing"],

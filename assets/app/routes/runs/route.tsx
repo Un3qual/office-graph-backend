@@ -16,6 +16,19 @@ type PendingRunsNavigation = {
   navigation: RunsNavigation;
 };
 
+function previousNavigation(navigation: RunsNavigation): RunsNavigation | null {
+  const previousCursor = navigation.previousCursors.at(-1);
+
+  if (previousCursor === undefined) {
+    return null;
+  }
+
+  return {
+    page: { ...navigation.page, after: previousCursor },
+    previousCursors: navigation.previousCursors.slice(0, -1),
+  };
+}
+
 export default function RunsRoute() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [listFetchKey, setListFetchKey] = useState(0);
@@ -90,19 +103,16 @@ export default function RunsRoute() {
   );
 
   const loadPreviousPage = useCallback(() => {
-    const previousCursor = navigation.previousCursors.at(-1);
+    const nextNavigation = previousNavigation(navigation);
 
-    if (previousCursor === undefined) {
+    if (nextNavigation === null) {
       return;
     }
 
     setPagingFetchKey(0);
     setPendingNavigation({
       direction: "previous",
-      navigation: {
-        page: { ...navigation.page, after: previousCursor },
-        previousCursors: navigation.previousCursors.slice(0, -1),
-      },
+      navigation: nextNavigation,
     });
   }, [navigation]);
 
@@ -111,6 +121,21 @@ export default function RunsRoute() {
     setNavigation(nextNavigation);
     setPendingNavigation(null);
   }, []);
+
+  const returnToPreviousPage = useCallback(() => {
+    const nextNavigation = previousNavigation(navigation);
+
+    if (nextNavigation === null) {
+      return;
+    }
+
+    startTransition(() => {
+      setPagingFetchKey(0);
+      setPendingNavigation(null);
+      setNavigation(nextNavigation);
+      setListFetchKey((key) => key + 1);
+    });
+  }, [navigation]);
 
   useEffect(() => {
     if (isSelectionPending && requestedRunId === pendingRunIdRef.current) {
@@ -132,6 +157,7 @@ export default function RunsRoute() {
           onNextPage={loadNextPage}
           onPageResolved={commitPage}
           onPreviousPage={loadPreviousPage}
+          onPreviousPageFallback={returnToPreviousPage}
           onRetry={retryList}
           onRetryPage={retryPage}
           onSelectRun={selectRun}
@@ -154,6 +180,7 @@ function RunsListBoundary({
   onNextPage,
   onPageResolved,
   onPreviousPage,
+  onPreviousPageFallback,
   onRetry,
   onRetryPage,
   onSelectRun,
@@ -168,6 +195,7 @@ function RunsListBoundary({
   onNextPage: (cursor: string) => void;
   onPageResolved: (navigation: RunsNavigation) => void;
   onPreviousPage: () => void;
+  onPreviousPageFallback: () => void;
   onRetry: () => void;
   onRetryPage: () => void;
   onSelectRun: (id: string) => void;
@@ -180,7 +208,7 @@ function RunsListBoundary({
       errorFallback={
         <RunListFallback
           canPageBackward={navigation.previousCursors.length > 0}
-          onPreviousPage={onPreviousPage}
+          onPreviousPage={onPreviousPageFallback}
           onRetry={onRetry}
           state="error"
         />
@@ -188,7 +216,7 @@ function RunsListBoundary({
       loadingFallback={
         <RunListFallback
           canPageBackward={navigation.previousCursors.length > 0}
-          onPreviousPage={onPreviousPage}
+          onPreviousPage={onPreviousPageFallback}
           state="initial-loading"
         />
       }

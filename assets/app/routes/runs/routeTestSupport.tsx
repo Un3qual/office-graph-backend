@@ -14,13 +14,26 @@ import { getOfficeGraphDataID } from "../../relay/environment";
 import RunsRoute from "./route";
 
 export function renderWithRelay(network: FetchFunction, initialEntry = "/runs") {
-  const environment = new Environment({
+  return renderWithRelayEnvironment(createRelayTestEnvironment(network), initialEntry);
+}
+
+export function createRelayTestEnvironment(network: FetchFunction) {
+  return new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
     store: new Store(new RecordSource()),
   });
+}
 
-  return renderWithRelayEnvironment(environment, initialEntry);
+export function clearRelayTestEnvironment(environment: Environment) {
+  const source = new RecordSource();
+
+  for (const id of environment.getStore().getSource().getRecordIDs()) {
+    source.delete(id);
+  }
+
+  environment.getStore().publish(source);
+  environment.getStore().notify();
 }
 
 export function renderWithRelayEnvironment(environment: Environment, initialEntry = "/runs") {
