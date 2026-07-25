@@ -4,7 +4,7 @@ defmodule OfficeGraph.Projections.RunIndex do
   alias OfficeGraph.Authorization
   alias OfficeGraph.Projections.KeysetCursor
   alias OfficeGraph.Runs.Run
-  alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketVersion}
+  alias OfficeGraph.WorkPackets.WorkPacket
 
   require Ash.Query
 
@@ -56,14 +56,11 @@ defmodule OfficeGraph.Projections.RunIndex do
   defp build_rows(_session_context, []), do: {:ok, []}
 
   defp build_rows(session_context, runs) do
-    with {:ok, packets_by_id} <- read_packets(session_context, runs),
-         {:ok, versions_by_id} <- read_packet_versions(session_context, runs) do
+    with {:ok, packets_by_id} <- read_packets(session_context, runs) do
       runs
       |> Enum.reduce_while({:ok, []}, fn run, {:ok, rows} ->
-        with {:ok, packet} <- Map.fetch(packets_by_id, run.work_packet_id),
-             {:ok, packet_version} <- packet_version(run, versions_by_id) do
-          {:cont, {:ok, [run_row(run, packet, packet_version) | rows]}}
-        else
+        case Map.fetch(packets_by_id, run.work_packet_id) do
+          {:ok, packet} -> {:cont, {:ok, [run_row(run, packet) | rows]}}
           :error -> {:halt, {:error, :forbidden}}
         end
       end)
@@ -86,27 +83,10 @@ defmodule OfficeGraph.Projections.RunIndex do
     |> map_by_id()
   end
 
-  defp read_packet_versions(session_context, runs) do
-    version_ids = runs |> Enum.map(& &1.work_packet_version_id) |> Enum.reject(&is_nil/1)
-
-    WorkPacketVersion
-    |> Ash.Query.filter(
-      id in ^version_ids and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
-    |> Ash.read(actor: session_context)
-    |> map_by_id()
-  end
-
   defp map_by_id({:ok, records}), do: {:ok, Map.new(records, &{&1.id, &1})}
   defp map_by_id({:error, error}), do: {:error, error}
 
-  defp packet_version(%{work_packet_version_id: nil}, _versions_by_id), do: {:ok, nil}
-
-  defp packet_version(run, versions_by_id),
-    do: Map.fetch(versions_by_id, run.work_packet_version_id)
-
-  defp run_row(run, packet, packet_version) do
+  defp run_row(run, packet) do
     %{
       id: run.id,
       objective: run.objective,
@@ -114,31 +94,8 @@ defmodule OfficeGraph.Projections.RunIndex do
       execution_state: run.execution_state,
       verification_state: run.verification_state,
       inserted_at: run.inserted_at,
-      packet: %{id: packet.id, title: packet.title, state: packet.state},
-      packet_version: packet_version_ref(packet_version)
+      packet: %{id: packet.id, state: packet.state, title: packet.title}
     }
-    |> with_source_watermark()
-  end
-
-  defp packet_version_ref(nil), do: nil
-
-  defp packet_version_ref(packet_version) do
-    %{
-      id: packet_version.id,
-      version_number: packet_version.version_number,
-      lifecycle_state: packet_version.lifecycle_state,
-      objective: packet_version.objective
-    }
-  end
-
-  defp with_source_watermark(row) do
-    watermark =
-      row
-      |> :erlang.term_to_binary()
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.url_encode64(padding: false)
-
-    Map.put(row, :source_watermark, watermark)
   end
 
   defp page_limit(opts) do

@@ -267,7 +267,7 @@ conventions, or a route-specific UI framework.
 
 - **WHEN** product navigation renders beside the all-runs route
 - **THEN** `Entities` and `Reports` MUST remain disabled and MUST NOT navigate
-  to a synthesized product surface
+  to a synthesized product route
 
 #### Scenario: Route is inspected for command ownership
 
@@ -280,9 +280,9 @@ conventions, or a route-specific UI framework.
 #### Scenario: Route architecture is verified
 
 - **WHEN** the all-runs route architecture test runs
-- **THEN** it MUST enforce route-owned imports and the global `runs.css` style
-  boundary, and MUST reject Tailwind, Tailwind-dependent UI libraries,
-  utility-class conventions, and a route-specific UI framework
+- **THEN** it MUST inspect the actual route registration, imports, stylesheet,
+  generated artifact location, and dependency manifest and MUST reject
+  forbidden route ownership, Tailwind, and route-specific UI dependencies
 
 ### Requirement: All Runs Uses The Shared Session And Canonical Route
 
@@ -352,17 +352,19 @@ recoverable boundaries.
 
 - **WHEN** the selected run's activity connection has another page and the
   operator requests more activity
-- **THEN** the route MUST request that Relay page explicitly, preserve existing
-  activity while it loads, and render a safe retryable error if that page fails
+- **THEN** Relay pagination MUST append that page, preserve existing activity
+  while it loads, and expose a safe retry if the page fails
 
 ### Requirement: All Runs Selection Is URL-Owned And Clears Stale Detail
 
 Office Graph SHALL represent route-local run selection as `?runId=<id>`. It
 SHALL choose the first visible run only when `runId` is absent. Every present
 `runId` value SHALL remain the requested selection, including one absent from
-the current page or one that is invalid, missing, forbidden, or stale, and the
-route SHALL clear selection-scoped detail before its authoritative replacement
-read resolves.
+the current page or one that is invalid, missing, forbidden, or stale. The
+route SHALL clear committed detail when an operator begins a new selection and
+render loading until the URL names that run. Any transition-only state SHALL
+expire when the URL commit completes and SHALL NOT become a second durable
+selection or server-data source.
 
 #### Scenario: URL selects a visible run
 
@@ -390,9 +392,8 @@ read resolves.
 #### Scenario: Operator changes selection
 
 - **WHEN** an operator selects a different visible run
-- **THEN** the route MUST update `runId` in the URL, clear the prior run's
-  detail and activity immediately, and render only the replacement run's
-  authoritative detail when it resolves
+- **THEN** the route MUST clear committed detail, update `runId` in the URL,
+  and render loading until that run's authoritative detail resolves
 
 #### Scenario: URL lacks a selection
 

@@ -155,7 +155,6 @@ describe("all-runs route reads", () => {
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toEqual({
         id: "run_new",
         activityFirst: 5,
-        activityAfter: null,
       });
     });
     await waitFor(() => {
@@ -164,30 +163,6 @@ describe("all-runs route reads", () => {
     expect(
       screen.getByRole("button", { name: /Review the newest authorized run/i }),
     ).toHaveAttribute("aria-current", "true");
-  });
-
-  it("defaults a populated browser route without re-entering lifecycle navigation", async () => {
-    const network = support.createRunsNetwork();
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const rendered = support.renderWithBrowserRelay(network);
-
-    try {
-      expect(new Request(window.location.href)).toBeInstanceOf(Request);
-      expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
-      await waitFor(() => {
-        expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
-      });
-
-      const lifecycleErrors = consoleError.mock.calls
-        .flat()
-        .map(String)
-        .filter((message) => /flushSync|maximum update depth/i.test(message));
-
-      expect(lifecycleErrors).toEqual([]);
-    } finally {
-      rendered.restoreRequest();
-      consoleError.mockRestore();
-    }
   });
 
   it("preserves an explicit visible URL selection", async () => {
@@ -236,7 +211,6 @@ describe("all-runs route reads", () => {
             id: "packet_off_page",
             relayId: "d29ya19wYWNrZXQ6cGFja2V0X29mZl9wYWdl",
             title: "Off-page packet",
-            state: "active",
           },
           run: {
             id: "run_off_page",
@@ -273,7 +247,6 @@ describe("all-runs route reads", () => {
             id: "packet_second",
             relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
             title: "Second packet",
-            state: "active",
           },
           run: {
             id: "run_second",
@@ -433,7 +406,6 @@ describe("all-runs route reads", () => {
             id: "packet_second",
             relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
             title: "Second packet",
-            state: "active",
           },
           run: {
             id: "run_second",
@@ -470,7 +442,7 @@ describe("all-runs route reads", () => {
 
   it("renders selected graph-targeted runs without a packet version", async () => {
     const network = support.createRunsNetwork({
-      rows: [support.runSummary({ packetVersion: null })],
+      rows: [support.runSummary()],
       states: {
         run_new: support.runState({ packetVersion: null }),
       },
@@ -498,7 +470,6 @@ describe("all-runs route reads", () => {
     expect(within(activity).getByText(/Accepted release evidence/)).toBeInTheDocument();
     expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
       activityFirst: 5,
-      activityAfter: null,
     });
     expect(screen.getByRole("button", { name: "Load more activity" })).toBeInTheDocument();
     expect(

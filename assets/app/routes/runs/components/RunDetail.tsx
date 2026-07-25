@@ -2,12 +2,14 @@ import { Link } from "react-router";
 import { Badge } from "../../../../src/ui/Badge";
 import { Button } from "../../../../src/ui/Button";
 import { PanelRows } from "../../../../src/ui/Panel";
+import type { RunActivityFragment$key } from "../../../relay/__generated__/RunActivityFragment.graphql";
 import type { RunDetailState } from "../types";
 import { RunActivity } from "./RunActivity";
 import { formatLabel } from "./RunList";
 
 type Props =
   | {
+      activityRef: RunActivityFragment$key;
       detail: RunDetailState;
       onRetry: () => void;
       selectedId: string;
@@ -32,13 +34,25 @@ export function RunDetail(props: Props) {
         </div>
       ) : null}
       {props.state === "loaded" ? (
-        <LoadedRunDetail detail={props.detail} selectedId={props.selectedId} />
+        <LoadedRunDetail
+          activityRef={props.activityRef}
+          detail={props.detail}
+          selectedId={props.selectedId}
+        />
       ) : null}
     </section>
   );
 }
 
-function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selectedId: string }) {
+function LoadedRunDetail({
+  activityRef,
+  detail,
+  selectedId,
+}: {
+  activityRef: RunActivityFragment$key;
+  detail: RunDetailState;
+  selectedId: string;
+}) {
   const packetVersionRows: Array<[string, string]> = detail.packetVersion
     ? [
         [
@@ -115,7 +129,7 @@ function LoadedRunDetail({ detail, selectedId }: { detail: RunDetailState; selec
         title="Verification results"
       />
 
-      <RunActivity activity={detail.activity} key={selectedId} runId={selectedId} />
+      <RunActivity activityRef={activityRef} key={selectedId} />
 
       <div className="runs-detail-actions">
         <Link

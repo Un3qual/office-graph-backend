@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<dc4a3bc38be272942ee7e4420e9dbfc6>>
+ * @generated SignedSource<<314f4b0b29d42cb84a01c7ac61295eeb>>
  * @lightSyntaxTransform
  */
 
@@ -8,65 +8,36 @@
 // @ts-nocheck
 
 import { ConcreteRequest } from 'relay-runtime';
+import { FragmentRefs } from "relay-runtime";
 export type RunDetailQuery$variables = {
-  activityAfter?: string | null | undefined;
   activityFirst: number;
   id: string;
 };
 export type RunDetailQuery$data = {
   readonly operatorRunState: {
-    readonly activity: {
-      readonly edges: ReadonlyArray<{
-        readonly cursor: string | null | undefined;
-        readonly node: {
-          readonly kind: string;
-          readonly stableId: string;
-          readonly status: string;
-          readonly title: string;
-        } | null | undefined;
-      } | null | undefined> | null | undefined;
-      readonly pageInfo: {
-        readonly endCursor: string | null | undefined;
-        readonly hasNextPage: boolean;
-        readonly hasPreviousPage: boolean;
-        readonly startCursor: string | null | undefined;
-      };
-    } | null | undefined;
     readonly evidenceCandidates: ReadonlyArray<{
       readonly claim: string;
-      readonly executionObservationId: string | null | undefined;
-      readonly freshnessState: string;
       readonly id: string;
-      readonly sourceIdentity: string;
-      readonly sourceKind: string;
       readonly state: string;
-      readonly trustBasis: string;
-      readonly verificationCheckId: string;
     }>;
     readonly evidenceItems: ReadonlyArray<{
-      readonly candidateId: string | null | undefined;
       readonly id: string;
       readonly state: string;
-      readonly workRunId: string | null | undefined;
     }>;
     readonly missingEvidence: ReadonlyArray<{
       readonly reason: string;
       readonly verificationCheckId: string;
     }>;
     readonly packet: {
-      readonly id: string;
       readonly relayId: string;
-      readonly state: string;
       readonly title: string;
     };
     readonly packetVersion: {
-      readonly id: string;
       readonly lifecycleState: string;
       readonly objective: string | null | undefined;
       readonly versionNumber: number;
     } | null | undefined;
     readonly requiredChecks: ReadonlyArray<{
-      readonly graphItemId: string | null | undefined;
       readonly id: string;
       readonly state: string;
       readonly verificationCheckId: string | null | undefined;
@@ -77,22 +48,15 @@ export type RunDetailQuery$data = {
       readonly id: string;
       readonly verificationState: string;
     };
-    readonly sourceWatermark: string | null | undefined;
     readonly status: string;
-    readonly type: string;
     readonly verificationResults: ReadonlyArray<{
-      readonly actorPrincipalId: string | null | undefined;
-      readonly evidenceItemId: string | null | undefined;
       readonly id: string;
-      readonly operationId: string | null | undefined;
       readonly policyBasis: string | null | undefined;
       readonly result: string;
-      readonly targetGraphItemId: string | null | undefined;
       readonly verificationCheckId: string;
-      readonly workPacketVersionId: string | null | undefined;
-      readonly workRunId: string | null | undefined;
     }>;
   };
+  readonly " $fragmentSpreads": FragmentRefs<"RunActivityFragment">;
 };
 export type RunDetailQuery = {
   response: RunDetailQuery$data;
@@ -103,415 +67,386 @@ const node: ConcreteRequest = (function(){
 var v0 = {
   "defaultValue": null,
   "kind": "LocalArgument",
-  "name": "activityAfter"
+  "name": "activityFirst"
 },
 v1 = {
   "defaultValue": null,
   "kind": "LocalArgument",
-  "name": "activityFirst"
-},
-v2 = {
-  "defaultValue": null,
-  "kind": "LocalArgument",
   "name": "id"
 },
+v2 = {
+  "kind": "Variable",
+  "name": "first",
+  "variableName": "activityFirst"
+},
 v3 = {
+  "kind": "Variable",
+  "name": "id",
+  "variableName": "id"
+},
+v4 = [
+  (v3/*:: as any*/)
+],
+v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "status",
   "storageKey": null
 },
-v4 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "id",
-  "storageKey": null
-},
-v5 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "title",
-  "storageKey": null
-},
 v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "state",
+  "name": "relayId",
   "storageKey": null
 },
 v7 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "verificationCheckId",
+  "name": "title",
   "storageKey": null
 },
 v8 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "workRunId",
+  "name": "versionNumber",
   "storageKey": null
 },
-v9 = [
-  {
-    "alias": null,
-    "args": [
+v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "lifecycleState",
+  "storageKey": null
+},
+v10 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "objective",
+  "storageKey": null
+},
+v11 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "id",
+  "storageKey": null
+},
+v12 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorRunRef",
+  "kind": "LinkedField",
+  "name": "run",
+  "plural": false,
+  "selections": [
+    (v11/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "aggregateState",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "executionState",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "verificationState",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v13 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "verificationCheckId",
+  "storageKey": null
+},
+v14 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "state",
+  "storageKey": null
+},
+v15 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorRequiredCheck",
+  "kind": "LinkedField",
+  "name": "requiredChecks",
+  "plural": true,
+  "selections": [
+    (v11/*:: as any*/),
+    (v13/*:: as any*/),
+    (v14/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v16 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorEvidenceCandidate",
+  "kind": "LinkedField",
+  "name": "evidenceCandidates",
+  "plural": true,
+  "selections": [
+    (v11/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "claim",
+      "storageKey": null
+    },
+    (v14/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v17 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorEvidenceItem",
+  "kind": "LinkedField",
+  "name": "evidenceItems",
+  "plural": true,
+  "selections": [
+    (v11/*:: as any*/),
+    (v14/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v18 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorVerificationResult",
+  "kind": "LinkedField",
+  "name": "verificationResults",
+  "plural": true,
+  "selections": [
+    (v11/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "result",
+      "storageKey": null
+    },
+    (v13/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "policyBasis",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v19 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "OperatorMissingEvidence",
+  "kind": "LinkedField",
+  "name": "missingEvidence",
+  "plural": true,
+  "selections": [
+    (v13/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "reason",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+},
+v20 = [
+  (v2/*:: as any*/)
+];
+return {
+  "fragment": {
+    "argumentDefinitions": [
+      (v0/*:: as any*/),
+      (v1/*:: as any*/)
+    ],
+    "kind": "Fragment",
+    "metadata": {
+      "throwOnFieldError": true
+    },
+    "name": "RunDetailQuery",
+    "selections": [
       {
-        "kind": "Variable",
-        "name": "id",
-        "variableName": "id"
+        "args": [
+          (v2/*:: as any*/),
+          (v3/*:: as any*/)
+        ],
+        "kind": "FragmentSpread",
+        "name": "RunActivityFragment"
+      },
+      {
+        "alias": null,
+        "args": (v4/*:: as any*/),
+        "concreteType": "OperatorRunState",
+        "kind": "LinkedField",
+        "name": "operatorRunState",
+        "plural": false,
+        "selections": [
+          (v5/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorPacketRef",
+            "kind": "LinkedField",
+            "name": "packet",
+            "plural": false,
+            "selections": [
+              (v6/*:: as any*/),
+              (v7/*:: as any*/)
+            ],
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorPacketVersionRef",
+            "kind": "LinkedField",
+            "name": "packetVersion",
+            "plural": false,
+            "selections": [
+              (v8/*:: as any*/),
+              (v9/*:: as any*/),
+              (v10/*:: as any*/)
+            ],
+            "storageKey": null
+          },
+          (v12/*:: as any*/),
+          (v15/*:: as any*/),
+          (v16/*:: as any*/),
+          (v17/*:: as any*/),
+          (v18/*:: as any*/),
+          (v19/*:: as any*/)
+        ],
+        "storageKey": null
       }
     ],
-    "concreteType": "OperatorRunState",
-    "kind": "LinkedField",
-    "name": "operatorRunState",
-    "plural": false,
+    "type": "RootQueryType",
+    "abstractKey": null
+  },
+  "kind": "Request",
+  "operation": {
+    "argumentDefinitions": [
+      (v1/*:: as any*/),
+      (v0/*:: as any*/)
+    ],
+    "kind": "Operation",
+    "name": "RunDetailQuery",
     "selections": [
       {
         "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "type",
-        "storageKey": null
-      },
-      (v3/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "sourceWatermark",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorPacketRef",
+        "args": (v4/*:: as any*/),
+        "concreteType": "OperatorRunState",
         "kind": "LinkedField",
-        "name": "packet",
-        "plural": false,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "relayId",
-            "storageKey": null
-          },
-          (v5/*:: as any*/),
-          (v6/*:: as any*/)
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorPacketVersionRef",
-        "kind": "LinkedField",
-        "name": "packetVersion",
-        "plural": false,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "versionNumber",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "lifecycleState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "objective",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRunRef",
-        "kind": "LinkedField",
-        "name": "run",
-        "plural": false,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "aggregateState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "executionState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "verificationState",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRequiredCheck",
-        "kind": "LinkedField",
-        "name": "requiredChecks",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "graphItemId",
-            "storageKey": null
-          },
-          (v7/*:: as any*/),
-          (v6/*:: as any*/)
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorEvidenceCandidate",
-        "kind": "LinkedField",
-        "name": "evidenceCandidates",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          (v7/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "executionObservationId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "claim",
-            "storageKey": null
-          },
-          (v6/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "freshnessState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "trustBasis",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "sourceKind",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "sourceIdentity",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorEvidenceItem",
-        "kind": "LinkedField",
-        "name": "evidenceItems",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          (v6/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "candidateId",
-            "storageKey": null
-          },
-          (v8/*:: as any*/)
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorVerificationResult",
-        "kind": "LinkedField",
-        "name": "verificationResults",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "result",
-            "storageKey": null
-          },
-          (v7/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "evidenceItemId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "operationId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "actorPrincipalId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "policyBasis",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "targetGraphItemId",
-            "storageKey": null
-          },
-          (v8/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "workPacketVersionId",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorMissingEvidence",
-        "kind": "LinkedField",
-        "name": "missingEvidence",
-        "plural": true,
-        "selections": [
-          (v7/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "reason",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": [
-          {
-            "kind": "Variable",
-            "name": "after",
-            "variableName": "activityAfter"
-          },
-          {
-            "kind": "Variable",
-            "name": "first",
-            "variableName": "activityFirst"
-          }
-        ],
-        "concreteType": "OperatorRunActivityConnection",
-        "kind": "LinkedField",
-        "name": "activity",
+        "name": "operatorRunState",
         "plural": false,
         "selections": [
           {
             "alias": null,
-            "args": null,
-            "concreteType": "OperatorRunActivityEdge",
+            "args": (v20/*:: as any*/),
+            "concreteType": "OperatorRunActivityConnection",
             "kind": "LinkedField",
-            "name": "edges",
-            "plural": true,
+            "name": "activity",
+            "plural": false,
             "selections": [
               {
                 "alias": null,
                 "args": null,
-                "kind": "ScalarField",
-                "name": "cursor",
+                "concreteType": "OperatorRunActivityEdge",
+                "kind": "LinkedField",
+                "name": "edges",
+                "plural": true,
+                "selections": [
+                  {
+                    "alias": null,
+                    "args": null,
+                    "concreteType": "OperatorRunActivity",
+                    "kind": "LinkedField",
+                    "name": "node",
+                    "plural": false,
+                    "selections": [
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "kind",
+                        "storageKey": null
+                      },
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "stableId",
+                        "storageKey": null
+                      },
+                      (v7/*:: as any*/),
+                      (v5/*:: as any*/),
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "__typename",
+                        "storageKey": null
+                      }
+                    ],
+                    "storageKey": null
+                  },
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "cursor",
+                    "storageKey": null
+                  }
+                ],
                 "storageKey": null
               },
               {
                 "alias": null,
                 "args": null,
-                "concreteType": "OperatorRunActivity",
+                "concreteType": "PageInfo",
                 "kind": "LinkedField",
-                "name": "node",
+                "name": "pageInfo",
                 "plural": false,
                 "selections": [
                   {
                     "alias": null,
                     "args": null,
                     "kind": "ScalarField",
-                    "name": "kind",
+                    "name": "hasNextPage",
                     "storageKey": null
                   },
                   {
                     "alias": null,
                     "args": null,
                     "kind": "ScalarField",
-                    "name": "stableId",
+                    "name": "endCursor",
                     "storageKey": null
-                  },
-                  (v5/*:: as any*/),
-                  (v3/*:: as any*/)
+                  }
                 ],
                 "storageKey": null
               }
@@ -520,88 +455,65 @@ v9 = [
           },
           {
             "alias": null,
+            "args": (v20/*:: as any*/),
+            "filters": null,
+            "handle": "connection",
+            "key": "RunActivityFragment_activity",
+            "kind": "LinkedHandle",
+            "name": "activity"
+          },
+          (v5/*:: as any*/),
+          {
+            "alias": null,
             "args": null,
-            "concreteType": "PageInfo",
+            "concreteType": "OperatorPacketRef",
             "kind": "LinkedField",
-            "name": "pageInfo",
+            "name": "packet",
             "plural": false,
             "selections": [
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "hasNextPage",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "hasPreviousPage",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "startCursor",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "endCursor",
-                "storageKey": null
-              }
+              (v6/*:: as any*/),
+              (v7/*:: as any*/),
+              (v11/*:: as any*/)
             ],
             "storageKey": null
-          }
+          },
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorPacketVersionRef",
+            "kind": "LinkedField",
+            "name": "packetVersion",
+            "plural": false,
+            "selections": [
+              (v8/*:: as any*/),
+              (v9/*:: as any*/),
+              (v10/*:: as any*/),
+              (v11/*:: as any*/)
+            ],
+            "storageKey": null
+          },
+          (v12/*:: as any*/),
+          (v15/*:: as any*/),
+          (v16/*:: as any*/),
+          (v17/*:: as any*/),
+          (v18/*:: as any*/),
+          (v19/*:: as any*/)
         ],
         "storageKey": null
       }
-    ],
-    "storageKey": null
-  }
-];
-return {
-  "fragment": {
-    "argumentDefinitions": [
-      (v0/*:: as any*/),
-      (v1/*:: as any*/),
-      (v2/*:: as any*/)
-    ],
-    "kind": "Fragment",
-    "metadata": {
-      "throwOnFieldError": true
-    },
-    "name": "RunDetailQuery",
-    "selections": (v9/*:: as any*/),
-    "type": "RootQueryType",
-    "abstractKey": null
-  },
-  "kind": "Request",
-  "operation": {
-    "argumentDefinitions": [
-      (v2/*:: as any*/),
-      (v1/*:: as any*/),
-      (v0/*:: as any*/)
-    ],
-    "kind": "Operation",
-    "name": "RunDetailQuery",
-    "selections": (v9/*:: as any*/)
+    ]
   },
   "params": {
-    "cacheID": "d61d950f58277efc26c465d230d60d6c",
+    "cacheID": "accbf71bfe33d246b62b90d71511bd99",
     "id": null,
     "metadata": {},
     "name": "RunDetailQuery",
     "operationKind": "query",
-    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    type\n    status\n    sourceWatermark\n    packet {\n      id\n      relayId\n      title\n      state\n    }\n    packetVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    run {\n      id\n      aggregateState\n      executionState\n      verificationState\n    }\n    requiredChecks {\n      id\n      graphItemId\n      verificationCheckId\n      state\n    }\n    evidenceCandidates {\n      id\n      verificationCheckId\n      executionObservationId\n      claim\n      state\n      freshnessState\n      trustBasis\n      sourceKind\n      sourceIdentity\n    }\n    evidenceItems {\n      id\n      state\n      candidateId\n      workRunId\n    }\n    verificationResults {\n      id\n      result\n      verificationCheckId\n      evidenceItemId\n      operationId\n      actorPrincipalId\n      policyBasis\n      targetGraphItemId\n      workRunId\n      workPacketVersionId\n    }\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n    activity(first: $activityFirst, after: $activityAfter) {\n      edges {\n        cursor\n        node {\n          kind\n          stableId\n          title\n          status\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n  }\n}\n"
+    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n) {\n  ...RunActivityFragment_3DDDxQ\n  operatorRunState(id: $id) {\n    status\n    packet {\n      relayId\n      title\n      id\n    }\n    packetVersion {\n      versionNumber\n      lifecycleState\n      objective\n      id\n    }\n    run {\n      id\n      aggregateState\n      executionState\n      verificationState\n    }\n    requiredChecks {\n      id\n      verificationCheckId\n      state\n    }\n    evidenceCandidates {\n      id\n      claim\n      state\n    }\n    evidenceItems {\n      id\n      state\n    }\n    verificationResults {\n      id\n      result\n      verificationCheckId\n      policyBasis\n    }\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n  }\n}\n\nfragment RunActivityFragment_3DDDxQ on RootQueryType {\n  operatorRunState(id: $id) {\n    activity(first: $activityFirst) {\n      edges {\n        node {\n          kind\n          stableId\n          title\n          status\n          __typename\n        }\n        cursor\n      }\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "fb12bfe13a7f1fee7ecc2db29840d800";
+(node as any).hash = "0aca24fea487c4a59932b1798e8af035";
 
 export default node;

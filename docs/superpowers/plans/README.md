@@ -20,5 +20,7 @@ Current status:
   - `archive/2026-07-16-github-review-thread-scope-followthrough.md`
   - `archive/2026-07-16-github-review-storage-terminalization-followthrough.md`
   - `archive/2026-07-16-github-review-classification-replay-followthrough.md`
+  - `archive/2026-07-23-all-runs-product-surface.md`
+  - `archive/2026-07-23-openspec-product-boundary-correction.md`
 - OpenSpec is the project workflow source of truth for new changes.
 - Completed OpenSpec changes are under `openspec/changes/archive/`.

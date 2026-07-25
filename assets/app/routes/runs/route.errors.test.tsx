@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { GraphQLResponse } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRelayEnvironment } from "../../relay/environment";
@@ -245,28 +245,30 @@ describe("all-runs route recovery", () => {
     expect(screen.queryByRole("heading", { name: "Newest packet" })).not.toBeInTheDocument();
   });
 
-  it("retains loaded activity after continuation failure and clears it with detail on selection", async () => {
+  it("treats an initial activity field error as a detail read failure", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const replacement = support.deferredGraphQLResponse();
-    const secondRun = support.runSummary({
-      id: "run_second",
-      objective: "Second visible run",
-    });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary(), secondRun]);
-      }
-
-      if (request.name === "RunDetailQuery" && variables.id === "run_second") {
-        return replacement.promise;
-      }
-
-      if (request.name === "RunActivityPageQuery") {
-        throw new Error(rawErrorSentinel);
+        return support.runsConnectionResponse([support.runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        const state = support.runState();
+
+        return {
+          data: {
+            operatorRunState: {
+              ...state,
+              activity: null,
+            },
+          },
+          errors: [
+            {
+              message: rawErrorSentinel,
+              path: ["operatorRunState", "activity"],
+            },
+          ],
+        };
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -274,20 +276,11 @@ describe("all-runs route recovery", () => {
 
     support.renderWithRelay(network, "/runs?runId=run_new");
 
-    const activity = await screen.findByRole("region", { name: "Run activity" });
-    fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
-
-    expect(await within(activity).findByText("Unable to load more activity.")).toBeInTheDocument();
-    expect(within(activity).getByText("Release verification")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(rawErrorSentinel);
-
-    fireEvent.click(screen.getByRole("button", { name: /Second visible run/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Newest packet" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("region", { name: "Run activity" })).not.toBeInTheDocument();
-    });
-    expect(screen.getByText("Loading selected run...")).toBeInTheDocument();
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
+    expect(screen.queryByRole("region", { name: "Run activity" })).not.toBeInTheDocument();
   });
 });

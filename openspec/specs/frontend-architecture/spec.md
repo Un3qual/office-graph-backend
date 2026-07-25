@@ -337,12 +337,12 @@ lifecycle into parallel route-owned query-state machines.
   instead of a cumulative pagination fragment, while Relay MUST remain the
   server-state owner
 
-#### Scenario: Independent activity page is requested
+#### Scenario: Cumulative activity page is requested
 
-- **WHEN** a run-detail surface requests an additional page of activity
-- **THEN** the continuation operation MUST fetch only the run identity and
-  requested activity connection page rather than re-fetching unrelated run
-  detail, packet, evidence, candidate, and verification fields
+- **WHEN** a run-detail surface requests another page of its activity
+  connection
+- **THEN** a Relay pagination fragment MUST append only that connection page,
+  preserve loaded activity, and avoid re-fetching unrelated run detail
 
 ### Requirement: Shared Async Boundaries Stay Product Neutral
 

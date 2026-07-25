@@ -22,7 +22,7 @@ describe("all-runs route activity and command boundaries", () => {
         return { data: { operatorRunState: firstState } };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         return support.activityPageResponse({ title: "Later execution observation" });
       }
 
@@ -39,12 +39,12 @@ describe("all-runs route activity and command boundaries", () => {
     expect(within(activity).getByText("Release verification")).toBeInTheDocument();
     expect(within(activity).getAllByText("Later execution observation")).toHaveLength(1);
     expect(
-      network.mock.calls.filter(([request]) => request.name === "RunActivityPageQuery"),
+      network.mock.calls.filter(([request]) => request.name === "RunActivityPaginationQuery"),
     ).toHaveLength(1);
-    expect(support.lastVariablesFor(network, "RunActivityPageQuery")).toEqual({
+    expect(support.lastVariablesFor(network, "RunActivityPaginationQuery")).toEqual({
       id: "run_new",
-      activityFirst: 5,
-      activityAfter: "activity_cursor_2",
+      first: 5,
+      after: "activity_cursor_2",
     });
     expect(support.lastVariablesFor(network, "RunsRouteQuery")).toMatchObject({
       first: 50,
@@ -65,7 +65,7 @@ describe("all-runs route activity and command boundaries", () => {
         return { data: { operatorRunState: support.runState() } };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         continuationAttempts += 1;
 
         if (continuationAttempts === 1) {
@@ -102,6 +102,76 @@ describe("all-runs route activity and command boundaries", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps GraphQL field errors inside the activity retry boundary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let continuationAttempts = 0;
+    let detailAttempts = 0;
+    const rawErrorSentinel = "RAW_ACTIVITY_FIELD_ERROR_SENTINEL_63a8";
+    const network = vi.fn(async (request, _variables): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        detailAttempts += 1;
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      if (request.name === "RunActivityPaginationQuery") {
+        continuationAttempts += 1;
+
+        if (continuationAttempts === 1) {
+          return {
+            data: {
+              operatorRunState: {
+                activity: null,
+              },
+            },
+            errors: [
+              {
+                message: rawErrorSentinel,
+                path: ["operatorRunState", "activity"],
+              },
+            ],
+          };
+        }
+
+        return support.activityPageResponse({ title: "Recovered field-error observation" });
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    const activity = await screen.findByRole("region", { name: "Run activity" });
+    fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
+
+    expect(await within(activity).findByRole("alert")).toHaveTextContent(
+      "Unable to load more activity.",
+    );
+    expect(within(activity).getByText("Release verification")).toBeInTheDocument();
+    expect(screen.queryByText("Selected run details are unavailable.")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+
+    fireEvent.click(within(activity).getByRole("button", { name: "Retry activity" }));
+
+    expect(
+      await within(activity).findByText("Recovered field-error observation"),
+    ).toBeInTheDocument();
+    expect(within(activity).getByText("Release verification")).toBeInTheDocument();
+    expect(continuationAttempts).toBe(2);
+    expect(detailAttempts).toBe(1);
+    expect(
+      network.mock.calls
+        .filter(([request]) => request.name === "RunActivityPaginationQuery")
+        .map(([, variables]) => variables),
+    ).toEqual([
+      { id: "run_new", first: 5, after: "activity_cursor_2" },
+      { id: "run_new", first: 5, after: "activity_cursor_2" },
+    ]);
+  });
+
   it("resets loaded activity pages when the selected run changes", async () => {
     const secondSummary = support.runSummary({
       id: "run_second",
@@ -120,7 +190,6 @@ describe("all-runs route activity and command boundaries", () => {
                 id: "packet_second",
                 relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
                 title: "Second packet",
-                state: "active",
               },
               run: {
                 id: "run_second",
@@ -133,6 +202,7 @@ describe("all-runs route activity and command boundaries", () => {
                   {
                     cursor: "second_activity_cursor_1",
                     node: {
+                      __typename: "OperatorRunActivity",
                       kind: "run",
                       stableId: "run_second",
                       title: "Second run started",
@@ -152,7 +222,7 @@ describe("all-runs route activity and command boundaries", () => {
         };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         return support.activityPageResponse({ title: "Later execution observation" });
       }
 
@@ -178,7 +248,6 @@ describe("all-runs route activity and command boundaries", () => {
     ).not.toBeInTheDocument();
     expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
       id: "run_second",
-      activityAfter: null,
     });
     expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
   });

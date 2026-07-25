@@ -21,9 +21,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
           executionState
           verificationState
           insertedAt
-          sourceWatermark
           packet { id title state }
-          packetVersion { id versionNumber lifecycleState objective }
         }
       }
     }
@@ -56,8 +54,12 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     assert is_binary(cursor)
     assert first_node["id"] == newer.run.id
     assert first_node["objective"] == newer.run.objective
-    assert first_node["packetVersion"]["id"] == newer.packet_version.id
-    assert is_binary(first_node["sourceWatermark"])
+
+    assert first_node["packet"] == %{
+             "id" => newer.run.work_packet_id,
+             "state" => "ready",
+             "title" => "Ready operator packet"
+           }
 
     second_page =
       graphql(
@@ -73,7 +75,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     assert second_node["id"] == older.run.id
   end
 
-  test "returns a nullable packet-version reference for graph-targeted runs", %{conn: conn} do
+  test "returns graph-targeted runs without requiring a packet-version summary", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, result} = create_ready_run(bootstrap.session, verification_check)
@@ -84,7 +86,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
     page = graphql(conn, @operator_runs_query, %{first: 10}, "operatorRuns")
 
-    assert %{"packetVersion" => nil, "packet" => %{"id" => packet_id}} =
+    assert %{"packet" => %{"id" => packet_id}} =
              page["edges"]
              |> Enum.find(&(get_in(&1, ["node", "id"]) == result.run.id))
              |> Map.fetch!("node")
@@ -214,8 +216,6 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
                "insertedAt",
                "objective",
                "packet",
-               "packetVersion",
-               "sourceWatermark",
                "verificationState"
              ])
   end

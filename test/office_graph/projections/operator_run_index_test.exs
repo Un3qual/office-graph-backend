@@ -48,26 +48,18 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
              execution_state: newer.run.execution_state,
              verification_state: newer.run.verification_state,
              inserted_at: ~U[2026-07-20 11:00:00.000000Z],
-             source_watermark: row.source_watermark,
              packet: %{
                id: packet.id,
-               title: packet.title,
-               state: packet.state
-             },
-             packet_version: %{
-               id: newer.packet_version.id,
-               version_number: newer.packet_version.version_number,
-               lifecycle_state: newer.packet_version.lifecycle_state,
-               objective: newer.packet_version.objective
+               state: packet.state,
+               title: packet.title
              }
            }
 
-    assert is_binary(row.source_watermark)
     assert page.has_next_page? == false
     assert page.has_previous_page? == false
   end
 
-  test "projects graph-targeted runs that do not have a packet version" do
+  test "projects graph-targeted runs without loading an absent packet version" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, result} = create_ready_run(bootstrap.session, verification_check)
@@ -82,8 +74,8 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     assert {row, cursor: _cursor} =
              Enum.find(page.row_edges, fn {row, cursor: _cursor} -> row.id == result.run.id end)
 
-    assert row.packet_version == nil
     assert row.packet.id == result.run.work_packet_id
+    refute Map.has_key?(row, :packet_version)
   end
 
   test "paginates without duplication and keeps continuation stable after a leading insert" do
@@ -211,7 +203,7 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     assert length(large_queries) == length(small_queries)
     assert QueryCounter.source_count(large_queries, "runs") == 1
     assert QueryCounter.source_count(large_queries, "work_packets") == 1
-    assert QueryCounter.source_count(large_queries, "work_packet_versions") == 1
+    assert QueryCounter.source_count(large_queries, "work_packet_versions") == 0
   end
 
   defp set_run_inserted_at!(run_id, inserted_at) do

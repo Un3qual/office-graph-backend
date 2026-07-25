@@ -11,7 +11,7 @@ describe("packet workspace route reads", () => {
     vi.restoreAllMocks();
   });
 
-  it("selects the first packet by default", async () => {
+  it("displays the first packet by default without creating an explicit URL selection", async () => {
     support.renderWithRelay(
       support.packetNetwork([
         support.packet({ id: support.packetIdentity.relayId }),
@@ -28,14 +28,8 @@ describe("packet workspace route reads", () => {
     expect(screen.getByRole("button", { name: /Second packet/i })).not.toHaveAttribute(
       "aria-current",
     );
-    await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent(
-        `/packets?packetId=${support.packetIdentity.relayId}`,
-      );
-    });
-    expect(screen.getByTestId("route-location")).not.toHaveTextContent(
-      support.packetIdentity.rawId,
-    );
+    expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
+    expect(screen.getByTestId("route-location")).not.toHaveTextContent("packetId=");
   });
 
   it("selects a packetId already present on the first page without duplicating it", async () => {
@@ -480,7 +474,7 @@ describe("packet workspace route reads", () => {
     expect(detailRows).not.toContain("#edf1f3");
   });
 
-  it("moves only default-origin selection when paging forward and backward", async () => {
+  it("displays each page's first packet without creating a URL selection", async () => {
     const network = vi.fn(
       async (request, variables): Promise<GraphQLResponse> =>
         request.name === "PacketsWorkspaceDetailQuery"
@@ -516,9 +510,12 @@ describe("packet workspace route reads", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
-      expect(screen.getByTestId("route-location")).toHaveTextContent(
-        `/packets?packetId=${support.secondPacketIdentity.relayId}`,
+      expect(screen.getByRole("button", { name: /Second packet/i })).toHaveAttribute(
+        "aria-current",
+        "true",
       );
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
+      expect(screen.getByTestId("route-location")).not.toHaveTextContent("packetId=");
     });
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
@@ -533,9 +530,8 @@ describe("packet workspace route reads", () => {
         "aria-current",
         "true",
       );
-      expect(screen.getByTestId("route-location")).toHaveTextContent(
-        `/packets?packetId=${support.packetIdentity.relayId}`,
-      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
+      expect(screen.getByTestId("route-location")).not.toHaveTextContent("packetId=");
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     });
   });

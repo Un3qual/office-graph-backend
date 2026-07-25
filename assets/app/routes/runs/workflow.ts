@@ -1,9 +1,8 @@
 import { useLazyLoadQuery } from "react-relay";
-import type { RunActivityPageQuery as RunActivityPageOperation } from "../../relay/__generated__/RunActivityPageQuery.graphql";
 import type { RunDetailQuery as RunDetailOperation } from "../../relay/__generated__/RunDetailQuery.graphql";
 import type { RunsRouteQuery as RunsRouteOperation } from "../../relay/__generated__/RunsRouteQuery.graphql";
-import { RunActivityPageQuery, RunDetailQuery, RunsRouteQuery } from "./data";
-import type { RunDetailState, RunsConnectionState, RunsPage } from "./types";
+import { RunDetailQuery, RunsRouteQuery } from "./data";
+import type { RunDetailResult, RunsConnectionState, RunsPage } from "./types";
 
 export const defaultRunsPage: RunsPage = { first: 50, after: null };
 export const runActivityPageSize = 5;
@@ -17,17 +16,12 @@ export function useRunsPage(page: RunsPage, fetchKey?: number, forceNetwork = fa
   return runsConnectionFromRelay(data);
 }
 
-export function useRunDetail(
-  runId: string,
-  fetchKey?: number,
-  activityAfter: string | null = null,
-): RunDetailState {
+export function useRunDetail(runId: string, fetchKey?: number): RunDetailResult {
   const data = useLazyLoadQuery<RunDetailOperation>(
     RunDetailQuery,
     {
       id: runId,
       activityFirst: runActivityPageSize,
-      activityAfter,
     },
     { fetchKey, fetchPolicy: "network-only" },
   );
@@ -36,29 +30,7 @@ export function useRunDetail(
     throw new Error("The selected run is unavailable.");
   }
 
-  return data.operatorRunState;
-}
-
-export function useRunActivityPage(
-  runId: string,
-  after: string,
-  fetchKey?: number,
-): RunDetailState["activity"] {
-  const data = useLazyLoadQuery<RunActivityPageOperation>(
-    RunActivityPageQuery,
-    {
-      id: runId,
-      activityFirst: runActivityPageSize,
-      activityAfter: after,
-    },
-    { fetchKey, fetchPolicy: "network-only" },
-  );
-
-  if (!data.operatorRunState) {
-    throw new Error("The selected run is unavailable.");
-  }
-
-  return data.operatorRunState.activity;
+  return { activityRef: data, detail: data.operatorRunState };
 }
 
 function runsConnectionFromRelay(data: RunsRouteOperation["response"]): RunsConnectionState {

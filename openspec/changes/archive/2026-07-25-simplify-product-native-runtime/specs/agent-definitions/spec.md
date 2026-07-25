@@ -1,11 +1,4 @@
-# agent-definitions Specification
-
-## Purpose
-
-Define approved, organization-bound agent configuration without storing secret
-values.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent Definitions Are Approved Product Configuration
 Office Graph SHALL store agent definitions with stable key, lifecycle, agent
@@ -34,7 +27,6 @@ backend agent principal associated with a definition.
   agent-admin mutation
 
 #### Scenario: Active definition binding is requested again
-
 - **WHEN** an authorized owner repeats the narrow binding command for a
   definition already bound to the same organization and workspace
 - **THEN** Office Graph MUST return the active scoped binding without requiring
@@ -44,13 +36,3 @@ backend agent principal associated with a definition.
 - **WHEN** a definition or organization binding is disabled or revoked
 - **THEN** the runtime MUST reject new execution and preserve historical
   definition references
-
-### Requirement: Agent Definitions Do Not Store Secrets
-Agent definitions SHALL reference credential metadata and secret-store keys
-without containing secret values.
-
-#### Scenario: Adapter requires a credential
-- **WHEN** an agent definition selects a model or tool adapter requiring secret
-  material
-- **THEN** the definition MUST store only an authorized credential reference and
-  MUST NOT expose secret material through APIs or projections

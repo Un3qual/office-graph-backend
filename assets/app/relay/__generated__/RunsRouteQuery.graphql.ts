@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<0a5cd2464302594355296757a78a04dc>>
+ * @generated SignedSource<<24511d019183e70a398cbfdff7453520>>
  * @lightSyntaxTransform
  */
 
@@ -15,7 +15,6 @@ export type RunsRouteQuery$variables = {
 export type RunsRouteQuery$data = {
   readonly operatorRuns: {
     readonly edges: ReadonlyArray<{
-      readonly cursor: string | null | undefined;
       readonly node: {
         readonly aggregateState: string;
         readonly executionState: string;
@@ -23,25 +22,14 @@ export type RunsRouteQuery$data = {
         readonly insertedAt: string;
         readonly objective: string | null | undefined;
         readonly packet: {
-          readonly id: string;
-          readonly state: string;
           readonly title: string;
         };
-        readonly packetVersion: {
-          readonly id: string;
-          readonly lifecycleState: string;
-          readonly objective: string | null | undefined;
-          readonly versionNumber: number;
-        } | null | undefined;
-        readonly sourceWatermark: string;
         readonly verificationState: string;
       } | null | undefined;
     } | null | undefined> | null | undefined;
     readonly pageInfo: {
       readonly endCursor: string | null | undefined;
       readonly hasNextPage: boolean;
-      readonly hasPreviousPage: boolean;
-      readonly startCursor: string | null | undefined;
     };
   } | null | undefined;
 };
@@ -61,202 +49,92 @@ v1 = {
   "kind": "LocalArgument",
   "name": "first"
 },
-v2 = {
+v2 = [
+  {
+    "kind": "Variable",
+    "name": "after",
+    "variableName": "after"
+  },
+  {
+    "kind": "Variable",
+    "name": "first",
+    "variableName": "first"
+  }
+],
+v3 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "id",
   "storageKey": null
 },
-v3 = {
+v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "objective",
   "storageKey": null
 },
-v4 = [
-  {
-    "alias": null,
-    "args": [
-      {
-        "kind": "Variable",
-        "name": "after",
-        "variableName": "after"
-      },
-      {
-        "kind": "Variable",
-        "name": "first",
-        "variableName": "first"
-      }
-    ],
-    "concreteType": "OperatorRunSummaryConnection",
-    "kind": "LinkedField",
-    "name": "operatorRuns",
-    "plural": false,
-    "selections": [
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRunSummaryEdge",
-        "kind": "LinkedField",
-        "name": "edges",
-        "plural": true,
-        "selections": [
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "cursor",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "concreteType": "OperatorRunSummary",
-            "kind": "LinkedField",
-            "name": "node",
-            "plural": false,
-            "selections": [
-              (v2/*:: as any*/),
-              (v3/*:: as any*/),
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "aggregateState",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "executionState",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "verificationState",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "insertedAt",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "kind": "ScalarField",
-                "name": "sourceWatermark",
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "concreteType": "OperatorPacketRef",
-                "kind": "LinkedField",
-                "name": "packet",
-                "plural": false,
-                "selections": [
-                  (v2/*:: as any*/),
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "title",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "state",
-                    "storageKey": null
-                  }
-                ],
-                "storageKey": null
-              },
-              {
-                "alias": null,
-                "args": null,
-                "concreteType": "OperatorPacketVersionRef",
-                "kind": "LinkedField",
-                "name": "packetVersion",
-                "plural": false,
-                "selections": [
-                  (v2/*:: as any*/),
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "versionNumber",
-                    "storageKey": null
-                  },
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "lifecycleState",
-                    "storageKey": null
-                  },
-                  (v3/*:: as any*/)
-                ],
-                "storageKey": null
-              }
-            ],
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "PageInfo",
-        "kind": "LinkedField",
-        "name": "pageInfo",
-        "plural": false,
-        "selections": [
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "hasNextPage",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "hasPreviousPage",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "startCursor",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "endCursor",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      }
-    ],
-    "storageKey": null
-  }
-];
+v5 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "aggregateState",
+  "storageKey": null
+},
+v6 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "executionState",
+  "storageKey": null
+},
+v7 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "verificationState",
+  "storageKey": null
+},
+v8 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "insertedAt",
+  "storageKey": null
+},
+v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "title",
+  "storageKey": null
+},
+v10 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "PageInfo",
+  "kind": "LinkedField",
+  "name": "pageInfo",
+  "plural": false,
+  "selections": [
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "hasNextPage",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "endCursor",
+      "storageKey": null
+    }
+  ],
+  "storageKey": null
+};
 return {
   "fragment": {
     "argumentDefinitions": [
@@ -268,7 +146,60 @@ return {
       "throwOnFieldError": true
     },
     "name": "RunsRouteQuery",
-    "selections": (v4/*:: as any*/),
+    "selections": [
+      {
+        "alias": null,
+        "args": (v2/*:: as any*/),
+        "concreteType": "OperatorRunSummaryConnection",
+        "kind": "LinkedField",
+        "name": "operatorRuns",
+        "plural": false,
+        "selections": [
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorRunSummaryEdge",
+            "kind": "LinkedField",
+            "name": "edges",
+            "plural": true,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "OperatorRunSummary",
+                "kind": "LinkedField",
+                "name": "node",
+                "plural": false,
+                "selections": [
+                  (v3/*:: as any*/),
+                  (v4/*:: as any*/),
+                  (v5/*:: as any*/),
+                  (v6/*:: as any*/),
+                  (v7/*:: as any*/),
+                  (v8/*:: as any*/),
+                  {
+                    "alias": null,
+                    "args": null,
+                    "concreteType": "OperatorPacketRef",
+                    "kind": "LinkedField",
+                    "name": "packet",
+                    "plural": false,
+                    "selections": [
+                      (v9/*:: as any*/)
+                    ],
+                    "storageKey": null
+                  }
+                ],
+                "storageKey": null
+              }
+            ],
+            "storageKey": null
+          },
+          (v10/*:: as any*/)
+        ],
+        "storageKey": null
+      }
+    ],
     "type": "RootQueryType",
     "abstractKey": null
   },
@@ -280,19 +211,73 @@ return {
     ],
     "kind": "Operation",
     "name": "RunsRouteQuery",
-    "selections": (v4/*:: as any*/)
+    "selections": [
+      {
+        "alias": null,
+        "args": (v2/*:: as any*/),
+        "concreteType": "OperatorRunSummaryConnection",
+        "kind": "LinkedField",
+        "name": "operatorRuns",
+        "plural": false,
+        "selections": [
+          {
+            "alias": null,
+            "args": null,
+            "concreteType": "OperatorRunSummaryEdge",
+            "kind": "LinkedField",
+            "name": "edges",
+            "plural": true,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "OperatorRunSummary",
+                "kind": "LinkedField",
+                "name": "node",
+                "plural": false,
+                "selections": [
+                  (v3/*:: as any*/),
+                  (v4/*:: as any*/),
+                  (v5/*:: as any*/),
+                  (v6/*:: as any*/),
+                  (v7/*:: as any*/),
+                  (v8/*:: as any*/),
+                  {
+                    "alias": null,
+                    "args": null,
+                    "concreteType": "OperatorPacketRef",
+                    "kind": "LinkedField",
+                    "name": "packet",
+                    "plural": false,
+                    "selections": [
+                      (v9/*:: as any*/),
+                      (v3/*:: as any*/)
+                    ],
+                    "storageKey": null
+                  }
+                ],
+                "storageKey": null
+              }
+            ],
+            "storageKey": null
+          },
+          (v10/*:: as any*/)
+        ],
+        "storageKey": null
+      }
+    ]
   },
   "params": {
-    "cacheID": "b878e6707cbcd2b24632ea6a39f77b75",
+    "cacheID": "da1cebdf66b67912fafc067561502140",
     "id": null,
     "metadata": {},
     "name": "RunsRouteQuery",
     "operationKind": "query",
-    "text": "query RunsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorRuns(first: $first, after: $after) {\n    edges {\n      cursor\n      node {\n        id\n        objective\n        aggregateState\n        executionState\n        verificationState\n        insertedAt\n        sourceWatermark\n        packet {\n          id\n          title\n          state\n        }\n        packetVersion {\n          id\n          versionNumber\n          lifecycleState\n          objective\n        }\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n}\n"
+    "text": "query RunsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorRuns(first: $first, after: $after) {\n    edges {\n      node {\n        id\n        objective\n        aggregateState\n        executionState\n        verificationState\n        insertedAt\n        packet {\n          title\n          id\n        }\n      }\n    }\n    pageInfo {\n      hasNextPage\n      endCursor\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "1731e118dedfc43eb656d154a6ddeab5";
+(node as any).hash = "8040f8a6afa93499878121bcae195971";
 
 export default node;

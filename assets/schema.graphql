@@ -1603,9 +1603,7 @@ type OperatorRunSummary {
   executionState: String!
   verificationState: String!
   insertedAt: DateTime!
-  sourceWatermark: ID!
   packet: OperatorPacketRef!
-  packetVersion: OperatorPacketVersionRef
 }
 
 type OperatorRunSummaryConnection {
