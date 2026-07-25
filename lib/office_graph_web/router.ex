@@ -5,13 +5,27 @@ defmodule OfficeGraphWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :browser_session do
+    plug :fetch_session
+  end
+
+  pipeline :load_human_session do
+    plug OfficeGraphWeb.SessionAuthenticationPlug
+  end
+
+  pipeline :require_human_session do
+    plug OfficeGraphWeb.RequireHumanSessionPlug
+  end
+
   pipeline :graphql do
-    plug OfficeGraphWeb.LocalApiOwnerPlug
+    plug :fetch_session
+    plug OfficeGraphWeb.SessionAuthenticationPlug
     plug AshGraphql.Plug
   end
 
   pipeline :generated_json_api do
-    plug OfficeGraphWeb.LocalApiOwnerPlug
+    plug :fetch_session
+    plug OfficeGraphWeb.SessionAuthenticationPlug
   end
 
   scope "/" do
@@ -121,9 +135,22 @@ defmodule OfficeGraphWeb.Router do
   end
 
   scope "/", OfficeGraphWeb do
+    pipe_through :browser_session
+
+    get "/auth/login", AuthenticationController, :login
+    get "/auth/callback", AuthenticationController, :callback
+    post "/auth/logout", AuthenticationController, :logout
+  end
+
+  scope "/", OfficeGraphWeb do
+    pipe_through [:browser_session, :load_human_session, :require_human_session]
+
     get "/operator", OperatorConsoleController, :index
     get "/packets", OperatorConsoleController, :index
     get "/runs", OperatorConsoleController, :index
+  end
+
+  scope "/", OfficeGraphWeb do
     get "/assets/*path", OperatorConsoleController, :asset
   end
 end

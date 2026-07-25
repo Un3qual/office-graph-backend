@@ -35,6 +35,33 @@ defmodule OfficeGraphWeb.ConnCase do
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(OfficeGraph.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
 
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+    conn = Phoenix.ConnTest.build_conn()
+
+    if tags[:unauthenticated] do
+      {:ok, conn: conn}
+    else
+      {:ok, fixture} = OfficeGraph.ApiSupport.bootstrap_local_human_session()
+
+      {:ok,
+       conn:
+         Plug.Test.init_test_session(conn, %{
+           human_session_id: fixture.human_session.session.id
+         }),
+       human_session: fixture.human_session.session_context}
+    end
+  end
+
+  def without_human_session(conn) do
+    conn
+    |> Plug.Conn.fetch_session()
+    |> Plug.Conn.delete_session(:human_session_id)
+  end
+
+  def recycle_human_session(conn) do
+    session_id = Plug.Conn.get_session(conn, :human_session_id)
+
+    conn
+    |> Phoenix.ConnTest.recycle()
+    |> Plug.Test.init_test_session(%{human_session_id: session_id})
   end
 end

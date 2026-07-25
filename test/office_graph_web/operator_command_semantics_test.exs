@@ -1,6 +1,8 @@
 defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
   use OfficeGraphWeb.ConnCase, async: true
 
+  @moduletag :unauthenticated
+
   defmodule SafeReason do
     defstruct [:id, :state, :details]
   end

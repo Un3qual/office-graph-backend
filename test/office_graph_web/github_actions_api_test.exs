@@ -55,7 +55,7 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     graphql = graphql(conn, query, %{installationId: installation.id})
 
     json =
-      build_conn()
+      recycle_human_session(conn)
       |> get("/api/v1/github/installations/#{installation.id}/health?limit=50")
       |> json_response(200)
       |> Map.fetch!("data")
@@ -127,7 +127,9 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     refute Map.has_key?(parsed, :conclusion)
   end
 
-  test "JSON command start storage outages return only the safe availability response" do
+  test "JSON command start storage outages return only the safe availability response", %{
+    conn: conn
+  } do
     Repo.query!("""
     ALTER TABLE operation_correlations
     ADD CONSTRAINT test_github_command_start_storage
@@ -136,7 +138,7 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
 
     response =
       try do
-        build_conn()
+        recycle_human_session(conn)
         |> post("/api/v1/commands/reply-to-github-review", %{
           idempotency_key: "reply-api-operation-storage",
           installation_id: Ecto.UUID.generate(),

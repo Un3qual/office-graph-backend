@@ -383,7 +383,7 @@ git commit -m "feat: add Authentik OIDC orchestration"
   with a bounded local return path.
 - GraphQL and JSON API pipelines load but do not invent an actor.
 
-- [ ] **Step 1: Write failing controller and plug tests**
+- [x] **Step 1: Write failing controller and plug tests**
 
 Cover:
 
@@ -402,7 +402,7 @@ Cover:
   state;
 - requests never invoke local bootstrap.
 
-- [ ] **Step 2: Run web authentication tests and confirm RED**
+- [x] **Step 2: Run web authentication tests and confirm RED**
 
 Run:
 
@@ -413,7 +413,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 Expected: route/module failures because the new browser boundary does not exist.
 
-- [ ] **Step 3: Implement routes, controller, and plugs**
+- [x] **Step 3: Implement routes, controller, and plugs**
 
 Keep callback state comparison constant-time, consume the transaction once, and
 normalize HTTP status/error responses without leaking provider details.
@@ -425,7 +425,7 @@ Replace both API pipeline uses of `LocalApiOwnerPlug` with the durable loader.
 Add loader-plus-require to `/operator`, `/packets`, and `/runs`; leave static
 assets and webhooks on their existing independent boundaries.
 
-- [ ] **Step 4: Make existing web tests use explicit session fixtures**
+- [x] **Step 4: Make existing web tests use explicit session fixtures**
 
 Have `ConnCase` call explicit bootstrap once per test and place the resulting
 durable session ID into the test connection. Provide a helper/option to produce
@@ -435,7 +435,7 @@ an unauthenticated connection. Update the few tests that previously toggled
 Remove the request fallback from `RequestSession.resolve(nil)` and delete
 `LocalApiOwnerPlug`.
 
-- [ ] **Step 5: Run all web and focused domain tests**
+- [x] **Step 5: Run all web and focused domain tests**
 
 Run:
 
@@ -451,7 +451,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 Expected: all pass with explicit request actors and fail-closed unauthenticated
 coverage.
 
-- [ ] **Step 6: Format, verify the diff, and commit**
+- [x] **Step 6: Format, verify the diff, and commit**
 
 Run `mix format` through Nix and `git diff --check`. Commit with:
 

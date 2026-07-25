@@ -62,7 +62,7 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
       |> json_response(200)
 
     replay =
-      build_conn()
+      recycle_human_session(conn)
       |> post("/api/v1/commands/bind-github-installation", input)
       |> json_response(200)
 
@@ -101,7 +101,7 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
     json_input = Map.put(json_input("json-organization"), :workspace_id, nil)
 
     json_result =
-      build_conn()
+      recycle_human_session(conn)
       |> post("/api/v1/commands/bind-github-installation", json_input)
       |> json_response(200)
 

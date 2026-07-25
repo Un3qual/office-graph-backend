@@ -184,7 +184,7 @@ defmodule OfficeGraphWeb.OperatorConsoleControllerTest do
     for product_path <- ["/operator", "/packets", "/runs"] do
       body =
         conn
-        |> recycle()
+        |> recycle_human_session()
         |> get(product_path)
         |> response(503)
 

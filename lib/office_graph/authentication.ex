@@ -85,6 +85,15 @@ defmodule OfficeGraph.Authentication do
   def complete_login(_code, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
+  def reject_login(reason, opts) when is_list(opts) do
+    trace_id = Keyword.get(opts, :trace_id)
+    source_surface = Keyword.get(opts, :source_surface, "web")
+
+    maybe_record_rejection({:error, reason}, trace_id, source_surface)
+  end
+
+  def resolve_session(session_id), do: Identity.resolve_human_session(session_id)
+
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
     post_logout_redirect_uri = Keyword.get(opts, :post_logout_redirect_uri)

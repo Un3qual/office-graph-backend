@@ -33,14 +33,14 @@
 
 ## 4. Phoenix Session Boundary
 
-- [ ] 4.1 Add failing controller and plug tests for login redirect, callback
+- [x] 4.1 Add failing controller and plug tests for login redirect, callback
   validation, opaque cookie session, logout, product-page redirect, and absent
   API actors.
-- [ ] 4.2 Implement authentication routes/controller, durable session loading,
+- [x] 4.2 Implement authentication routes/controller, durable session loading,
   product-page session requirement, and secure cookie options.
-- [ ] 4.3 Remove `LocalApiOwnerPlug` and every request-time
+- [x] 4.3 Remove `LocalApiOwnerPlug` and every request-time
   `bootstrap_local_api_owner/0` fallback.
-- [ ] 4.4 Convert existing ConnCase-backed web tests to explicit durable
+- [x] 4.4 Convert existing ConnCase-backed web tests to explicit durable
   session fixtures and retain opt-out unauthenticated coverage.
 
 ## 5. Verification And Closeout
