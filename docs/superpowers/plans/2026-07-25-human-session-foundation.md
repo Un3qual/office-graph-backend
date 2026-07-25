@@ -1,6 +1,6 @@
 # Human Session Foundation Implementation Plan
 
-Status: active.
+Status: completed.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
@@ -518,12 +518,12 @@ git diff --check
 Expected: every backend, frontend, architecture, type, dependency, production
 build, and strict OpenSpec check passes.
 
-- [ ] **Step 4: Mark implementation tasks complete**
+- [x] **Step 4: Mark implementation tasks complete**
 
 Only after fresh successful evidence, check every completed OpenSpec task and
 set this plan status to `completed`.
 
-- [ ] **Step 5: Commit verified implementation closeout**
+- [x] **Step 5: Commit verified implementation closeout**
 
 Commit any verification-only corrections and completed task state with:
 
@@ -551,19 +551,19 @@ verified changes.
 - Modify:
   `openspec/specs/bootstrap-and-local-identity-lab/spec.md`
 
-- [ ] **Step 1: Verify implementation against every requirement**
+- [x] **Step 1: Verify implementation against every requirement**
 
 Use the `openspec-verify-change` workflow. For every scenario, cite a behavior
 test or inspected implementation path. Resolve every critical or warning
 finding before archive.
 
-- [ ] **Step 2: Archive and sync**
+- [x] **Step 2: Archive and sync**
 
 Use the `openspec-archive-change` workflow to merge delta requirements into
 durable specs and archive the completed change. Preserve checked tasks and the
 implementation design.
 
-- [ ] **Step 3: Re-run final validation**
+- [x] **Step 3: Re-run final validation**
 
 Run:
 
@@ -580,7 +580,7 @@ git diff --check
 Expected: durable specs and the repository remain fully green with no active
 change left.
 
-- [ ] **Step 4: Commit archive state**
+- [x] **Step 4: Commit archive state**
 
 Commit with:
 

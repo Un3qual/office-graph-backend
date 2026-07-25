@@ -49,6 +49,6 @@
   tests, Boundary checks, dependency audit, and strict OpenSpec validation.
 - [x] 5.2 Run the complete Nix-backed `./bin/verify` repository gate and
   `git diff --check`, fixing all regressions.
-- [ ] 5.3 Verify implementation against every change requirement, mark tasks
+- [x] 5.3 Verify implementation against every change requirement, mark tasks
   complete, archive the OpenSpec change with synced durable specs, and commit
   the final verified state.
