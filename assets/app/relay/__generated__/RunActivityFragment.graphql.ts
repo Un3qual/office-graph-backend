@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<7b5fa56986dfab8255ebeedd9d79f5b8>>
+ * @generated SignedSource<<600bca248c45681d9f6d7ecfbd0f0c0b>>
  * @lightSyntaxTransform
  */
 
@@ -79,7 +79,8 @@ return {
       },
       "fragmentPathInResult": [],
       "operation": RunActivityPaginationQuery_graphql
-    }
+    },
+    "throwOnFieldError": true
   },
   "name": "RunActivityFragment",
   "selections": [
@@ -206,6 +207,6 @@ return {
 };
 })();
 
-(node as any).hash = "f582ddfa1b87dd032a0cb1a0e949729f";
+(node as any).hash = "aa311fb7f08346f61596563bc92dabbd";
 
 export default node;

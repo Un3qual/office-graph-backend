@@ -191,7 +191,7 @@ describe("packet workspace route reads", () => {
         "aria-current",
         "true",
       );
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_2");
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
       expect(screen.getByRole("region", { name: "Create packet" })).toBeInTheDocument();
     });
 
@@ -236,7 +236,7 @@ describe("packet workspace route reads", () => {
     const secondRow = await screen.findByRole("button", { name: /Second packet/i });
     await waitFor(() => {
       expect(secondRow).toHaveAttribute("aria-current", "true");
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_2");
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
     });
     expect(screen.queryByRole("button", { name: /Created packet/i })).not.toBeInTheDocument();
     expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
@@ -253,7 +253,7 @@ describe("packet workspace route reads", () => {
     const firstRow = await screen.findByRole("button", { name: /First packet/i });
     await waitFor(() => {
       expect(firstRow).toHaveAttribute("aria-current", "true");
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=packet_1");
+      expect(screen.getByTestId("route-location")).toHaveTextContent("/packets");
     });
     expect(screen.queryByRole("button", { name: /Created packet/i })).not.toBeInTheDocument();
     expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toMatchObject({

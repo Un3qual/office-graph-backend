@@ -87,7 +87,22 @@ describe("Relay compiler workflow", () => {
       ([, module]) =>
         module.default.kind === "Request" && module.default.params.operationKind === "query",
     );
+    const policyOwnedRefetchQueries = new Set(
+      Object.values(generatedArtifacts).flatMap(({ default: artifact }) => {
+        const metadata = (
+          artifact as unknown as {
+            metadata?: {
+              refetch?: { operation?: ConcreteRequest };
+              throwOnFieldError?: boolean;
+            };
+          }
+        ).metadata;
 
+        return metadata?.throwOnFieldError && metadata.refetch?.operation
+          ? [metadata.refetch.operation]
+          : [];
+      }),
+    );
     expect(queryArtifacts.length).toBeGreaterThan(0);
 
     for (const [artifactPath, module] of queryArtifacts) {
@@ -95,7 +110,10 @@ describe("Relay compiler workflow", () => {
         readonly throwOnFieldError?: boolean;
       } | null;
 
-      expect(metadata?.throwOnFieldError, artifactPath).toBe(true);
+      expect(
+        metadata?.throwOnFieldError || policyOwnedRefetchQueries.has(module.default),
+        artifactPath,
+      ).toBe(true);
     }
   });
 });

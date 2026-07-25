@@ -26,6 +26,7 @@ export const RunsRouteQuery = graphql`
 
 export const RunActivityFragment = graphql`
   fragment RunActivityFragment on RootQueryType
+  @throwOnFieldError
   @refetchable(queryName: "RunActivityPaginationQuery")
   @argumentDefinitions(
     id: { type: "ID!" }

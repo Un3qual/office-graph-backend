@@ -26,6 +26,6 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run focused red-green tests for each behavior change
-- [ ] 6.2 Run strict OpenSpec validation and the canonical Nix repository gate
-- [ ] 6.3 Review the final diff for unnecessary APIs, abstractions, tests, and documentation before archiving the change
+- [x] 6.1 Run focused red-green tests for each behavior change
+- [x] 6.2 Run strict OpenSpec validation and the canonical Nix repository gate
+- [x] 6.3 Review the final diff for unnecessary APIs, abstractions, tests, and documentation before archiving the change
