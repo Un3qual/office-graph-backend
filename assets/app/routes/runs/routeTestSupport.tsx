@@ -276,7 +276,9 @@ type RunDetailPayload = Omit<RunDetailReaderPayload, "packet" | "packetVersion">
   packet: RunDetailReaderPayload["packet"] & { id: string };
   packetVersion: (NonNullable<RunDetailReaderPayload["packetVersion"]> & { id: string }) | null;
 };
-type ActivityPayload = NonNullable<RunActivityFragment$data["operatorRunState"]["activity"]>;
+type ActivityPayload = NonNullable<
+  Extract<RunActivityFragment$data["operatorRunState"]["activity"], { readonly ok: true }>["value"]
+>;
 type ActivityEdgePayload = NonNullable<NonNullable<ActivityPayload["edges"]>[number]>;
 type ActivityNodePayload = NonNullable<ActivityEdgePayload["node"]>;
 type ActivityNetworkPayload = Omit<ActivityPayload, "edges" | "pageInfo"> & {

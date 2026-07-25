@@ -244,4 +244,43 @@ describe("all-runs route recovery", () => {
     expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_stale");
     expect(screen.queryByRole("heading", { name: "Newest packet" })).not.toBeInTheDocument();
   });
+
+  it("treats an initial activity field error as a detail read failure", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        const state = support.runState();
+
+        return {
+          data: {
+            operatorRunState: {
+              ...state,
+              activity: null,
+            },
+          },
+          errors: [
+            {
+              message: rawErrorSentinel,
+              path: ["operatorRunState", "activity"],
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    expect(
+      await screen.findByRole("button", { name: /Review the newest authorized run/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+    expect(screen.queryByRole("region", { name: "Run activity" })).not.toBeInTheDocument();
+  });
 });

@@ -35,6 +35,7 @@ export const RunActivityFragment = graphql`
   ) {
     operatorRunState(id: $id) {
       activity(first: $first, after: $after)
+        @catch(to: RESULT)
         @connection(key: "RunActivityFragment_activity") {
         edges {
           node {

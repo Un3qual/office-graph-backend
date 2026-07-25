@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<600bca248c45681d9f6d7ecfbd0f0c0b>>
+ * @generated SignedSource<<901d4c980a1fe6a853cdaedcdddca107>>
  * @lightSyntaxTransform
  */
 
@@ -8,10 +8,10 @@
 // @ts-nocheck
 
 import { ReaderFragment } from 'relay-runtime';
-import { FragmentRefs } from "relay-runtime";
+import { FragmentRefs, Result } from "relay-runtime";
 export type RunActivityFragment$data = {
   readonly operatorRunState: {
-    readonly activity: {
+    readonly activity: Result<{
       readonly edges: ReadonlyArray<{
         readonly node: {
           readonly kind: string;
@@ -24,7 +24,7 @@ export type RunActivityFragment$data = {
         readonly endCursor: string | null | undefined;
         readonly hasNextPage: boolean;
       };
-    } | null | undefined;
+    } | null | undefined, unknown>;
   };
   readonly " $fragmentType": "RunActivityFragment";
 };
@@ -38,7 +38,8 @@ import RunActivityPaginationQuery_graphql from './RunActivityPaginationQuery.gra
 const node: ReaderFragment = (function(){
 var v0 = [
   "operatorRunState",
-  "activity"
+  "activity",
+  "value"
 ];
 return {
   "argumentDefinitions": [
@@ -99,104 +100,108 @@ return {
       "plural": false,
       "selections": [
         {
-          "alias": "activity",
-          "args": null,
-          "concreteType": "OperatorRunActivityConnection",
-          "kind": "LinkedField",
-          "name": "__RunActivityFragment_activity_connection",
-          "plural": false,
-          "selections": [
-            {
-              "alias": null,
-              "args": null,
-              "concreteType": "OperatorRunActivityEdge",
-              "kind": "LinkedField",
-              "name": "edges",
-              "plural": true,
-              "selections": [
-                {
-                  "alias": null,
-                  "args": null,
-                  "concreteType": "OperatorRunActivity",
-                  "kind": "LinkedField",
-                  "name": "node",
-                  "plural": false,
-                  "selections": [
-                    {
-                      "alias": null,
-                      "args": null,
-                      "kind": "ScalarField",
-                      "name": "kind",
-                      "storageKey": null
-                    },
-                    {
-                      "alias": null,
-                      "args": null,
-                      "kind": "ScalarField",
-                      "name": "stableId",
-                      "storageKey": null
-                    },
-                    {
-                      "alias": null,
-                      "args": null,
-                      "kind": "ScalarField",
-                      "name": "title",
-                      "storageKey": null
-                    },
-                    {
-                      "alias": null,
-                      "args": null,
-                      "kind": "ScalarField",
-                      "name": "status",
-                      "storageKey": null
-                    },
-                    {
-                      "alias": null,
-                      "args": null,
-                      "kind": "ScalarField",
-                      "name": "__typename",
-                      "storageKey": null
-                    }
-                  ],
-                  "storageKey": null
-                },
-                {
-                  "alias": null,
-                  "args": null,
-                  "kind": "ScalarField",
-                  "name": "cursor",
-                  "storageKey": null
-                }
-              ],
-              "storageKey": null
-            },
-            {
-              "alias": null,
-              "args": null,
-              "concreteType": "PageInfo",
-              "kind": "LinkedField",
-              "name": "pageInfo",
-              "plural": false,
-              "selections": [
-                {
-                  "alias": null,
-                  "args": null,
-                  "kind": "ScalarField",
-                  "name": "hasNextPage",
-                  "storageKey": null
-                },
-                {
-                  "alias": null,
-                  "args": null,
-                  "kind": "ScalarField",
-                  "name": "endCursor",
-                  "storageKey": null
-                }
-              ],
-              "storageKey": null
-            }
-          ],
-          "storageKey": null
+          "kind": "CatchField",
+          "field": {
+            "alias": "activity",
+            "args": null,
+            "concreteType": "OperatorRunActivityConnection",
+            "kind": "LinkedField",
+            "name": "__RunActivityFragment_activity_connection",
+            "plural": false,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "OperatorRunActivityEdge",
+                "kind": "LinkedField",
+                "name": "edges",
+                "plural": true,
+                "selections": [
+                  {
+                    "alias": null,
+                    "args": null,
+                    "concreteType": "OperatorRunActivity",
+                    "kind": "LinkedField",
+                    "name": "node",
+                    "plural": false,
+                    "selections": [
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "kind",
+                        "storageKey": null
+                      },
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "stableId",
+                        "storageKey": null
+                      },
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "title",
+                        "storageKey": null
+                      },
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "status",
+                        "storageKey": null
+                      },
+                      {
+                        "alias": null,
+                        "args": null,
+                        "kind": "ScalarField",
+                        "name": "__typename",
+                        "storageKey": null
+                      }
+                    ],
+                    "storageKey": null
+                  },
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "cursor",
+                    "storageKey": null
+                  }
+                ],
+                "storageKey": null
+              },
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "PageInfo",
+                "kind": "LinkedField",
+                "name": "pageInfo",
+                "plural": false,
+                "selections": [
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "hasNextPage",
+                    "storageKey": null
+                  },
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "endCursor",
+                    "storageKey": null
+                  }
+                ],
+                "storageKey": null
+              }
+            ],
+            "storageKey": null
+          },
+          "to": "RESULT"
         }
       ],
       "storageKey": null
@@ -207,6 +212,6 @@ return {
 };
 })();
 
-(node as any).hash = "aa311fb7f08346f61596563bc92dabbd";
+(node as any).hash = "c845b23bf49b0e5a53b4676cb9adeae6";
 
 export default node;

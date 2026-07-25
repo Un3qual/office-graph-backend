@@ -102,6 +102,76 @@ describe("all-runs route activity and command boundaries", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps GraphQL field errors inside the activity retry boundary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let continuationAttempts = 0;
+    let detailAttempts = 0;
+    const rawErrorSentinel = "RAW_ACTIVITY_FIELD_ERROR_SENTINEL_63a8";
+    const network = vi.fn(async (request, _variables): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        detailAttempts += 1;
+        return { data: { operatorRunState: support.runState() } };
+      }
+
+      if (request.name === "RunActivityPaginationQuery") {
+        continuationAttempts += 1;
+
+        if (continuationAttempts === 1) {
+          return {
+            data: {
+              operatorRunState: {
+                activity: null,
+              },
+            },
+            errors: [
+              {
+                message: rawErrorSentinel,
+                path: ["operatorRunState", "activity"],
+              },
+            ],
+          };
+        }
+
+        return support.activityPageResponse({ title: "Recovered field-error observation" });
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network, "/runs?runId=run_new");
+
+    const activity = await screen.findByRole("region", { name: "Run activity" });
+    fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
+
+    expect(await within(activity).findByRole("alert")).toHaveTextContent(
+      "Unable to load more activity.",
+    );
+    expect(within(activity).getByText("Release verification")).toBeInTheDocument();
+    expect(screen.queryByText("Selected run details are unavailable.")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(rawErrorSentinel);
+
+    fireEvent.click(within(activity).getByRole("button", { name: "Retry activity" }));
+
+    expect(
+      await within(activity).findByText("Recovered field-error observation"),
+    ).toBeInTheDocument();
+    expect(within(activity).getByText("Release verification")).toBeInTheDocument();
+    expect(continuationAttempts).toBe(2);
+    expect(detailAttempts).toBe(1);
+    expect(
+      network.mock.calls
+        .filter(([request]) => request.name === "RunActivityPaginationQuery")
+        .map(([, variables]) => variables),
+    ).toEqual([
+      { id: "run_new", first: 5, after: "activity_cursor_2" },
+      { id: "run_new", first: 5, after: "activity_cursor_2" },
+    ]);
+  });
+
   it("resets loaded activity pages when the selected run changes", async () => {
     const secondSummary = support.runSummary({
       id: "run_second",
