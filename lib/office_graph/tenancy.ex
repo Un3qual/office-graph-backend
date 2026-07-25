@@ -8,20 +8,20 @@ defmodule OfficeGraph.Tenancy do
   alias OfficeGraph.Repo
   alias OfficeGraph.Tenancy.{Initiative, Organization, Workspace, Workstream}
 
-  def validate_workspace_scope(organization_id, workspace_id)
-      when is_binary(organization_id) and is_binary(workspace_id) do
-    case Ash.get(Workspace, workspace_id,
-           authorize?: false,
-           not_found_error?: false
-         ) do
-      {:ok, %Workspace{organization_id: ^organization_id}} -> :ok
-      {:ok, _missing_or_mismatched} -> {:error, :invalid_scope}
-      {:error, _storage_error} -> {:error, :tenancy_storage_unavailable}
+  def validate_workspace_scope(organization_id, workspace_id) do
+    if is_binary(organization_id) and is_binary(workspace_id) do
+      case Ash.get(Workspace, workspace_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %Workspace{organization_id: ^organization_id}} -> :ok
+        {:ok, _missing_or_mismatched} -> {:error, :invalid_scope}
+        {:error, _storage_error} -> {:error, :tenancy_storage_unavailable}
+      end
+    else
+      {:error, :invalid_scope}
     end
   end
-
-  def validate_workspace_scope(_organization_id, _workspace_id),
-    do: {:error, :invalid_scope}
 
   def ensure_local_scope(attrs) do
     Repo.transaction(fn ->

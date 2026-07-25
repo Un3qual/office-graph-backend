@@ -4,6 +4,13 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
   @behaviour OfficeGraph.Authentication.OidcClient
 
   @provider_name OfficeGraph.Authentication.OidcProvider
+  @provider_exceptions [
+    ArgumentError,
+    FunctionClauseError,
+    KeyError,
+    MatchError,
+    RuntimeError
+  ]
 
   def provider_name, do: @provider_name
 
@@ -29,7 +36,7 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
       }
     )
   rescue
-    _provider_error -> {:error, :provider_unavailable}
+    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
   catch
     _kind, _reason -> {:error, :provider_unavailable}
   end
@@ -62,14 +69,14 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
              @provider_name,
              config.client_id,
              config.client_secret,
-             %{expected_subject: subject}
+             %{}
            ) do
       {:ok, Map.merge(id_claims, userinfo)}
     else
       _provider_error -> {:error, :provider_unavailable}
     end
   rescue
-    _provider_error -> {:error, :provider_unavailable}
+    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
   catch
     _kind, _reason -> {:error, :provider_unavailable}
   end
@@ -86,7 +93,7 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
       %{post_logout_redirect_uri: post_logout_redirect_uri}
     )
   rescue
-    _provider_error -> {:error, :provider_unavailable}
+    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
   catch
     _kind, _reason -> {:error, :provider_unavailable}
   end

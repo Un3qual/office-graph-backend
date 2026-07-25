@@ -7,6 +7,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
   alias OfficeGraph.Identity.{
     AuthenticationEvent,
     ExternalIdentityLink,
+    Principal,
     Session
   }
 
@@ -70,6 +71,59 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                Identity.reconcile_oidc_identity(claims, reconciliation_opts())
 
       refute link_for_subject("unverified-subject")
+    end
+
+    test "matches the normalized verified identifier to one existing human principal" do
+      owner_email = "  #{unique("Normalized.Owner")}@Example.TEST  "
+
+      {:ok, bootstrap} =
+        Foundation.bootstrap_local_owner(
+          organization_slug: unique("normalized-owner-org"),
+          workspace_slug: unique("normalized-owner-workspace"),
+          initiative_slug: unique("normalized-owner-initiative"),
+          owner_email: owner_email
+        )
+
+      normalized_email = owner_email |> String.trim() |> String.downcase()
+
+      assert {:ok, linked} =
+               Identity.reconcile_oidc_identity(
+                 claims(normalized_email, "normalized-owner-subject"),
+                 reconciliation_opts()
+               )
+
+      assert linked.principal.id == bootstrap.principal.id
+      assert linked.external_identity_link.verified_email == normalized_email
+    end
+
+    test "persists review when multiple principals own the normalized identifier" do
+      normalized_email = "#{unique("ambiguous-owner")}@example.test"
+
+      for email <- [String.upcase(normalized_email), " #{normalized_email} "] do
+        Ash.create!(
+          Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: email,
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+      end
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(normalized_email, "ambiguous-owner-subject"),
+                 reconciliation_opts()
+               )
+
+      assert %ExternalIdentityLink{
+               principal_id: nil,
+               status: "review_required",
+               review_reason: "ambiguous_verified_identifier"
+             } = link_for_subject("ambiguous-owner-subject")
     end
 
     test "persists a stable review state for an unknown verified identifier" do
@@ -254,6 +308,9 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert {:error, :invalid_session} =
                Identity.resolve_human_session(link_session.session.id)
 
+      assert {:error, :identity_disabled} =
+               issue_session(linked, bootstrap, "disabled-link-new-session")
+
       linked.external_identity_link
       |> Ash.Changeset.for_update(:set_lifecycle, %{status: "active", disabled_at: nil})
       |> Ash.update!(authorize?: false)
@@ -267,6 +324,9 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
 
       assert {:error, :invalid_session} =
                Identity.resolve_human_session(principal_session.session.id)
+
+      assert {:error, :principal_disabled} =
+               issue_session(linked, bootstrap, "disabled-principal-new-session")
     end
 
     test "records bounded login and logout evidence without provider secrets", %{

@@ -134,11 +134,11 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   end
 
   defp link_verified_principal(identity, config) do
-    case principal_for_email(identity.verified_email) do
-      nil ->
+    case principals_for_email(identity.verified_email) do
+      [] ->
         persist_review_link(identity, config, "unlinked_verified_identifier")
 
-      %Principal{kind: "human", status: "active"} = principal ->
+      [%Principal{kind: "human", status: "active"} = principal] ->
         now = DateTime.utc_now()
 
         link =
@@ -160,11 +160,14 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
 
         {:ok, %{principal: principal, external_identity_link: link}}
 
-      %Principal{kind: "human"} ->
+      [%Principal{kind: "human"}] ->
         {:error, :principal_disabled}
 
-      %Principal{} ->
+      [%Principal{}] ->
         persist_review_link(identity, config, "ineligible_principal")
+
+      _ambiguous_principals ->
+        persist_review_link(identity, config, "ambiguous_verified_identifier")
     end
   end
 
@@ -204,10 +207,10 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     |> Ash.read!(authorize?: false)
   end
 
-  defp principal_for_email(verified_email) do
+  defp principals_for_email(verified_email) do
     Principal
-    |> Ash.Query.filter(email == ^verified_email)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.Query.filter(fragment("lower(btrim(?))", email) == ^verified_email)
+    |> Ash.read!(authorize?: false)
   end
 
   defp lock_reconciliation!(identity, config) do

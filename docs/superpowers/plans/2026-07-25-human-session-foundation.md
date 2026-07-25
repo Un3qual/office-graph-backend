@@ -474,7 +474,7 @@ git commit -m "feat: require durable human web sessions"
 - Modify:
   `docs/superpowers/plans/2026-07-25-human-session-foundation.md`
 
-- [ ] **Step 1: Review the aggregate diff**
+- [x] **Step 1: Review the aggregate diff**
 
 Check every new module, public API, fallback, config key, and guard for a
 concrete reachable responsibility. Remove duplicate adapters, compatibility
@@ -488,7 +488,7 @@ Confirm with repository searches that:
 - no OIDC group/role claim reaches Authorization mutation APIs;
 - no SCIM/admin/workspace-switching behavior leaked into the batch.
 
-- [ ] **Step 2: Run focused static and migration checks**
+- [x] **Step 2: Run focused static and migration checks**
 
 Run:
 
@@ -505,7 +505,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 Expected: migrations and every focused gate pass.
 
-- [ ] **Step 3: Run the complete repository gate**
+- [x] **Step 3: Run the complete repository gate**
 
 Run:
 

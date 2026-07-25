@@ -44,42 +44,16 @@ defmodule OfficeGraph.Identity.HumanSessions do
       with_storage_boundary(fn ->
         Repo.transaction(fn ->
           lock_context!(principal.id, organization_id, workspace_id)
-          now = DateTime.utc_now()
 
-          revoke_active!(principal.id, organization_id, workspace_id, now)
-
-          session =
-            Repo.ash_create!(
-              Session,
-              %{
-                id: Ecto.UUID.generate(),
-                principal_id: principal.id,
-                external_identity_link_id: external_identity_link.id,
-                organization_id: organization_id,
-                workspace_id: workspace_id,
-                purpose: @purpose,
-                authentication_method: attrs.authentication_method,
-                issued_at: now,
-                expires_at: DateTime.add(now, attrs.ttl_seconds, :second),
-                source_surface: attrs.source_surface,
-                trace_id: attrs.trace_id
-              }
+          with :ok <- validate_current_identity(principal.id, external_identity_link.id) do
+            create_session(
+              principal,
+              external_identity_link,
+              organization_id,
+              workspace_id,
+              attrs
             )
-
-          create_event!(%{
-            principal_id: principal.id,
-            external_identity_link_id: external_identity_link.id,
-            session_id: session.id,
-            organization_id: organization_id,
-            workspace_id: workspace_id,
-            event: "login",
-            result: "succeeded",
-            authentication_method: attrs.authentication_method,
-            source_surface: attrs.source_surface,
-            trace_id: attrs.trace_id
-          })
-
-          {:ok, %{session: session, session_context: context(session)}}
+          end
         end)
       end)
     end
@@ -196,6 +170,88 @@ defmodule OfficeGraph.Identity.HumanSessions do
       :ok -> :ok
       _invalid_or_unavailable -> {:error, :invalid_scope}
     end
+  end
+
+  defp validate_current_identity(principal_id, external_identity_link_id) do
+    principal =
+      Principal
+      |> Ash.Query.filter(id == ^principal_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one(authorize?: false)
+
+    link =
+      ExternalIdentityLink
+      |> Ash.Query.filter(id == ^external_identity_link_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one(authorize?: false)
+
+    case {principal, link} do
+      {{:ok, %Principal{kind: "human", status: "active"}},
+       {:ok,
+        %ExternalIdentityLink{
+          principal_id: ^principal_id,
+          status: "active",
+          linking_state: "linked"
+        }}} ->
+        :ok
+
+      {{:ok, %Principal{kind: "human", status: "active"}}, {:ok, _inactive_or_missing_link}} ->
+        {:error, :identity_disabled}
+
+      {{:ok, %Principal{}}, _link} ->
+        {:error, :principal_disabled}
+
+      {{:ok, nil}, _link} ->
+        {:error, :principal_disabled}
+
+      {{:error, error}, _link} ->
+        raise error
+
+      {_principal, {:error, error}} ->
+        raise error
+
+      {_active_principal, {:ok, _inactive_or_missing_link}} ->
+        {:error, :identity_disabled}
+    end
+  end
+
+  defp create_session(principal, external_identity_link, organization_id, workspace_id, attrs) do
+    now = DateTime.utc_now()
+
+    revoke_active!(principal.id, organization_id, workspace_id, now)
+
+    session =
+      Repo.ash_create!(
+        Session,
+        %{
+          id: Ecto.UUID.generate(),
+          principal_id: principal.id,
+          external_identity_link_id: external_identity_link.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id,
+          purpose: @purpose,
+          authentication_method: attrs.authentication_method,
+          issued_at: now,
+          expires_at: DateTime.add(now, attrs.ttl_seconds, :second),
+          source_surface: attrs.source_surface,
+          trace_id: attrs.trace_id
+        }
+      )
+
+    create_event!(%{
+      principal_id: principal.id,
+      external_identity_link_id: external_identity_link.id,
+      session_id: session.id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      event: "login",
+      result: "succeeded",
+      authentication_method: attrs.authentication_method,
+      source_surface: attrs.source_surface,
+      trace_id: attrs.trace_id
+    })
+
+    {:ok, %{session: session, session_context: context(session)}}
   end
 
   defp revoke_active!(principal_id, organization_id, workspace_id, revoked_at) do

@@ -45,9 +45,9 @@
 
 ## 5. Verification And Closeout
 
-- [ ] 5.1 Run formatting, migrations, focused Identity/Authentication/web
+- [x] 5.1 Run formatting, migrations, focused Identity/Authentication/web
   tests, Boundary checks, dependency audit, and strict OpenSpec validation.
-- [ ] 5.2 Run the complete Nix-backed `./bin/verify` repository gate and
+- [x] 5.2 Run the complete Nix-backed `./bin/verify` repository gate and
   `git diff --check`, fixing all regressions.
 - [ ] 5.3 Verify implementation against every change requirement, mark tasks
   complete, archive the OpenSpec change with synced durable specs, and commit
