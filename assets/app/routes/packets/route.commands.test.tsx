@@ -217,7 +217,7 @@ describe("packet workspace route reads", () => {
     fireEvent.change(createPacket.getByLabelText("Verification check IDs"), {
       target: { value: "check_1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create packet" }));
+    fireEvent.click(createPacket.getByRole("button", { name: "Create packet" }));
 
     const createdRow = await screen.findByRole("button", { name: /Created packet/i });
     await waitFor(() => expect(createdRow).toHaveAttribute("aria-current", "true"));

@@ -1,8 +1,6 @@
 defmodule OfficeGraph.Repo.Migrations.HardenRunIndexStorage do
   use Ecto.Migration
 
-  @index_name :runs_scope_inserted_at_id_index
-
   def up do
     execute("""
     UPDATE runs
@@ -20,17 +18,9 @@ defmodule OfficeGraph.Repo.Migrations.HardenRunIndexStorage do
       modify :execution_state, :text, null: false
       modify :verification_state, :text, null: false
     end
-
-    create index(
-             :runs,
-             [:organization_id, :workspace_id, "inserted_at DESC", "id DESC"],
-             name: @index_name
-           )
   end
 
   def down do
-    drop index(:runs, [], name: @index_name)
-
     alter table(:runs) do
       modify :aggregate_state, :text, null: true
       modify :execution_state, :text, null: true

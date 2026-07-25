@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import * as routeHelpers from "@react-router/dev/routes";
 import {
   index as registerIndex,
@@ -346,6 +346,27 @@ describe("all-runs route architecture", () => {
     );
   });
 
+  it("ignores relative asset imports while keeping unresolved source imports fail-closed", () => {
+    withTemporarySources(
+      {
+        "entry.tsx": `
+          import "./styles.css";
+          import fixture from "./fixture.json";
+          import rawFixture from "./fixture.json?raw";
+          export default [fixture, rawFixture];
+        `,
+        "fixture.json": "{}",
+        "styles.css": ".fixture {}",
+      },
+      (root) => {
+        expect(
+          localDependencyFiles([join(root, "entry.tsx")]).map((file) => relative(root, file)),
+        ).toEqual(["entry.tsx"]);
+        expect(() => localDependencyFiles([join(root, "missing-entry.tsx")])).toThrowError();
+      },
+    );
+  });
+
   it("fails closed on non-static and unresolved relative dependencies", () => {
     withTemporarySources(
       {
@@ -431,7 +452,7 @@ function normalizedImports(file: string) {
 }
 
 function routeDependencyClassNames(file: string) {
-  const routeOwned = file === routeRoot || file.startsWith(`${routeRoot}/`);
+  const routeOwned = file === routeRoot || file.startsWith(`${routeRoot}${sep}`);
   return emittedClassNames(readFileSync(file, "utf8"), file, {
     unresolvedSpreads: routeOwned ? "reject" : "skip",
   });
@@ -446,7 +467,7 @@ function routeDependencyFiles(routeConfig: unknown = resolvedAppRouteConfig) {
 }
 
 function routeOwnedDependencyFiles(routeConfig: unknown = resolvedAppRouteConfig) {
-  const ownedPrefix = `${routeRoot}/`;
+  const ownedPrefix = `${routeRoot}${sep}`;
   return routeDependencyFiles(routeConfig).filter(
     (file) => file === routeRoot || file.startsWith(ownedPrefix),
   );

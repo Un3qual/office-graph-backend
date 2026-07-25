@@ -1,9 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { GraphQLResponse } from "relay-runtime";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as support from "./routeTestSupport";
 
 describe("all-runs route reads", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("renders a run-specific empty state without loading detail", async () => {
     const network = support.createRunsNetwork({ rows: [] });
 
@@ -17,6 +21,7 @@ describe("all-runs route reads", () => {
   });
 
   it("loads explicit detail independently when the initial list fails and retries only the list", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     let listAttempts = 0;
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
@@ -54,6 +59,7 @@ describe("all-runs route reads", () => {
   });
 
   it("keeps the list visible when detail fails and retries only the selected detail", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     let detailAttempts = 0;
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
@@ -91,6 +97,7 @@ describe("all-runs route reads", () => {
   });
 
   it("retains an unavailable explicit run id and renders the safe detail error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
         return support.runsConnectionResponse([support.runSummary()]);
@@ -165,6 +172,7 @@ describe("all-runs route reads", () => {
     const rendered = support.renderWithBrowserRelay(network);
 
     try {
+      expect(new Request(window.location.href)).toBeInstanceOf(Request);
       expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
       await waitFor(() => {
         expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
@@ -337,6 +345,7 @@ describe("all-runs route reads", () => {
   });
 
   it("retains the loaded page and selected detail when next-page loading fails and retries paging", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     let pageAttempts = 0;
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
@@ -469,7 +478,7 @@ describe("all-runs route reads", () => {
 
     support.renderWithRelay(network);
 
-    await screen.findByText("Not attached");
+    await screen.findByRole("heading", { name: "Newest packet" });
     const detail = screen.getByRole("region", { name: "Run detail" });
     expect(detail).toHaveTextContent("Newest packet");
     expect(detail).toHaveTextContent("Packet version");

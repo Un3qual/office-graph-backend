@@ -17,7 +17,9 @@ describe("packet workspace route reads", () => {
 
     support.renderWithRelay(vi.fn(() => request.promise));
 
-    expect(screen.getByText("Loading packets...")).toHaveAttribute("role", "status");
+    expect(
+      within(screen.getByRole("region", { name: "Packet queue" })).getByRole("status"),
+    ).toHaveTextContent("Loading packets...");
   });
 
   it("renders a packet-specific empty state without stale detail", async () => {

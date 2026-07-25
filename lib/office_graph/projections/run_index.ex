@@ -145,7 +145,8 @@ defmodule OfficeGraph.Projections.RunIndex do
     case option(opts, :limit, @default_limit) do
       value when is_integer(value) and value < 0 -> {:error, {:invalid_field, :first}}
       value when is_integer(value) -> {:ok, Kernel.min(value, @max_limit)}
-      _other -> {:ok, @default_limit}
+      nil -> {:ok, @default_limit}
+      _other -> {:error, {:invalid_field, :first}}
     end
   end
 

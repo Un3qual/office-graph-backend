@@ -94,9 +94,12 @@ describe("packet route data architecture", () => {
       return [...analyzeTypeScript(source, file).moduleSpecifiers]
         .filter((specifier) => specifier.startsWith("."))
         .map((specifier) => resolve(dirname(file), specifier).replaceAll("\\", "/"))
-        .filter(
-          (specifier) =>
-            specifier.includes("/app/routes/operator/") || specifier.includes("/app/routes/runs/"),
+        .filter((specifier) =>
+          ["operator", "runs"].some(
+            (area) =>
+              specifier.endsWith(`/app/routes/${area}`) ||
+              specifier.includes(`/app/routes/${area}/`),
+          ),
         );
     });
 

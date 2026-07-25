@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AsyncBoundary } from "../../../../src/ui/AsyncBoundary";
 import { Button } from "../../../../src/ui/Button";
 import type { RunDetailState } from "../types";
-import { useRunActivityPage } from "../workflow";
+import { runActivityPageSize, useRunActivityPage } from "../workflow";
 import { formatLabel } from "./RunList";
 
 type ActivityPage = NonNullable<RunDetailState["activity"]>;
@@ -46,7 +46,7 @@ export function RunActivity({
     <section aria-label="Run activity" className="runs-activity">
       <div className="runs-section-heading">
         <h3>Recent activity</h3>
-        <span>5 events per page</span>
+        <span>{runActivityPageSize} events per page</span>
       </div>
       <ActivityRows activity={activity} empty />
       {requests.map((request, index) => (

@@ -16,10 +16,11 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
       )
     """)
 
-    # Snapshots are immutable and revalidated against the current definition.
-    # Materialize the target set before changing parent state so child cleanup
-    # remains stable. Waiting gates keep their established child-before-parent
-    # order; active model work keeps execution-before-request order.
+    # Authority snapshot version 1 is the immutable execution authority boundary
+    # used by runtime revalidation. Materialize the target set before changing
+    # parent state so child cleanup remains stable. Waiting gates keep their
+    # established child-before-parent order; active model work keeps
+    # execution-before-request order.
     execute("DROP TABLE IF EXISTS pg_temp.reconcile_run_review_incompatible_executions")
 
     execute("""
@@ -134,6 +135,25 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
       AND execution_id IN (#{retired_execution_ids})
     """)
 
+    execute("""
+    UPDATE agent_organization_bindings AS bindings
+    SET lifecycle_state = 'disabled',
+        disabled_at = COALESCE(bindings.disabled_at, NOW()),
+        updated_at = NOW()
+    FROM agent_definitions AS definitions
+    WHERE definitions.id = bindings.definition_id
+      AND definitions.key = 'openspec-review'
+      AND bindings.lifecycle_state = 'active'
+    """)
+
+    execute("""
+    UPDATE agent_definitions
+    SET key = 'retired-run-review-' || replace(id::text, '-', ''),
+        lifecycle_state = 'retired',
+        updated_at = NOW()
+    WHERE key = 'openspec-review'
+    """)
+
     execute("DROP TABLE pg_temp.reconcile_run_review_incompatible_executions")
 
     execute("""
@@ -197,7 +217,8 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
   end
 
   def down do
-    # The canonical definition key and approved configuration are retained.
+    # Irreversible: the canonical definition and approved configuration remain,
+    # while cancelled executions and resolved gate requests are not restored.
     :ok
   end
 
@@ -207,8 +228,8 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
     FROM agent_executions AS executions
     JOIN agent_definitions AS definitions
       ON definitions.id = executions.definition_id
-     AND definitions.key = 'run-review'
-    JOIN agent_authority_snapshots AS snapshots
+     AND definitions.key IN ('run-review', 'openspec-review')
+    LEFT JOIN agent_authority_snapshots AS snapshots
       ON snapshots.execution_id = executions.id
      AND snapshots.version = 1
     WHERE executions.state IN (
@@ -219,15 +240,22 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
       'retry_scheduled'
     )
       AND (
-        NOT (
-          snapshots.capability_keys <@ ARRAY[
-            'agent.invoke',
-            'agent.model.generate',
-            'evidence.suggest',
-            'proposal.create'
-          ]::text[]
+        definitions.key = 'openspec-review'
+        OR snapshots.id IS NULL
+        OR (
+          definitions.key = 'run-review'
+          AND (
+            NOT (
+              snapshots.capability_keys <@ ARRAY[
+                'agent.invoke',
+                'agent.model.generate',
+                'evidence.suggest',
+                'proposal.create'
+              ]::text[]
+            )
+            OR cardinality(snapshots.tool_keys) > 0
+          )
         )
-        OR cardinality(snapshots.tool_keys) > 0
       )
     """
   end

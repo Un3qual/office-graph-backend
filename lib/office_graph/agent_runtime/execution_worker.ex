@@ -32,7 +32,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   @initial_step_key "model:review"
   @initial_fixture_id "proposal"
-  @lease_seconds 30
+  @worker_timeout_ms :timer.minutes(3)
+  @lease_seconds div(@worker_timeout_ms, 1_000) + 30
   @retry_delay_seconds 1
   @terminal_retry_delay_seconds 5
 
@@ -75,7 +76,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   @impl Oban.Worker
-  def timeout(_job), do: :timer.minutes(3)
+  def timeout(_job), do: @worker_timeout_ms
 
   @impl Oban.Worker
   def perform(
@@ -209,6 +210,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         executions.state,
         executions.failure_code,
         executions.lease_token,
+        executions.lease_expires_at > NOW(),
         requests.state
       FROM agent_executions AS executions
       JOIN agent_model_requests AS requests
@@ -219,13 +221,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       [Ecto.UUID.dump!(execution_id), Ecto.UUID.dump!(request_id)]
     )
     |> case do
-      {:ok, %{rows: [["running", _failure_code, ^lease_token, "running"]]}} ->
+      {:ok, %{rows: [["running", _failure_code, ^lease_token, true, "running"]]}} ->
         :current
 
-      {:ok, %{rows: [["completed", _failure_code, _persisted_lease, "succeeded"]]}} ->
+      {:ok,
+       %{rows: [["completed", _failure_code, _persisted_lease, _lease_current, "succeeded"]]}} ->
         :completed
 
-      {:ok, %{rows: [[state, failure_code, _persisted_lease, _request_state]]}}
+      {:ok, %{rows: [[state, failure_code, _persisted_lease, _lease_current, _request_state]]}}
       when state in ["failed", "cancelled"] ->
         {:terminal, safe_code(failure_code, "agent_execution_#{state}")}
 

@@ -6,6 +6,7 @@ import { RunActivityPageQuery, RunDetailQuery, RunsRouteQuery } from "./data";
 import type { RunDetailState, RunsConnectionState, RunsPage } from "./types";
 
 export const defaultRunsPage: RunsPage = { first: 50, after: null };
+export const runActivityPageSize = 5;
 
 export function useRunsPage(page: RunsPage, fetchKey?: number, forceNetwork = false) {
   const data = useLazyLoadQuery<RunsRouteOperation>(RunsRouteQuery, page, {
@@ -25,7 +26,7 @@ export function useRunDetail(
     RunDetailQuery,
     {
       id: runId,
-      activityFirst: 5,
+      activityFirst: runActivityPageSize,
       activityAfter,
     },
     { fetchKey, fetchPolicy: "network-only" },
@@ -47,7 +48,7 @@ export function useRunActivityPage(
     RunActivityPageQuery,
     {
       id: runId,
-      activityFirst: 5,
+      activityFirst: runActivityPageSize,
       activityAfter: after,
     },
     { fetchKey, fetchPolicy: "network-only" },

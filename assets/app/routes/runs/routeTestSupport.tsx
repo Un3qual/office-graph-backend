@@ -123,6 +123,34 @@ export function runsConnectionResponse(
   };
 }
 
+export function activityPageResponse({ title }: { title: string }): GraphQLResponse {
+  return {
+    data: {
+      operatorRunState: {
+        activity: {
+          edges: [
+            {
+              cursor: "activity_cursor_3",
+              node: {
+                kind: "observation",
+                stableId: "observation_3",
+                title,
+                status: "succeeded",
+              },
+            },
+          ],
+          pageInfo: {
+            hasNextPage: false,
+            hasPreviousPage: true,
+            startCursor: "activity_cursor_3",
+            endCursor: "activity_cursor_3",
+          },
+        },
+      },
+    },
+  };
+}
+
 export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSummaryPayload {
   return {
     id: "run_new",
@@ -287,6 +315,8 @@ function installCrossRealmRequestSignalBridge() {
     return request;
   }
 
+  Object.setPrototypeOf(CompatibleRequest, NativeRequest);
+  CompatibleRequest.prototype = NativeRequest.prototype;
   globalThis.Request = CompatibleRequest as unknown as typeof Request;
 
   return () => {

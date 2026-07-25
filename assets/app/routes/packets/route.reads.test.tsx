@@ -43,16 +43,8 @@ describe("packet workspace route reads", () => {
       id: support.secondPacketIdentity.relayId,
       title: "Linked packet",
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
-        expect(variables).toEqual({
-          first: 50,
-          after: null,
-          createdOperationId: null,
-          loadCreatedPacket: false,
-          packetId: support.secondPacketIdentity.relayId,
-          loadLinkedPacket: true,
-        });
         return support.packetConnectionResponse(
           [support.packet(), selectedPacket],
           {},
@@ -87,6 +79,14 @@ describe("packet workspace route reads", () => {
     expect(screen.getByTestId("route-location")).toHaveTextContent(
       `/packets?packetId=${support.secondPacketIdentity.relayId}`,
     );
+    expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+      first: 50,
+      after: null,
+      createdOperationId: null,
+      loadCreatedPacket: false,
+      packetId: support.secondPacketIdentity.relayId,
+      loadLinkedPacket: true,
+    });
   });
 
   it("loads an authorized packetId outside the first page and preserves normal row selection", async () => {
@@ -186,17 +186,8 @@ describe("packet workspace route reads", () => {
   });
 
   it("preserves a present empty packetId as an authoritative unavailable selection", async () => {
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
-        expect(variables).toEqual({
-          first: 50,
-          after: null,
-          createdOperationId: null,
-          loadCreatedPacket: false,
-          packetId: "",
-          loadLinkedPacket: true,
-        });
-
         return {
           ...support.packetConnectionResponse([
             support.packet({ id: support.packetIdentity.relayId }),
@@ -223,6 +214,14 @@ describe("packet workspace route reads", () => {
       "No packet selected.",
     );
     expect(screen.getByTestId("route-location")).toHaveTextContent("/packets?packetId=");
+    expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toEqual({
+      first: 50,
+      after: null,
+      createdOperationId: null,
+      loadCreatedPacket: false,
+      packetId: "",
+      loadLinkedPacket: true,
+    });
   });
 
   it("clears stale detail when the URL changes to an unavailable packetId", async () => {
@@ -548,8 +547,6 @@ describe("packet workspace route reads", () => {
     });
     const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
       if (request.name === "PacketsRouteQuery") {
-        expect(variables.packetId).toBe(support.secondPacketIdentity.relayId);
-
         return variables.after === "cursor_1"
           ? support.packetConnectionResponse(
               [
@@ -581,7 +578,6 @@ describe("packet workspace route reads", () => {
       }
 
       if (request.name === "PacketsWorkspaceDetailQuery") {
-        expect(variables.id).toBe(support.secondPacketIdentity.relayId);
         return support.packetWorkspaceResponse(
           support.workspace({
             packet: support.packetWorkspacePacket({
@@ -601,6 +597,12 @@ describe("packet workspace route reads", () => {
       "aria-current",
       "true",
     );
+    expect(support.lastVariablesFor(network, "PacketsRouteQuery")).toMatchObject({
+      packetId: support.secondPacketIdentity.relayId,
+    });
+    expect(support.lastVariablesFor(network, "PacketsWorkspaceDetailQuery")).toMatchObject({
+      id: support.secondPacketIdentity.relayId,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {

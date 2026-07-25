@@ -10,27 +10,6 @@ describe("all-runs route activity and command boundaries", () => {
 
   it("appends the next activity page exactly once without reusing the run-list cursor", async () => {
     const firstState = support.runState();
-    const nextState = support.runState({
-      activity: {
-        edges: [
-          {
-            cursor: "activity_cursor_3",
-            node: {
-              kind: "observation",
-              stableId: "observation_3",
-              title: "Later execution observation",
-              status: "succeeded",
-            },
-          },
-        ],
-        pageInfo: {
-          hasNextPage: false,
-          hasPreviousPage: true,
-          startCursor: "activity_cursor_3",
-          endCursor: "activity_cursor_3",
-        },
-      },
-    });
     const network = vi.fn(async (request): Promise<GraphQLResponse> => {
       if (request.name === "RunsRouteQuery") {
         return support.runsConnectionResponse([support.runSummary()], {
@@ -44,7 +23,7 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunActivityPageQuery") {
-        return { data: { operatorRunState: { activity: nextState.activity } } };
+        return support.activityPageResponse({ title: "Later execution observation" });
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -93,31 +72,7 @@ describe("all-runs route activity and command boundaries", () => {
           throw new Error("credential-bearing activity transport failure");
         }
 
-        return {
-          data: {
-            operatorRunState: {
-              activity: {
-                edges: [
-                  {
-                    cursor: "activity_cursor_3",
-                    node: {
-                      kind: "observation",
-                      stableId: "observation_3",
-                      title: "Recovered execution observation",
-                      status: "succeeded",
-                    },
-                  },
-                ],
-                pageInfo: {
-                  hasNextPage: false,
-                  hasPreviousPage: true,
-                  startCursor: "activity_cursor_3",
-                  endCursor: "activity_cursor_3",
-                },
-              },
-            },
-          },
-        };
+        return support.activityPageResponse({ title: "Recovered execution observation" });
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -198,31 +153,7 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunActivityPageQuery") {
-        return {
-          data: {
-            operatorRunState: {
-              activity: {
-                edges: [
-                  {
-                    cursor: "activity_cursor_3",
-                    node: {
-                      kind: "observation",
-                      stableId: "observation_3",
-                      title: "Later execution observation",
-                      status: "succeeded",
-                    },
-                  },
-                ],
-                pageInfo: {
-                  hasNextPage: false,
-                  hasPreviousPage: true,
-                  startCursor: "activity_cursor_3",
-                  endCursor: "activity_cursor_3",
-                },
-              },
-            },
-          },
-        };
+        return support.activityPageResponse({ title: "Later execution observation" });
       }
 
       if (request.name === "RunDetailQuery") {

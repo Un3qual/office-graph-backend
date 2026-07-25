@@ -143,6 +143,12 @@ describe("shared UI import boundaries", () => {
         "app/routes/runs/architecture.test.ts",
       ),
     ).toBe(false);
+    expect(
+      scriptRunsVitestFile(
+        "vitest --exclude app/routes/runs/** run app/routes/runs/architecture.test.ts",
+        "app/routes/runs/architecture.test.ts",
+      ),
+    ).toBe(false);
   });
 
   it("allows exclusions that cannot match the required architecture file", () => {
@@ -264,11 +270,12 @@ function scriptRunsVitestFile(script: string, testFile: string) {
     const tokens = shellTokens(command);
     const vitestIndex = tokens.indexOf("vitest");
     const runIndex = tokens.indexOf("run", vitestIndex + 1);
-    const exclusions = vitestExclusionPatterns(tokens.slice(runIndex + 1));
+
+    if (vitestIndex < 0 || runIndex <= vitestIndex) return false;
+
+    const exclusions = vitestExclusionPatterns(tokens.slice(vitestIndex + 1));
 
     return (
-      vitestIndex >= 0 &&
-      runIndex > vitestIndex &&
       tokens.slice(runIndex + 1).includes(testFile) &&
       !exclusions.some((pattern) => globMatchesPath(pattern, testFile))
     );

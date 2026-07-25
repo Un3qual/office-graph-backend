@@ -153,6 +153,89 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
            )
   end
 
+  test "retires a coexisting legacy definition, its binding, and active executions" do
+    context = AgentRuntimeSupport.invocation_fixture()
+
+    legacy_definition_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO agent_definitions (
+        id,
+        key,
+        name,
+        description,
+        lifecycle_state,
+        supported_modes,
+        requested_capabilities,
+        model_adapter_key,
+        model_credential_id,
+        tool_allowlist,
+        default_autonomy_mode,
+        allowed_output_kinds,
+        inserted_at,
+        updated_at
+      )
+      SELECT
+        $1,
+        'openspec-review',
+        'Legacy Review',
+        description,
+        lifecycle_state,
+        supported_modes,
+        requested_capabilities,
+        model_adapter_key,
+        model_credential_id,
+        tool_allowlist,
+        default_autonomy_mode,
+        allowed_output_kinds,
+        NOW(),
+        NOW()
+      FROM agent_definitions
+      WHERE id = $2
+      """,
+      [
+        Ecto.UUID.dump!(legacy_definition_id),
+        Ecto.UUID.dump!(context.definition.id)
+      ]
+    )
+
+    Repo.query!(
+      "UPDATE agent_organization_bindings SET definition_id = $1 WHERE id = $2",
+      [
+        Ecto.UUID.dump!(legacy_definition_id),
+        Ecto.UUID.dump!(context.binding.id)
+      ]
+    )
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(
+        %{context | definition: %{context.definition | id: legacy_definition_id}},
+        %{
+          idempotency_key: "coexisting-legacy-definition-#{context.suffix}"
+        }
+      )
+
+    run_reconciliation_migration()
+    run_reconciliation_migration()
+
+    assert %{rows: [[retired_key, "retired"]]} =
+             Repo.query!(
+               "SELECT key, lifecycle_state FROM agent_definitions WHERE id = $1",
+               [Ecto.UUID.dump!(legacy_definition_id)]
+             )
+
+    refute retired_key == "openspec-review"
+
+    assert %{rows: [["disabled"]]} =
+             Repo.query!(
+               "SELECT lifecycle_state FROM agent_organization_bindings WHERE id = $1",
+               [Ecto.UUID.dump!(context.binding.id)]
+             )
+
+    assert Ash.get!(AgentExecution, invoked.execution.id, authorize?: false).state == "cancelled"
+  end
+
   test "reconciles canonical authority onto existing legacy binding roles" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 

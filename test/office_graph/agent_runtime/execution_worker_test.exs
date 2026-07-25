@@ -808,6 +808,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
     running_request = Ash.get!(ModelRequest, request_id, authorize?: false)
 
+    assert DateTime.diff(running.lease_expires_at, DateTime.utc_now(), :second) >= 180
+
     assert :current =
              ExecutionWorker.claim_dispatch_posture(
                running.id,
@@ -1143,7 +1145,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert_receive {:blocking_model_started, request_id}, 1_000
 
     assert {:snooze, delay} = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
-    assert delay in 1..30
+    assert delay in 180..210
     refute_receive {:blocking_model_started, _duplicate_request_id}, 50
 
     owner = Agent.get(coordinator, &Map.fetch!(&1, request_id))
@@ -1196,6 +1198,13 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
     })
     |> Ash.update!(authorize?: false)
+
+    assert :stale =
+             ExecutionWorker.claim_dispatch_posture(
+               running.id,
+               request.id,
+               running.lease_token
+             )
 
     Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
 

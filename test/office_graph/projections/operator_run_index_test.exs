@@ -180,6 +180,12 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
 
     assert {:error, {:invalid_field, :first}} =
              Projections.operator_runs_page(bootstrap.session, limit: -1, after_cursor: nil)
+
+    assert {:error, {:invalid_field, :first}} =
+             Projections.operator_runs_page(bootstrap.session,
+               limit: "10",
+               after_cursor: nil
+             )
   end
 
   test "uses a constant number of batched reads as page result size grows" do

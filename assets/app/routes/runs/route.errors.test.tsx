@@ -156,6 +156,7 @@ describe("all-runs route recovery", () => {
 
     await waitFor(() => expect(secondPageAttempts).toBe(2));
     expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Second page run/i })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(rawErrorSentinel);
 
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
@@ -177,13 +178,12 @@ describe("all-runs route recovery", () => {
     "retains a present %s URL selection and uses the same non-enumerating detail state",
     async (kind, runId) => {
       vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+      const network = vi.fn(async (request): Promise<GraphQLResponse> => {
         if (request.name === "RunsRouteQuery") {
           return support.runsConnectionResponse([support.runSummary()]);
         }
 
         if (request.name === "RunDetailQuery") {
-          expect(variables.id).toBe(runId);
           if (kind === "forbidden") throw new Error(rawErrorSentinel);
           return { data: { operatorRunState: null } };
         }

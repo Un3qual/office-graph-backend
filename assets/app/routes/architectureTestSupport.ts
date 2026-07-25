@@ -209,7 +209,7 @@ export function analyzeRouteConfig(
     .filter((registration) => registration !== allowedCanonical)
     .map(
       ({ index, path, target }) =>
-        `${path ?? (index ? "<index>" : "<pathless>")} targets runs-owned module "${target}"`,
+        `${path ?? (index ? "<index>" : "<pathless>")} targets ${canonicalPath}-owned module "${target}"`,
     );
 
   if (canonicalRegistrations.length !== 1) {
@@ -305,6 +305,12 @@ export function localDependencyFiles(entries: string[]) {
         throw new Error(`Non-static dynamic import in ${file}`);
       }
       if (!specifier.startsWith(".")) continue;
+      if (
+        /[?#]/.test(specifier) ||
+        /\.(?:avif|css|gif|jpe?g|json|png|svg|ttf|webp|woff2?)$/i.test(specifier)
+      ) {
+        continue;
+      }
 
       const dependency = resolveSourceFile(resolve(dirname(file), specifier));
       if (!dependency) {
