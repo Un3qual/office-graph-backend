@@ -149,7 +149,7 @@ git commit -m "docs: specify human session foundation"
   `Identity.revoke_human_session(session_id, attrs)`.
 - Produces bounded authentication-event recording owned by Identity.
 
-- [ ] **Step 1: Write failing persistence/reconciliation tests**
+- [x] **Step 1: Write failing persistence/reconciliation tests**
 
 Cover:
 
@@ -163,7 +163,7 @@ Cover:
 - disabled link and disabled principal rejection;
 - absence of role, grant, or capability writes from group/role claim fixtures.
 
-- [ ] **Step 2: Run the new tests and confirm RED**
+- [x] **Step 2: Run the new tests and confirm RED**
 
 Run:
 
@@ -175,7 +175,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 Expected: compile/test failures because the migration, resources, and public
 Identity APIs do not exist.
 
-- [ ] **Step 3: Add the migration and canonical Ash resources**
+- [x] **Step 3: Add the migration and canonical Ash resources**
 
 Create:
 
@@ -195,7 +195,7 @@ explicit local fixture sessions.
 Register resources in `Identity.Domain`, the test ownership map, identity map,
 durable OpenSpec model inventory, and the implemented table count.
 
-- [ ] **Step 4: Implement reconciliation and human session lifecycle**
+- [x] **Step 4: Implement reconciliation and human session lifecycle**
 
 Keep reconciliation and session writes inside Identity transactions. Normalize
 email with trim/downcase, reserve review subjects durably, verify link/principal
@@ -205,7 +205,7 @@ Issue `human_web` sessions with a configurable eight-hour default. Revoke the
 existing active same-context session before replacement. Resolve sessions only
 when purpose, expiry, revocation, principal, link, and scope all validate.
 
-- [ ] **Step 5: Run focused Identity and architecture tests**
+- [x] **Step 5: Run focused Identity and architecture tests**
 
 Run:
 
@@ -219,7 +219,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 Expected: all pass, including unchanged explicit bootstrap behavior.
 
-- [ ] **Step 6: Format, verify the diff, and commit**
+- [x] **Step 6: Format, verify the diff, and commit**
 
 Run `mix format` through Nix and `git diff --check`. Commit with:
 

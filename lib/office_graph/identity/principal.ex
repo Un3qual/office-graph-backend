@@ -28,6 +28,10 @@ defmodule OfficeGraph.Identity.Principal do
     create :create do
       accept [:id, :email, :kind, :status]
     end
+
+    update :set_status do
+      accept [:status]
+    end
   end
 
   identities do

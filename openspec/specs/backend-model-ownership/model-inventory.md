@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 80 tables.
+Derived from committed migrations; expected count: 82 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -13,7 +13,9 @@ Derived from committed migrations; expected count: 80 tables.
 | `principals` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.Principal` |
 | `principal_profiles` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.PrincipalProfile` |
 | `credentials` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.Credential` |
+| `external_identity_links` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.ExternalIdentityLink` |
 | `sessions` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.Session` |
+| `authentication_events` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.AuthenticationEvent` |
 | `capabilities` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.Capability` |
 | `roles` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.Role` |
 | `role_capabilities` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.RoleCapability` |
@@ -91,7 +93,7 @@ Derived from committed migrations; expected count: 80 tables.
 
 These resources are accepted or active design commitments that are not yet
 implemented in committed migrations. They remain separate from the implemented
-80-table inventory so the architecture gate does not treat the walking skeleton
+82-table inventory so the architecture gate does not treat the walking skeleton
 as the complete MVP persistence model.
 
 | Table | Owning domain | Canonical Ash resource | Source | Implementation status |

@@ -3,12 +3,22 @@ defmodule OfficeGraph.Identity do
   Public boundary for principals, profiles, credentials, and local bootstrap identity.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: [SessionContext]
+  use Boundary, deps: [OfficeGraph.Repo, OfficeGraph.Tenancy], exports: [SessionContext]
 
-  alias OfficeGraph.Identity.{Principal, PrincipalProfile, Session, SessionContext}
+  alias OfficeGraph.Identity.{
+    ExternalIdentityReconciliation,
+    HumanSessions,
+    Principal,
+    PrincipalProfile,
+    Session,
+    SessionContext
+  }
+
   alias OfficeGraph.Repo
 
   require Ash.Query
+
+  @human_session_purpose "human_web"
 
   def ensure_owner(attrs) do
     Repo.transaction(fn ->
@@ -72,6 +82,9 @@ defmodule OfficeGraph.Identity do
     |> Ash.Query.filter(id == ^session_context.session_id)
     |> Ash.read_one(authorize?: false)
     |> case do
+      {:ok, %Session{purpose: @human_session_purpose} = session} ->
+        validate_human_session_context(session, session_context)
+
       {:ok,
        %Session{
          principal_id: principal_id,
@@ -148,6 +161,18 @@ defmodule OfficeGraph.Identity do
 
   def ensure_system_principal(_email, _kind), do: {:error, :forbidden}
 
+  defdelegate reconcile_oidc_identity(claims, opts),
+    to: ExternalIdentityReconciliation,
+    as: :reconcile
+
+  defdelegate issue_human_session(principal, link, scope, opts),
+    to: HumanSessions,
+    as: :issue
+
+  defdelegate resolve_human_session(session_id), to: HumanSessions, as: :resolve
+  defdelegate revoke_human_session(session_id, opts), to: HumanSessions, as: :revoke
+  defdelegate record_authentication_event(attrs), to: HumanSessions, as: :record_event
+
   defp active_principal?(principal_id) do
     match?(
       {:ok, %Principal{status: "active"}},
@@ -194,5 +219,23 @@ defmodule OfficeGraph.Identity do
      {:unsafe_fragment,
       "(principal_id, organization_id, workspace_id, purpose) WHERE revoked_at IS NULL"},
      [:id, :principal_id, :organization_id, :workspace_id]}
+  end
+
+  defp validate_human_session_context(session, session_context) do
+    case HumanSessions.resolve(session.id) do
+      {:ok, resolved} ->
+        if resolved.principal_id == session_context.principal_id and
+             resolved.organization_id == session_context.organization_id and
+             resolved.workspace_id == session_context.workspace_id and
+             resolved.external_identity_link_id ==
+               session_context.external_identity_link_id do
+          :ok
+        else
+          {:error, :forbidden}
+        end
+
+      {:error, :invalid_session} ->
+        {:error, :forbidden}
+    end
   end
 end

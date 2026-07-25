@@ -8,6 +8,8 @@ defmodule OfficeGraph.Identity.SessionContext do
     :session_id,
     :organization_id,
     :workspace_id,
+    :external_identity_link_id,
+    :authentication_method,
     capabilities: MapSet.new(),
     trusted?: false
   ]

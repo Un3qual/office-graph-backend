@@ -2,23 +2,23 @@
 
 - [ ] 1.1 Add the `oidcc` dependency, explicit runtime configuration, optional
   provider-configuration child, and deterministic OIDC adapter test support.
-- [ ] 1.2 Add failing migration/resource tests for external identity links,
+- [x] 1.2 Add failing migration/resource tests for external identity links,
   authentication events, and extended human session metadata.
-- [ ] 1.3 Add migrations and Ash resources for external identity links,
+- [x] 1.3 Add migrations and Ash resources for external identity links,
   authentication events, and human session metadata with lifecycle constraints
   and indexes.
 
 ## 2. Identity Reconciliation And Session Lifecycle
 
-- [ ] 2.1 Add failing behavior tests for exact subject reuse, explicit
+- [x] 2.1 Add failing behavior tests for exact subject reuse, explicit
   verified-email linking, durable review outcomes, conflicts, and disabled
   identities.
-- [ ] 2.2 Implement provider-neutral external identity reconciliation without
+- [x] 2.2 Implement provider-neutral external identity reconciliation without
   mapping external claims into product authority.
-- [ ] 2.3 Add failing behavior tests for human session issue, replacement,
+- [x] 2.3 Add failing behavior tests for human session issue, replacement,
   expiry, revocation, logout, principal/link revalidation, and bounded
   authentication evidence.
-- [ ] 2.4 Implement human session issue/load/revoke and authentication event
+- [x] 2.4 Implement human session issue/load/revoke and authentication event
   recording through the Identity boundary.
 
 ## 3. Authentication Orchestration
