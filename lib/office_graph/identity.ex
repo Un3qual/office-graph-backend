@@ -18,8 +18,6 @@ defmodule OfficeGraph.Identity do
 
   require Ash.Query
 
-  @human_session_purpose "human_web"
-
   def ensure_owner(attrs) do
     Repo.transaction(fn ->
       principal =
@@ -77,14 +75,31 @@ defmodule OfficeGraph.Identity do
     end)
   end
 
+  def validate_session_context(
+        %SessionContext{external_identity_link_id: external_identity_link_id} = session_context
+      )
+      when is_binary(external_identity_link_id) do
+    case HumanSessions.resolve(session_context.session_id) do
+      {:ok, resolved} ->
+        if resolved.principal_id == session_context.principal_id and
+             resolved.organization_id == session_context.organization_id and
+             resolved.workspace_id == session_context.workspace_id and
+             resolved.external_identity_link_id == external_identity_link_id do
+          :ok
+        else
+          {:error, :forbidden}
+        end
+
+      {:error, :invalid_session} ->
+        {:error, :forbidden}
+    end
+  end
+
   def validate_session_context(%SessionContext{} = session_context) do
     Session
     |> Ash.Query.filter(id == ^session_context.session_id)
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, %Session{purpose: @human_session_purpose} = session} ->
-        validate_human_session_context(session, session_context)
-
       {:ok,
        %Session{
          principal_id: principal_id,
@@ -219,23 +234,5 @@ defmodule OfficeGraph.Identity do
      {:unsafe_fragment,
       "(principal_id, organization_id, workspace_id, purpose) WHERE revoked_at IS NULL"},
      [:id, :principal_id, :organization_id, :workspace_id]}
-  end
-
-  defp validate_human_session_context(session, session_context) do
-    case HumanSessions.resolve(session.id) do
-      {:ok, resolved} ->
-        if resolved.principal_id == session_context.principal_id and
-             resolved.organization_id == session_context.organization_id and
-             resolved.workspace_id == session_context.workspace_id and
-             resolved.external_identity_link_id ==
-               session_context.external_identity_link_id do
-          :ok
-        else
-          {:error, :forbidden}
-        end
-
-      {:error, :invalid_session} ->
-        {:error, :forbidden}
-    end
   end
 end

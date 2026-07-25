@@ -44,14 +44,13 @@ defmodule OfficeGraph.Authentication do
 
   def begin_login(_redirect_uri, _opts), do: {:error, :invalid_redirect_uri}
 
-  def complete_login(code, transaction, opts)
-      when is_binary(code) and is_map(transaction) and is_list(opts) do
+  def complete_login(code, callback_state, transaction, opts) when is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
     source_surface = Keyword.get(opts, :source_surface, "web")
 
     result =
-      with {:ok, config} <- configuration(),
-           :ok <- validate_transaction(transaction),
+      with :ok <- validate_callback(code, callback_state, transaction),
+           {:ok, config} <- configuration(),
            {:ok, claims} <- exchange(code, transaction, config),
            {:ok, linked} <-
              Identity.reconcile_oidc_identity(
@@ -82,15 +81,8 @@ defmodule OfficeGraph.Authentication do
     result
   end
 
-  def complete_login(_code, _transaction, _opts),
+  def complete_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
-
-  def reject_login(reason, opts) when is_list(opts) do
-    trace_id = Keyword.get(opts, :trace_id)
-    source_surface = Keyword.get(opts, :source_surface, "web")
-
-    maybe_record_rejection({:error, reason}, trace_id, source_surface)
-  end
 
   def resolve_session(session_id), do: Identity.resolve_human_session(session_id)
 
@@ -135,26 +127,44 @@ defmodule OfficeGraph.Authentication do
     end
   end
 
-  defp validate_transaction(%{
-         state: state,
-         nonce: nonce,
-         pkce_verifier: pkce_verifier,
-         redirect_uri: redirect_uri,
-         issued_at_unix: issued_at_unix
-       })
+  defp validate_callback(code, callback_state, transaction)
+       when is_binary(code) and is_binary(callback_state) and is_map(transaction) do
+    validate_transaction(transaction, callback_state)
+  end
+
+  defp validate_callback(_code, _callback_state, _transaction),
+    do: {:error, :invalid_login_transaction}
+
+  defp validate_transaction(
+         %{
+           state: state,
+           nonce: nonce,
+           pkce_verifier: pkce_verifier,
+           redirect_uri: redirect_uri,
+           issued_at_unix: issued_at_unix
+         },
+         callback_state
+       )
        when is_binary(state) and is_binary(nonce) and is_binary(pkce_verifier) and
-              is_binary(redirect_uri) and is_integer(issued_at_unix) do
+              is_binary(redirect_uri) and is_integer(issued_at_unix) and
+              is_binary(callback_state) do
     age = System.system_time(:second) - issued_at_unix
 
-    if state != "" and nonce != "" and pkce_verifier != "" and redirect_uri != "" and age >= 0 and
-         age <= @login_transaction_ttl_seconds do
+    if secure_state_match?(state, callback_state) and nonce != "" and pkce_verifier != "" and
+         redirect_uri != "" and age >= 0 and age <= @login_transaction_ttl_seconds do
       :ok
     else
       {:error, :invalid_login_transaction}
     end
   end
 
-  defp validate_transaction(_transaction), do: {:error, :invalid_login_transaction}
+  defp validate_transaction(_transaction, _callback_state),
+    do: {:error, :invalid_login_transaction}
+
+  defp secure_state_match?(expected, actual) when byte_size(expected) == byte_size(actual),
+    do: :crypto.hash_equals(expected, actual)
+
+  defp secure_state_match?(_expected, _actual), do: false
 
   defp maybe_record_rejection({:ok, _completed}, _trace_id, _source_surface), do: :ok
 
@@ -214,9 +224,9 @@ defmodule OfficeGraph.Authentication do
     issuer = config[:issuer]
     client_id = config[:client_id]
     client_secret = config[:client_secret]
-    account_linking_policy = config[:account_linking_policy]
+    account_linking_policy = account_linking_policy(config[:account_linking_policy])
     preferred_scope = config[:preferred_scope]
-    session_ttl_seconds = config[:session_ttl_seconds] || @default_session_ttl_seconds
+    session_ttl_seconds = session_ttl_seconds(config[:session_ttl_seconds])
 
     if present?(issuer) and present?(client_id) and present?(client_secret) and
          account_linking_policy == :verified_email_existing_principal and
@@ -255,6 +265,26 @@ defmodule OfficeGraph.Authentication do
        do: present?(organization_id) and present?(workspace_id)
 
   defp valid_preferred_scope?(_preferred_scope), do: false
+
+  defp account_linking_policy(:verified_email_existing_principal),
+    do: :verified_email_existing_principal
+
+  defp account_linking_policy("verified_email_existing_principal"),
+    do: :verified_email_existing_principal
+
+  defp account_linking_policy(_unsupported), do: :invalid
+
+  defp session_ttl_seconds(nil), do: @default_session_ttl_seconds
+  defp session_ttl_seconds(seconds) when is_integer(seconds) and seconds > 0, do: seconds
+
+  defp session_ttl_seconds(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {seconds, ""} when seconds > 0 -> seconds
+      _invalid -> :invalid
+    end
+  end
+
+  defp session_ttl_seconds(_invalid), do: :invalid
 
   defp random_value do
     32

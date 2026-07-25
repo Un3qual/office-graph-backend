@@ -4,13 +4,6 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
   @behaviour OfficeGraph.Authentication.OidcClient
 
   @provider_name OfficeGraph.Authentication.OidcProvider
-  @provider_exceptions [
-    ArgumentError,
-    FunctionClauseError,
-    KeyError,
-    MatchError,
-    RuntimeError
-  ]
 
   def provider_name, do: @provider_name
 
@@ -35,10 +28,6 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
         scopes: ["openid", "profile", "email"]
       }
     )
-  rescue
-    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
-  catch
-    _kind, _reason -> {:error, :provider_unavailable}
   end
 
   @impl true
@@ -75,10 +64,6 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
     else
       _provider_error -> {:error, :provider_unavailable}
     end
-  rescue
-    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
-  catch
-    _kind, _reason -> {:error, :provider_unavailable}
   end
 
   @impl true
@@ -92,9 +77,5 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
       config.client_id,
       %{post_logout_redirect_uri: post_logout_redirect_uri}
     )
-  rescue
-    _provider_error in @provider_exceptions -> {:error, :provider_unavailable}
-  catch
-    _kind, _reason -> {:error, :provider_unavailable}
   end
 end

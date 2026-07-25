@@ -16,15 +16,10 @@ defmodule OfficeGraph.Identity.HumanSessions do
   @purpose "human_web"
 
   @storage_exceptions [
-    Ash.Error.Forbidden,
-    Ash.Error.Framework,
-    Ash.Error.Invalid,
-    Ash.Error.Unknown,
     DBConnection.ConnectionError,
     Ecto.ConstraintError,
     Ecto.StaleEntryError,
-    Postgrex.Error,
-    RuntimeError
+    Postgrex.Error
   ]
 
   def issue(
@@ -138,9 +133,14 @@ defmodule OfficeGraph.Identity.HumanSessions do
   def revoke(_session_id, _opts), do: {:error, :invalid_session}
 
   def record_event(attrs) when is_map(attrs) do
-    with_storage_boundary(fn ->
-      Repo.transaction(fn -> {:ok, create_event!(attrs)} end)
-    end)
+    AuthenticationEvent
+    |> Ash.Changeset.for_create(:create, event_attrs(attrs))
+    |> Ash.create(authorize?: false)
+    |> case do
+      {:ok, event} -> {:ok, event}
+      {:error, %Ash.Error.Invalid{}} -> {:error, :invalid_authentication_event}
+      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+    end
   end
 
   def record_event(_attrs), do: {:error, :invalid_authentication_event}
@@ -301,13 +301,14 @@ defmodule OfficeGraph.Identity.HumanSessions do
   end
 
   defp create_event!(attrs) do
-    attrs =
-      attrs
-      |> Map.new()
-      |> Map.put_new(:id, Ecto.UUID.generate())
-      |> Map.update(:reason, nil, &normalize_reason/1)
+    Repo.ash_create!(AuthenticationEvent, event_attrs(attrs))
+  end
 
-    Repo.ash_create!(AuthenticationEvent, attrs)
+  defp event_attrs(attrs) do
+    attrs
+    |> Map.new()
+    |> Map.put_new(:id, Ecto.UUID.generate())
+    |> Map.update(:reason, nil, &normalize_reason/1)
   end
 
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -331,8 +332,6 @@ defmodule OfficeGraph.Identity.HumanSessions do
     end
   rescue
     _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
-  catch
-    _kind, _reason -> {:error, :identity_storage_unavailable}
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

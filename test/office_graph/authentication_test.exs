@@ -3,6 +3,7 @@ defmodule OfficeGraph.AuthenticationTest do
 
   alias OfficeGraph.Authentication
   alias OfficeGraph.Authentication.OidcClient.TestAdapter
+  alias OfficeGraph.Authentication.OidcClient.Oidcc
   alias OfficeGraph.Authorization
   alias OfficeGraph.Authorization.{Role, RoleAssignment}
   alias OfficeGraph.Foundation
@@ -75,7 +76,36 @@ defmodule OfficeGraph.AuthenticationTest do
     end
   end
 
-  describe "complete_login/3" do
+  describe "OIDC adapter failures" do
+    test "does not disguise an invalid internal request as provider downtime" do
+      invalid_config = Process.get({__MODULE__, :missing_oidc_config}, %{})
+
+      assert_raise KeyError, fn ->
+        Oidcc.authorization_uri(%{
+          config: invalid_config,
+          redirect_uri: @redirect_uri,
+          state: "state",
+          nonce: "nonce",
+          pkce_verifier: String.duplicate("v", 64)
+        })
+      end
+    end
+  end
+
+  describe "complete_login/4" do
+    test "validates callback state inside the authentication boundary" do
+      assert {:error, :invalid_login_transaction} =
+               Authentication.complete_login(
+                 "authorization-code",
+                 "wrong-state",
+                 login_transaction(),
+                 trace_id: "mismatched-state",
+                 source_surface: "web"
+               )
+
+      assert TestAdapter.calls(:exchange) == 0
+    end
+
     test "reconciles validated claims, selects the one internal scope, and issues a session" do
       bootstrap = bootstrap("complete-login")
 
@@ -86,7 +116,7 @@ defmodule OfficeGraph.AuthenticationTest do
       transaction = login_transaction()
 
       assert {:ok, completed} =
-               Authentication.complete_login("authorization-code", transaction,
+               Authentication.complete_login("authorization-code", transaction.state, transaction,
                  trace_id: "complete-login-trace",
                  source_surface: "web"
                )
@@ -110,7 +140,7 @@ defmodule OfficeGraph.AuthenticationTest do
         |> Map.put(:issued_at_unix, System.system_time(:second) - 601)
 
       assert {:error, :invalid_login_transaction} =
-               Authentication.complete_login("authorization-code", transaction,
+               Authentication.complete_login("authorization-code", transaction.state, transaction,
                  trace_id: "expired-transaction",
                  source_surface: "web"
                )
@@ -138,7 +168,7 @@ defmodule OfficeGraph.AuthenticationTest do
       })
 
       assert {:error, :scope_selection_required} =
-               Authentication.complete_login("authorization-code", login_transaction(),
+               Authentication.complete_login("authorization-code", "state", login_transaction(),
                  trace_id: "multi-scope-no-preference",
                  source_surface: "web"
                )
@@ -155,7 +185,7 @@ defmodule OfficeGraph.AuthenticationTest do
       )
 
       assert {:ok, completed} =
-               Authentication.complete_login("authorization-code", login_transaction(),
+               Authentication.complete_login("authorization-code", "state", login_transaction(),
                  trace_id: "multi-scope-preferred",
                  source_surface: "web"
                )
@@ -181,7 +211,7 @@ defmodule OfficeGraph.AuthenticationTest do
       TestAdapter.put(%{exchange: {:ok, claims(principal.email, "no-scope-subject")}})
 
       assert {:error, :no_login_scope} =
-               Authentication.complete_login("authorization-code", login_transaction(),
+               Authentication.complete_login("authorization-code", "state", login_transaction(),
                  trace_id: "no-scope",
                  source_surface: "web"
                )
@@ -191,7 +221,7 @@ defmodule OfficeGraph.AuthenticationTest do
       TestAdapter.put(%{exchange: {:error, {:http_error, "secret provider response"}}})
 
       assert {:error, :provider_unavailable} =
-               Authentication.complete_login("authorization-code", login_transaction(),
+               Authentication.complete_login("authorization-code", "state", login_transaction(),
                  trace_id: "provider-failure",
                  source_surface: "web"
                )

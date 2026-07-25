@@ -7,15 +7,10 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   require Ash.Query
 
   @storage_exceptions [
-    Ash.Error.Forbidden,
-    Ash.Error.Framework,
-    Ash.Error.Invalid,
-    Ash.Error.Unknown,
     DBConnection.ConnectionError,
     Ecto.ConstraintError,
     Ecto.StaleEntryError,
-    Postgrex.Error,
-    RuntimeError
+    Postgrex.Error
   ]
 
   def reconcile(claims, opts) when is_map(claims) and is_list(opts) do
@@ -58,15 +53,20 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     provider_tenant = Keyword.get(opts, :provider_tenant)
     account_linking_policy = Keyword.get(opts, :account_linking_policy)
 
-    if present?(provider) and present?(provider_tenant) do
-      {:ok,
-       %{
-         provider: provider,
-         provider_tenant: provider_tenant,
-         account_linking_policy: account_linking_policy
-       }}
-    else
-      {:error, :invalid_identity_configuration}
+    cond do
+      not present?(provider) or not present?(provider_tenant) ->
+        {:error, :invalid_identity_configuration}
+
+      account_linking_policy != :verified_email_existing_principal ->
+        {:error, :unsupported_account_linking_policy}
+
+      true ->
+        {:ok,
+         %{
+           provider: provider,
+           provider_tenant: provider_tenant,
+           account_linking_policy: account_linking_policy
+         }}
     end
   end
 
@@ -127,10 +127,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
       _incompatible_links ->
         persist_review_link(identity, config, "verified_identifier_conflict")
     end
-  end
-
-  defp reconcile_new_identity(identity, config) do
-    persist_review_link(identity, config, "account_linking_not_allowed")
   end
 
   defp link_verified_principal(identity, config) do
@@ -232,8 +228,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   rescue
     _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
-  catch
-    _kind, _reason -> {:error, :identity_storage_unavailable}
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

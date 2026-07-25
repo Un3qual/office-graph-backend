@@ -25,16 +25,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
     transaction = get_session(conn, :oidc_login_transaction)
     conn = delete_session(conn, :oidc_login_transaction)
 
-    if matching_state?(transaction, params["state"]) and is_binary(params["code"]) do
-      complete_callback(conn, params["code"], transaction)
-    else
-      Authentication.reject_login(:invalid_login_transaction,
-        trace_id: trace_id(conn),
-        source_surface: "web"
-      )
-
-      send_resp(conn, 401, "Authentication failed")
-    end
+    complete_callback(conn, params["code"], params["state"], transaction)
   end
 
   def logout(conn, _params) do
@@ -61,8 +52,8 @@ defmodule OfficeGraphWeb.AuthenticationController do
     end
   end
 
-  defp complete_callback(conn, code, transaction) do
-    case Authentication.complete_login(code, transaction,
+  defp complete_callback(conn, code, callback_state, transaction) do
+    case Authentication.complete_login(code, callback_state, transaction,
            trace_id: trace_id(conn),
            source_surface: "web"
          ) do
@@ -77,12 +68,6 @@ defmodule OfficeGraphWeb.AuthenticationController do
         send_resp(conn, 401, "Authentication failed")
     end
   end
-
-  defp matching_state?(%{state: expected}, actual)
-       when is_binary(expected) and is_binary(actual) and byte_size(expected) == byte_size(actual),
-       do: Plug.Crypto.secure_compare(expected, actual)
-
-  defp matching_state?(_transaction, _actual), do: false
 
   defp safe_return_to(return_to) when is_binary(return_to) do
     uri = URI.parse(return_to)

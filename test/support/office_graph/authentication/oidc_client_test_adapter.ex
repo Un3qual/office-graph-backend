@@ -3,12 +3,10 @@ defmodule OfficeGraph.Authentication.OidcClient.TestAdapter do
 
   @behaviour OfficeGraph.Authentication.OidcClient
 
-  @table __MODULE__
+  @state_key {__MODULE__, :state}
 
   def put(responses) when is_map(responses) do
-    ensure_table!()
-    :ets.delete_all_objects(@table)
-    :ets.insert(@table, Enum.to_list(responses))
+    Process.put(@state_key, %{responses: responses, requests: %{}, calls: %{}})
     :ok
   end
 
@@ -17,45 +15,22 @@ defmodule OfficeGraph.Authentication.OidcClient.TestAdapter do
   def logout_uri(request), do: respond(:logout_uri, request)
 
   def request(operation) do
-    ensure_table!()
-
-    case :ets.lookup(@table, {:request, operation}) do
-      [{{:request, ^operation}, request}] -> request
-      [] -> nil
-    end
+    get_in(Process.get(@state_key, %{}), [:requests, operation])
   end
 
   def calls(operation) do
-    ensure_table!()
-
-    case :ets.lookup(@table, {:calls, operation}) do
-      [{{:calls, ^operation}, count}] -> count
-      [] -> 0
-    end
+    get_in(Process.get(@state_key, %{}), [:calls, operation]) || 0
   end
 
   defp respond(operation, request) do
-    ensure_table!()
-    :ets.insert(@table, {{:request, operation}, request})
-    :ets.update_counter(@table, {:calls, operation}, {2, 1}, {{:calls, operation}, 0})
+    state = Process.get(@state_key, %{responses: %{}, requests: %{}, calls: %{}})
 
-    case :ets.lookup(@table, operation) do
-      [{^operation, response}] -> response
-      [] -> {:error, :fixture_not_found}
-    end
-  end
+    Process.put(@state_key, %{
+      state
+      | requests: Map.put(state.requests, operation, request),
+        calls: Map.update(state.calls, operation, 1, &(&1 + 1))
+    })
 
-  defp ensure_table! do
-    case :ets.whereis(@table) do
-      :undefined ->
-        try do
-          :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-        rescue
-          ArgumentError -> @table
-        end
-
-      table ->
-        table
-    end
+    Map.get(state.responses, operation, {:error, :fixture_not_found})
   end
 end

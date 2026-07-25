@@ -12,6 +12,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
   }
 
   alias OfficeGraph.Identity
+  alias OfficeGraph.QueryCounter
 
   require Ash.Query
 
@@ -222,6 +223,20 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert {:ok, _linked} = Identity.reconcile_oidc_identity(claims, reconciliation_opts())
       assert role_assignment_count(bootstrap.principal.id) == before_count
     end
+
+    test "rejects an unsupported linking policy without creating review state", %{
+      bootstrap: bootstrap
+    } do
+      assert {:error, :unsupported_account_linking_policy} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, "unsupported-policy-subject"),
+                 provider: @provider,
+                 provider_tenant: @provider_tenant,
+                 account_linking_policy: :unsupported
+               )
+
+      refute link_for_subject("unsupported-policy-subject")
+    end
   end
 
   describe "human session lifecycle" do
@@ -259,6 +274,21 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
 
       assert {:ok, resolved} = Identity.resolve_human_session(issued.session.id)
       assert resolved == issued.session_context
+    end
+
+    test "validates a governed human session with one session-row read", %{
+      bootstrap: bootstrap,
+      linked: linked
+    } do
+      assert {:ok, issued} = issue_session(linked, bootstrap, "validate-session-context")
+
+      {result, queries} =
+        QueryCounter.count(fn ->
+          Identity.validate_session_context(issued.session_context)
+        end)
+
+      assert result == :ok
+      assert QueryCounter.source_count(queries, "sessions") == 1
     end
 
     test "revokes the previous active same-scope session before replacement", %{
@@ -355,6 +385,11 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
         refute Map.has_key?(event, :claims)
         refute Map.has_key?(event, :cookie)
       end
+    end
+
+    test "classifies malformed authentication evidence as invalid input" do
+      assert {:error, :invalid_authentication_event} =
+               Identity.record_authentication_event(%{})
     end
   end
 

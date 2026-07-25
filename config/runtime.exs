@@ -23,59 +23,25 @@ end
 config :office_graph, OfficeGraphWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-oidc_issuer = System.get_env("AUTHENTIK_OIDC_ISSUER")
-oidc_client_id = System.get_env("AUTHENTIK_OIDC_CLIENT_ID")
-oidc_client_secret = System.get_env("AUTHENTIK_OIDC_CLIENT_SECRET")
-oidc_linking_policy = System.get_env("AUTHENTIK_ACCOUNT_LINKING_POLICY")
 oidc_preferred_organization_id = System.get_env("AUTHENTIK_PREFERRED_ORGANIZATION_ID")
 oidc_preferred_workspace_id = System.get_env("AUTHENTIK_PREFERRED_WORKSPACE_ID")
 
-oidc_session_ttl_seconds =
-  case System.get_env("HUMAN_SESSION_TTL_SECONDS") do
-    nil ->
-      8 * 60 * 60
+preferred_scope =
+  case {oidc_preferred_organization_id, oidc_preferred_workspace_id} do
+    {nil, nil} ->
+      nil
 
-    value ->
-      case Integer.parse(value) do
-        {seconds, ""} when seconds > 0 -> seconds
-        _invalid -> :invalid
-      end
+    {organization_id, workspace_id} ->
+      %{organization_id: organization_id, workspace_id: workspace_id}
   end
 
-if Enum.any?(
-     [
-       oidc_issuer,
-       oidc_client_id,
-       oidc_client_secret,
-       oidc_linking_policy,
-       oidc_preferred_organization_id,
-       oidc_preferred_workspace_id
-     ],
-     &(&1 != nil)
-   ) do
-  account_linking_policy =
-    case oidc_linking_policy do
-      "verified_email_existing_principal" -> :verified_email_existing_principal
-      _missing_or_unsupported -> :invalid
-    end
-
-  preferred_scope =
-    case {oidc_preferred_organization_id, oidc_preferred_workspace_id} do
-      {nil, nil} ->
-        nil
-
-      {organization_id, workspace_id} ->
-        %{organization_id: organization_id, workspace_id: workspace_id}
-    end
-
-  config :office_graph, :human_oidc,
-    issuer: oidc_issuer,
-    client_id: oidc_client_id,
-    client_secret: oidc_client_secret,
-    account_linking_policy: account_linking_policy,
-    preferred_scope: preferred_scope,
-    session_ttl_seconds: oidc_session_ttl_seconds
-end
+config :office_graph, :human_oidc,
+  issuer: System.get_env("AUTHENTIK_OIDC_ISSUER"),
+  client_id: System.get_env("AUTHENTIK_OIDC_CLIENT_ID"),
+  client_secret: System.get_env("AUTHENTIK_OIDC_CLIENT_SECRET"),
+  account_linking_policy: System.get_env("AUTHENTIK_ACCOUNT_LINKING_POLICY"),
+  preferred_scope: preferred_scope,
+  session_ttl_seconds: System.get_env("HUMAN_SESSION_TTL_SECONDS")
 
 if github_app_id = System.get_env("GITHUB_APP_ID") do
   config :office_graph, :github_app_id, github_app_id
