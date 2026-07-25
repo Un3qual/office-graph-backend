@@ -94,7 +94,7 @@ defmodule OfficeGraph.Projections.RunIndex do
       execution_state: run.execution_state,
       verification_state: run.verification_state,
       inserted_at: run.inserted_at,
-      packet: %{id: packet.id, title: packet.title}
+      packet: %{id: packet.id, state: packet.state, title: packet.title}
     }
   end
 

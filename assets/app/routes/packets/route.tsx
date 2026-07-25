@@ -44,7 +44,7 @@ export default function PacketsRoute() {
         : null;
 
   const selectPacket = (selection: PacketSelection) => {
-    if (selection.kind === "relay_id") {
+    if (selection.kind === "packet_id") {
       setCreatedOperationId(null);
       setSearchParams((currentSearchParams) => {
         const nextSearchParams = new URLSearchParams(currentSearchParams);
@@ -54,19 +54,17 @@ export default function PacketsRoute() {
       return;
     }
 
-    if (selection.kind === "operation_id") {
-      setCreatedOperationId(selection.value);
-      setSearchParams((currentSearchParams) => {
-        const nextSearchParams = new URLSearchParams(currentSearchParams);
-        nextSearchParams.delete("packetId");
-        return nextSearchParams;
-      });
-      setNavigation({
-        hasNavigated: false,
-        page: defaultPacketsPage,
-        previousCursors: [],
-      });
-    }
+    setCreatedOperationId(selection.value);
+    setSearchParams((currentSearchParams) => {
+      const nextSearchParams = new URLSearchParams(currentSearchParams);
+      nextSearchParams.delete("packetId");
+      return nextSearchParams;
+    });
+    setNavigation({
+      hasNavigated: false,
+      page: defaultPacketsPage,
+      previousCursors: [],
+    });
   };
 
   const loadNextPage = (nextCursor: string) => {

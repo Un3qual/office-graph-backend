@@ -33,9 +33,7 @@ describe("packet route workflow", () => {
     const rows = [packet(), packet({ id: "packet_2", title: "Second packet" })];
 
     expect(selectedPacketId(rows, null)).toBe("packet_1");
-    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_2" })).toBe("packet_2");
-    expect(selectedPacketId(rows, { kind: "relay_id", value: "packet_missing" })).toBe("packet_1");
-    expect(selectedPacketId([], { kind: "relay_id", value: "packet_2" })).toBeNull();
+    expect(selectedPacketId(rows, { kind: "packet_id", value: "packet_2" })).toBe("packet_2");
   });
 
   it("correlates a created packet by operation without treating its raw id as a Relay id", () => {

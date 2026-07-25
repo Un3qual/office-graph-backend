@@ -2,8 +2,9 @@
 
 ### Requirement: Agent Definitions Are Approved Product Configuration
 Office Graph SHALL store agent definitions with stable key, lifecycle, agent
-principal, supported modes, requested capabilities, model adapter, tool
-allowlist, and default autonomy envelope.
+supported modes, requested capabilities, model adapter, tool allowlist, and
+default autonomy envelope. The organization/workspace binding SHALL own the
+backend agent principal associated with a definition.
 
 #### Scenario: Run review agent is installed
 - **WHEN** the runtime migration runs on a fresh database

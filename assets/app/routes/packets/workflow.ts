@@ -19,7 +19,6 @@ type PacketsWorkflowInput = {
 };
 
 export type PacketSelection =
-  | { kind: "relay_id"; value: string }
   | { kind: "packet_id"; value: string }
   | { kind: "operation_id"; value: string };
 
@@ -87,7 +86,7 @@ export function usePacketsWorkflow({
     selectedPacket,
     selectCreatedPacket: (operationId: string) =>
       onSelectPacket({ kind: "operation_id", value: operationId }),
-    selectPacket: (relayId: string) => onSelectPacket({ kind: "relay_id", value: relayId }),
+    selectPacket: (relayId: string) => onSelectPacket({ kind: "packet_id", value: relayId }),
   };
 }
 

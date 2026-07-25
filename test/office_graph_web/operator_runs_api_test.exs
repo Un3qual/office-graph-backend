@@ -21,7 +21,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
           executionState
           verificationState
           insertedAt
-          packet { id title }
+          packet { id title state }
         }
       }
     }
@@ -57,6 +57,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
     assert first_node["packet"] == %{
              "id" => newer.run.work_packet_id,
+             "state" => "ready",
              "title" => "Ready operator packet"
            }
 

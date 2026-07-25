@@ -50,6 +50,7 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
              inserted_at: ~U[2026-07-20 11:00:00.000000Z],
              packet: %{
                id: packet.id,
+               state: packet.state,
                title: packet.title
              }
            }
