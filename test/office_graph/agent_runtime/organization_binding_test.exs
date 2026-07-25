@@ -12,23 +12,23 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
   setup do
     assert Code.ensure_loaded?(AgentRuntime)
 
-    assert function_exported?(AgentRuntime, :bind_openspec_review_agent, 2),
-           "expected the narrow OpenSpec-review binding command"
+    assert function_exported?(AgentRuntime, :bind_run_review_agent, 2),
+           "expected the narrow run-review binding command"
 
     :ok
   end
 
   test "authorized owners bind and replay the canonical definition with a backend agent principal" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    attrs = %{idempotency_key: "bind-openspec-review"}
+    attrs = %{idempotency_key: "bind-run-review"}
 
-    assert {:ok, first} = AgentRuntime.bind_openspec_review_agent(bootstrap.session, attrs)
-    assert {:ok, replay} = AgentRuntime.bind_openspec_review_agent(bootstrap.session, attrs)
+    assert {:ok, first} = AgentRuntime.bind_run_review_agent(bootstrap.session, attrs)
+    assert {:ok, replay} = AgentRuntime.bind_run_review_agent(bootstrap.session, attrs)
 
     assert replay.operation.id == first.operation.id
     assert replay.binding.id == first.binding.id
     assert replay.principal.id == first.principal.id
-    assert first.definition.key == "openspec-review"
+    assert first.definition.key == "run-review"
     assert first.definition.lifecycle_state == "active"
     assert first.binding.organization_id == bootstrap.organization.id
     assert first.binding.workspace_id == bootstrap.workspace.id
@@ -53,6 +53,20 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
                :skeleton_read
              )
 
+    for capability <- [
+          :agent_model_generate,
+          :agent_proposal_create,
+          :agent_evidence_suggest
+        ] do
+      assert :ok =
+               Authorization.authorize_system_principal(
+                 first.principal.id,
+                 bootstrap.organization.id,
+                 bootstrap.workspace.id,
+                 capability
+               )
+    end
+
     assert Repo.aggregate(OrganizationBinding, :count) == 1
   end
 
@@ -60,13 +74,13 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
     assert {:ok, first} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
-               idempotency_key: "bind-openspec-review-first"
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-run-review-first"
              })
 
     assert {:ok, repeated} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
-               idempotency_key: "bind-openspec-review-repeated"
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
+               idempotency_key: "bind-run-review-repeated"
              })
 
     assert repeated.binding.id == first.binding.id
@@ -84,7 +98,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     principal_count = Repo.aggregate(Principal, :count)
 
     assert {:error, :forbidden} =
-             AgentRuntime.bind_openspec_review_agent(no_capabilities, %{
+             AgentRuntime.bind_run_review_agent(no_capabilities, %{
                idempotency_key: "agent-bind-denied"
              })
 
@@ -94,29 +108,29 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     forged_scope = %{bootstrap.session | organization_id: Ecto.UUID.generate()}
 
     assert {:error, :forbidden} =
-             AgentRuntime.bind_openspec_review_agent(forged_scope, %{
+             AgentRuntime.bind_run_review_agent(forged_scope, %{
                idempotency_key: "agent-bind-forged"
              })
 
     assert {:error, :forbidden} =
-             AgentRuntime.bind_openspec_review_agent(nil, %{
+             AgentRuntime.bind_run_review_agent(nil, %{
                idempotency_key: "agent-bind-invalid-session"
              })
 
     assert {:error, {:invalid_field, :definition_key}} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
                idempotency_key: "agent-bind-generic",
                definition_key: "another-agent"
              })
 
-    definition = Ash.get!(AgentDefinition, %{key: "openspec-review"}, authorize?: false)
+    definition = Ash.get!(AgentDefinition, %{key: "run-review"}, authorize?: false)
 
     definition
     |> Ash.Changeset.for_update(:set_lifecycle_state, %{lifecycle_state: "disabled"})
     |> Ash.update!(authorize?: false)
 
     assert {:error, :forbidden} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
                idempotency_key: "agent-bind-disabled"
              })
 
@@ -140,12 +154,12 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
       )
 
     assert {:ok, first_binding} =
-             AgentRuntime.bind_openspec_review_agent(first.session, %{
+             AgentRuntime.bind_run_review_agent(first.session, %{
                idempotency_key: "bind-shared-key"
              })
 
     assert {:ok, second_binding} =
-             AgentRuntime.bind_openspec_review_agent(second.session, %{
+             AgentRuntime.bind_run_review_agent(second.session, %{
                idempotency_key: "bind-shared-key"
              })
 
@@ -161,12 +175,12 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     second_session = create_workspace_session!(bootstrap)
 
     assert {:ok, first} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
                idempotency_key: "bind-same-organization"
              })
 
     assert {:ok, second} =
-             AgentRuntime.bind_openspec_review_agent(second_session, %{
+             AgentRuntime.bind_run_review_agent(second_session, %{
                idempotency_key: "bind-same-organization"
              })
 
@@ -190,7 +204,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
     assert {:ok, result} =
-             AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
+             AgentRuntime.bind_run_review_agent(bootstrap.session, %{
                idempotency_key: "bind-lifecycle"
              })
 

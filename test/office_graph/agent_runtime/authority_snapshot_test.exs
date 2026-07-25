@@ -24,12 +24,11 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
 
     assert snapshot.capability_keys == [
              "agent.model.generate",
-             "agent.tool.read",
-             "proposal.create",
-             "repository.read"
+             "evidence.suggest",
+             "proposal.create"
            ]
 
-    assert snapshot.tool_keys == ["openspec.read", "repository.read"]
+    assert snapshot.tool_keys == []
     assert snapshot.credential_ids == []
     assert snapshot.model_adapter_key == "deterministic"
     assert snapshot.model_adapter_version == "1"
@@ -88,6 +87,33 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert {:error, :agent_authority_revoked} = AgentRuntime.revalidate_step(execution_id)
   end
 
+  test "pre-step revalidation rejects a snapshotted capability revoked from the agent",
+       context do
+    execution_id = context.invocation.execution.id
+
+    Repo.query!(
+      """
+      DELETE FROM role_capabilities
+      WHERE role_id IN (
+        SELECT role_id
+        FROM role_assignments
+        WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
+      )
+      AND capability_id IN (
+        SELECT id FROM capabilities WHERE key = 'agent.model.generate'
+      )
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    assert {:error, :agent_authority_revoked} =
+             AgentRuntime.revalidate_step(execution_id)
+  end
+
   test "pre-step revalidation rejects a revoked delegated snapshot capability", context do
     execution_id = context.invocation.execution.id
     delegator_id = context.bootstrap.principal.id
@@ -104,7 +130,7 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
         WHERE principal_id = $1 AND organization_id = $2
       )
       AND capability_id IN (
-        SELECT id FROM capabilities WHERE key = 'repository.read'
+        SELECT id FROM capabilities WHERE key = 'proposal.create'
       )
       """,
       [Ecto.UUID.dump!(delegator_id), Ecto.UUID.dump!(organization_id)]
@@ -157,9 +183,52 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert {:error, :run_authority_revoked} = AgentRuntime.revalidate_step(execution_id)
   end
 
-  test "pre-step revalidation checks current tool eligibility and matching approval", context do
-    execution = context.invocation.execution
-    snapshot = context.invocation.authority_snapshot
+  test "generic repository authority checks current tool eligibility and matching approval",
+       context do
+    Repo.query!(
+      """
+      UPDATE agent_definitions
+      SET requested_capabilities =
+            ARRAY['agent.model.generate', 'agent.tool.read', 'proposal.create', 'repository.read'],
+          tool_allowlist = ARRAY['repository.read'],
+          updated_at = now()
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
+      FROM role_assignments AS assignments
+      JOIN capabilities
+        ON capabilities.key = ANY(ARRAY['agent.tool.read', 'repository.read'])
+      WHERE assignments.principal_id = $1
+        AND assignments.organization_id = $2
+        AND assignments.workspace_id = $3
+      ON CONFLICT (role_id, capability_id) DO NOTHING
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    invocation =
+      AgentRuntimeSupport.invoke_human(context, %{
+        idempotency_key: "generic-repository-authority-#{context.suffix}",
+        requested_capabilities: [
+          "agent.model.generate",
+          "agent.tool.read",
+          "proposal.create",
+          "repository.read"
+        ]
+      })
+
+    execution = invocation.execution
+    snapshot = invocation.authority_snapshot
 
     assert :ok = AgentRuntime.revalidate_step(execution.id, tool_key: "repository.read")
 
@@ -239,14 +308,6 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
              AgentRuntime.revalidate_step(execution.id,
                tool_key: "repository.read",
                approval_request_id: approval.id
-             )
-
-    assert :ok =
-             Authorization.authorize_system_principal(
-               context.agent_principal.id,
-               context.bootstrap.organization.id,
-               context.bootstrap.workspace.id,
-               :agent_runtime_execute
              )
   end
 

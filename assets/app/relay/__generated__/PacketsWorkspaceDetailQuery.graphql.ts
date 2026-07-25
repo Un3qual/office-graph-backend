@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<531272aeb1de0c68901cdecfc5ed8c8c>>
+ * @generated SignedSource<<2a69ebe9e51276067d5ac234409d7e90>>
  * @lightSyntaxTransform
  */
 
@@ -513,7 +513,9 @@ return {
       (v2/*:: as any*/)
     ],
     "kind": "Fragment",
-    "metadata": null,
+    "metadata": {
+      "throwOnFieldError": true
+    },
     "name": "PacketsWorkspaceDetailQuery",
     "selections": (v11/*:: as any*/),
     "type": "RootQueryType",
@@ -541,6 +543,6 @@ return {
 };
 })();
 
-(node as any).hash = "aecfa391502023af6dc9edeafa31357d";
+(node as any).hash = "bfa2034717adb9ce837eda376b2b4899";
 
 export default node;

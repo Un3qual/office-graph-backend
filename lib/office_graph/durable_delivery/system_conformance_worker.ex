@@ -13,6 +13,9 @@ defmodule OfficeGraph.DurableDelivery.SystemConformanceWorker do
   alias OfficeGraph.{DurableDelivery, Operations}
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(30)
+
+  @impl Oban.Worker
   def perform(%Oban.Job{args: args} = job) do
     attrs = %{
       organization_id: args["organization_id"],

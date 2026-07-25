@@ -84,13 +84,14 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
     assert index_exists?("conversation_messages_conversation_inserted_at_index")
   end
 
-  test "the migration installs the canonical OpenSpec review definition without secrets" do
+  test "the migration installs the canonical run review definition without secrets" do
     assert table_exists?("agent_definitions")
 
     assert %{
              rows: [
                [
                  key,
+                 name,
                  lifecycle_state,
                  requested_capabilities,
                  model_adapter_key,
@@ -102,24 +103,39 @@ defmodule OfficeGraph.AgentRuntime.PersistenceMigrationTest do
              OfficeGraph.Repo.query!("""
              SELECT
                key,
+               name,
                lifecycle_state,
                requested_capabilities,
                model_adapter_key,
                tool_allowlist,
                allowed_output_kinds
              FROM agent_definitions
-             WHERE key = 'openspec-review'
+             WHERE key = 'run-review'
              """)
 
-    assert key == "openspec-review"
+    assert key == "run-review"
+    assert name == "Run Review"
     assert lifecycle_state == "active"
     assert model_adapter_key == "deterministic"
-    assert "agent.model.generate" in requested_capabilities
-    assert "agent.tool.read" in requested_capabilities
-    assert Enum.sort(tool_allowlist) == ["openspec.read", "repository.read"]
+
+    assert requested_capabilities == [
+             "agent.invoke",
+             "agent.model.generate",
+             "evidence.suggest",
+             "proposal.create"
+           ]
+
+    assert tool_allowlist == []
 
     assert Enum.sort(allowed_output_kinds) ==
              ~w(evidence_candidate finding message observation proposal)
+
+    assert %{rows: []} =
+             OfficeGraph.Repo.query!("""
+             SELECT key
+             FROM agent_definitions
+             WHERE key = 'openspec-review'
+             """)
 
     for forbidden <- ~w(secret api_key token raw_prompt raw_response raw_input raw_output) do
       refute column_exists?("agent_definitions", forbidden)

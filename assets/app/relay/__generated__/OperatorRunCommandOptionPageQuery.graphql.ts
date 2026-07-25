@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<bda3815c921079b54b4b0756886c1d3a>>
+ * @generated SignedSource<<66ee22a0af41dbc18526f9bb228b5bc9>>
  * @lightSyntaxTransform
  */
 
@@ -492,7 +492,9 @@ return {
       (v9/*:: as any*/)
     ],
     "kind": "Fragment",
-    "metadata": null,
+    "metadata": {
+      "throwOnFieldError": true
+    },
     "name": "OperatorRunCommandOptionPageQuery",
     "selections": [
       {
@@ -665,6 +667,6 @@ return {
 };
 })();
 
-(node as any).hash = "094a8fa3ffb681bf444688e8212b8f15";
+(node as any).hash = "8d6126750417eace1b4168a7d920e370";
 
 export default node;

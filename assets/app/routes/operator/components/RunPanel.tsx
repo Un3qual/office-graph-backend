@@ -19,6 +19,10 @@ export function RunPanel({
   runState,
   state,
 }: Props) {
+  const packetVersionRows: Array<[string, string]> = runState?.packetVersion
+    ? [["Objective", runState.packetVersion.objective ?? "None"]]
+    : [["Packet version", "Not attached"]];
+
   return (
     <Panel ariaLabel="Run State">
       <h2>Run State</h2>
@@ -31,7 +35,7 @@ export function RunPanel({
           <PanelRows
             rows={[
               ["Packet", runState.packet.title],
-              ["Objective", runState.packetVersion.objective ?? "None"],
+              ...packetVersionRows,
               [
                 "Commands",
                 commandAffordanceListText(runState.commandAffordances, runState.allowedNextActions),

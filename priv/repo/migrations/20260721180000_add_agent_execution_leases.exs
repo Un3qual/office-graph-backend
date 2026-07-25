@@ -42,12 +42,12 @@ defmodule OfficeGraph.Repo.Migrations.AddAgentExecutionLeases do
     SET requested_capabilities = ARRAY(
           SELECT DISTINCT capability
           FROM unnest(
-            requested_capabilities || ARRAY['agent.model.generate', 'agent.tool.read']::text[]
+            requested_capabilities || ARRAY['agent.model.generate']::text[]
           ) AS capability
           ORDER BY capability
         ),
         updated_at = NOW()
-    WHERE key = 'openspec-review'
+    WHERE key = 'run-review'
     """)
   end
 

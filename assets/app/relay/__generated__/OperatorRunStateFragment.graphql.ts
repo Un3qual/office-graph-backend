@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<05bae68b4be8a047e767f9dbf0a47b8a>>
+ * @generated SignedSource<<13c337379486a1189bcad6bb93183310>>
  * @lightSyntaxTransform
  */
 
@@ -150,7 +150,7 @@ export type OperatorRunStateFragment$data = {
     readonly lifecycleState: string;
     readonly objective: string | null | undefined;
     readonly versionNumber: number;
-  };
+  } | null | undefined;
   readonly requiredChecks: ReadonlyArray<{
     readonly graphItemId: string | null | undefined;
     readonly id: string;

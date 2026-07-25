@@ -1,6 +1,6 @@
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, type NavigateFunction, useLocation, useNavigate } from "react-router";
 import {
   Environment,
   type FetchFunction,
@@ -13,20 +13,49 @@ import { vi } from "vitest";
 import { getOfficeGraphDataID } from "../../relay/environment";
 import PacketsRoute from "./route";
 
-export function renderWithRelay(network: FetchFunction) {
+export const packetIdentity = {
+  rawId: "123e4567-e89b-12d3-a456-426614174000",
+  relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+} as const;
+
+export const secondPacketIdentity = {
+  rawId: "223e4567-e89b-12d3-a456-426614174000",
+  relayId: "d29ya19wYWNrZXQ6MjIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
+} as const;
+
+export function renderWithRelay(network: FetchFunction, initialEntry = "/packets") {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
     network: Network.create(network),
     store: new Store(new RecordSource()),
   });
 
-  return render(
-    <MemoryRouter initialEntries={["/packets"]}>
+  return renderWithRelayEnvironment(environment, initialEntry);
+}
+
+export function renderWithRelayEnvironment(environment: Environment, initialEntry = "/packets") {
+  let navigate: NavigateFunction | null = null;
+  const result = render(
+    <MemoryRouter initialEntries={[initialEntry]}>
       <RelayEnvironmentProvider environment={environment}>
         <PacketsRoute />
+        <LocationProbe
+          onNavigate={(nextNavigate) => {
+            navigate = nextNavigate;
+          }}
+        />
       </RelayEnvironmentProvider>
     </MemoryRouter>,
   );
+
+  return {
+    ...result,
+    navigate(to: string) {
+      act(() => {
+        navigate?.(to);
+      });
+    },
+  };
 }
 
 export function lastVariablesFor(network: ReturnType<typeof vi.fn>, requestName: string) {
@@ -209,6 +238,7 @@ export function packetConnectionResponse(
   pageInfoOverrides: Partial<PageInfoPayload> = {},
   createAffordance = createPacketAffordance(),
   createdPackets: ReturnType<typeof packet>[] = [],
+  linkedPackets: ReturnType<typeof packet>[] = [],
 ): GraphQLResponse {
   return {
     data: {
@@ -225,6 +255,7 @@ export function packetConnectionResponse(
           endCursor: createdPackets.length > 0 ? `created_cursor_${createdPackets.length}` : null,
         },
       },
+      linkedPacket: linkedPackets[0] ?? null,
       listWorkPackets: {
         edges: packets.map((node, index) => ({
           cursor: `cursor_${index + 1}`,
@@ -240,6 +271,14 @@ export function packetConnectionResponse(
       },
     },
   };
+}
+
+function LocationProbe({ onNavigate }: { onNavigate: (navigate: NavigateFunction) => void }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  onNavigate(navigate);
+
+  return <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>;
 }
 
 export function packet(overrides: Partial<PacketPayload> = {}) {

@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<9dbad7337fd4fdb84c15a340207de5a5>>
+ * @generated SignedSource<<a43f9ab72586a7339eb0b2e95a225159>>
  * @lightSyntaxTransform
  */
 
@@ -202,7 +202,9 @@ return {
       (v2/*:: as any*/)
     ],
     "kind": "Fragment",
-    "metadata": null,
+    "metadata": {
+      "throwOnFieldError": true
+    },
     "name": "OperatorRelationshipDetailsQuery",
     "selections": (v3/*:: as any*/),
     "type": "RootQueryType",
@@ -230,6 +232,6 @@ return {
 };
 })();
 
-(node as any).hash = "6d6bf2d52c08a38080191f876dc5d31e";
+(node as any).hash = "333e39c2cdc2d27146d8b51916d914d4";
 
 export default node;

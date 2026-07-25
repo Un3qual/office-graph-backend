@@ -39,8 +39,8 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       OperatorProjectionSupport.create_ready_run(bootstrap.session, verification_checks)
 
     {:ok, bound} =
-      AgentRuntime.bind_openspec_review_agent(bootstrap.session, %{
-        idempotency_key: "bind-openspec-review-#{suffix}"
+      AgentRuntime.bind_run_review_agent(bootstrap.session, %{
+        idempotency_key: "bind-run-review-#{suffix}"
       })
 
     %{
@@ -143,13 +143,11 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       origin: "operator",
       invocation_mode: "human",
       idempotency_key: "agent-invocation-#{context.suffix}",
-      requested_outcome: "Review the selected work and propose bounded follow-up.",
-      requested_capabilities: [
-        "agent.model.generate",
-        "agent.tool.read",
-        "proposal.create",
-        "repository.read"
-      ],
+      requested_outcome:
+        "Review the selected run, work packet, graph context, checks, and evidence, then propose bounded follow-up work.",
+      requested_capabilities:
+        context.definition.requested_capabilities
+        |> Kernel.--(["agent.invoke"]),
       autonomy_mode: "human_supervised"
     }
   end

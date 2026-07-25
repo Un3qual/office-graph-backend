@@ -168,8 +168,8 @@ defmodule OfficeGraph.AgentRuntime.AdapterRegistryTest do
              })
   end
 
-  test "resolves the migrated OpenSpec-review definition through its stored model adapter key" do
-    definition = Ash.get!(AgentDefinition, %{key: "openspec-review"}, authorize?: false)
+  test "resolves the migrated run-review definition through its stored model adapter key" do
+    definition = Ash.get!(AgentDefinition, %{key: "run-review"}, authorize?: false)
 
     assert {:ok, DeterministicModel} = AdapterRegistry.model(definition.model_adapter_key)
   end

@@ -359,7 +359,13 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
 
   defp waiting_context_fixture(opts \\ []) do
     context = AgentRuntimeSupport.invocation_fixture()
-    invoked = AgentRuntimeSupport.invoke_human(context)
+    requested_capabilities = grant_context_expansion_authority!(context)
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        requested_capabilities: requested_capabilities
+      })
+
     [job] = execution_jobs(invoked.execution.id)
     expansion_count = Keyword.get(opts, :expansion_count, 1)
 
@@ -390,6 +396,43 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       context_package: invoked.context_package,
       target: target
     }
+  end
+
+  defp grant_context_expansion_authority!(context) do
+    requested_capabilities =
+      context.definition.requested_capabilities
+      |> Kernel.++(["agent.tool.read"])
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Repo.query!(
+      """
+      UPDATE agent_definitions
+      SET requested_capabilities = $1, updated_at = now()
+      WHERE id = $2
+      """,
+      [requested_capabilities, Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
+      FROM role_assignments AS assignments
+      JOIN capabilities ON capabilities.key = 'agent.tool.read'
+      WHERE assignments.principal_id = $1
+        AND assignments.organization_id = $2
+        AND assignments.workspace_id = $3
+      ON CONFLICT (role_id, capability_id) DO NOTHING
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
+
+    requested_capabilities -- ["agent.invoke"]
   end
 
   defp approve_expansion(fixture, request, reason) do

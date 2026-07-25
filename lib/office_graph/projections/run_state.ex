@@ -224,12 +224,7 @@ defmodule OfficeGraph.Projections.RunState do
         title: summary.packet.title,
         state: summary.packet.state
       },
-      packet_version: %{
-        id: summary.packet_version.id,
-        version_number: summary.packet_version.version_number,
-        lifecycle_state: summary.packet_version.lifecycle_state,
-        objective: summary.packet_version.objective
-      },
+      packet_version: packet_version_projection(summary.packet_version),
       run: %{
         id: summary.run.id,
         aggregate_state: summary.run.aggregate_state,
@@ -315,6 +310,17 @@ defmodule OfficeGraph.Projections.RunState do
       target_graph_item_id: result.target_graph_item_id,
       work_run_id: result.work_run_id,
       work_packet_version_id: result.work_packet_version_id
+    }
+  end
+
+  defp packet_version_projection(nil), do: nil
+
+  defp packet_version_projection(packet_version) do
+    %{
+      id: packet_version.id,
+      version_number: packet_version.version_number,
+      lifecycle_state: packet_version.lifecycle_state,
+      objective: packet_version.objective
     }
   end
 

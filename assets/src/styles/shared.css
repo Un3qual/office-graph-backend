@@ -207,6 +207,49 @@ h2 {
   font-size: var(--og-typography-small-size);
 }
 
+.ui-panel {
+  border: 1px solid var(--og-color-border);
+  border-radius: var(--og-radius-panel);
+  background: var(--og-color-surface);
+  padding: 18px 20px;
+}
+
+.ui-panel h2 {
+  margin-bottom: 12px;
+}
+
+.ui-panel p {
+  color: var(--og-color-text-muted);
+}
+
+.ui-panel-rows {
+  margin: 0;
+}
+
+.ui-panel-rows div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) minmax(0, 1fr);
+  gap: 16px;
+  border-bottom: 1px solid #edf1f3;
+  padding: 11px 0;
+}
+
+.ui-panel-rows dt {
+  color: var(--og-color-text-muted);
+}
+
+.ui-panel-rows dd {
+  margin: 0;
+}
+
+.ui-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--og-color-border);
+  padding: 18px 20px;
+}
+
 .ui-badge {
   display: inline-flex;
   align-items: center;

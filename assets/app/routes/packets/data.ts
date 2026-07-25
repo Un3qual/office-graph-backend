@@ -6,7 +6,9 @@ export const PacketsRouteQuery = graphql`
     $after: String
     $createdOperationId: ID
     $loadCreatedPacket: Boolean!
-  ) {
+    $packetId: ID!
+    $loadLinkedPacket: Boolean!
+  ) @throwOnFieldError {
     operatorPacketCreateAffordance {
       identity
       state
@@ -37,6 +39,12 @@ export const PacketsRouteQuery = graphql`
         }
       }
     }
+    linkedPacket: getWorkPacket(id: $packetId)
+      @include(if: $loadLinkedPacket)
+      @catch(to: NULL) {
+      id
+      ...PacketsRoutePacketFragment
+    }
   }
 `;
 
@@ -52,7 +60,8 @@ export const PacketsRoutePacketFragment = graphql`
 `;
 
 export const PacketsWorkspaceDetailQuery = graphql`
-  query PacketsWorkspaceDetailQuery($id: ID!, $versionFirst: Int!, $versionAfter: String) {
+  query PacketsWorkspaceDetailQuery($id: ID!, $versionFirst: Int!, $versionAfter: String)
+  @throwOnFieldError {
     operatorPacketWorkspace(id: $id) {
       sourceWatermark
       ready

@@ -24,6 +24,7 @@ defmodule OfficeGraph.Projections do
     OperatorWorkflow,
     PacketReadiness,
     PacketWorkspace,
+    RunIndex,
     RunState
   }
 
@@ -48,6 +49,7 @@ defmodule OfficeGraph.Projections do
 
   defdelegate packet_create_affordance(session_context), to: PacketWorkspace
   defdelegate operator_run_state(session_context, run_id), to: RunState
+  defdelegate operator_runs_page(session_context, opts), to: RunIndex, as: :page
 
   defdelegate operator_run_activity_page(session_context, run_id, opts),
     to: RunState,

@@ -23,6 +23,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   require Ash.Query
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(30)
+
+  @impl Oban.Worker
   def perform(%Oban.Job{
         args: %{
           "delivery_id" => delivery_id,

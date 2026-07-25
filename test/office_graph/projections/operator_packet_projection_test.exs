@@ -316,10 +316,9 @@ defmodule OfficeGraph.Projections.OperatorPacketProjectionTest do
                authority_posture: "human_supervised"
              })
 
-    Repo.query!(
-      "UPDATE runs SET aggregate_state = NULL, verification_state = NULL WHERE id = $1",
-      [Ecto.UUID.dump!(run_result.run.id)]
-    )
+    assert run_result.run.aggregate_state == "running"
+    assert run_result.run.execution_state == "pending"
+    assert run_result.run.verification_state == "unverified"
 
     assert {:ok, workspace} =
              Projections.packet_workspace(bootstrap.session, packet_result.packet.id)

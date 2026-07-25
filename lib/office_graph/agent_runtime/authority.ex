@@ -61,6 +61,7 @@ defmodule OfficeGraph.AgentRuntime.Authority do
          :ok <- validate_execution_binding(execution, binding, definition),
          :ok <- validate_agent_principal(execution.agent_principal_id),
          :ok <- validate_agent_grants(execution),
+         :ok <- validate_agent_snapshot_capabilities(execution, snapshot),
          :ok <- validate_delegator_grant(execution, snapshot),
          :ok <- validate_snapshot_contract(snapshot, execution, definition),
          :ok <- validate_policy_bundle(snapshot, execution),
@@ -120,22 +121,38 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     end
   end
 
-  defp effective_capability_keys(_binding, request, nil),
-    do: {:ok, Enum.sort(request.requested_capabilities)}
-
   defp effective_capability_keys(binding, request, delegator_principal_id) do
-    with {:ok, granted} <-
+    with {:ok, agent_granted} <-
            Authorization.intersect_principal_capabilities(
-             delegator_principal_id,
+             binding.agent_principal_id,
              binding.organization_id,
              binding.workspace_id,
              request.requested_capabilities
-           ) do
-      missing = request.requested_capabilities -- granted
+           ),
+         :ok <- ensure_all_agent_capabilities(request.requested_capabilities, agent_granted),
+         {:ok, effective} <-
+           intersect_delegator_capabilities(binding, agent_granted, delegator_principal_id),
+         :ok <- ensure_all_agent_capabilities(request.requested_capabilities, effective) do
+      {:ok, Enum.sort(effective)}
+    end
+  end
 
-      if missing == [],
-        do: {:ok, granted},
-        else: {:error, {:unauthorized_agent_capabilities, Enum.sort(missing)}}
+  defp intersect_delegator_capabilities(_binding, agent_granted, nil),
+    do: {:ok, agent_granted}
+
+  defp intersect_delegator_capabilities(binding, agent_granted, delegator_principal_id) do
+    Authorization.intersect_principal_capabilities(
+      delegator_principal_id,
+      binding.organization_id,
+      binding.workspace_id,
+      agent_granted
+    )
+  end
+
+  defp ensure_all_agent_capabilities(requested, granted) do
+    case requested -- granted do
+      [] -> :ok
+      missing -> {:error, {:unauthorized_agent_capabilities, Enum.sort(missing)}}
     end
   end
 
@@ -238,6 +255,22 @@ defmodule OfficeGraph.AgentRuntime.Authority do
     else
       {:error, :integration_storage_unavailable} = error -> error
       _error -> {:error, :agent_authority_revoked}
+    end
+  end
+
+  defp validate_agent_snapshot_capabilities(execution, snapshot) do
+    with {:ok, granted_capabilities} <-
+           Authorization.intersect_principal_capabilities(
+             execution.agent_principal_id,
+             execution.organization_id,
+             execution.workspace_id,
+             snapshot.capability_keys
+           ),
+         true <- Enum.empty?(snapshot.capability_keys -- granted_capabilities) do
+      :ok
+    else
+      {:error, :integration_storage_unavailable} = error -> error
+      _revoked_or_inactive -> {:error, :agent_authority_revoked}
     end
   end
 

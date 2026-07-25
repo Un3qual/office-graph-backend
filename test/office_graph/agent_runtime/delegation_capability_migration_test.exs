@@ -22,7 +22,6 @@ defmodule OfficeGraph.AgentRuntime.DelegationCapabilityMigrationTest do
     agent.model.generate
     agent.tool.read
     evidence.suggest
-    openspec.read
     proposal.create
     repository.read
   )

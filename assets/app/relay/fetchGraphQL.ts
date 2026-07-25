@@ -33,6 +33,21 @@ async function fetchGraphQLWithSignal(
   variables: Variables,
   disposalSignal?: AbortSignal,
 ): Promise<GraphQLResponse> {
+  const { payload, status } = await requestGraphQL(request, variables, disposalSignal);
+  const firstError = "errors" in payload ? payload.errors?.[0] : null;
+
+  if (firstError) {
+    throw new GraphQLResponseError(firstError.message, payload, status, request.name);
+  }
+
+  return payload;
+}
+
+async function requestGraphQL(
+  request: RequestParameters,
+  variables: Variables,
+  disposalSignal?: AbortSignal,
+): Promise<{ payload: GraphQLResponse; status: number }> {
   if (!request.text) {
     throw new Error(`Relay request "${request.name}" is missing compiled GraphQL text.`);
   }
@@ -62,16 +77,10 @@ async function fetchGraphQLWithSignal(
     });
 
     const payload = await readGraphQLResponse(response);
+    const hasGraphQLErrors =
+      payload !== null && "errors" in payload && (payload.errors?.length ?? 0) > 0;
 
-    if (payload) {
-      const firstError = "errors" in payload ? payload.errors?.[0] : null;
-
-      if (firstError) {
-        throw new GraphQLResponseError(firstError.message, payload, response.status, request.name);
-      }
-    }
-
-    if (!response.ok) {
+    if (!response.ok && !hasGraphQLErrors) {
       throw new Error(`GraphQL request "${request.name}" failed with status ${response.status}.`);
     }
 
@@ -79,7 +88,7 @@ async function fetchGraphQLWithSignal(
       throw new Error(`GraphQL request "${request.name}" returned an invalid JSON response.`);
     }
 
-    return payload;
+    return { payload, status: response.status };
   } finally {
     clearTimeout(timeoutId);
     disposalSignal?.removeEventListener("abort", abortDisposedRequest);
@@ -91,8 +100,8 @@ export function executeGraphQL(request: RequestParameters, variables: Variables)
     const controller = new AbortController();
     let disposed = false;
 
-    void fetchGraphQLWithSignal(request, variables, controller.signal).then(
-      (payload) => {
+    void requestGraphQL(request, variables, controller.signal).then(
+      ({ payload }) => {
         if (disposed) return;
         sink.next(payload);
         sink.complete();

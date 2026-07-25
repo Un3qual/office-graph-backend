@@ -681,6 +681,12 @@ type OperatorRunStatePayload = {
     sourceKind: string;
     sourceIdentity: string;
   }>;
+  packetVersion: {
+    id: string;
+    versionNumber: number;
+    lifecycleState: string;
+    objective: string | null;
+  } | null;
   status: string;
 };
 

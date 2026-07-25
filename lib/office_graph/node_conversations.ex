@@ -608,7 +608,7 @@ defmodule OfficeGraph.NodeConversations do
              WHERE binding.organization_id = $1 AND binding.workspace_id = $2
                AND binding.lifecycle_state = 'active'
                AND definition.lifecycle_state = 'active'
-               AND definition.key = 'openspec-review'
+               AND definition.key = 'run-review'
              ORDER BY binding.inserted_at, binding.id
              LIMIT 1
              """,
@@ -849,7 +849,7 @@ defmodule OfficeGraph.NodeConversations do
   defp invocation_affordance(_session_context, nil, _run, _graph_item_id) do
     CommandAffordance.disabled(
       "invoke_agent",
-      "No approved OpenSpec review agent is bound to this workspace."
+      "No approved run review agent is bound to this workspace."
     )
   end
 
@@ -865,7 +865,7 @@ defmodule OfficeGraph.NodeConversations do
          [] <- target.requested_capabilities -- granted do
       CommandAffordance.enabled(
         "invoke_agent",
-        "Invoke the approved OpenSpec review agent for this run context.",
+        "Invoke the approved run review agent for this run context.",
         required_fields: [
           "binding_id",
           "run_id",
@@ -880,7 +880,7 @@ defmodule OfficeGraph.NodeConversations do
           CommandAffordance.input_default("graph_item_id", graph_item_id),
           CommandAffordance.input_default(
             "requested_outcome",
-            "Review the selected run and OpenSpec artifacts."
+            "Review the selected run, work packet, graph context, checks, and evidence, then propose bounded follow-up work."
           ),
           CommandAffordance.input_default(
             "requested_capabilities",

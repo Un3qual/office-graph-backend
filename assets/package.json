@@ -19,24 +19,24 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint app/relay app/routes src scripts *.ts *.json",
     "format:check": "biome format app/relay app/routes src scripts *.ts *.json",
-    "verify:import-boundaries": "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts",
+    "verify:import-boundaries": "vitest run src/ui/importBoundaries.test.ts app/routes/operator/architecture.test.ts app/routes/packets/architecture.test.ts app/routes/runs/architecture.test.ts",
     "verify:app-shell": "node scripts/verify-app-shell-assets.mjs",
     "verify": "pnpm run relay:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run router:deploy && pnpm run verify:app-shell"
   },
   "dependencies": {
-    "@react-router/node": "8.1.0",
+    "@react-router/node": "8.3.0",
     "isbot": "^5",
     "react": "^19.0.0",
     "react-aria-components": "^1.19.0",
     "react-dom": "^19.0.0",
     "react-relay": "^21.0.1",
-    "react-router": "8.1.0",
+    "react-router": "8.3.0",
     "relay-runtime": "^21.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@biomejs/biome": "2.2.4",
-    "@react-router/dev": "8.1.0",
+    "@react-router/dev": "8.3.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
     "@types/babel__core": "^7.20.5",

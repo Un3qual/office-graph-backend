@@ -5,7 +5,6 @@ defmodule OfficeGraph.Repo.Migrations.BackfillAgentRuntimeDelegationCapabilities
     agent.model.generate
     agent.tool.read
     evidence.suggest
-    openspec.read
     proposal.create
     repository.read
   )

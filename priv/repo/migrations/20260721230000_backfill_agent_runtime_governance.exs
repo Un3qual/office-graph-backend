@@ -38,7 +38,7 @@ defmodule OfficeGraph.Repo.Migrations.BackfillAgentRuntimeGovernance do
           'proposal'
         ]::text[],
         updated_at = NOW()
-    WHERE key = 'openspec-review'
+    WHERE key = 'run-review'
     """)
   end
 

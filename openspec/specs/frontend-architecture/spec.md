@@ -337,6 +337,13 @@ lifecycle into parallel route-owned query-state machines.
   instead of a cumulative pagination fragment, while Relay MUST remain the
   server-state owner
 
+#### Scenario: Independent activity page is requested
+
+- **WHEN** a run-detail surface requests an additional page of activity
+- **THEN** the continuation operation MUST fetch only the run identity and
+  requested activity connection page rather than re-fetching unrelated run
+  detail, packet, evidence, candidate, and verification fields
+
 ### Requirement: Shared Async Boundaries Stay Product Neutral
 
 Office Graph SHALL keep reusable Suspense and error-boundary mechanics shallow

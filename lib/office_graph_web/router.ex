@@ -123,6 +123,7 @@ defmodule OfficeGraphWeb.Router do
   scope "/", OfficeGraphWeb do
     get "/operator", OperatorConsoleController, :index
     get "/packets", OperatorConsoleController, :index
+    get "/runs", OperatorConsoleController, :index
     get "/assets/*path", OperatorConsoleController, :asset
   end
 end

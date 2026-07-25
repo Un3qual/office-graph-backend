@@ -34,12 +34,12 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
             bindingId: context.binding.id,
             graphItemId: context.graph_item_id,
             runId: context.run.id,
-            requestedOutcome: "Review the selected run and OpenSpec artifacts.",
+            requestedOutcome:
+              "Review the selected run, work packet, graph context, checks, and evidence, then propose bounded follow-up work.",
             requestedCapabilities: [
               "agent.model.generate",
-              "agent.tool.read",
-              "proposal.create",
-              "repository.read"
+              "evidence.suggest",
+              "proposal.create"
             ],
             autonomyMode: "human_supervised"
           }
@@ -173,7 +173,18 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
 
   defp waiting_context_fixture do
     context = AgentRuntimeSupport.invocation_fixture()
-    invoked = AgentRuntimeSupport.invoke_human(context)
+    allow_generic_context_expansion!(context)
+
+    invoked =
+      AgentRuntimeSupport.invoke_human(context, %{
+        requested_capabilities: [
+          "agent.model.generate",
+          "agent.tool.read",
+          "evidence.suggest",
+          "proposal.create"
+        ]
+      })
+
     [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     target = Enum.min_by(invoked.context_entries, & &1.ordinal)
 
@@ -191,5 +202,41 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
       |> Ash.read_one!(authorize?: false)
 
     %{context: context, execution: execution, request: request}
+  end
+
+  defp allow_generic_context_expansion!(context) do
+    Repo.query!(
+      """
+      UPDATE agent_definitions
+      SET requested_capabilities = ARRAY[
+            'agent.model.generate',
+            'agent.tool.read',
+            'evidence.suggest',
+            'proposal.create'
+          ]::text[],
+          updated_at = now()
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(context.definition.id)]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
+      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
+      FROM role_assignments AS assignments
+      JOIN capabilities ON capabilities.key = 'agent.tool.read'
+      WHERE assignments.principal_id IN ($1, $2)
+        AND assignments.organization_id = $3
+        AND assignments.workspace_id = $4
+      ON CONFLICT (role_id, capability_id) DO NOTHING
+      """,
+      [
+        Ecto.UUID.dump!(context.agent_principal.id),
+        Ecto.UUID.dump!(context.bootstrap.principal.id),
+        Ecto.UUID.dump!(context.bootstrap.organization.id),
+        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+      ]
+    )
   end
 end

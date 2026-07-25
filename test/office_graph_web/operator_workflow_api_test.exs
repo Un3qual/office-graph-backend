@@ -667,6 +667,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               traceLinks { type id }
               decisionLinks { type id }
             }
+            packet { id relayId }
             run { id aggregateState verificationState }
             missingEvidence { verificationCheckId reason }
             evidenceCandidates { id state verificationCheckId executionObservationId }
@@ -693,6 +694,16 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert waive_check["identity"] == "waive_verification_check"
     assert waive_check["state"] == "enabled"
 
+    assert run_state["packet"]["id"] == run_result.run.work_packet_id
+
+    assert run_state["packet"]["relayId"] ==
+             Absinthe.Relay.Node.to_global_id(
+               "work_packet",
+               run_result.run.work_packet_id,
+               OfficeGraphWeb.GraphQL.Schema
+             )
+
+    refute run_state["packet"]["relayId"] == run_state["packet"]["id"]
     assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
     assert hd(run_state["evidenceCandidates"])["id"] == candidate.id

@@ -29,9 +29,9 @@ defmodule OfficeGraph.Runs.Run do
     attribute :authority_posture, :string, allow_nil?: true, public?: true
     attribute :source_surface, :string, allow_nil?: true, public?: true
     attribute :reason, :string, allow_nil?: true, public?: true
-    attribute :aggregate_state, :string, allow_nil?: true, public?: true
-    attribute :execution_state, :string, allow_nil?: true, public?: true
-    attribute :verification_state, :string, allow_nil?: true, public?: true
+    attribute :aggregate_state, :string, allow_nil?: false, public?: true
+    attribute :execution_state, :string, allow_nil?: false, public?: true
+    attribute :verification_state, :string, allow_nil?: false, public?: true
     attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :completed_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
