@@ -21,6 +21,7 @@ defmodule OfficeGraph.Application do
         OfficeGraph.AgentRuntime.AdapterState,
         OfficeGraph.GitHubIntegration.Adapter.GitHub.TokenCache
       ] ++
+        OfficeGraph.Authentication.oidc_children() ++
         OfficeGraph.DurableDelivery.subscription_children() ++
         [
           {Oban, Application.fetch_env!(:office_graph, Oban)},

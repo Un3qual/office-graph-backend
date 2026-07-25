@@ -30,6 +30,8 @@ config :office_graph,
     OfficeGraph.NodeConversations.Domain
   ],
   allow_local_api_owner_bootstrap: false,
+  human_oidc: [],
+  human_oidc_client: OfficeGraph.Authentication.OidcClient.Oidcc,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 

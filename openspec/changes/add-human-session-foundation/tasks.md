@@ -1,6 +1,6 @@
 ## 1. OIDC And Persistence Foundation
 
-- [ ] 1.1 Add the `oidcc` dependency, explicit runtime configuration, optional
+- [x] 1.1 Add the `oidcc` dependency, explicit runtime configuration, optional
   provider-configuration child, and deterministic OIDC adapter test support.
 - [x] 1.2 Add failing migration/resource tests for external identity links,
   authentication events, and extended human session metadata.
@@ -23,12 +23,12 @@
 
 ## 3. Authentication Orchestration
 
-- [ ] 3.1 Add failing tests for OIDC state/nonce/PKCE transactions, provider
+- [x] 3.1 Add failing tests for OIDC state/nonce/PKCE transactions, provider
   failure normalization, internal login-scope selection, and preferred-scope
   disambiguation.
-- [ ] 3.2 Implement the OIDC client boundary and
+- [x] 3.2 Implement the OIDC client boundary and
   `OfficeGraph.Authentication` login/logout orchestration.
-- [ ] 3.3 Add current role-assignment-based login-scope resolution to the
+- [x] 3.3 Add current role-assignment-based login-scope resolution to the
   Authorization boundary.
 
 ## 4. Phoenix Session Boundary

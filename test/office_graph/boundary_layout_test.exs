@@ -4,6 +4,7 @@ defmodule OfficeGraph.BoundaryLayoutTest do
   @public_contexts [
     OfficeGraph.Foundation,
     OfficeGraph.Identity,
+    OfficeGraph.Authentication,
     OfficeGraph.Tenancy,
     OfficeGraph.Authorization,
     OfficeGraph.Operations,

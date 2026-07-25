@@ -269,7 +269,7 @@ git commit -m "feat: add external identity sessions"
 - `OidcClient` adapters implement `authorization_uri/1`, `exchange/1`, and
   `logout_uri/1`.
 
-- [ ] **Step 1: Add `oidcc` and fetch dependencies**
+- [x] **Step 1: Add `oidcc` and fetch dependencies**
 
 Add `{:oidcc, "~> 3.7"}` and run:
 
@@ -280,7 +280,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 Inspect `mix.lock` and run `mix deps.unlock --check-unused`.
 
-- [ ] **Step 2: Write failing orchestration and scope tests**
+- [x] **Step 2: Write failing orchestration and scope tests**
 
 Cover:
 
@@ -295,7 +295,7 @@ Cover:
 - logout revoking locally when provider logout is unsupported;
 - external group/role claims creating no internal authority.
 
-- [ ] **Step 3: Run orchestration tests and confirm RED**
+- [x] **Step 3: Run orchestration tests and confirm RED**
 
 Run:
 
@@ -307,7 +307,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 Expected: failures because the boundary, adapter, and scope resolver do not
 exist.
 
-- [ ] **Step 4: Implement config, adapter, scope resolution, and orchestration**
+- [x] **Step 4: Implement config, adapter, scope resolution, and orchestration**
 
 Runtime config is complete only with issuer, client ID, client secret, and the
 explicit account-linking policy. Partial/missing config returns unavailable and
@@ -320,7 +320,7 @@ persisting the ID token.
 Scope resolution queries current workspace-scoped role assignments, deduplicates
 organization/workspace pairs, and applies only an explicit matching preference.
 
-- [ ] **Step 5: Run focused orchestration and dependency checks**
+- [x] **Step 5: Run focused orchestration and dependency checks**
 
 Run:
 
@@ -335,7 +335,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 Expected: tests pass and no dependency advisory is reported.
 
-- [ ] **Step 6: Format, verify the diff, and commit**
+- [x] **Step 6: Format, verify the diff, and commit**
 
 Run `mix format` through Nix and `git diff --check`. Commit with:
 
