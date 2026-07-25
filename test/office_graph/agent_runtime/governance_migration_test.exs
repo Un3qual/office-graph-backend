@@ -23,7 +23,7 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
 
   alias OfficeGraph.{AgentRuntime, Authorization, Foundation, Repo}
   alias OfficeGraph.AgentRuntime.{AgentExecution, ExecutionWorker}
-  alias OfficeGraph.TestSupport.AgentRuntimeSupport
+  alias OfficeGraph.TestSupport.{AgentRuntimeSupport, ConcurrencySupport}
 
   alias OfficeGraph.Repo.Migrations.{
     BackfillAgentRuntimeGovernance,
@@ -486,6 +486,107 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
   end
 
+  test "prevents a legacy invocation from entering after the retirement set is materialized" do
+    lock_key = System.unique_integer([:positive]) |> rem(2_000_000_000)
+
+    {context, legacy_context, legacy_definition_id, first_execution_id, request, operation} =
+      ConcurrencySupport.with_unboxed_connection(fn ->
+        context = AgentRuntimeSupport.invocation_fixture()
+        legacy_definition_id = insert_coexisting_legacy_definition!(context)
+
+        legacy_context = %{
+          context
+          | definition: %{context.definition | id: legacy_definition_id}
+        }
+
+        first =
+          AgentRuntimeSupport.invoke_human(legacy_context, %{
+            idempotency_key: "legacy-before-retirement-scan-#{context.suffix}"
+          })
+
+        request =
+          AgentRuntimeSupport.request(legacy_context, %{
+            idempotency_key: "legacy-during-retirement-scan-#{context.suffix}"
+          })
+
+        {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
+
+        install_reconciliation_execution_wait!(first.execution.id, lock_key)
+
+        {
+          context,
+          legacy_context,
+          legacy_definition_id,
+          first.execution.id,
+          request,
+          operation
+        }
+      end)
+
+    try do
+      {invocation_before_release, invocation_result} =
+        ConcurrencySupport.with_unboxed_connection(fn ->
+          Repo.query!("SELECT pg_advisory_lock(99_031, $1)", [lock_key])
+
+          try do
+            migration =
+              Task.async(fn ->
+                ConcurrencySupport.with_unboxed_connection(fn ->
+                  Repo.transaction(&run_reconciliation_migration/0)
+                end)
+              end)
+
+            wait_for_reconciliation_execution_wait!(lock_key)
+
+            invocation =
+              Task.async(fn ->
+                ConcurrencySupport.with_unboxed_connection(fn ->
+                  AgentRuntime.invoke(legacy_context.session, operation, request)
+                end)
+              end)
+
+            invocation_before_release = Task.yield(invocation, 250)
+
+            Repo.query!("SELECT pg_advisory_unlock(99_031, $1)", [lock_key])
+            Task.await(migration, 10_000)
+
+            invocation_result =
+              case invocation_before_release do
+                nil -> Task.await(invocation, 10_000)
+                {:ok, result} -> result
+              end
+
+            {invocation_before_release, invocation_result}
+          after
+            Repo.query!("SELECT pg_advisory_unlock(99_031, $1)", [lock_key])
+          end
+        end)
+
+      assert is_nil(invocation_before_release)
+      assert {:error, :forbidden} = invocation_result
+
+      ConcurrencySupport.with_unboxed_connection(fn ->
+        assert %{rows: [["cancelled"]]} =
+                 Repo.query!(
+                   "SELECT state FROM agent_executions WHERE id = $1",
+                   [Ecto.UUID.dump!(first_execution_id)]
+                 )
+
+        assert %{rows: [[0]]} =
+                 Repo.query!(
+                   "SELECT count(*) FROM agent_executions WHERE operation_id = $1",
+                   [Ecto.UUID.dump!(operation.id)]
+                 )
+      end)
+    after
+      ConcurrencySupport.with_unboxed_connection(fn ->
+        Repo.query!("SELECT pg_advisory_unlock(99_031, $1)", [lock_key])
+        drop_reconciliation_execution_wait!()
+        cleanup_agent_runtime_scope!(context, legacy_definition_id)
+      end)
+    end
+  end
+
   defp capability_keys(role_id) do
     Repo.query!(
       """
@@ -503,6 +604,198 @@ defmodule OfficeGraph.AgentRuntime.GovernanceMigrationTest do
       [role_id]
     ).rows
     |> List.flatten()
+  end
+
+  defp insert_coexisting_legacy_definition!(context) do
+    legacy_definition_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO agent_definitions (
+        id,
+        key,
+        name,
+        description,
+        lifecycle_state,
+        supported_modes,
+        requested_capabilities,
+        model_adapter_key,
+        model_credential_id,
+        tool_allowlist,
+        default_autonomy_mode,
+        allowed_output_kinds,
+        inserted_at,
+        updated_at
+      )
+      SELECT
+        $1,
+        'openspec-review',
+        'Legacy Review',
+        description,
+        lifecycle_state,
+        supported_modes,
+        requested_capabilities,
+        model_adapter_key,
+        model_credential_id,
+        tool_allowlist,
+        default_autonomy_mode,
+        allowed_output_kinds,
+        NOW(),
+        NOW()
+      FROM agent_definitions
+      WHERE id = $2
+      """,
+      [
+        Ecto.UUID.dump!(legacy_definition_id),
+        Ecto.UUID.dump!(context.definition.id)
+      ]
+    )
+
+    Repo.query!(
+      "UPDATE agent_organization_bindings SET definition_id = $1 WHERE id = $2",
+      [
+        Ecto.UUID.dump!(legacy_definition_id),
+        Ecto.UUID.dump!(context.binding.id)
+      ]
+    )
+
+    legacy_definition_id
+  end
+
+  defp install_reconciliation_execution_wait!(execution_id, lock_key) do
+    drop_reconciliation_execution_wait!()
+
+    Repo.query!("""
+    CREATE FUNCTION office_graph_test_reconciliation_execution_wait()
+    RETURNS trigger AS $$
+    BEGIN
+      IF NEW.id = TG_ARGV[0]::uuid
+         AND NEW.failure_code = 'agent_definition_reconciled' THEN
+        PERFORM pg_advisory_lock(99_031, TG_ARGV[1]::integer);
+        PERFORM pg_advisory_unlock(99_031, TG_ARGV[1]::integer);
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER office_graph_test_reconciliation_execution_wait
+    BEFORE UPDATE ON agent_executions
+    FOR EACH ROW
+    EXECUTE FUNCTION office_graph_test_reconciliation_execution_wait(
+      '#{execution_id}',
+      '#{lock_key}'
+    )
+    """)
+  end
+
+  defp wait_for_reconciliation_execution_wait!(lock_key, attempts \\ 200)
+
+  defp wait_for_reconciliation_execution_wait!(_lock_key, 0),
+    do: flunk("reconciliation did not reach the execution retirement barrier")
+
+  defp wait_for_reconciliation_execution_wait!(lock_key, attempts) do
+    %{rows: [[waiting_count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND classid = 99_031
+          AND objid = $1
+          AND granted = false
+        """,
+        [lock_key]
+      )
+
+    if waiting_count > 0 do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_reconciliation_execution_wait!(lock_key, attempts - 1)
+    end
+  end
+
+  defp drop_reconciliation_execution_wait! do
+    Repo.query!(
+      "DROP TRIGGER IF EXISTS office_graph_test_reconciliation_execution_wait ON agent_executions"
+    )
+
+    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_reconciliation_execution_wait()")
+  end
+
+  defp cleanup_agent_runtime_scope!(context, legacy_definition_id) do
+    organization_id = Ecto.UUID.dump!(context.bootstrap.organization.id)
+
+    execution_ids = """
+    SELECT id
+    FROM agent_executions
+    WHERE organization_id = $1
+    """
+
+    Repo.query!(
+      "DELETE FROM oban_jobs WHERE args->>'execution_id' IN (SELECT id::text FROM agent_executions WHERE organization_id = $1)",
+      [organization_id]
+    )
+
+    for table <- [
+          "conversation_messages",
+          "proposed_graph_changes",
+          "execution_observations",
+          "evidence_candidates",
+          "agent_model_requests",
+          "agent_tool_requests",
+          "agent_approval_requests"
+        ] do
+      Repo.query!("DELETE FROM #{table} WHERE execution_id IN (#{execution_ids})", [
+        organization_id
+      ])
+    end
+
+    Repo.query!(
+      """
+      UPDATE agent_context_packages
+      SET expansion_request_id = NULL
+      WHERE organization_id = $1
+      """,
+      [organization_id]
+    )
+
+    Repo.query!(
+      "DELETE FROM agent_context_expansion_requests WHERE execution_id IN (#{execution_ids})",
+      [organization_id]
+    )
+
+    Repo.query!("DELETE FROM agent_context_entries WHERE organization_id = $1", [organization_id])
+
+    Repo.query!("DELETE FROM agent_context_packages WHERE organization_id = $1", [organization_id])
+
+    Repo.query!("DELETE FROM agent_authority_snapshots WHERE organization_id = $1", [
+      organization_id
+    ])
+
+    Repo.query!("DELETE FROM agent_executions WHERE organization_id = $1", [organization_id])
+
+    Repo.query!("DELETE FROM agent_organization_bindings WHERE organization_id = $1", [
+      organization_id
+    ])
+
+    Repo.query!("DELETE FROM agent_definitions WHERE id = $1", [
+      Ecto.UUID.dump!(legacy_definition_id)
+    ])
+
+    ConcurrencySupport.cleanup_work_run_verification_scope!(context.bootstrap.organization.slug)
+
+    ConcurrencySupport.cleanup_bootstrap_scope!(
+      context.bootstrap.organization.slug,
+      context.bootstrap.principal.email
+    )
+
+    Repo.query!("DELETE FROM principals WHERE id = $1", [
+      Ecto.UUID.dump!(context.agent_principal.id)
+    ])
   end
 
   defp insert_pending_model_request!(execution_id) do

@@ -4,6 +4,28 @@ defmodule OfficeGraph.Repo.Migrations.ReconcileRunReviewDefinition do
   @reconciliation_failure_code "agent_definition_reconciled"
 
   def up do
+    # Invocation locks its organization binding before its definition. Own the
+    # same boundary in the same order before renaming or materializing the
+    # retirement set, so every old-authority invocation either commits before
+    # the scan or waits until the canonical contract is in force.
+    execute("""
+    SELECT bindings.id
+    FROM agent_organization_bindings AS bindings
+    JOIN agent_definitions AS definitions
+      ON definitions.id = bindings.definition_id
+     AND definitions.key IN ('run-review', 'openspec-review')
+    ORDER BY bindings.id
+    FOR UPDATE OF bindings
+    """)
+
+    execute("""
+    SELECT definitions.id
+    FROM agent_definitions AS definitions
+    WHERE definitions.key IN ('run-review', 'openspec-review')
+    ORDER BY definitions.id
+    FOR UPDATE OF definitions
+    """)
+
     execute("""
     UPDATE agent_definitions
     SET key = 'run-review',
