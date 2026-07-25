@@ -201,9 +201,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp run_claim_result({:terminal, state, execution}, _operation, job),
     do: finish_terminal_job(job, terminal_failure(execution, state))
 
-  @doc false
-  def claim_dispatch_posture(execution_id, request_id, lease_token)
-      when is_binary(execution_id) and is_binary(request_id) and is_binary(lease_token) do
+  defp claim_dispatch_posture(execution_id, request_id, lease_token)
+       when is_binary(execution_id) and is_binary(request_id) and is_binary(lease_token) do
     Repo.query(
       """
       SELECT

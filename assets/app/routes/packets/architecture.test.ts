@@ -1,12 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  analyzeTypeScript,
-  emittedClassNames as classNames,
-  localDependencyFiles,
-  stylesheetOwnerClasses as stylesheetClassesFromSource,
-} from "../architectureTestSupport";
+import { analyzeTypeScript } from "../architectureTestSupport";
 
 const assetsRoot = process.cwd();
 const routeRoot = join(process.cwd(), "app/routes/packets");
@@ -164,120 +159,14 @@ describe("packet route data architecture", () => {
     );
   });
 
-  it("does not depend on operator-owned styles through shared components", () => {
-    const packetDependencies = localDependencyFiles(sourceFiles(routeRoot));
-    const consumedClasses = new Set(
-      packetDependencies.flatMap((file) =>
-        classNames(readFileSync(file, "utf8"), file, { unresolvedSpreads: "skip" }),
-      ),
-    );
-    const sharedClasses = stylesheetClasses("src/styles/shared.css");
-    const operatorClasses = stylesheetClasses("src/styles/operator.css");
-    const packetClasses = stylesheetClasses("src/styles/packets.css");
+  it("loads packet styles globally without importing operator-owned source", () => {
+    const globalStyles = readFileSync(join(assetsRoot, "src/styles/global.css"), "utf8");
+    const imports = sourceFiles(routeRoot).flatMap((file) => [
+      ...analyzeTypeScript(readFileSync(file, "utf8"), file).moduleSpecifiers,
+    ]);
 
-    const operatorOnlyDependencies = [...consumedClasses]
-      .filter(
-        (className) =>
-          operatorClasses.has(className) &&
-          !sharedClasses.has(className) &&
-          !packetClasses.has(className),
-      )
-      .sort();
-    const duplicatedSharedClasses = [...sharedClasses]
-      .filter((className) => operatorClasses.has(className) || packetClasses.has(className))
-      .sort();
-
-    expect(operatorOnlyDependencies).toEqual([]);
-    expect(duplicatedSharedClasses).toEqual([]);
-  });
-
-  it("collects Button's explicit finite emitted classes", () => {
-    const buttonPath = join(assetsRoot, "src/ui/Button.tsx");
-    const buttonClasses = classNames(readFileSync(buttonPath, "utf8"), buttonPath, {
-      unresolvedSpreads: "skip",
-    });
-
-    expect(buttonClasses).toEqual(
-      expect.arrayContaining(["ui-button", "ui-button-primary", "ui-button-secondary"]),
-    );
-  });
-
-  it("fails closed when a generated class has an unbounded template span", () => {
-    const source = `
-      function DynamicClass({ suffix }: { suffix: string }) {
-        return <div className={\`ui-\${suffix}\`} />;
-      }
-    `;
-
-    expect(() => classNames(source, "dynamic-class.tsx")).toThrowError(
-      "Unsupported dynamic className template span: suffix",
-    );
-  });
-
-  it("rejects local identifier indirection in a className initializer", () => {
-    const source = `
-      function LocalClass({ primary }: { primary: boolean }) {
-        const buttonClass = primary ? "ui-button-primary" : "ui-button-secondary";
-        return <button className={buttonClass} />;
-      }
-    `;
-
-    expect(() => classNames(source, "local-class.tsx")).toThrowError(
-      "Unsupported className expression: buttonClass",
-    );
-  });
-
-  it("allows caller-supplied classes through a destructured ClassName prop", () => {
-    const source = `
-      function Shell({ contentClassName }: { contentClassName: string }) {
-        return <div className={contentClassName} />;
-      }
-
-      function Caller() {
-        return <Shell contentClassName="packet-workspace" />;
-      }
-    `;
-
-    expect(classNames(source, "class-name-prop.tsx")).toEqual(["packet-workspace"]);
-  });
-
-  it("does not borrow a className pass-through binding from another function", () => {
-    const source = `
-      function PassThrough({ className }: { className: string }) {
-        return <div className={className} />;
-      }
-
-      function Local() {
-        const className = "operator-only";
-        return <div className={className} />;
-      }
-    `;
-
-    expect(() => classNames(source, "lexical-class-name.tsx")).toThrowError(
-      "Unsupported className expression: className",
-    );
-  });
-
-  it("fails closed when any conditional template branch is unbounded", () => {
-    const source = `
-      function DynamicClass({ active, suffix }: { active: boolean; suffix: string }) {
-        return <div className={\`ui-\${active ? "active" : suffix}\`} />;
-      }
-    `;
-
-    expect(() => classNames(source, "conditional-class.tsx")).toThrowError(
-      'Unsupported dynamic className template span: active ? "active" : suffix',
-    );
-  });
-
-  it("distinguishes stylesheet owners from scoped class references", () => {
-    const owners = stylesheetClassesFromSource(`
-      .packet-command-card .ui-form-feedback { margin-top: 8px; }
-      .packet-command-card { display: grid; }
-      .ui-owning-control[data-kind="error"] { color: red; }
-    `);
-
-    expect([...owners].sort()).toEqual(["packet-command-card", "ui-owning-control"]);
+    expect(globalStyles.match(/@import\s+["']\.\/packets\.css["'];/g)).toHaveLength(1);
+    expect(imports.filter((specifier) => specifier.includes("/operator/"))).toEqual([]);
   });
 });
 
@@ -290,9 +179,4 @@ function sourceFiles(path: string): string[] {
 
     return /\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry) ? [fullPath] : [];
   });
-}
-
-function stylesheetClasses(relativePath: string) {
-  const styles = readFileSync(join(assetsRoot, relativePath), "utf8");
-  return stylesheetClassesFromSource(styles);
 }

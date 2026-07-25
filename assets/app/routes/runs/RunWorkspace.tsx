@@ -56,7 +56,15 @@ function LoadedRunDetail({
   onRetry: () => void;
   runId: string;
 }) {
-  const detail = useRunDetail(runId, fetchKey);
+  const result = useRunDetail(runId, fetchKey);
 
-  return <RunDetail detail={detail} onRetry={onRetry} selectedId={runId} state="loaded" />;
+  return (
+    <RunDetail
+      activityRef={result.activityRef}
+      detail={result.detail}
+      onRetry={onRetry}
+      selectedId={runId}
+      state="loaded"
+    />
+  );
 }

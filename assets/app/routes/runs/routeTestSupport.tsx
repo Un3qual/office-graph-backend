@@ -1,7 +1,6 @@
 import { render } from "@testing-library/react";
 import { RelayEnvironmentProvider } from "react-relay";
-import { createBrowserRouter, MemoryRouter, useLocation } from "react-router";
-import { RouterProvider } from "react-router/dom";
+import { MemoryRouter, useLocation } from "react-router";
 import {
   Environment,
   type FetchFunction,
@@ -11,6 +10,9 @@ import {
   Store,
 } from "relay-runtime";
 import { vi } from "vitest";
+import type { RunActivityFragment$data } from "../../relay/__generated__/RunActivityFragment.graphql";
+import type { RunDetailQuery as RunDetailOperation } from "../../relay/__generated__/RunDetailQuery.graphql";
+import type { RunsRouteQuery as RunsRouteOperation } from "../../relay/__generated__/RunsRouteQuery.graphql";
 import { getOfficeGraphDataID } from "../../relay/environment";
 import RunsRoute from "./route";
 
@@ -46,25 +48,6 @@ export function renderWithRelayEnvironment(environment: Environment, initialEntr
       </RelayEnvironmentProvider>
     </MemoryRouter>,
   );
-}
-
-export function renderWithBrowserRelay(network: FetchFunction, initialEntry = "/runs") {
-  window.history.replaceState(null, "", initialEntry);
-
-  const restoreRequest = installCrossRealmRequestSignalBridge();
-  const router = createBrowserRouter([
-    {
-      path: "/runs",
-      element: (
-        <RelayEnvironmentProvider environment={createRelayTestEnvironment(network)}>
-          <RunsRoute />
-          <LocationProbe />
-        </RelayEnvironmentProvider>
-      ),
-    },
-  ]);
-
-  return { ...render(<RouterProvider router={router} />), restoreRequest };
 }
 
 export function createRunsNetwork({
@@ -132,6 +115,7 @@ export function activityPageResponse({ title }: { title: string }): GraphQLRespo
             {
               cursor: "activity_cursor_3",
               node: {
+                __typename: "OperatorRunActivity",
                 kind: "observation",
                 stableId: "observation_3",
                 title,
@@ -159,18 +143,9 @@ export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSumma
     executionState: "completed",
     verificationState: "pending",
     insertedAt: "2026-07-23T19:00:00Z",
-    sourceWatermark: "operation_new",
     packet: {
       id: "123e4567-e89b-12d3-a456-426614174000",
-      relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
       title: "Newest packet",
-      state: "active",
-    },
-    packetVersion: {
-      id: "version_new",
-      versionNumber: 3,
-      lifecycleState: "active",
-      objective: "Review the newest authorized run",
     },
     ...overrides,
   };
@@ -178,14 +153,11 @@ export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSumma
 
 export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayload {
   return {
-    type: "operator_run_state",
     status: "awaiting_evidence_acceptance",
-    sourceWatermark: "operation_new",
     packet: {
       id: "123e4567-e89b-12d3-a456-426614174000",
       relayId: "d29ya19wYWNrZXQ6MTIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
       title: "Newest packet",
-      state: "active",
     },
     packetVersion: {
       id: "version_new",
@@ -202,7 +174,6 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
     requiredChecks: [
       {
         id: "required_1",
-        graphItemId: "graph_1",
         verificationCheckId: "check_1",
         state: "open",
       },
@@ -210,22 +181,14 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
     evidenceCandidates: [
       {
         id: "candidate_1",
-        verificationCheckId: "check_1",
-        executionObservationId: "observation_1",
         claim: "Release evidence is ready.",
         state: "candidate",
-        freshnessState: "fresh",
-        trustBasis: "owner_attested",
-        sourceKind: "human",
-        sourceIdentity: "manual:release",
       },
     ],
     evidenceItems: [
       {
         id: "evidence_1",
         state: "accepted",
-        candidateId: "candidate_1",
-        workRunId: "run_new",
       },
     ],
     verificationResults: [
@@ -233,13 +196,7 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
         id: "result_1",
         result: "passed",
         verificationCheckId: "check_1",
-        evidenceItemId: "evidence_1",
-        operationId: "operation_verify",
-        actorPrincipalId: "principal_1",
         policyBasis: "owner_acceptance",
-        targetGraphItemId: "graph_1",
-        workRunId: "run_new",
-        workPacketVersionId: "version_new",
       },
     ],
     missingEvidence: [
@@ -253,6 +210,7 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
         {
           cursor: "activity_cursor_1",
           node: {
+            __typename: "OperatorRunActivity",
             kind: "required_check",
             stableId: "required_1",
             title: "Release verification",
@@ -262,6 +220,7 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
         {
           cursor: "activity_cursor_2",
           node: {
+            __typename: "OperatorRunActivity",
             kind: "evidence_item",
             stableId: "evidence_1",
             title: "Accepted release evidence",
@@ -301,119 +260,33 @@ function LocationProbe() {
   return <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>;
 }
 
-function installCrossRealmRequestSignalBridge() {
-  const NativeRequest = globalThis.Request;
-
-  function CompatibleRequest(input: RequestInfo | URL, init?: RequestInit) {
-    const { signal, ...compatibleInit } = init ?? {};
-    const request = new NativeRequest(input, compatibleInit);
-
-    if (signal) {
-      Object.defineProperty(request, "signal", { value: signal });
-    }
-
-    return request;
-  }
-
-  Object.setPrototypeOf(CompatibleRequest, NativeRequest);
-  CompatibleRequest.prototype = NativeRequest.prototype;
-  globalThis.Request = CompatibleRequest as unknown as typeof Request;
-
-  return () => {
-    globalThis.Request = NativeRequest;
-  };
-}
-
-type PageInfoPayload = {
-  hasNextPage: boolean;
+type RunsConnectionPayload = NonNullable<RunsRouteOperation["response"]["operatorRuns"]>;
+type RunSummaryReaderPayload = NonNullable<
+  NonNullable<NonNullable<RunsConnectionPayload["edges"]>[number]>["node"]
+>;
+type RunSummaryPayload = Omit<RunSummaryReaderPayload, "packet"> & {
+  packet: RunSummaryReaderPayload["packet"] & { id: string };
+};
+type PageInfoPayload = RunsConnectionPayload["pageInfo"] & {
   hasPreviousPage: boolean;
   startCursor: string | null;
-  endCursor: string | null;
 };
-
-type RunSummaryPayload = {
-  id: string;
-  objective: string | null;
-  aggregateState: string;
-  executionState: string;
-  verificationState: string;
-  insertedAt: string;
-  sourceWatermark: string;
-  packet: { id: string; relayId: string; title: string; state: string };
-  packetVersion: {
-    id: string;
-    versionNumber: number;
-    lifecycleState: string;
-    objective: string | null;
-  } | null;
+type RunDetailReaderPayload = NonNullable<RunDetailOperation["response"]["operatorRunState"]>;
+type RunDetailPayload = Omit<RunDetailReaderPayload, "packet" | "packetVersion"> & {
+  packet: RunDetailReaderPayload["packet"] & { id: string };
+  packetVersion: (NonNullable<RunDetailReaderPayload["packetVersion"]> & { id: string }) | null;
 };
-
-type RunStatePayload = {
-  type: string;
-  status: string;
-  sourceWatermark: string | null;
-  packet: { id: string; relayId: string; title: string; state: string };
-  packetVersion: {
-    id: string;
-    versionNumber: number;
-    lifecycleState: string;
-    objective: string | null;
-  } | null;
-  run: {
-    id: string;
-    aggregateState: string;
-    executionState: string;
-    verificationState: string;
-  };
-  requiredChecks: Array<{
-    id: string;
-    graphItemId: string | null;
-    verificationCheckId: string | null;
-    state: string;
+type ActivityPayload = NonNullable<RunActivityFragment$data["operatorRunState"]["activity"]>;
+type ActivityEdgePayload = NonNullable<NonNullable<ActivityPayload["edges"]>[number]>;
+type ActivityNodePayload = NonNullable<ActivityEdgePayload["node"]>;
+type ActivityNetworkPayload = Omit<ActivityPayload, "edges" | "pageInfo"> & {
+  edges: Array<{
+    cursor: string;
+    node: ActivityNodePayload & { __typename: "OperatorRunActivity" };
   }>;
-  evidenceCandidates: Array<{
-    id: string;
-    verificationCheckId: string;
-    executionObservationId: string | null;
-    claim: string;
-    state: string;
-    freshnessState: string;
-    trustBasis: string;
-    sourceKind: string;
-    sourceIdentity: string;
-  }>;
-  evidenceItems: Array<{
-    id: string;
-    state: string;
-    candidateId: string;
-    workRunId: string;
-  }>;
-  verificationResults: Array<{
-    id: string;
-    result: string;
-    verificationCheckId: string;
-    evidenceItemId: string;
-    operationId: string;
-    actorPrincipalId: string;
-    policyBasis: string;
-    targetGraphItemId: string;
-    workRunId: string;
-    workPacketVersionId: string;
-  }>;
-  missingEvidence: Array<{
-    verificationCheckId: string;
-    reason: string;
-  }>;
-  activity: {
-    edges: Array<{
-      cursor: string;
-      node: {
-        kind: string;
-        stableId: string;
-        title: string;
-        status: string;
-      };
-    }>;
-    pageInfo: PageInfoPayload;
+  pageInfo: ActivityPayload["pageInfo"] & {
+    hasPreviousPage: boolean;
+    startCursor: string | null;
   };
 };
+type RunStatePayload = RunDetailPayload & { activity: ActivityNetworkPayload };

@@ -252,32 +252,27 @@ evidence, retry, cancellation, and completion summaries in run projections.
 Office Graph SHALL provide a read-only work-run index projection that returns
 only this safe output for the resolved session's authorized organization and
 workspace: run id, objective, aggregate state, execution state, verification
-state, insertion time, and stable source watermark; packet id, title, and
-state; and, when the run has a selected packet version, packet-version id,
-version number, lifecycle state, and objective. Runs created for selected graph
-work without a packet version SHALL remain visible in the index and inspectable
-through `operatorRunState` with an absent packet-version reference.
-The GraphQL layer SHALL derive an opaque packet Relay id from the projected
-packet id for canonical product deep links; that Relay id is not an additional
-projection field. The projection SHALL require the existing skeleton-read
-capability and use one actor-authorized run-page read plus two actor-authorized,
-scope-filtered, page-batched enrichment reads for packets and packet versions.
-It SHALL NOT load enrichment per row, duplicate `operatorRunState` detail
-assembly, or own a command.
+state, insertion time, and owning packet id and title. Runs created without a
+selected packet version SHALL remain visible in the index and inspectable
+through `operatorRunState`. The projection SHALL require the existing
+skeleton-read capability and use one actor-authorized run-page read plus one
+actor-authorized, scope-filtered, page-batched packet read. It SHALL NOT load
+enrichment per row, duplicate `operatorRunState` detail assembly, or own a
+command.
 
 #### Scenario: Authorized scope receives only its runs
 
 - **WHEN** an authorized session reads the work-run index
 - **THEN** it MUST receive only summaries from its resolved organization and
-  workspace, and no row, packet label, packet-version label, or watermark from
-  another tenant or workspace may appear
+  workspace, and no run or packet label from another tenant or workspace may
+  appear
 
 #### Scenario: Scoped run has no packet version
 
 - **WHEN** an authorized scoped run represents selected graph work without a
   packet version
-- **THEN** the index and selected detail MUST return the run and its packet with
-  an absent packet-version reference rather than rejecting the page or detail
+- **THEN** the index MUST return the run and its packet and the selected detail
+  MUST represent the absent packet version
 
 #### Scenario: Read authorization is denied
 
@@ -305,9 +300,8 @@ assembly, or own a command.
 - **WHEN** the number of runs in the authorized scope grows while the requested
   page size stays fixed
 - **THEN** the index MUST retain its constant bound of one actor-authorized
-  run-page read plus two actor-authorized, scope-filtered, page-batched
-  enrichment reads and MUST NOT load packet or packet-version data one row at a
-  time
+  run-page read plus one actor-authorized, scope-filtered, page-batched packet
+  read and MUST NOT load packet data one row at a time
 
 ### Requirement: Work Run Index Has A Read-Only Relay Connection
 

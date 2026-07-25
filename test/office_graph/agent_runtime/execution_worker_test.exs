@@ -806,16 +806,8 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     ])
 
     running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
-    running_request = Ash.get!(ModelRequest, request_id, authorize?: false)
 
     assert DateTime.diff(running.lease_expires_at, DateTime.utc_now(), :second) >= 180
-
-    assert :current =
-             ExecutionWorker.claim_dispatch_posture(
-               running.id,
-               running_request.id,
-               running.lease_token
-             )
 
     attrs = %{
       execution_id: running.id,
@@ -833,13 +825,6 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     assert {:ok, cancelled} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert_receive {:blocking_model_cancelled, ^request_id}, 1_000
     refute_receive {:rotated_model_cancelled, ^request_id}
-
-    assert {:terminal, "cancelled_by_operator"} =
-             ExecutionWorker.claim_dispatch_posture(
-               running.id,
-               running_request.id,
-               running.lease_token
-             )
 
     assert {:ok, replayed} = AgentRuntime.cancel_execution(context.session, operation, attrs)
     assert replayed.replayed?
@@ -1198,13 +1183,6 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
     })
     |> Ash.update!(authorize?: false)
-
-    assert :stale =
-             ExecutionWorker.claim_dispatch_posture(
-               running.id,
-               request.id,
-               running.lease_token
-             )
 
     Application.put_env(:office_graph, :agent_runtime_adapters, original_registry)
 

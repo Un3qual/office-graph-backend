@@ -39,8 +39,7 @@ export default function RunsRoute() {
     previousCursors: [],
   });
   const [pendingNavigation, setPendingNavigation] = useState<PendingRunsNavigation | null>(null);
-  const [isSelectionPending, setIsSelectionPending] = useState(false);
-  const pendingRunIdRef = useRef<string | null>(null);
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const hasRequestedRunId = searchParams.has("runId");
   const requestedRunId = hasRequestedRunId ? (searchParams.get("runId") ?? "") : null;
 
@@ -56,8 +55,7 @@ export default function RunsRoute() {
 
   const selectRun = useCallback(
     (id: string) => {
-      pendingRunIdRef.current = id;
-      setIsSelectionPending(true);
+      setPendingRunId(id);
       setSearchParams(
         (currentSearchParams) => {
           const nextSearchParams = new URLSearchParams(currentSearchParams);
@@ -69,6 +67,12 @@ export default function RunsRoute() {
     },
     [setSearchParams],
   );
+
+  useEffect(() => {
+    if (pendingRunId !== null && pendingRunId === requestedRunId) {
+      setPendingRunId(null);
+    }
+  }, [pendingRunId, requestedRunId]);
 
   const selectDefaultRun = useCallback(
     (id: string) => {
@@ -137,17 +141,9 @@ export default function RunsRoute() {
     });
   }, [navigation]);
 
-  useEffect(() => {
-    if (isSelectionPending && requestedRunId === pendingRunIdRef.current) {
-      pendingRunIdRef.current = null;
-      setIsSelectionPending(false);
-    }
-  }, [isSelectionPending, requestedRunId]);
-
   return (
     <RunWorkspace
       detailFetchKey={detailFetchKey}
-      isSelectionPending={isSelectionPending}
       list={
         <RunsListBoundary
           fetchKey={listFetchKey}
@@ -166,6 +162,7 @@ export default function RunsRoute() {
           selectedId={requestedRunId}
         />
       }
+      isSelectionPending={pendingRunId !== null}
       onDetailRetry={retryDetail}
       selectedId={requestedRunId}
     />

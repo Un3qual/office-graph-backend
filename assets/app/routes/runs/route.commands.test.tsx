@@ -22,7 +22,7 @@ describe("all-runs route activity and command boundaries", () => {
         return { data: { operatorRunState: firstState } };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         return support.activityPageResponse({ title: "Later execution observation" });
       }
 
@@ -39,12 +39,12 @@ describe("all-runs route activity and command boundaries", () => {
     expect(within(activity).getByText("Release verification")).toBeInTheDocument();
     expect(within(activity).getAllByText("Later execution observation")).toHaveLength(1);
     expect(
-      network.mock.calls.filter(([request]) => request.name === "RunActivityPageQuery"),
+      network.mock.calls.filter(([request]) => request.name === "RunActivityPaginationQuery"),
     ).toHaveLength(1);
-    expect(support.lastVariablesFor(network, "RunActivityPageQuery")).toEqual({
+    expect(support.lastVariablesFor(network, "RunActivityPaginationQuery")).toEqual({
       id: "run_new",
-      activityFirst: 5,
-      activityAfter: "activity_cursor_2",
+      first: 5,
+      after: "activity_cursor_2",
     });
     expect(support.lastVariablesFor(network, "RunsRouteQuery")).toMatchObject({
       first: 50,
@@ -65,7 +65,7 @@ describe("all-runs route activity and command boundaries", () => {
         return { data: { operatorRunState: support.runState() } };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         continuationAttempts += 1;
 
         if (continuationAttempts === 1) {
@@ -120,7 +120,6 @@ describe("all-runs route activity and command boundaries", () => {
                 id: "packet_second",
                 relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
                 title: "Second packet",
-                state: "active",
               },
               run: {
                 id: "run_second",
@@ -133,6 +132,7 @@ describe("all-runs route activity and command boundaries", () => {
                   {
                     cursor: "second_activity_cursor_1",
                     node: {
+                      __typename: "OperatorRunActivity",
                       kind: "run",
                       stableId: "run_second",
                       title: "Second run started",
@@ -152,7 +152,7 @@ describe("all-runs route activity and command boundaries", () => {
         };
       }
 
-      if (request.name === "RunActivityPageQuery") {
+      if (request.name === "RunActivityPaginationQuery") {
         return support.activityPageResponse({ title: "Later execution observation" });
       }
 
@@ -178,7 +178,6 @@ describe("all-runs route activity and command boundaries", () => {
     ).not.toBeInTheDocument();
     expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
       id: "run_second",
-      activityAfter: null,
     });
     expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
   });
