@@ -61,6 +61,19 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert get_session(conn, :oidc_login_transaction).return_to == "/operator"
   end
 
+  test "login rejects encoded backslashes in return targets" do
+    for return_to <- [
+          "/%5cevil.example",
+          "/%5C%5Cattacker.example",
+          "/%255C%255Cattacker.example",
+          "/\\attacker.example"
+        ] do
+      conn = get(build_conn(), "/auth/login", %{"return_to" => return_to})
+
+      assert get_session(conn, :oidc_login_transaction).return_to == "/operator"
+    end
+  end
+
   test "login fails closed when the provider is unavailable", %{conn: conn} do
     Application.put_env(:office_graph, :human_oidc, issuer: @issuer)
 
@@ -135,6 +148,20 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert {:error, :invalid_session} = Identity.resolve_human_session(issued.session.id)
   end
 
+  test "logout preserves the session cookie when durable revocation is unavailable", %{conn: conn} do
+    issued = issue_session("logout-storage")
+    OfficeGraph.Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> post(~p"/auth/logout")
+
+    assert response(conn, 503) == "Logout unavailable"
+    assert get_session(conn, :human_session_id) == issued.session.id
+    refute conn.private.plug_session_info == :drop
+  end
+
   test "product pages redirect anonymous requests to login", %{conn: conn} do
     conn = get(conn, ~p"/operator")
 
@@ -161,6 +188,53 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
     assert conn.status == 302
     refute get_session(conn, :human_session_id)
+  end
+
+  test "product pages preserve the cookie across transient session storage failures", %{
+    conn: conn
+  } do
+    issued = issue_session("unavailable-product")
+    OfficeGraph.Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> get(~p"/operator")
+
+    assert redirected_to(conn) =~ "/auth/login"
+    assert get_session(conn, :human_session_id) == issued.session.id
+  end
+
+  test "cookie-authenticated APIs reject cross-origin unsafe requests" do
+    issued = issue_session("cross-origin")
+
+    requests = [
+      {"/graphql", %{query: "{ __typename }"}},
+      {"/api/v1/commands/submit-manual-intake", %{}},
+      {"/auth/logout", %{}}
+    ]
+
+    for {path, params} <- requests do
+      conn =
+        build_conn()
+        |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+        |> put_req_header("origin", "https://attacker.example")
+        |> post(path, params)
+
+      assert response(conn, 403) == "Cross-origin request forbidden"
+    end
+  end
+
+  test "cookie-authenticated APIs accept requests from the configured origin" do
+    issued = issue_session("same-origin")
+
+    conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post("/graphql", %{query: "{ __typename }"})
+
+    assert json_response(conn, 200) == %{"data" => %{"__typename" => "RootQueryType"}}
   end
 
   test "anonymous GraphQL requests do not bootstrap a local owner", %{conn: conn} do

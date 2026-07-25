@@ -79,7 +79,21 @@ defmodule OfficeGraph.Identity.HumanSessions do
          :ok <- validate_workspace_scope(session.organization_id, session.workspace_id) do
       {:ok, context(session)}
     else
-      _invalid_or_unavailable -> {:error, :invalid_session}
+      {:error, :identity_storage_unavailable} ->
+        {:error, :identity_storage_unavailable}
+
+      {:error, %Ash.Error.Invalid{}} ->
+        {:error, :invalid_session}
+
+      {:error, storage_error} ->
+        if Ash.Error.ash_error?(storage_error) do
+          {:error, :identity_storage_unavailable}
+        else
+          {:error, :invalid_session}
+        end
+
+      _invalid_or_unavailable ->
+        {:error, :invalid_session}
     end
   end
 
@@ -168,6 +182,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
   defp validate_workspace_scope(organization_id, workspace_id) do
     case Tenancy.validate_workspace_scope(organization_id, workspace_id) do
       :ok -> :ok
+      {:error, :tenancy_storage_unavailable} -> {:error, :identity_storage_unavailable}
       _invalid_or_unavailable -> {:error, :invalid_scope}
     end
   end
@@ -218,7 +233,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
   defp create_session(principal, external_identity_link, organization_id, workspace_id, attrs) do
     now = DateTime.utc_now()
 
-    revoke_active!(principal.id, organization_id, workspace_id, now)
+    revoke_active!(principal.id, organization_id, workspace_id, now, attrs.trace_id)
 
     session =
       Repo.ash_create!(
@@ -254,7 +269,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
     {:ok, %{session: session, session_context: context(session)}}
   end
 
-  defp revoke_active!(principal_id, organization_id, workspace_id, revoked_at) do
+  defp revoke_active!(principal_id, organization_id, workspace_id, revoked_at, trace_id) do
     Session
     |> Ash.Query.filter(
       principal_id == ^principal_id and organization_id == ^organization_id and
@@ -266,6 +281,20 @@ defmodule OfficeGraph.Identity.HumanSessions do
       session
       |> Ash.Changeset.for_update(:revoke, %{revoked_at: revoked_at})
       |> Repo.ash_update!()
+
+      create_event!(%{
+        principal_id: session.principal_id,
+        external_identity_link_id: session.external_identity_link_id,
+        session_id: session.id,
+        organization_id: session.organization_id,
+        workspace_id: session.workspace_id,
+        event: "revocation",
+        result: "succeeded",
+        reason: "session_replaced",
+        authentication_method: session.authentication_method,
+        source_surface: session.source_surface,
+        trace_id: trace_id
+      })
     end)
   end
 

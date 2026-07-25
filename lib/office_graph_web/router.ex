@@ -7,6 +7,7 @@ defmodule OfficeGraphWeb.Router do
 
   pipeline :browser_session do
     plug :fetch_session
+    plug OfficeGraphWeb.SameOriginRequestPlug
   end
 
   pipeline :load_human_session do
@@ -19,12 +20,14 @@ defmodule OfficeGraphWeb.Router do
 
   pipeline :graphql do
     plug :fetch_session
+    plug OfficeGraphWeb.SameOriginRequestPlug
     plug OfficeGraphWeb.SessionAuthenticationPlug
     plug AshGraphql.Plug
   end
 
   pipeline :generated_json_api do
     plug :fetch_session
+    plug OfficeGraphWeb.SameOriginRequestPlug
     plug OfficeGraphWeb.SessionAuthenticationPlug
   end
 

@@ -41,14 +41,24 @@ defmodule OfficeGraphWeb.AuthenticationController do
           {:error, :invalid_session}
       end
 
-    conn = configure_session(conn, drop: true)
-
     case result do
       {:ok, %{provider_logout_uri: uri}} when is_binary(uri) ->
-        redirect(conn, external: uri)
+        conn
+        |> configure_session(drop: true)
+        |> redirect(external: uri)
 
-      _local_or_missing_session ->
-        redirect(conn, to: "/auth/login")
+      {:ok, %{provider_logout_uri: nil}} ->
+        conn
+        |> configure_session(drop: true)
+        |> redirect(to: "/auth/login")
+
+      {:error, :invalid_session} ->
+        conn
+        |> configure_session(drop: true)
+        |> redirect(to: "/auth/login")
+
+      {:error, _revocation_failed} ->
+        send_resp(conn, 503, "Logout unavailable")
     end
   end
 
@@ -70,10 +80,12 @@ defmodule OfficeGraphWeb.AuthenticationController do
   end
 
   defp safe_return_to(return_to) when is_binary(return_to) do
-    uri = URI.parse(return_to)
+    decoded_return_to = fully_decode(return_to)
+    uri = URI.parse(decoded_return_to)
 
-    if uri.scheme == nil and uri.host == nil and String.starts_with?(return_to, "/") and
-         not String.starts_with?(return_to, "//") do
+    if uri.scheme == nil and uri.host == nil and String.starts_with?(decoded_return_to, "/") and
+         not String.starts_with?(decoded_return_to, "//") and
+         not String.contains?(decoded_return_to, ["\\", "\r", "\n", <<0>>]) do
       return_to
     else
       @default_return_to
@@ -81,6 +93,13 @@ defmodule OfficeGraphWeb.AuthenticationController do
   end
 
   defp safe_return_to(_return_to), do: @default_return_to
+
+  defp fully_decode(value) do
+    case URI.decode(value) do
+      ^value -> value
+      decoded -> fully_decode(decoded)
+    end
+  end
 
   defp callback_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/callback"
   defp login_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/login"

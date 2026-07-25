@@ -37,6 +37,9 @@ defmodule OfficeGraphWeb.SessionAuthenticationPlug do
 
       {:error, :invalid_session} ->
         delete_session(conn, :human_session_id)
+
+      {:error, :identity_storage_unavailable} ->
+        conn
     end
   end
 end

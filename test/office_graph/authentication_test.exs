@@ -8,7 +8,7 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Authorization.{Role, RoleAssignment}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
-  alias OfficeGraph.Identity.{AuthenticationEvent, Principal}
+  alias OfficeGraph.Identity.{AuthenticationEvent, ExternalIdentityLink, Principal}
 
   require Ash.Query
 
@@ -215,6 +215,22 @@ defmodule OfficeGraph.AuthenticationTest do
                  trace_id: "no-scope",
                  source_surface: "web"
                )
+
+      event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "no-scope")
+        |> Ash.read_one!(authorize?: false)
+
+      link =
+        ExternalIdentityLink
+        |> Ash.Query.filter(subject == "no-scope-subject")
+        |> Ash.read_one!(authorize?: false)
+
+      assert event.principal_id == principal.id
+      assert event.external_identity_link_id == link.id
+      assert event.session_id == nil
+      assert event.organization_id == nil
+      assert event.workspace_id == nil
     end
 
     test "normalizes provider failure and records a bounded rejected event" do

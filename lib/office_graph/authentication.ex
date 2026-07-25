@@ -48,37 +48,42 @@ defmodule OfficeGraph.Authentication do
     trace_id = Keyword.get(opts, :trace_id)
     source_surface = Keyword.get(opts, :source_surface, "web")
 
-    result =
-      with :ok <- validate_callback(code, callback_state, transaction),
-           {:ok, config} <- configuration(),
-           {:ok, claims} <- exchange(code, transaction, config),
-           {:ok, linked} <-
-             Identity.reconcile_oidc_identity(
-               claims,
-               provider: config.provider,
-               provider_tenant: config.provider_tenant,
-               account_linking_policy: config.account_linking_policy
-             ),
-           {:ok, scope} <-
-             Authorization.resolve_login_scope(
-               linked.principal.id,
-               config.preferred_scope
-             ),
-           {:ok, issued} <-
-             Identity.issue_human_session(
-               linked.principal,
-               linked.external_identity_link,
-               scope,
-               authentication_method: "oidc",
-               source_surface: source_surface,
-               trace_id: trace_id,
-               ttl_seconds: config.session_ttl_seconds
-             ) do
-        {:ok, Map.merge(issued, linked)}
-      end
+    with :ok <- validate_callback(code, callback_state, transaction),
+         {:ok, config} <- configuration(),
+         {:ok, claims} <- exchange(code, transaction, config),
+         {:ok, linked} <-
+           Identity.reconcile_oidc_identity(
+             claims,
+             provider: config.provider,
+             provider_tenant: config.provider_tenant,
+             account_linking_policy: config.account_linking_policy
+           ) do
+      result =
+        with {:ok, scope} <-
+               Authorization.resolve_login_scope(
+                 linked.principal.id,
+                 config.preferred_scope
+               ),
+             {:ok, issued} <-
+               Identity.issue_human_session(
+                 linked.principal,
+                 linked.external_identity_link,
+                 scope,
+                 authentication_method: "oidc",
+                 source_surface: source_surface,
+                 trace_id: trace_id,
+                 ttl_seconds: config.session_ttl_seconds
+               ) do
+          {:ok, Map.merge(issued, linked)}
+        end
 
-    maybe_record_rejection(result, trace_id, source_surface)
-    result
+      maybe_record_rejection(result, trace_id, source_surface, linked)
+      result
+    else
+      {:error, _reason} = error ->
+        maybe_record_rejection(error, trace_id, source_surface, nil)
+        error
+    end
   end
 
   def complete_login(_code, _callback_state, _transaction, _opts),
@@ -166,23 +171,37 @@ defmodule OfficeGraph.Authentication do
 
   defp secure_state_match?(_expected, _actual), do: false
 
-  defp maybe_record_rejection({:ok, _completed}, _trace_id, _source_surface), do: :ok
+  defp maybe_record_rejection({:ok, _completed}, _trace_id, _source_surface, _linked), do: :ok
 
-  defp maybe_record_rejection({:error, reason}, trace_id, source_surface)
+  defp maybe_record_rejection({:error, reason}, trace_id, source_surface, linked)
        when is_binary(trace_id) and trace_id != "" and is_binary(source_surface) do
-    Identity.record_authentication_event(%{
+    attrs = %{
       event: "login",
       result: "rejected",
       reason: bounded_reason(reason),
       authentication_method: "oidc",
       source_surface: source_surface,
       trace_id: trace_id
-    })
+    }
+
+    attrs =
+      case linked do
+        %{principal: principal, external_identity_link: external_identity_link} ->
+          Map.merge(attrs, %{
+            principal_id: principal.id,
+            external_identity_link_id: external_identity_link.id
+          })
+
+        _identity_not_reconciled ->
+          attrs
+      end
+
+    Identity.record_authentication_event(attrs)
 
     :ok
   end
 
-  defp maybe_record_rejection(_result, _trace_id, _source_surface), do: :ok
+  defp maybe_record_rejection(_result, _trace_id, _source_surface, _linked), do: :ok
 
   defp bounded_reason(reason)
        when reason in [

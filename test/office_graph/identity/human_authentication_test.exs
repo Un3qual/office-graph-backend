@@ -305,6 +305,39 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
 
       revoked = Ash.get!(Session, first.session.id, authorize?: false)
       assert revoked.revoked_at
+
+      events =
+        AuthenticationEvent
+        |> Ash.Query.filter(session_id == ^first.session.id)
+        |> Ash.Query.sort(inserted_at: :asc)
+        |> Ash.read!(authorize?: false)
+
+      assert Enum.map(events, &{&1.event, &1.result, &1.reason, &1.trace_id}) == [
+               {"login", "succeeded", nil, "replacement-first"},
+               {"revocation", "succeeded", "session_replaced", "replacement-second"}
+             ]
+    end
+
+    test "reports session storage failures separately from invalid sessions", %{
+      bootstrap: bootstrap,
+      linked: linked
+    } do
+      assert {:ok, issued} = issue_session(linked, bootstrap, "resolve-storage-failure")
+      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+
+      assert {:error, :identity_storage_unavailable} =
+               Identity.resolve_human_session(issued.session.id)
+    end
+
+    test "reports tenant scope storage failures separately from invalid sessions", %{
+      bootstrap: bootstrap,
+      linked: linked
+    } do
+      assert {:ok, issued} = issue_session(linked, bootstrap, "tenant-storage-failure")
+      Repo.query!("ALTER TABLE workspaces RENAME TO unavailable_workspaces")
+
+      assert {:error, :identity_storage_unavailable} =
+               Identity.resolve_human_session(issued.session.id)
     end
 
     test "rejects expired, revoked, disabled-link, and disabled-principal sessions", %{
