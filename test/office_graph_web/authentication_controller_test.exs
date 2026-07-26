@@ -97,6 +97,12 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert get_session(conn, :oidc_login_transaction).return_to == return_to
   end
 
+  test "login preserves a once-decoded local return target containing a literal percent" do
+    conn = get(build_conn(), "/auth/login?return_to=%2Foperator%3Fq%3D100%25free")
+
+    assert get_session(conn, :oidc_login_transaction).return_to == "/operator?q=100%free"
+  end
+
   test "login fails closed when the provider is unavailable", %{conn: conn} do
     Application.put_env(:office_graph, :human_oidc, issuer: @issuer)
 
