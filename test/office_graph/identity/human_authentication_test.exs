@@ -360,7 +360,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
         |> Ash.read!(authorize?: false)
 
       assert Enum.map(events, &{&1.event, &1.result, &1.reason, &1.trace_id}) == [
-               {"login", "succeeded", nil, "replacement-first"},
+               {"login", "succeeded", "login_completed", "replacement-first"},
                {"revocation", "succeeded", "session_replaced", "replacement-second"}
              ]
     end
@@ -481,9 +481,9 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
         |> Ash.Query.sort(inserted_at: :asc)
         |> Ash.read!(authorize?: false)
 
-      assert Enum.map(events, &{&1.event, &1.result, &1.trace_id}) == [
-               {"login", "succeeded", "login-evidence"},
-               {"logout", "succeeded", "logout-evidence"}
+      assert Enum.map(events, &{&1.event, &1.result, &1.reason, &1.trace_id}) == [
+               {"login", "succeeded", "login_completed", "login-evidence"},
+               {"logout", "succeeded", "user_logout", "logout-evidence"}
              ]
 
       for event <- events do
@@ -499,6 +499,17 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
     test "classifies malformed authentication evidence as invalid input" do
       assert {:error, :invalid_authentication_event} =
                Identity.record_authentication_event(%{})
+    end
+
+    test "rejects authentication evidence without a bounded reason" do
+      assert {:error, :invalid_authentication_event} =
+               Identity.record_authentication_event(%{
+                 event: "login",
+                 result: "succeeded",
+                 authentication_method: "oidc",
+                 source_surface: "web",
+                 trace_id: "missing-reason"
+               })
     end
   end
 

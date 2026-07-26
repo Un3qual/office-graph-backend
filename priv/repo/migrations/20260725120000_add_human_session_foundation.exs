@@ -96,7 +96,7 @@ defmodule OfficeGraph.Repo.Migrations.AddHumanSessionFoundation do
       add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :restrict)
       add :event, :text, null: false
       add :result, :text, null: false
-      add :reason, :text
+      add :reason, :text, null: false
       add :authentication_method, :text, null: false
       add :source_surface, :text, null: false
       add :trace_id, :text, null: false

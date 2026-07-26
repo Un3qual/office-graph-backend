@@ -124,6 +124,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
                 workspace_id: session.workspace_id,
                 event: "logout",
                 result: "succeeded",
+                reason: "user_logout",
                 authentication_method: session.authentication_method,
                 source_surface: session.source_surface,
                 trace_id: trace_id
@@ -261,6 +262,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
       workspace_id: workspace_id,
       event: "login",
       result: "succeeded",
+      reason: "login_completed",
       authentication_method: attrs.authentication_method,
       source_surface: attrs.source_surface,
       trace_id: attrs.trace_id

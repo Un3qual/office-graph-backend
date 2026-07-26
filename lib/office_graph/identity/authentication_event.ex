@@ -20,7 +20,7 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
     attribute :workspace_id, :uuid, public?: true
     attribute :event, :string, allow_nil?: false, public?: true
     attribute :result, :string, allow_nil?: false, public?: true
-    attribute :reason, :string, public?: true
+    attribute :reason, :string, allow_nil?: false, public?: true
     attribute :authentication_method, :string, allow_nil?: false, public?: true
     attribute :source_surface, :string, allow_nil?: false, public?: true
     attribute :trace_id, :string, allow_nil?: false, public?: true
