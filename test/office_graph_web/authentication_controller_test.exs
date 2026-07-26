@@ -274,6 +274,28 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert json_response(conn, 200) == %{"data" => %{"__typename" => "RootQueryType"}}
   end
 
+  test "cookie-authenticated GraphQL GET rejects mutations before execution" do
+    issued = issue_session("graphql-get")
+
+    query_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("sec-fetch-site", "cross-site")
+      |> get("/graphql", %{query: "{ __typename }"})
+
+    assert json_response(query_conn, 200) == %{"data" => %{"__typename" => "RootQueryType"}}
+
+    mutation_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("sec-fetch-site", "cross-site")
+      |> get("/graphql", %{query: "mutation { __typename }"})
+
+    assert json_response(mutation_conn, 405) == %{
+             "errors" => [%{"message" => "Can only perform a mutation from a POST request"}]
+           }
+  end
+
   test "anonymous GraphQL requests do not bootstrap a local owner", %{conn: conn} do
     assert Ash.count!(Organization, authorize?: false) == 0
 
