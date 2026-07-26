@@ -48,6 +48,9 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
         :last_authenticated_at,
         :disabled_at
       ]
+
+      validate one_of(:status, ~w(active review_required disabled))
+      validate one_of(:linking_state, ~w(linked review_required))
     end
 
     update :record_authentication do
@@ -56,6 +59,14 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
     update :set_lifecycle do
       accept [:status, :linking_state, :review_reason, :disabled_at, :principal_id]
+
+      validate one_of(:status, ~w(active review_required disabled)),
+        where: [changing(:status)]
+
+      validate one_of(:linking_state, ~w(linked review_required)),
+        where: [changing(:linking_state)]
+
+      require_atomic? false
     end
   end
 

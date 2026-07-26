@@ -289,7 +289,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
              } = link_for_subject("inactive-human-subject")
     end
 
-    test "persists review instead of silently linking a second subject to the same identifier", %{
+    test "isolates a conflicting second subject without disabling the established subject", %{
       bootstrap: bootstrap
     } do
       assert {:ok, linked} =
@@ -311,6 +311,14 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                status: "review_required",
                review_reason: "verified_identifier_conflict"
              } = link_for_subject("conflicting-subject")
+
+      assert {:ok, reauthenticated} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, "first-subject"),
+                 reconciliation_opts()
+               )
+
+      assert reauthenticated.external_identity_link.id == linked.external_identity_link.id
     end
 
     test "rejects disabled links and principals", %{bootstrap: bootstrap} do
@@ -320,12 +328,13 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                  reconciliation_opts()
                )
 
-      linked.external_identity_link
-      |> Ash.Changeset.for_update(:set_lifecycle, %{
-        status: "disabled",
-        disabled_at: DateTime.utc_now()
-      })
-      |> Ash.update!(authorize?: false)
+      disabled_link =
+        linked.external_identity_link
+        |> Ash.Changeset.for_update(:set_lifecycle, %{
+          status: "disabled",
+          disabled_at: DateTime.utc_now()
+        })
+        |> Ash.update!(authorize?: false)
 
       assert {:error, :identity_disabled} =
                Identity.reconcile_oidc_identity(
@@ -333,7 +342,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                  reconciliation_opts()
                )
 
-      linked.external_identity_link
+      disabled_link
       |> Ash.Changeset.for_update(:set_lifecycle, %{status: "active", disabled_at: nil})
       |> Ash.update!(authorize?: false)
 
@@ -403,6 +412,41 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                |> Ash.update(authorize?: false)
 
       assert Ash.get!(Principal, bootstrap.principal.id, authorize?: false).status == "active"
+    end
+  end
+
+  describe "external identity link lifecycle" do
+    test "create rejects unsupported lifecycle values" do
+      for invalid <- [%{status: "compromised"}, %{linking_state: "pending"}] do
+        assert {:error, %Ash.Error.Invalid{}} =
+                 Ash.create(
+                   ExternalIdentityLink,
+                   external_identity_link_attrs(invalid),
+                   action: :create,
+                   authorize?: false
+                 )
+      end
+    end
+
+    test "lifecycle updates reject unsupported values", %{bootstrap: bootstrap} do
+      {:ok, linked} =
+        Identity.reconcile_oidc_identity(
+          claims(bootstrap.principal.email, unique("lifecycle-subject")),
+          reconciliation_opts()
+        )
+
+      for invalid <- [%{status: "compromised"}, %{linking_state: "pending"}] do
+        assert {:error, %Ash.Error.Invalid{}} =
+                 linked.external_identity_link
+                 |> Ash.Changeset.for_update(:set_lifecycle, invalid)
+                 |> Ash.update(authorize?: false)
+      end
+
+      persisted =
+        Ash.get!(ExternalIdentityLink, linked.external_identity_link.id, authorize?: false)
+
+      assert persisted.status == "active"
+      assert persisted.linking_state == "linked"
     end
   end
 
@@ -588,12 +632,13 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
 
       assert {:ok, link_session} = issue_session(linked, bootstrap, "disabled-link-session")
 
-      linked.external_identity_link
-      |> Ash.Changeset.for_update(:set_lifecycle, %{
-        status: "disabled",
-        disabled_at: DateTime.utc_now()
-      })
-      |> Ash.update!(authorize?: false)
+      disabled_link =
+        linked.external_identity_link
+        |> Ash.Changeset.for_update(:set_lifecycle, %{
+          status: "disabled",
+          disabled_at: DateTime.utc_now()
+        })
+        |> Ash.update!(authorize?: false)
 
       assert {:error, :invalid_session} =
                Identity.resolve_human_session(link_session.session.id,
@@ -604,7 +649,7 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert {:error, :identity_disabled} =
                issue_session(linked, bootstrap, "disabled-link-new-session")
 
-      linked.external_identity_link
+      disabled_link
       |> Ash.Changeset.for_update(:set_lifecycle, %{status: "active", disabled_at: nil})
       |> Ash.update!(authorize?: false)
 
@@ -751,6 +796,22 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
     Session
     |> Ash.Changeset.for_create(:create, Map.merge(defaults, Map.new(attrs)))
     |> Ash.create!(authorize?: false)
+  end
+
+  defp external_identity_link_attrs(overrides) do
+    Map.merge(
+      %{
+        id: Ecto.UUID.generate(),
+        provider: @provider,
+        provider_tenant: @provider_tenant,
+        subject: unique("lifecycle-create-subject"),
+        verified_email: "#{unique("lifecycle-create")}@example.test",
+        status: "review_required",
+        linking_state: "review_required",
+        review_reason: "unlinked_verified_identifier"
+      },
+      overrides
+    )
   end
 
   defp link_for_subject(subject) do

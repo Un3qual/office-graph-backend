@@ -136,7 +136,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
     assert redirected_to(conn) == "/operator"
     assert %{"human_session_id" => session_id} = get_session(conn)
-    assert Map.keys(get_session(conn)) == ["human_session_id"]
+    assert get_session(conn) == %{"human_session_id" => session_id}
     assert {:ok, session_context} = Identity.resolve_human_session(session_id)
     assert session_context.principal_id == bootstrap.principal.id
 

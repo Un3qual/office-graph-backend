@@ -46,9 +46,12 @@ browser request, callback, and token validation before reconciling an identity.
 
 - **WHEN** an unauthenticated human begins Authentik OIDC login
 - **THEN** Office Graph MUST generate cryptographically random state, nonce,
-  and PKCE verifier values, MUST store the short-lived transaction in the
-  signed browser session, and MUST send the corresponding values to the
-  provider authorization endpoint
+  and PKCE verifier values, MUST store the transaction in the signed browser
+  session for no more than ten minutes and one callback attempt, and MUST send
+  the corresponding values to the provider authorization endpoint
+- **AND** the callback handler MUST atomically consume the transaction before
+  token exchange and MUST leave it absent after both successful and failed
+  exchanges
 
 #### Scenario: OIDC callback is accepted
 

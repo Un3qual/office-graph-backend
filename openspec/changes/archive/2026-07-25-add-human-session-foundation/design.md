@@ -91,8 +91,10 @@ workspace selector is deferred.
 
 Human sessions use purpose `human_web` and record authentication method,
 external identity link, issue/expiry, source surface, and trace identifier.
-Login revokes the existing active session for the same principal and scope
-before creating its replacement.
+Login serializes same-principal, same-scope issuance on a transaction-scoped
+advisory lock, revokes the existing active session, and creates its replacement
+in that transaction. A failed issuance rolls back both operations; retry starts
+a fresh login because the callback transaction is single-use.
 
 The signed, HTTP-only, SameSite=Lax cookie stores only the session UUID and is
 secure in production. It contains no capabilities, provider claims, tokens, or
@@ -158,9 +160,10 @@ when provider logout is unavailable.
 7. Verify strict OpenSpec, migrations, focused tests, dependency audit, and the
    full repository gate before archiving the change.
 
-Rollback before release removes the new routes/resources/migration and restores
-the previous code, but it must not restore automatic owner bootstrap in any
-deployed environment. Provider tokens are never persisted, so rollback has no
+Rollback before release removes the OIDC routes/resources/migration while
+retaining the session-required request boundary, or an equivalent fail-closed
+feature gate, in every deployed environment. It must not restore request-time
+owner bootstrap. Provider tokens are never persisted, so rollback has no
 token-secret migration.
 
 ## Open Questions

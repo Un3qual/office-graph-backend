@@ -211,6 +211,12 @@ defmodule OfficeGraph.Identity.HumanSessions do
       |> Ash.read_one(authorize?: false)
 
     case {principal, link} do
+      {{:error, error}, _link} ->
+        raise error
+
+      {_principal, {:error, error}} ->
+        raise error
+
       {{:ok, %Principal{kind: "human", status: "active"}},
        {:ok,
         %ExternalIdentityLink{
@@ -228,12 +234,6 @@ defmodule OfficeGraph.Identity.HumanSessions do
 
       {{:ok, nil}, _link} ->
         {:error, :principal_disabled}
-
-      {{:error, error}, _link} ->
-        raise error
-
-      {_principal, {:error, error}} ->
-        raise error
 
       {_active_principal, {:ok, _inactive_or_missing_link}} ->
         {:error, :identity_disabled}

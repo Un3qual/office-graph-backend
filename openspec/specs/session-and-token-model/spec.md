@@ -84,6 +84,11 @@ and selected scope.
   workspace
 - **THEN** Office Graph MUST revoke the previous active `human_web` session
   before issuing its replacement and the previous session MUST remain unusable
+- **AND** same-scope issuance MUST serialize on a stable transaction-scoped
+  lock so concurrent logins commit with at most one active session
+- **AND** a failed issuance transaction MUST roll back both revocation and
+  replacement; retry MUST begin a fresh login rather than replaying a consumed
+  callback transaction
 
 #### Scenario: Human logs out
 
