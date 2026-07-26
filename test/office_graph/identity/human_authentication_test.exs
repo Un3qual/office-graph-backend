@@ -148,6 +148,27 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert link_for_subject("unknown-subject").id == first_link.id
     end
 
+    test "persists review for an inactive human matched by an unknown subject", %{
+      bootstrap: bootstrap
+    } do
+      bootstrap.principal
+      |> Ash.Changeset.for_update(:set_status, %{status: "inactive"})
+      |> Ash.update!(authorize?: false)
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, "inactive-human-subject"),
+                 reconciliation_opts()
+               )
+
+      assert %ExternalIdentityLink{
+               principal_id: nil,
+               status: "review_required",
+               linking_state: "review_required",
+               review_reason: "ineligible_principal"
+             } = link_for_subject("inactive-human-subject")
+    end
+
     test "persists review instead of silently linking a second subject to the same identifier", %{
       bootstrap: bootstrap
     } do

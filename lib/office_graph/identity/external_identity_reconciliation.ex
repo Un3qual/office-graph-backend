@@ -165,9 +165,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
 
         {:ok, %{principal: principal, external_identity_link: link}}
 
-      [%Principal{kind: "human"}] ->
-        {:error, :principal_disabled}
-
       [%Principal{}] ->
         persist_review_link(identity, config, "ineligible_principal")
 
