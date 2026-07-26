@@ -74,6 +74,20 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     end
   end
 
+  test "login rejects decoded URL control characters in return targets" do
+    for return_to <- [
+          "/%09/attacker.example",
+          "/%2509/attacker.example",
+          "/%0B/attacker.example",
+          "/%1F/attacker.example",
+          "/%7F/attacker.example"
+        ] do
+      conn = get(build_conn(), "/auth/login", %{"return_to" => return_to})
+
+      assert get_session(conn, :oidc_login_transaction).return_to == "/operator"
+    end
+  end
+
   test "login fails closed when the provider is unavailable", %{conn: conn} do
     Application.put_env(:office_graph, :human_oidc, issuer: @issuer)
 

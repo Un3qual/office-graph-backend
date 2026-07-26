@@ -85,7 +85,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
 
     if uri.scheme == nil and uri.host == nil and String.starts_with?(decoded_return_to, "/") and
          not String.starts_with?(decoded_return_to, "//") and
-         not String.contains?(decoded_return_to, ["\\", "\r", "\n", <<0>>]) do
+         not Regex.match?(~r/[\\\x00-\x1F\x7F]/u, decoded_return_to) do
       return_to
     else
       @default_return_to
