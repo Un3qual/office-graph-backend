@@ -84,63 +84,52 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   end
 
-  defp reconcile_existing_identity(
-         %ExternalIdentityLink{
-           status: "review_required"
-         } = link,
-         _identity,
-         _config
-       ),
-       do: rejected_with_evidence(:identity_review_required, link)
+  defp reconcile_existing_identity(link, identity, config) do
+    case link do
+      %ExternalIdentityLink{status: "review_required"} ->
+        rejected_with_evidence(:identity_review_required, link)
 
-  defp reconcile_existing_identity(
-         %ExternalIdentityLink{status: "disabled"} = link,
-         _identity,
-         _config
-       ),
-       do: rejected_with_evidence(:identity_disabled, link)
+      %ExternalIdentityLink{status: "disabled"} ->
+        rejected_with_evidence(:identity_disabled, link)
 
-  defp reconcile_existing_identity(
-         %ExternalIdentityLink{
-           status: "active",
-           linking_state: "linked",
-           principal_id: principal_id
-         } = link,
-         identity,
-         config
-       ) do
-    case Ash.get(Principal, principal_id,
-           authorize?: false,
-           not_found_error?: false
-         ) do
-      {:ok, %Principal{kind: "human", status: "active"} = principal} ->
-        if verified_identifier_compatible?(link, identity, config) do
-          authenticated_link =
-            link
-            |> Ash.Changeset.for_update(:record_authentication, %{
-              last_authenticated_at: DateTime.utc_now()
-            })
-            |> Repo.ash_update!()
+      %ExternalIdentityLink{
+        status: "active",
+        linking_state: "linked",
+        principal_id: principal_id
+      } ->
+        case Ash.get(Principal, principal_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, %Principal{kind: "human", status: "active"} = principal} ->
+            if verified_identifier_compatible?(link, identity, config) do
+              authenticated_link =
+                link
+                |> Ash.Changeset.for_update(:record_authentication, %{
+                  last_authenticated_at: DateTime.utc_now()
+                })
+                |> Repo.ash_update!()
 
-          {:ok, %{principal: principal, external_identity_link: authenticated_link}}
-        else
-          reviewed_link =
-            link
-            |> Ash.Changeset.for_update(:set_lifecycle, %{
-              status: "review_required",
-              linking_state: "review_required",
-              review_reason: "verified_identifier_conflict"
-            })
-            |> Repo.ash_update!()
+              {:ok, %{principal: principal, external_identity_link: authenticated_link}}
+            else
+              reviewed_link =
+                link
+                |> Ash.Changeset.for_update(:set_lifecycle, %{
+                  status: "review_required",
+                  linking_state: "review_required",
+                  review_reason: "verified_identifier_conflict"
+                })
+                |> Repo.ash_update!()
 
-          rejected_with_evidence(:identity_review_required, reviewed_link)
+              rejected_with_evidence(:identity_review_required, reviewed_link)
+            end
+
+          {:ok, _ineligible_or_inactive} ->
+            rejected_with_evidence(:principal_disabled, link)
+
+          {:error, error} ->
+            raise error
         end
-
-      {:ok, _ineligible_or_inactive} ->
-        rejected_with_evidence(:principal_disabled, link)
-
-      {:error, error} ->
-        raise error
     end
   end
 
