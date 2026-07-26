@@ -92,6 +92,9 @@ defmodule OfficeGraph.Identity do
 
       {:error, :invalid_session} ->
         {:error, :forbidden}
+
+      {:error, :identity_storage_unavailable} = error ->
+        error
     end
   end
 
@@ -179,6 +182,10 @@ defmodule OfficeGraph.Identity do
   defdelegate reconcile_oidc_identity(claims, opts),
     to: ExternalIdentityReconciliation,
     as: :reconcile
+
+  defdelegate reconcile_oidc_identity_with_evidence(claims, opts),
+    to: ExternalIdentityReconciliation,
+    as: :reconcile_with_evidence
 
   defdelegate issue_human_session(principal, link, scope, opts),
     to: HumanSessions,

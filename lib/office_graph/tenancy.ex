@@ -16,6 +16,7 @@ defmodule OfficeGraph.Tenancy do
            ) do
         {:ok, %Workspace{organization_id: ^organization_id}} -> :ok
         {:ok, _missing_or_mismatched} -> {:error, :invalid_scope}
+        {:error, %Ash.Error.Invalid{}} -> {:error, :invalid_scope}
         {:error, _storage_error} -> {:error, :tenancy_storage_unavailable}
       end
     else

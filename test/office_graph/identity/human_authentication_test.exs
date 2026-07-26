@@ -239,6 +239,32 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
     end
   end
 
+  describe "principal lifecycle" do
+    test "create rejects an unsupported lifecycle state" do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.create(
+                 Principal,
+                 %{
+                   id: Ecto.UUID.generate(),
+                   email: "#{unique("invalid-principal-create")}@example.test",
+                   kind: "human",
+                   status: "compromised"
+                 },
+                 action: :create,
+                 authorize?: false
+               )
+    end
+
+    test "status updates reject an unsupported lifecycle state", %{bootstrap: bootstrap} do
+      assert {:error, %Ash.Error.Invalid{}} =
+               bootstrap.principal
+               |> Ash.Changeset.for_update(:set_status, %{status: "compromised"})
+               |> Ash.update(authorize?: false)
+
+      assert Ash.get!(Principal, bootstrap.principal.id, authorize?: false).status == "active"
+    end
+  end
+
   describe "human session lifecycle" do
     setup %{bootstrap: bootstrap} do
       {:ok, linked} =
@@ -329,6 +355,17 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                Identity.resolve_human_session(issued.session.id)
     end
 
+    test "propagates session storage failures while revalidating a governed context", %{
+      bootstrap: bootstrap,
+      linked: linked
+    } do
+      assert {:ok, issued} = issue_session(linked, bootstrap, "validate-storage-failure")
+      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+
+      assert {:error, :identity_storage_unavailable} =
+               Identity.validate_session_context(issued.session_context)
+    end
+
     test "reports tenant scope storage failures separately from invalid sessions", %{
       bootstrap: bootstrap,
       linked: linked
@@ -338,6 +375,24 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
 
       assert {:error, :identity_storage_unavailable} =
                Identity.resolve_human_session(issued.session.id)
+    end
+
+    test "classifies malformed workspace identifiers as an invalid scope", %{
+      bootstrap: bootstrap,
+      linked: linked
+    } do
+      assert {:error, :invalid_scope} =
+               Identity.issue_human_session(
+                 linked.principal,
+                 linked.external_identity_link,
+                 %{
+                   organization_id: bootstrap.organization.id,
+                   workspace_id: "not-a-uuid"
+                 },
+                 authentication_method: "oidc",
+                 source_surface: "web",
+                 trace_id: "malformed-workspace"
+               )
     end
 
     test "rejects expired, revoked, disabled-link, and disabled-principal sessions", %{

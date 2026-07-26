@@ -32,7 +32,7 @@ defmodule OfficeGraphWeb.SameOriginRequestPlug do
   end
 
   defp fetch_site_allows_request?(conn) do
-    get_req_header(conn, "sec-fetch-site") in [[], ["same-origin"], ["none"]]
+    get_req_header(conn, "sec-fetch-site") in [["same-origin"], ["none"]]
   end
 
   defp origin_tuple(origin) do

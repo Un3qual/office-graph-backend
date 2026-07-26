@@ -233,6 +233,33 @@ defmodule OfficeGraph.AuthenticationTest do
       assert event.workspace_id == nil
     end
 
+    test "records the durable review link on a rejected login" do
+      subject = "review-required-subject"
+
+      TestAdapter.put(%{
+        exchange: {:ok, claims("#{unique("review-required")}@example.test", subject)}
+      })
+
+      assert {:error, :identity_review_required} =
+               Authentication.complete_login("authorization-code", "state", login_transaction(),
+                 trace_id: "review-required",
+                 source_surface: "web"
+               )
+
+      link =
+        ExternalIdentityLink
+        |> Ash.Query.filter(subject == ^subject)
+        |> Ash.read_one!(authorize?: false)
+
+      event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "review-required")
+        |> Ash.read_one!(authorize?: false)
+
+      assert event.external_identity_link_id == link.id
+      assert event.principal_id == nil
+    end
+
     test "normalizes provider failure and records a bounded rejected event" do
       TestAdapter.put(%{exchange: {:error, {:http_error, "secret provider response"}}})
 

@@ -13,7 +13,14 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     Postgrex.Error
   ]
 
-  def reconcile(claims, opts) when is_map(claims) and is_list(opts) do
+  def reconcile(claims, opts) do
+    case reconcile_with_evidence(claims, opts) do
+      {:error, reason, _evidence} -> {:error, reason}
+      result -> result
+    end
+  end
+
+  def reconcile_with_evidence(claims, opts) when is_map(claims) and is_list(opts) do
     with {:ok, identity} <- normalized_oidc_identity(claims),
          {:ok, config} <- reconciliation_config(opts) do
       with_storage_boundary(fn ->
@@ -25,7 +32,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   end
 
-  def reconcile(_claims, _opts), do: {:error, :invalid_identity_claims}
+  def reconcile_with_evidence(_claims, _opts), do: {:error, :invalid_identity_claims}
 
   defp normalized_oidc_identity(%{
          "sub" => subject,
@@ -77,13 +84,15 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   end
 
-  defp reconcile_existing_identity(%ExternalIdentityLink{
-         status: "review_required"
-       }),
-       do: {:error, :identity_review_required}
+  defp reconcile_existing_identity(
+         %ExternalIdentityLink{
+           status: "review_required"
+         } = link
+       ),
+       do: rejected_with_evidence(:identity_review_required, link)
 
-  defp reconcile_existing_identity(%ExternalIdentityLink{status: "disabled"}),
-    do: {:error, :identity_disabled}
+  defp reconcile_existing_identity(%ExternalIdentityLink{status: "disabled"} = link),
+    do: rejected_with_evidence(:identity_disabled, link)
 
   defp reconcile_existing_identity(
          %ExternalIdentityLink{
@@ -107,7 +116,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
         {:ok, %{principal: principal, external_identity_link: authenticated_link}}
 
       {:ok, _ineligible_or_inactive} ->
-        {:error, :principal_disabled}
+        rejected_with_evidence(:principal_disabled, link)
 
       {:error, error} ->
         raise error
@@ -168,21 +177,22 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   end
 
   defp persist_review_link(identity, config, reason) do
-    Repo.ash_create!(
-      ExternalIdentityLink,
-      %{
-        id: Ecto.UUID.generate(),
-        provider: config.provider,
-        provider_tenant: config.provider_tenant,
-        subject: identity.subject,
-        verified_email: identity.verified_email,
-        status: "review_required",
-        linking_state: "review_required",
-        review_reason: reason
-      }
-    )
+    link =
+      Repo.ash_create!(
+        ExternalIdentityLink,
+        %{
+          id: Ecto.UUID.generate(),
+          provider: config.provider,
+          provider_tenant: config.provider_tenant,
+          subject: identity.subject,
+          verified_email: identity.verified_email,
+          status: "review_required",
+          linking_state: "review_required",
+          review_reason: reason
+        }
+      )
 
-    {:error, :identity_review_required}
+    rejected_with_evidence(:identity_review_required, link)
   end
 
   defp external_identity_link(config, subject) do
@@ -228,6 +238,10 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   rescue
     _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
+  end
+
+  defp rejected_with_evidence(reason, link) do
+    {:error, reason, %{external_identity_link: link}}
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

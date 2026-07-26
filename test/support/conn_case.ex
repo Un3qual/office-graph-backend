@@ -44,9 +44,11 @@ defmodule OfficeGraphWeb.ConnCase do
 
       {:ok,
        conn:
-         Plug.Test.init_test_session(conn, %{
+         conn
+         |> Plug.Test.init_test_session(%{
            human_session_id: fixture.human_session.session.id
-         }),
+         })
+         |> Plug.Conn.put_req_header("origin", OfficeGraphWeb.Endpoint.url()),
        human_session: fixture.human_session.session_context}
     end
   end
@@ -63,5 +65,6 @@ defmodule OfficeGraphWeb.ConnCase do
     conn
     |> Phoenix.ConnTest.recycle()
     |> Plug.Test.init_test_session(%{human_session_id: session_id})
+    |> Plug.Conn.put_req_header("origin", OfficeGraphWeb.Endpoint.url())
   end
 end

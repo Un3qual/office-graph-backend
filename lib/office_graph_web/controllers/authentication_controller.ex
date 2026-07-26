@@ -72,7 +72,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
         |> configure_session(renew: true)
         |> clear_session()
         |> put_session(:human_session_id, completed.session.id)
-        |> redirect(to: safe_return_to(transaction.return_to))
+        |> redirect(to: safe_return_to(Map.get(transaction, :return_to)))
 
       {:error, _reason} ->
         send_resp(conn, 401, "Authentication failed")

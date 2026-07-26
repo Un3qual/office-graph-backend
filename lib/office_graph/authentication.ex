@@ -52,7 +52,7 @@ defmodule OfficeGraph.Authentication do
          {:ok, config} <- configuration(),
          {:ok, claims} <- exchange(code, transaction, config),
          {:ok, linked} <-
-           Identity.reconcile_oidc_identity(
+           Identity.reconcile_oidc_identity_with_evidence(
              claims,
              provider: config.provider,
              provider_tenant: config.provider_tenant,
@@ -80,6 +80,10 @@ defmodule OfficeGraph.Authentication do
       maybe_record_rejection(result, trace_id, source_surface, linked)
       result
     else
+      {:error, reason, evidence} ->
+        maybe_record_rejection({:error, reason}, trace_id, source_surface, evidence)
+        {:error, reason}
+
       {:error, _reason} = error ->
         maybe_record_rejection(error, trace_id, source_surface, nil)
         error
@@ -191,6 +195,16 @@ defmodule OfficeGraph.Authentication do
             principal_id: principal.id,
             external_identity_link_id: external_identity_link.id
           })
+
+        %{external_identity_link: %{principal_id: principal_id} = external_identity_link}
+        when is_binary(principal_id) ->
+          Map.merge(attrs, %{
+            principal_id: principal_id,
+            external_identity_link_id: external_identity_link.id
+          })
+
+        %{external_identity_link: external_identity_link} ->
+          Map.put(attrs, :external_identity_link_id, external_identity_link.id)
 
         _identity_not_reconciled ->
           attrs

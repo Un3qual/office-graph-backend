@@ -122,6 +122,24 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert set_cookie =~ "SameSite=Lax"
   end
 
+  test "callback defaults a validated legacy transaction without a return target", %{conn: conn} do
+    bootstrap = bootstrap("callback-default-return")
+
+    TestAdapter.put(%{
+      exchange: {:ok, claims(bootstrap.principal.email, "callback-default-return-subject")}
+    })
+
+    transaction = Map.delete(login_transaction(), :return_to)
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get(~p"/auth/callback?code=authorization-code&state=state")
+
+    assert redirected_to(conn) == "/operator"
+    assert is_binary(get_session(conn, :human_session_id))
+  end
+
   test "callback provider failure leaves no authenticated session", %{conn: conn} do
     TestAdapter.put(%{exchange: {:error, :provider_down}})
 
@@ -141,6 +159,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn =
       conn
       |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
       |> post(~p"/auth/logout")
 
     assert redirected_to(conn) == "/auth/login"
@@ -155,6 +174,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn =
       conn
       |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
       |> post(~p"/auth/logout")
 
     assert response(conn, 503) == "Logout unavailable"
@@ -166,6 +186,12 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn = get(conn, ~p"/operator")
 
     assert conn.status == 302
+
+    assert get_resp_header(conn, "content-security-policy") == [
+             "base-uri 'self'; frame-ancestors 'self';"
+           ]
+
+    assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
 
     location =
       conn
@@ -223,6 +249,17 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
       assert response(conn, 403) == "Cross-origin request forbidden"
     end
+  end
+
+  test "cookie-authenticated unsafe requests require same-origin evidence" do
+    issued = issue_session("missing-origin-evidence")
+
+    conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> post("/graphql", %{query: "{ __typename }"})
+
+    assert response(conn, 403) == "Cross-origin request forbidden"
   end
 
   test "cookie-authenticated APIs accept requests from the configured origin" do
