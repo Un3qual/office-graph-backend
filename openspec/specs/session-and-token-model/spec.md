@@ -90,6 +90,8 @@ and selected scope.
 - **WHEN** an authenticated human logs out
 - **THEN** Office Graph MUST revoke the durable session, clear the browser
   cookie, and make local logout succeed even if provider logout is unavailable
+- **AND** the logout completion target MUST remain passive until the human
+  explicitly starts another sign-in
 
 ### Requirement: Human Authentication Lifecycle Evidence
 
@@ -108,3 +110,12 @@ provider secrets or raw claims.
 - **WHEN** Office Graph records an authentication event
 - **THEN** it MUST NOT persist authorization codes, access tokens, refresh
   tokens, ID tokens, cookie values, or unfiltered provider claims
+
+#### Scenario: A known invalid human session is reused
+
+- **WHEN** a request presents a known human session that is expired, revoked,
+  disabled by principal or external-link lifecycle, or no longer valid for its
+  stored scope
+- **THEN** Office Graph MUST fail closed and preserve the available session,
+  identity, scope, current source surface, current trace identifier, rejected
+  result, and bounded failure reason

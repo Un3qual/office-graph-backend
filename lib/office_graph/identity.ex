@@ -192,6 +192,7 @@ defmodule OfficeGraph.Identity do
     as: :issue
 
   defdelegate resolve_human_session(session_id), to: HumanSessions, as: :resolve
+  defdelegate resolve_human_session(session_id, opts), to: HumanSessions, as: :resolve
   defdelegate revoke_human_session(session_id, opts), to: HumanSessions, as: :revoke
   defdelegate record_authentication_event(attrs), to: HumanSessions, as: :record_event
 

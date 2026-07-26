@@ -29,7 +29,10 @@ defmodule OfficeGraphWeb.SessionAuthenticationPlug do
   end
 
   defp load_session(conn, session_id) do
-    case Authentication.resolve_session(session_id) do
+    case Authentication.resolve_session(session_id,
+           trace_id: trace_id(conn),
+           source_surface: "web"
+         ) do
       {:ok, session_context} ->
         conn
         |> assign(:human_session, session_context)
@@ -40,6 +43,13 @@ defmodule OfficeGraphWeb.SessionAuthenticationPlug do
 
       {:error, :identity_storage_unavailable} ->
         conn
+    end
+  end
+
+  defp trace_id(conn) do
+    case get_resp_header(conn, "x-request-id") do
+      [request_id | _rest] -> request_id
+      [] -> Ecto.UUID.generate()
     end
   end
 end

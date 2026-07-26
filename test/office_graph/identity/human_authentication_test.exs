@@ -549,11 +549,20 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
           trace_id: "expired-session"
         )
 
-      assert {:error, :invalid_session} = Identity.resolve_human_session(expired.id)
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(expired.id,
+                 trace_id: "expired-session-reuse",
+                 source_surface: "web"
+               )
 
       assert {:ok, revocable} = issue_session(linked, bootstrap, "revoked-session")
       assert :ok = Identity.revoke_human_session(revocable.session.id, trace_id: "logout")
-      assert {:error, :invalid_session} = Identity.resolve_human_session(revocable.session.id)
+
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(revocable.session.id,
+                 trace_id: "revoked-session-reuse",
+                 source_surface: "web"
+               )
 
       assert {:ok, link_session} = issue_session(linked, bootstrap, "disabled-link-session")
 
@@ -565,7 +574,10 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       |> Ash.update!(authorize?: false)
 
       assert {:error, :invalid_session} =
-               Identity.resolve_human_session(link_session.session.id)
+               Identity.resolve_human_session(link_session.session.id,
+                 trace_id: "disabled-link-session-reuse",
+                 source_surface: "web"
+               )
 
       assert {:error, :identity_disabled} =
                issue_session(linked, bootstrap, "disabled-link-new-session")
@@ -582,10 +594,44 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       |> Ash.update!(authorize?: false)
 
       assert {:error, :invalid_session} =
-               Identity.resolve_human_session(principal_session.session.id)
+               Identity.resolve_human_session(principal_session.session.id,
+                 trace_id: "disabled-principal-session-reuse",
+                 source_surface: "web"
+               )
 
       assert {:error, :principal_disabled} =
                issue_session(linked, bootstrap, "disabled-principal-new-session")
+
+      rejected_events =
+        AuthenticationEvent
+        |> Ash.Query.filter(event == "session_validation" and result == "rejected")
+        |> Ash.read!(authorize?: false)
+        |> Map.new(&{&1.session_id, &1})
+
+      principal_id = linked.principal.id
+      external_identity_link_id = linked.external_identity_link.id
+
+      assert %{
+               reason: "session_expired",
+               trace_id: "expired-session-reuse",
+               principal_id: ^principal_id,
+               external_identity_link_id: ^external_identity_link_id
+             } = rejected_events[expired.id]
+
+      assert %{
+               reason: "session_revoked",
+               trace_id: "revoked-session-reuse"
+             } = rejected_events[revocable.session.id]
+
+      assert %{
+               reason: "identity_disabled",
+               trace_id: "disabled-link-session-reuse"
+             } = rejected_events[link_session.session.id]
+
+      assert %{
+               reason: "principal_disabled",
+               trace_id: "disabled-principal-session-reuse"
+             } = rejected_events[principal_session.session.id]
     end
 
     test "records bounded login and logout evidence without provider secrets", %{

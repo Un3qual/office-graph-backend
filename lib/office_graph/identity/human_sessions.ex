@@ -56,29 +56,38 @@ defmodule OfficeGraph.Identity.HumanSessions do
 
   def issue(_principal, _link, _scope, _opts), do: {:error, :invalid_identity}
 
-  def resolve(session_id) when is_binary(session_id) do
+  def resolve(session_id), do: resolve(session_id, [])
+
+  def resolve(session_id, opts) when is_binary(session_id) and is_list(opts) do
     with {:ok, %Session{} = session} <-
            Ash.get(Session, session_id, authorize?: false, not_found_error?: false),
-         true <- valid_record?(session),
-         {:ok, %Principal{kind: "human", status: "active"}} <-
-           Ash.get(Principal, session.principal_id,
-             authorize?: false,
-             not_found_error?: false
+         :ok <- validate_session_record(session),
+         :ok <-
+           validate_principal(
+             Ash.get(Principal, session.principal_id,
+               authorize?: false,
+               not_found_error?: false
+             ),
+             session
            ),
-         {:ok,
-          %ExternalIdentityLink{
-            principal_id: principal_id,
-            status: "active",
-            linking_state: "linked"
-          }} <-
-           Ash.get(ExternalIdentityLink, session.external_identity_link_id,
-             authorize?: false,
-             not_found_error?: false
+         :ok <-
+           validate_external_identity_link(
+             Ash.get(ExternalIdentityLink, session.external_identity_link_id,
+               authorize?: false,
+               not_found_error?: false
+             ),
+             session
            ),
-         true <- principal_id == session.principal_id,
-         :ok <- validate_workspace_scope(session.organization_id, session.workspace_id) do
+         :ok <-
+           validate_resolved_scope(
+             validate_workspace_scope(session.organization_id, session.workspace_id),
+             session
+           ) do
       {:ok, context(session)}
     else
+      {:reject, session, reason} ->
+        reject_session(session, reason, opts)
+
       {:error, :identity_storage_unavailable} ->
         {:error, :identity_storage_unavailable}
 
@@ -97,7 +106,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
     end
   end
 
-  def resolve(_session_id), do: {:error, :invalid_session}
+  def resolve(_session_id, _opts), do: {:error, :invalid_session}
 
   def revoke(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
@@ -300,23 +309,97 @@ defmodule OfficeGraph.Identity.HumanSessions do
     end)
   end
 
-  defp valid_record?(%Session{
-         purpose: @purpose,
-         external_identity_link_id: external_identity_link_id,
-         authentication_method: authentication_method,
-         issued_at: %DateTime{} = issued_at,
-         expires_at: %DateTime{} = expires_at,
-         source_surface: source_surface,
-         trace_id: trace_id,
-         revoked_at: nil
-       }) do
-    present?(external_identity_link_id) and present?(authentication_method) and
-      present?(source_surface) and present?(trace_id) and
-      DateTime.compare(expires_at, issued_at) == :gt and
-      DateTime.compare(expires_at, DateTime.utc_now()) == :gt
+  defp validate_session_record(%Session{purpose: @purpose, revoked_at: %DateTime{}} = session),
+    do: {:reject, session, "session_revoked"}
+
+  defp validate_session_record(
+         %Session{
+           purpose: @purpose,
+           external_identity_link_id: external_identity_link_id,
+           authentication_method: authentication_method,
+           issued_at: %DateTime{} = issued_at,
+           expires_at: %DateTime{} = expires_at,
+           source_surface: source_surface,
+           trace_id: trace_id,
+           revoked_at: nil
+         } = session
+       ) do
+    cond do
+      not present?(external_identity_link_id) or not present?(authentication_method) or
+        not present?(source_surface) or not present?(trace_id) or
+          DateTime.compare(expires_at, issued_at) != :gt ->
+        {:reject, session, "invalid_session"}
+
+      DateTime.compare(expires_at, DateTime.utc_now()) != :gt ->
+        {:reject, session, "session_expired"}
+
+      true ->
+        :ok
+    end
   end
 
-  defp valid_record?(_session), do: false
+  defp validate_session_record(%Session{purpose: @purpose} = session),
+    do: {:reject, session, "invalid_session"}
+
+  defp validate_session_record(_session), do: {:error, :invalid_session}
+
+  defp validate_principal({:ok, %Principal{kind: "human", status: "active"}}, _session), do: :ok
+
+  defp validate_principal({:ok, _inactive_or_missing}, session),
+    do: {:reject, session, "principal_disabled"}
+
+  defp validate_principal({:error, error}, _session), do: {:error, error}
+
+  defp validate_external_identity_link(
+         {:ok,
+          %ExternalIdentityLink{
+            principal_id: principal_id,
+            status: "active",
+            linking_state: "linked"
+          }},
+         %Session{principal_id: principal_id}
+       ),
+       do: :ok
+
+  defp validate_external_identity_link({:ok, _inactive_or_missing}, %Session{} = session),
+    do: {:reject, session, "identity_disabled"}
+
+  defp validate_external_identity_link({:error, error}, _session), do: {:error, error}
+
+  defp validate_resolved_scope(:ok, _session), do: :ok
+
+  defp validate_resolved_scope({:error, :identity_storage_unavailable} = error, _session),
+    do: error
+
+  defp validate_resolved_scope({:error, _invalid_scope}, session),
+    do: {:reject, session, "invalid_scope"}
+
+  defp reject_session(session, reason, opts) do
+    trace_id = Keyword.get(opts, :trace_id)
+    source_surface = Keyword.get(opts, :source_surface)
+
+    if present?(trace_id) and present?(source_surface) do
+      case record_event(%{
+             principal_id: session.principal_id,
+             external_identity_link_id: session.external_identity_link_id,
+             session_id: session.id,
+             organization_id: session.organization_id,
+             workspace_id: session.workspace_id,
+             event: "session_validation",
+             result: "rejected",
+             reason: reason,
+             authentication_method: session.authentication_method,
+             source_surface: source_surface,
+             trace_id: trace_id
+           }) do
+        {:ok, _event} -> {:error, :invalid_session}
+        {:error, :identity_storage_unavailable} = error -> error
+        {:error, :invalid_authentication_event} -> {:error, :invalid_session}
+      end
+    else
+      {:error, :invalid_session}
+    end
+  end
 
   defp context(session) do
     %SessionContext{

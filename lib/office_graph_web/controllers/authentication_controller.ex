@@ -4,6 +4,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
   alias OfficeGraph.Authentication
 
   @default_return_to "/operator"
+  @logged_out_path "/auth/logged-out"
 
   def login(conn, params) do
     return_to = safe_return_to(params["return_to"])
@@ -34,7 +35,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
         session_id when is_binary(session_id) ->
           Authentication.logout(session_id,
             trace_id: trace_id(conn),
-            post_logout_redirect_uri: login_uri()
+            post_logout_redirect_uri: logged_out_uri()
           )
 
         _missing_session ->
@@ -50,16 +51,40 @@ defmodule OfficeGraphWeb.AuthenticationController do
       {:ok, %{provider_logout_uri: nil}} ->
         conn
         |> configure_session(drop: true)
-        |> redirect(to: "/auth/login")
+        |> redirect(to: @logged_out_path)
 
       {:error, :invalid_session} ->
         conn
         |> configure_session(drop: true)
-        |> redirect(to: "/auth/login")
+        |> redirect(to: @logged_out_path)
 
       {:error, _revocation_failed} ->
         send_resp(conn, 503, "Logout unavailable")
     end
+  end
+
+  def logged_out(conn, _params) do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(
+      200,
+      """
+      <!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Signed out · Office Graph</title>
+        </head>
+        <body>
+          <main>
+            <h1>You are signed out</h1>
+            <p><a href="/auth/login">Sign in</a></p>
+          </main>
+        </body>
+      </html>
+      """
+    )
   end
 
   defp complete_callback(conn, code, callback_state, transaction) do
@@ -102,7 +127,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
   end
 
   defp callback_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/callback"
-  defp login_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/login"
+  defp logged_out_uri, do: "#{OfficeGraphWeb.Endpoint.url()}#{@logged_out_path}"
 
   defp trace_id(conn) do
     case get_resp_header(conn, "x-request-id") do

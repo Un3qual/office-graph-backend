@@ -93,7 +93,8 @@ defmodule OfficeGraph.Authentication do
   def complete_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
-  def resolve_session(session_id), do: Identity.resolve_human_session(session_id)
+  def resolve_session(session_id, opts \\ []),
+    do: Identity.resolve_human_session(session_id, opts)
 
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)

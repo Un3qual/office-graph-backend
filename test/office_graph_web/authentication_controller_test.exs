@@ -6,6 +6,8 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   alias OfficeGraph.Identity.AuthenticationEvent
   alias OfficeGraph.Tenancy.Organization
 
+  require Ash.Query
+
   @moduletag :unauthenticated
 
   @issuer "https://authentik.office-graph.local/application/o/office-graph/"
@@ -86,6 +88,13 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
       assert get_session(conn, :oidc_login_transaction).return_to == "/operator"
     end
+  end
+
+  test "login preserves a local return target containing an encoded literal percent" do
+    return_to = "/operator?q=100%25free"
+    conn = get(build_conn(), "/auth/login", %{"return_to" => return_to})
+
+    assert get_session(conn, :oidc_login_transaction).return_to == return_to
   end
 
   test "login fails closed when the provider is unavailable", %{conn: conn} do
@@ -176,9 +185,17 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
       |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
       |> post(~p"/auth/logout")
 
-    assert redirected_to(conn) == "/auth/login"
+    assert redirected_to(conn) == "/auth/logged-out"
     assert conn.private.plug_session_info == :drop
     assert {:error, :invalid_session} = Identity.resolve_human_session(issued.session.id)
+
+    assert TestAdapter.request(:logout_uri).post_logout_redirect_uri ==
+             "#{OfficeGraphWeb.Endpoint.url()}/auth/logged-out"
+
+    logged_out_conn = get(build_conn(), ~p"/auth/logged-out")
+
+    assert html_response(logged_out_conn, 200) =~ ~s(href="/auth/login")
+    assert TestAdapter.calls(:authorization_uri) == 0
   end
 
   test "logout preserves the session cookie when durable revocation is unavailable", %{conn: conn} do
@@ -224,10 +241,23 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn =
       conn
       |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("x-request-id", "revoked-product-reuse")
       |> get(~p"/operator")
 
     assert conn.status == 302
     refute get_session(conn, :human_session_id)
+
+    event =
+      AuthenticationEvent
+      |> Ash.Query.filter(
+        session_id == ^issued.session.id and event == "session_validation" and
+          result == "rejected"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert event.reason == "session_revoked"
+    assert event.trace_id == "revoked-product-reuse"
+    assert event.source_surface == "web"
   end
 
   test "product pages preserve the cookie across transient session storage failures", %{
