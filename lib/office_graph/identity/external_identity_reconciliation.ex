@@ -80,40 +80,61 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   defp reconcile_locked(identity, config) do
     case external_identity_link(config, identity.subject) do
       nil -> reconcile_new_identity(identity, config)
-      link -> reconcile_existing_identity(link)
+      link -> reconcile_existing_identity(link, identity, config)
     end
   end
 
   defp reconcile_existing_identity(
          %ExternalIdentityLink{
            status: "review_required"
-         } = link
+         } = link,
+         _identity,
+         _config
        ),
        do: rejected_with_evidence(:identity_review_required, link)
 
-  defp reconcile_existing_identity(%ExternalIdentityLink{status: "disabled"} = link),
-    do: rejected_with_evidence(:identity_disabled, link)
+  defp reconcile_existing_identity(
+         %ExternalIdentityLink{status: "disabled"} = link,
+         _identity,
+         _config
+       ),
+       do: rejected_with_evidence(:identity_disabled, link)
 
   defp reconcile_existing_identity(
          %ExternalIdentityLink{
            status: "active",
            linking_state: "linked",
            principal_id: principal_id
-         } = link
+         } = link,
+         identity,
+         config
        ) do
     case Ash.get(Principal, principal_id,
            authorize?: false,
            not_found_error?: false
          ) do
       {:ok, %Principal{kind: "human", status: "active"} = principal} ->
-        authenticated_link =
-          link
-          |> Ash.Changeset.for_update(:record_authentication, %{
-            last_authenticated_at: DateTime.utc_now()
-          })
-          |> Repo.ash_update!()
+        if verified_identifier_compatible?(link, identity, config) do
+          authenticated_link =
+            link
+            |> Ash.Changeset.for_update(:record_authentication, %{
+              last_authenticated_at: DateTime.utc_now()
+            })
+            |> Repo.ash_update!()
 
-        {:ok, %{principal: principal, external_identity_link: authenticated_link}}
+          {:ok, %{principal: principal, external_identity_link: authenticated_link}}
+        else
+          reviewed_link =
+            link
+            |> Ash.Changeset.for_update(:set_lifecycle, %{
+              status: "review_required",
+              linking_state: "review_required",
+              review_reason: "verified_identifier_conflict"
+            })
+            |> Repo.ash_update!()
+
+          rejected_with_evidence(:identity_review_required, reviewed_link)
+        end
 
       {:ok, _ineligible_or_inactive} ->
         rejected_with_evidence(:principal_disabled, link)
@@ -121,6 +142,22 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
       {:error, error} ->
         raise error
     end
+  end
+
+  defp verified_identifier_compatible?(
+         %ExternalIdentityLink{verified_email: verified_email},
+         %{verified_email: verified_email},
+         _config
+       ),
+       do: true
+
+  defp verified_identifier_compatible?(link, identity, config) do
+    external_links_for_email(config, identity.verified_email) == [] and
+      case principals_for_email(identity.verified_email) do
+        [] -> true
+        [%Principal{id: principal_id}] -> principal_id == link.principal_id
+        _conflicting_principals -> false
+      end
   end
 
   defp reconcile_new_identity(

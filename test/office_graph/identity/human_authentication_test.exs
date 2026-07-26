@@ -62,6 +62,126 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
              ) in [:eq, :gt]
     end
 
+    test "keeps an exact subject binding when its verified email changes without conflict", %{
+      bootstrap: bootstrap
+    } do
+      assert {:ok, first} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, "changed-email-subject"),
+                 reconciliation_opts()
+               )
+
+      assert {:ok, second} =
+               Identity.reconcile_oidc_identity(
+                 claims("#{unique("unclaimed-email")}@example.test", "changed-email-subject"),
+                 reconciliation_opts()
+               )
+
+      assert second.principal.id == bootstrap.principal.id
+      assert second.external_identity_link.id == first.external_identity_link.id
+      assert second.external_identity_link.status == "active"
+      assert second.external_identity_link.verified_email == bootstrap.principal.email
+    end
+
+    test "moves a known subject to review when its new verified email belongs to another principal",
+         %{bootstrap: bootstrap} do
+      subject = "known-subject-principal-conflict"
+
+      assert {:ok, linked} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, subject),
+                 reconciliation_opts()
+               )
+
+      conflicting_email = "#{unique("principal-conflict")}@example.test"
+
+      conflicting_principal =
+        Ash.create!(
+          Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: conflicting_email,
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(conflicting_principal.email, subject),
+                 reconciliation_opts()
+               )
+
+      assert %ExternalIdentityLink{
+               id: link_id,
+               principal_id: principal_id,
+               verified_email: verified_email,
+               status: "review_required",
+               linking_state: "review_required",
+               review_reason: "verified_identifier_conflict"
+             } = link_for_subject(subject)
+
+      assert link_id == linked.external_identity_link.id
+      assert principal_id == bootstrap.principal.id
+      assert verified_email == bootstrap.principal.email
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, subject),
+                 reconciliation_opts()
+               )
+    end
+
+    test "moves a known subject to review when its new verified email has an incompatible link",
+         %{bootstrap: bootstrap} do
+      subject = "known-subject-link-conflict"
+
+      assert {:ok, linked} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, subject),
+                 reconciliation_opts()
+               )
+
+      conflicting_email = "#{unique("link-conflict")}@example.test"
+
+      Ash.create!(
+        ExternalIdentityLink,
+        %{
+          id: Ecto.UUID.generate(),
+          provider: @provider,
+          provider_tenant: @provider_tenant,
+          subject: "incompatible-subject",
+          verified_email: conflicting_email,
+          status: "review_required",
+          linking_state: "review_required",
+          review_reason: "unlinked_verified_identifier"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(conflicting_email, subject),
+                 reconciliation_opts()
+               )
+
+      assert %ExternalIdentityLink{
+               id: link_id,
+               principal_id: principal_id,
+               verified_email: verified_email,
+               status: "review_required",
+               linking_state: "review_required",
+               review_reason: "verified_identifier_conflict"
+             } = link_for_subject(subject)
+
+      assert link_id == linked.external_identity_link.id
+      assert principal_id == bootstrap.principal.id
+      assert verified_email == bootstrap.principal.email
+    end
+
     test "refuses an unverified identifier without creating a link", %{bootstrap: bootstrap} do
       claims =
         bootstrap.principal.email
