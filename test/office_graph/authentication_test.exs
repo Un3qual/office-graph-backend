@@ -78,6 +78,8 @@ defmodule OfficeGraph.AuthenticationTest do
 
   describe "OIDC adapter failures" do
     test "does not disguise an invalid internal request as provider downtime" do
+      # Keep this fixture runtime-dynamic so Elixir does not reject the deliberately
+      # incomplete map before the adapter boundary can exercise it.
       invalid_config = Process.get({__MODULE__, :missing_oidc_config}, %{})
 
       assert_raise KeyError, fn ->
@@ -134,6 +136,38 @@ defmodule OfficeGraph.AuthenticationTest do
       assert request.pkce_verifier == transaction.pkce_verifier
     end
 
+    test "atomically permits only one callback exchange for a login transaction" do
+      bootstrap = bootstrap("single-use-callback")
+
+      assert {:ok, %{transaction: transaction}} =
+               Authentication.begin_login(@redirect_uri, return_to: "/operator")
+
+      complete = fn ->
+        TestAdapter.put(%{
+          exchange: {:ok, claims(bootstrap.principal.email, "single-use-callback-subject")}
+        })
+
+        Authentication.complete_login(
+          "authorization-code",
+          transaction.state,
+          transaction,
+          trace_id: Ecto.UUID.generate(),
+          source_surface: "web"
+        )
+      end
+
+      results =
+        [Task.async(complete), Task.async(complete)]
+        |> Task.await_many(10_000)
+
+      assert Enum.count(results, &match?({:ok, _completed}, &1)) == 1
+
+      assert Enum.count(
+               results,
+               &match?({:error, :invalid_login_transaction}, &1)
+             ) == 1
+    end
+
     test "rejects an expired login transaction before provider exchange" do
       transaction =
         login_transaction()
@@ -167,8 +201,13 @@ defmodule OfficeGraph.AuthenticationTest do
         exchange: {:ok, claims(first.principal.email, "multi-scope-subject")}
       })
 
+      transaction = login_transaction()
+
       assert {:error, :scope_selection_required} =
-               Authentication.complete_login("authorization-code", "state", login_transaction(),
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
                  trace_id: "multi-scope-no-preference",
                  source_surface: "web"
                )
@@ -184,8 +223,13 @@ defmodule OfficeGraph.AuthenticationTest do
         )
       )
 
+      transaction = login_transaction()
+
       assert {:ok, completed} =
-               Authentication.complete_login("authorization-code", "state", login_transaction(),
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
                  trace_id: "multi-scope-preferred",
                  source_surface: "web"
                )
@@ -210,8 +254,13 @@ defmodule OfficeGraph.AuthenticationTest do
 
       TestAdapter.put(%{exchange: {:ok, claims(principal.email, "no-scope-subject")}})
 
+      transaction = login_transaction()
+
       assert {:error, :no_login_scope} =
-               Authentication.complete_login("authorization-code", "state", login_transaction(),
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
                  trace_id: "no-scope",
                  source_surface: "web"
                )
@@ -233,6 +282,39 @@ defmodule OfficeGraph.AuthenticationTest do
       assert event.workspace_id == nil
     end
 
+    test "propagates rejected-login evidence storage failures" do
+      principal =
+        Ash.create!(
+          Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: "#{unique("rejection-evidence-storage")}@example.test",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      assert {:ok, %{transaction: transaction}} =
+               Authentication.begin_login(@redirect_uri, return_to: "/operator")
+
+      TestAdapter.put(%{
+        exchange: {:ok, claims(principal.email, "rejection-evidence-storage-subject")}
+      })
+
+      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
+
+      assert {:error, :identity_storage_unavailable} =
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
+                 trace_id: "rejection-evidence-storage",
+                 source_surface: "web"
+               )
+    end
+
     test "records the durable review link on a rejected login" do
       subject = "review-required-subject"
 
@@ -240,8 +322,13 @@ defmodule OfficeGraph.AuthenticationTest do
         exchange: {:ok, claims("#{unique("review-required")}@example.test", subject)}
       })
 
+      transaction = login_transaction()
+
       assert {:error, :identity_review_required} =
-               Authentication.complete_login("authorization-code", "state", login_transaction(),
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
                  trace_id: "review-required",
                  source_surface: "web"
                )
@@ -263,8 +350,13 @@ defmodule OfficeGraph.AuthenticationTest do
     test "normalizes provider failure and records a bounded rejected event" do
       TestAdapter.put(%{exchange: {:error, {:http_error, "secret provider response"}}})
 
+      transaction = login_transaction()
+
       assert {:error, :provider_unavailable} =
-               Authentication.complete_login("authorization-code", "state", login_transaction(),
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
                  trace_id: "provider-failure",
                  source_surface: "web"
                )
@@ -392,14 +484,20 @@ defmodule OfficeGraph.AuthenticationTest do
   end
 
   defp login_transaction do
-    %{
+    issued_at_unix = System.system_time(:second)
+
+    transaction = %{
+      id: Ecto.UUID.generate(),
       state: "state",
       nonce: "nonce",
       pkce_verifier: String.duplicate("v", 64),
       redirect_uri: @redirect_uri,
       return_to: "/operator",
-      issued_at_unix: System.system_time(:second)
+      issued_at_unix: issued_at_unix
     }
+
+    :ok = Identity.store_oidc_login_transaction(transaction.id, issued_at_unix + 600)
+    transaction
   end
 
   defp oidc_config(overrides \\ []) do

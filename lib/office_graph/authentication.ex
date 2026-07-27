@@ -19,6 +19,7 @@ defmodule OfficeGraph.Authentication do
   def begin_login(redirect_uri, opts) when is_binary(redirect_uri) and is_list(opts) do
     with {:ok, config} <- configuration() do
       transaction = %{
+        id: Ecto.UUID.generate(),
         state: random_value(),
         nonce: random_value(),
         pkce_verifier: random_value(),
@@ -34,7 +35,16 @@ defmodule OfficeGraph.Authentication do
 
       case oidc_client().authorization_uri(request) do
         {:ok, authorization_uri} when is_binary(authorization_uri) ->
-          {:ok, %{authorization_uri: authorization_uri, transaction: transaction}}
+          case Identity.store_oidc_login_transaction(
+                 transaction.id,
+                 transaction.issued_at_unix + @login_transaction_ttl_seconds
+               ) do
+            :ok ->
+              {:ok, %{authorization_uri: authorization_uri, transaction: transaction}}
+
+            {:error, _reason} = error ->
+              error
+          end
 
         _provider_error ->
           {:error, :provider_unavailable}
@@ -49,6 +59,7 @@ defmodule OfficeGraph.Authentication do
     source_surface = Keyword.get(opts, :source_surface, "web")
 
     with :ok <- validate_callback(code, callback_state, transaction),
+         :ok <- Identity.consume_oidc_login_transaction(transaction.id),
          {:ok, config} <- configuration(),
          {:ok, claims} <- exchange(code, transaction, config),
          {:ok, linked} <-
@@ -77,24 +88,25 @@ defmodule OfficeGraph.Authentication do
           {:ok, Map.merge(issued, linked)}
         end
 
-      maybe_record_rejection(result, trace_id, source_surface, linked)
-      result
+      finalize_login_result(result, trace_id, source_surface, linked)
     else
       {:error, reason, evidence} ->
-        maybe_record_rejection({:error, reason}, trace_id, source_surface, evidence)
-        {:error, reason}
+        finalize_login_result({:error, reason}, trace_id, source_surface, evidence)
 
       {:error, _reason} = error ->
-        maybe_record_rejection(error, trace_id, source_surface, nil)
-        error
+        finalize_login_result(error, trace_id, source_surface, nil)
     end
   end
 
   def complete_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
-  def resolve_session(session_id, opts \\ []),
-    do: Identity.resolve_human_session(session_id, opts)
+  def resolve_session(session_id, opts \\ []) do
+    case Identity.resolve_human_session(session_id, opts) do
+      {:ok, session_context} -> validate_current_session_scope(session_context, opts)
+      {:error, _reason} = error -> error
+    end
+  end
 
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
@@ -147,6 +159,7 @@ defmodule OfficeGraph.Authentication do
 
   defp validate_transaction(
          %{
+           id: id,
            state: state,
            nonce: nonce,
            pkce_verifier: pkce_verifier,
@@ -155,7 +168,7 @@ defmodule OfficeGraph.Authentication do
          },
          callback_state
        )
-       when is_binary(state) and is_binary(nonce) and is_binary(pkce_verifier) and
+       when is_binary(id) and is_binary(state) and is_binary(nonce) and is_binary(pkce_verifier) and
               is_binary(redirect_uri) and is_integer(issued_at_unix) and
               is_binary(callback_state) do
     age = System.system_time(:second) - issued_at_unix
@@ -175,6 +188,13 @@ defmodule OfficeGraph.Authentication do
     do: :crypto.hash_equals(expected, actual)
 
   defp secure_state_match?(_expected, _actual), do: false
+
+  defp finalize_login_result(result, trace_id, source_surface, linked) do
+    case maybe_record_rejection(result, trace_id, source_surface, linked) do
+      :ok -> result
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp maybe_record_rejection({:ok, _completed}, _trace_id, _source_surface, _linked), do: :ok
 
@@ -211,9 +231,10 @@ defmodule OfficeGraph.Authentication do
           attrs
       end
 
-    Identity.record_authentication_event(attrs)
-
-    :ok
+    case Identity.record_authentication_event(attrs) do
+      {:ok, _event} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp maybe_record_rejection(_result, _trace_id, _source_surface, _linked), do: :ok
@@ -252,6 +273,24 @@ defmodule OfficeGraph.Authentication do
   end
 
   defp provider_logout_uri(_post_logout_redirect_uri), do: nil
+
+  defp validate_current_session_scope(session_context, opts) do
+    scope = %{
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id
+    }
+
+    case Authorization.resolve_login_scope(session_context.principal_id, scope) do
+      {:ok, ^scope} ->
+        {:ok, session_context}
+
+      {:error, :authorization_storage_unavailable} = error ->
+        error
+
+      {:error, _invalid_scope} ->
+        Identity.reject_human_session(session_context, "invalid_scope", opts)
+    end
+  end
 
   defp configuration do
     config = Application.get_env(:office_graph, :human_oidc, [])

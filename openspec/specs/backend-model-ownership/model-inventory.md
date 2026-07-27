@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 82 tables.
+Derived from committed migrations; expected count: 83 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ Derived from committed migrations; expected count: 82 tables.
 | `external_identity_links` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.ExternalIdentityLink` |
 | `sessions` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.Session` |
 | `authentication_events` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.AuthenticationEvent` |
+| `oidc_login_transactions` | `OfficeGraph.Identity.Domain` | `OfficeGraph.Identity.OidcLoginTransaction` |
 | `capabilities` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.Capability` |
 | `roles` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.Role` |
 | `role_capabilities` | `OfficeGraph.Authorization.Domain` | `OfficeGraph.Authorization.RoleCapability` |

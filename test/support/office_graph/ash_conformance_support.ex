@@ -29,6 +29,8 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "sessions" => {OfficeGraph.Identity.Domain, OfficeGraph.Identity.Session},
     "authentication_events" =>
       {OfficeGraph.Identity.Domain, OfficeGraph.Identity.AuthenticationEvent},
+    "oidc_login_transactions" =>
+      {OfficeGraph.Identity.Domain, OfficeGraph.Identity.OidcLoginTransaction},
     "capabilities" => {OfficeGraph.Authorization.Domain, OfficeGraph.Authorization.Capability},
     "roles" => {OfficeGraph.Authorization.Domain, OfficeGraph.Authorization.Role},
     "role_capabilities" =>

@@ -38,11 +38,12 @@ defmodule OfficeGraphWeb.SessionAuthenticationPlug do
         |> assign(:human_session, session_context)
         |> Ash.PlugHelpers.set_actor(session_context)
 
-      {:error, :invalid_session} ->
-        delete_session(conn, :human_session_id)
-
-      {:error, :identity_storage_unavailable} ->
+      {:error, reason}
+      when reason in [:identity_storage_unavailable, :authorization_storage_unavailable] ->
         conn
+
+      {:error, _invalid_session} ->
+        delete_session(conn, :human_session_id)
     end
   end
 

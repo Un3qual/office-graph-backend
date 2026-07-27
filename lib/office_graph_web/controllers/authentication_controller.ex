@@ -99,6 +99,10 @@ defmodule OfficeGraphWeb.AuthenticationController do
         |> put_session(:human_session_id, completed.session.id)
         |> redirect(to: safe_return_to(Map.get(transaction, :return_to)))
 
+      {:error, reason}
+      when reason in [:identity_storage_unavailable, :authorization_storage_unavailable] ->
+        send_resp(conn, 503, "Authentication unavailable")
+
       {:error, _reason} ->
         send_resp(conn, 401, "Authentication failed")
     end

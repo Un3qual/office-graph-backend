@@ -2,8 +2,8 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Authentication.OidcClient.TestAdapter
-  alias OfficeGraph.{Foundation, Identity}
-  alias OfficeGraph.Identity.AuthenticationEvent
+  alias OfficeGraph.{Foundation, Identity, Repo}
+  alias OfficeGraph.Identity.{AuthenticationEvent, Principal}
   alias OfficeGraph.Tenancy.Organization
 
   require Ash.Query
@@ -112,7 +112,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     refute get_session(conn, :oidc_login_transaction)
   end
 
-  test "callback consumes a mismatched state without calling the provider", %{conn: conn} do
+  test "callback clears a mismatched-state cookie without calling the provider", %{conn: conn} do
     conn =
       conn
       |> Plug.Test.init_test_session(%{oidc_login_transaction: login_transaction()})
@@ -135,10 +135,15 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
       exchange: {:ok, claims(bootstrap.principal.email, "callback-subject")}
     })
 
+    transaction = login_transaction()
+
     conn =
       conn
-      |> Plug.Test.init_test_session(%{oidc_login_transaction: login_transaction()})
-      |> get(~p"/auth/callback?code=authorization-code&state=state")
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
 
     assert redirected_to(conn) == "/operator"
     assert %{"human_session_id" => session_id} = get_session(conn)
@@ -163,7 +168,10 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn =
       conn
       |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
-      |> get(~p"/auth/callback?code=authorization-code&state=state")
+      |> get("/auth/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
 
     assert redirected_to(conn) == "/operator"
     assert is_binary(get_session(conn, :human_session_id))
@@ -172,14 +180,53 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   test "callback provider failure leaves no authenticated session", %{conn: conn} do
     TestAdapter.put(%{exchange: {:error, :provider_down}})
 
+    transaction = login_transaction()
+
     conn =
       conn
-      |> Plug.Test.init_test_session(%{oidc_login_transaction: login_transaction()})
-      |> get(~p"/auth/callback?code=authorization-code&state=state")
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
 
     assert response(conn, 401) == "Authentication failed"
     refute get_session(conn, :oidc_login_transaction)
     refute get_session(conn, :human_session_id)
+  end
+
+  test "callback reports rejected-login evidence storage failures as unavailable", %{conn: conn} do
+    principal =
+      Ash.create!(
+        Principal,
+        %{
+          id: Ecto.UUID.generate(),
+          email: "#{unique("callback-evidence-storage")}@example.test",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    login_conn = get(conn, ~p"/auth/login")
+    transaction = get_session(login_conn, :oidc_login_transaction)
+
+    TestAdapter.put(%{
+      exchange: {:ok, claims(principal.email, "callback-evidence-storage-subject")}
+    })
+
+    Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
+
+    callback_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
+
+    assert response(callback_conn, 503) == "Authentication unavailable"
   end
 
   test "logout revokes locally even when provider logout is unsupported", %{conn: conn} do
@@ -271,6 +318,57 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   } do
     issued = issue_session("unavailable-product")
     OfficeGraph.Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> get(~p"/operator")
+
+    assert redirected_to(conn) =~ "/auth/login"
+    assert get_session(conn, :human_session_id) == issued.session.id
+  end
+
+  test "product pages reject sessions whose workspace role assignment was removed", %{conn: conn} do
+    issued = issue_session("removed-role-assignment")
+
+    Repo.query!(
+      """
+      DELETE FROM role_assignments
+      WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
+      """,
+      [
+        Ecto.UUID.dump!(issued.session.principal_id),
+        Ecto.UUID.dump!(issued.session.organization_id),
+        Ecto.UUID.dump!(issued.session.workspace_id)
+      ]
+    )
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: issued.session.id})
+      |> put_req_header("x-request-id", "removed-role-assignment-reuse")
+      |> get(~p"/operator")
+
+    assert redirected_to(conn) =~ "/auth/login"
+    refute get_session(conn, :human_session_id)
+
+    event =
+      AuthenticationEvent
+      |> Ash.Query.filter(
+        session_id == ^issued.session.id and event == "session_validation" and
+          result == "rejected"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert event.reason == "invalid_scope"
+    assert event.trace_id == "removed-role-assignment-reuse"
+  end
+
+  test "product pages preserve the cookie across transient authorization storage failures", %{
+    conn: conn
+  } do
+    issued = issue_session("authorization-storage")
+    Repo.query!("ALTER TABLE role_assignments RENAME TO unavailable_role_assignments")
 
     conn =
       conn
@@ -407,14 +505,20 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   end
 
   defp login_transaction do
-    %{
+    issued_at_unix = System.system_time(:second)
+
+    transaction = %{
+      id: Ecto.UUID.generate(),
       state: "state",
       nonce: "nonce",
       pkce_verifier: String.duplicate("v", 64),
       redirect_uri: @redirect_uri,
       return_to: "/operator",
-      issued_at_unix: System.system_time(:second)
+      issued_at_unix: issued_at_unix
     }
+
+    :ok = Identity.store_oidc_login_transaction(transaction.id, issued_at_unix + 600)
+    transaction
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
