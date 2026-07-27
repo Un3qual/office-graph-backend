@@ -744,6 +744,23 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                  trace_id: "missing-reason"
                })
     end
+
+    test "rejects authentication evidence with an unrecognized reason" do
+      assert {:error, :invalid_authentication_event} =
+               Identity.record_authentication_event(%{
+                 event: "login",
+                 result: "rejected",
+                 reason: "provider response contained sensitive details",
+                 authentication_method: "oidc",
+                 source_surface: "web",
+                 trace_id: "unrecognized-reason"
+               })
+
+      assert [] =
+               AuthenticationEvent
+               |> Ash.Query.filter(trace_id == "unrecognized-reason")
+               |> Ash.read!(authorize?: false)
+    end
   end
 
   defp reconciliation_opts do

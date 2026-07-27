@@ -90,6 +90,12 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     end
   end
 
+  test "login rejects return targets that decode to invalid UTF-8" do
+    conn = get(build_conn(), "/auth/login", %{"return_to" => "/%FF"})
+
+    assert get_session(conn, :oidc_login_transaction).return_to == "/operator"
+  end
+
   test "login preserves a local return target containing an encoded literal percent" do
     return_to = "/operator?q=100%25free"
     conn = get(build_conn(), "/auth/login", %{"return_to" => return_to})

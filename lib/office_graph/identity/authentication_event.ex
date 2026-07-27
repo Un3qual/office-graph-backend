@@ -1,6 +1,29 @@
 defmodule OfficeGraph.Identity.AuthenticationEvent do
   @moduledoc false
 
+  @reason_codes ~w(
+    authentication_failed
+    authentication_unavailable
+    authorization_storage_unavailable
+    identity_disabled
+    identity_review_required
+    identity_storage_unavailable
+    invalid_identity_claims
+    invalid_login_transaction
+    invalid_scope
+    invalid_session
+    login_completed
+    no_login_scope
+    principal_disabled
+    provider_unavailable
+    scope_selection_required
+    session_expired
+    session_replaced
+    session_revoked
+    unverified_identifier
+    user_logout
+  )
+
   use Ash.Resource,
     domain: OfficeGraph.Identity.Domain,
     data_layer: AshPostgres.DataLayer
@@ -50,6 +73,8 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
         :source_surface,
         :trace_id
       ]
+
+      validate one_of(:reason, @reason_codes)
     end
   end
 end

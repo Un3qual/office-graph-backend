@@ -110,12 +110,17 @@ defmodule OfficeGraphWeb.AuthenticationController do
 
   defp safe_return_to(return_to) when is_binary(return_to) do
     decoded_return_to = fully_decode(return_to)
-    uri = URI.parse(decoded_return_to)
 
-    if uri.scheme == nil and uri.host == nil and String.starts_with?(decoded_return_to, "/") and
-         not String.starts_with?(decoded_return_to, "//") and
-         not Regex.match?(~r/[\\\x00-\x1F\x7F]/u, decoded_return_to) do
-      return_to
+    if String.valid?(decoded_return_to) do
+      uri = URI.parse(decoded_return_to)
+
+      if uri.scheme == nil and uri.host == nil and String.starts_with?(decoded_return_to, "/") and
+           not String.starts_with?(decoded_return_to, "//") and
+           not Regex.match?(~r/[\\\x00-\x1F\x7F]/u, decoded_return_to) do
+        return_to
+      else
+        @default_return_to
+      end
     else
       @default_return_to
     end

@@ -99,6 +99,15 @@ defmodule OfficeGraph.Authentication do
     end
   end
 
+  def complete_login(_code, _callback_state, _transaction, opts) when is_list(opts) do
+    finalize_login_result(
+      {:error, :invalid_login_transaction},
+      Keyword.get(opts, :trace_id),
+      Keyword.get(opts, :source_surface, "web"),
+      nil
+    )
+  end
+
   def complete_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 

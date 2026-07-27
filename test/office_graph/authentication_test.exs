@@ -170,6 +170,29 @@ defmodule OfficeGraph.AuthenticationTest do
       assert TestAdapter.calls(:exchange) == 0
     end
 
+    test "records a rejected login when the callback transaction is missing" do
+      assert {:error, :invalid_login_transaction} =
+               Authentication.complete_login(
+                 "authorization-code",
+                 "state",
+                 nil,
+                 trace_id: "missing-login-transaction",
+                 source_surface: "web"
+               )
+
+      event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "missing-login-transaction")
+        |> Ash.read_one!(authorize?: false)
+
+      assert event.event == "login"
+      assert event.result == "rejected"
+      assert event.reason == "invalid_login_transaction"
+      assert event.principal_id == nil
+      assert event.external_identity_link_id == nil
+      assert TestAdapter.calls(:exchange) == 0
+    end
+
     test "reconciles validated claims, selects the one internal scope, and issues a session" do
       bootstrap = bootstrap("complete-login")
 
