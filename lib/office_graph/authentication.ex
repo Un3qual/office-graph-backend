@@ -54,12 +54,13 @@ defmodule OfficeGraph.Authentication do
 
   def begin_login(_redirect_uri, _opts), do: {:error, :invalid_redirect_uri}
 
-  def complete_login(code, callback_state, transaction, opts) when is_list(opts) do
+  def complete_login(code, callback_state, %{id: transaction_id} = transaction, opts)
+      when is_binary(transaction_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
     source_surface = Keyword.get(opts, :source_surface, "web")
 
-    with :ok <- validate_callback(code, callback_state, transaction),
-         :ok <- Identity.consume_oidc_login_transaction(transaction.id),
+    with :ok <- Identity.consume_oidc_login_transaction(transaction_id),
+         :ok <- validate_callback(code, callback_state, transaction),
          {:ok, config} <- configuration(),
          {:ok, claims} <- exchange(code, transaction, config),
          {:ok, linked} <-

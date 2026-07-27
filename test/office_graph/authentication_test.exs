@@ -146,6 +146,30 @@ defmodule OfficeGraph.AuthenticationTest do
       assert TestAdapter.calls(:exchange) == 0
     end
 
+    test "consumes the login transaction when callback state is invalid" do
+      transaction = login_transaction()
+
+      assert {:error, :invalid_login_transaction} =
+               Authentication.complete_login(
+                 "authorization-code",
+                 "wrong-state",
+                 transaction,
+                 trace_id: "mismatched-state-first-attempt",
+                 source_surface: "web"
+               )
+
+      assert {:error, :invalid_login_transaction} =
+               Authentication.complete_login(
+                 "authorization-code",
+                 transaction.state,
+                 transaction,
+                 trace_id: "mismatched-state-replay",
+                 source_surface: "web"
+               )
+
+      assert TestAdapter.calls(:exchange) == 0
+    end
+
     test "reconciles validated claims, selects the one internal scope, and issues a session" do
       bootstrap = bootstrap("complete-login")
 

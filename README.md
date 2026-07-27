@@ -37,6 +37,42 @@ The app connects to `localhost:55432` with:
 Production runtime config enables Postgres TLS by default. Set
 `DATABASE_SSL=false` only for an explicitly trusted private database network.
 
+## Local Human Sign-In
+
+Office Graph uses an Authentik-compatible OpenID Connect provider for browser
+sign-in. The repository Compose file starts Postgres only, so run your local
+Authentik identity lab separately and configure an OAuth2/OpenID provider with:
+
+- redirect URI: `http://localhost:4000/auth/callback`
+- scopes: `openid`, `profile`, and `email`
+- a user whose verified email is `owner@office-graph.local`
+- an `email_verified` claim with the boolean value `true`
+
+`mix ecto.setup` creates the matching local Office Graph owner. The login flow
+links the verified Authentik identity to that existing principal; it does not
+create an owner or grant capabilities from provider claims.
+
+Start the application with the provider values:
+
+```sh
+AUTHENTIK_OIDC_ISSUER=http://localhost:9000/application/o/office-graph/ \
+AUTHENTIK_OIDC_CLIENT_ID=replace-with-client-id \
+AUTHENTIK_OIDC_CLIENT_SECRET=replace-with-client-secret \
+AUTHENTIK_ACCOUNT_LINKING_POLICY=verified_email_existing_principal \
+nix --extra-experimental-features 'nix-command flakes' develop --command mix phx.server
+```
+
+Replace the example issuer with the exact issuer advertised by your Authentik
+provider. Then open `http://localhost:4000/operator`; unauthenticated requests
+redirect through `/auth/login`.
+
+`AUTHENTIK_PREFERRED_ORGANIZATION_ID` and
+`AUTHENTIK_PREFERRED_WORKSPACE_ID` may be set together when a principal belongs
+to more than one workspace. `HUMAN_SESSION_TTL_SECONDS` optionally overrides
+the default eight-hour session lifetime. Missing or partial OIDC configuration
+fails closed with `Authentication unavailable`; it never falls back to the
+local-owner bootstrap.
+
 ## GitHub App Runtime
 
 Development and production use the live GitHub App adapter. Set
