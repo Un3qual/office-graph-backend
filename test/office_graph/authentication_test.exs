@@ -9,6 +9,7 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
   alias OfficeGraph.Identity.{AuthenticationEvent, ExternalIdentityLink, Principal}
+  alias OfficeGraph.Repo
 
   require Ash.Query
 
@@ -64,6 +65,43 @@ defmodule OfficeGraph.AuthenticationTest do
       assert request.state == second.transaction.state
       assert request.nonce == second.transaction.nonce
       assert request.pkce_verifier == second.transaction.pkce_verifier
+    end
+
+    test "prunes expired transaction guards while retaining live guards" do
+      now = System.system_time(:second)
+      expired_id = Ecto.UUID.generate()
+      live_id = Ecto.UUID.generate()
+
+      :ok = Identity.store_oidc_login_transaction(live_id, now + 600)
+
+      Repo.query!(
+        """
+        INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
+        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        """,
+        [
+          Ecto.UUID.dump!(expired_id),
+          DateTime.from_unix!(now - 1)
+        ]
+      )
+
+      assert {:ok, %{transaction: transaction}} =
+               Authentication.begin_login(@redirect_uri, return_to: "/operator")
+
+      assert %{rows: [[false, true, true]]} =
+               Repo.query!(
+                 """
+                 SELECT
+                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $1),
+                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $2),
+                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $3)
+                 """,
+                 [
+                   Ecto.UUID.dump!(expired_id),
+                   Ecto.UUID.dump!(live_id),
+                   Ecto.UUID.dump!(transaction.id)
+                 ]
+               )
     end
 
     test "fails closed when OIDC configuration is missing or partial" do

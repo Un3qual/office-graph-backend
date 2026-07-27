@@ -52,6 +52,9 @@ browser request, callback, and token validation before reconciling an identity.
 - **AND** the callback handler MUST atomically consume the transaction before
   token exchange and MUST leave it absent after both successful and failed
   exchanges
+- **AND** expired server-side one-time transaction guards MUST be pruned during
+  normal login processing so abandoned login starts cannot retain guard records
+  without bound
 
 #### Scenario: OIDC callback is accepted
 

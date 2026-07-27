@@ -8,7 +8,6 @@ defmodule OfficeGraph.Identity do
   alias OfficeGraph.Identity.{
     ExternalIdentityReconciliation,
     HumanSessions,
-    OidcLoginTransaction,
     Principal,
     PrincipalProfile,
     Session,
@@ -201,18 +200,23 @@ defmodule OfficeGraph.Identity do
   def store_oidc_login_transaction(transaction_id, expires_at_unix)
       when is_binary(transaction_id) and is_integer(expires_at_unix) do
     with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id),
-         {:ok, expires_at} <- DateTime.from_unix(expires_at_unix),
-         {:ok, _transaction} <-
-           OidcLoginTransaction
-           |> Ash.Changeset.for_create(:create, %{
-             id: transaction_id,
-             expires_at: expires_at
-           })
-           |> Ash.create() do
-      :ok
+         {:ok, expires_at} <- DateTime.from_unix(expires_at_unix) do
+      case Repo.query(
+             """
+             WITH expired_transactions AS (
+               DELETE FROM oidc_login_transactions
+               WHERE expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             )
+             INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             """,
+             [Ecto.UUID.dump!(transaction_id), expires_at]
+           ) do
+        {:ok, _result} -> :ok
+        {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+      end
     else
       :error -> {:error, :invalid_login_transaction}
-      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
     end
   end
 
