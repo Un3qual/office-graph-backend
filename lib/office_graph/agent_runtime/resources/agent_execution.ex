@@ -6,7 +6,9 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
 
   use Ash.Resource,
     domain: OfficeGraph.AgentRuntime.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "agent_executions"
@@ -39,7 +41,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       public?: true
 
     attribute :current_step_key, :string, public?: true
-    attribute :lease_token, :string, public?: true
+    attribute :lease_token, :string
     attribute :lease_expires_at, :utc_datetime_usec, public?: true
 
     attribute :attempt_count, :integer,
@@ -48,7 +50,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       constraints: [min: 0],
       public?: true
 
-    attribute :idempotency_key, :string, allow_nil?: false, public?: true
+    attribute :idempotency_key, :string, allow_nil?: false
     attribute :failure_code, :string, public?: true
     attribute :started_at, :utc_datetime_usec, public?: true
     attribute :completed_at, :utc_datetime_usec, public?: true
@@ -60,7 +62,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -142,18 +145,21 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       source_attribute :organization_binding_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :agent_principal, OfficeGraph.Identity.Principal do
@@ -215,11 +221,39 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
     has_many :approval_requests, OfficeGraph.AgentRuntime.ApprovalRequest do
       source_attribute :id
       destination_attribute :execution_id
+      public? true
     end
 
     has_many :context_expansion_requests, OfficeGraph.AgentRuntime.ContextExpansionRequest do
       source_attribute :id
       destination_attribute :execution_id
+      public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :agent_execution
+
+    paginate_relationship_with(
+      approval_requests: :relay,
+      context_expansion_requests: :relay
+    )
+  end
+
+  json_api do
+    type "agent_execution"
   end
 end

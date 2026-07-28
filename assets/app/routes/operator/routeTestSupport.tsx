@@ -78,12 +78,9 @@ function withOperatorTestResponses(network: FetchFunction): FetchFunction {
             sourceWatermark: `${variables.runId}:${variables.graphItemId}:empty`,
             allowedNextActions: [],
             commandAffordances: [],
-            conversation: null,
-            messages: [],
-            executions: [],
-            approvalRequests: [],
-            contextExpansionRequests: [],
+            messageContexts: [],
           },
+          conversation: null,
         },
       };
     }

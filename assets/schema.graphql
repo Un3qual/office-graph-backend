@@ -4367,6 +4367,2096 @@ type WorkRun implements Node {
   ): WorkGraphVerificationResultConnection!
 }
 
+enum AgentContextExpansionRequestSortField {
+  ID
+  STEP_KEY
+  EXECUTION_STATE_VERSION
+  TARGET_RESOURCE_TYPE
+  TARGET_RESOURCE_ID
+  TARGET_SCOPE_TYPE
+  TARGET_SCOPE_ID
+  ACCESS_MODE
+  CAPABILITY_KEY
+  REASON
+  SENSITIVITY
+  EXPECTED_DURATION_SECONDS
+  STATE
+  VERSION
+  EXPIRES_AT
+  RESOLUTION_REASON
+  RESOLVED_AT
+  INSERTED_AT
+  UPDATED_AT
+  EXECUTION_ID
+  CURRENT_CONTEXT_PACKAGE_ID
+  AUTHORITY_SNAPSHOT_ID
+  OPERATION_ID
+  RESOLUTION_OPERATION_ID
+  RESOLVED_BY_PRINCIPAL_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":agent_context_expansion_request connection"
+type AgentContextExpansionRequestConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":agent_context_expansion_request edges"
+  edges: [AgentContextExpansionRequestEdge!]
+}
+
+":agent_context_expansion_request edge"
+type AgentContextExpansionRequestEdge {
+  "Cursor"
+  cursor: String!
+
+  ":agent_context_expansion_request node"
+  node: AgentContextExpansionRequest!
+}
+
+input AgentContextExpansionRequestFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterResolvedByPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterResolutionOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterAuthoritySnapshotId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterCurrentContextPackageId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentContextExpansionRequestFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentContextExpansionRequestFilterResolvedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentContextExpansionRequestFilterResolutionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentContextExpansionRequestFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentContextExpansionRequestFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterExpectedDurationSeconds {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentContextExpansionRequestFilterSensitivity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterCapabilityKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterAccessMode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterTargetScopeId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterTargetScopeType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterTargetResourceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterTargetResourceType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterExecutionStateVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentContextExpansionRequestFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentContextExpansionRequestFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentContextExpansionRequestFilterInput {
+  and: [AgentContextExpansionRequestFilterInput!]
+  or: [AgentContextExpansionRequestFilterInput!]
+  not: [AgentContextExpansionRequestFilterInput!]
+  id: AgentContextExpansionRequestFilterId
+  stepKey: AgentContextExpansionRequestFilterStepKey
+  executionStateVersion: AgentContextExpansionRequestFilterExecutionStateVersion
+  targetResourceType: AgentContextExpansionRequestFilterTargetResourceType
+  targetResourceId: AgentContextExpansionRequestFilterTargetResourceId
+  targetScopeType: AgentContextExpansionRequestFilterTargetScopeType
+  targetScopeId: AgentContextExpansionRequestFilterTargetScopeId
+  accessMode: AgentContextExpansionRequestFilterAccessMode
+  capabilityKey: AgentContextExpansionRequestFilterCapabilityKey
+  reason: AgentContextExpansionRequestFilterReason
+  sensitivity: AgentContextExpansionRequestFilterSensitivity
+  expectedDurationSeconds: AgentContextExpansionRequestFilterExpectedDurationSeconds
+  state: AgentContextExpansionRequestFilterState
+  version: AgentContextExpansionRequestFilterVersion
+  expiresAt: AgentContextExpansionRequestFilterExpiresAt
+  resolutionReason: AgentContextExpansionRequestFilterResolutionReason
+  resolvedAt: AgentContextExpansionRequestFilterResolvedAt
+  insertedAt: AgentContextExpansionRequestFilterInsertedAt
+  updatedAt: AgentContextExpansionRequestFilterUpdatedAt
+  executionId: AgentContextExpansionRequestFilterExecutionId
+  currentContextPackageId: AgentContextExpansionRequestFilterCurrentContextPackageId
+  authoritySnapshotId: AgentContextExpansionRequestFilterAuthoritySnapshotId
+  operationId: AgentContextExpansionRequestFilterOperationId
+  resolutionOperationId: AgentContextExpansionRequestFilterResolutionOperationId
+  resolvedByPrincipalId: AgentContextExpansionRequestFilterResolvedByPrincipalId
+  organizationId: AgentContextExpansionRequestFilterOrganizationId
+  workspaceId: AgentContextExpansionRequestFilterWorkspaceId
+  execution: AgentExecutionFilterInput
+}
+
+input AgentContextExpansionRequestSortInput {
+  order: SortOrder
+  field: AgentContextExpansionRequestSortField!
+}
+
+type AgentContextExpansionRequest implements Node {
+  id: ID!
+  stepKey: String!
+  executionStateVersion: Int!
+  targetResourceType: String!
+  targetResourceId: ID!
+  targetScopeType: String!
+  targetScopeId: ID!
+  accessMode: String!
+  capabilityKey: String
+  reason: String!
+  sensitivity: String!
+  expectedDurationSeconds: Int!
+  state: String!
+  version: Int!
+  expiresAt: DateTime!
+  resolutionReason: String
+  resolvedAt: DateTime
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  executionId: ID!
+  currentContextPackageId: ID!
+  authoritySnapshotId: ID!
+  operationId: ID!
+  resolutionOperationId: ID
+  resolvedByPrincipalId: ID
+  organizationId: ID!
+  workspaceId: ID!
+  execution: AgentExecution!
+}
+
+enum AgentApprovalRequestSortField {
+  ID
+  STEP_KEY
+  EXECUTION_STATE_VERSION
+  REQUESTED_ACTION
+  REASON
+  SCOPE_TYPE
+  SCOPE_ID
+  CAPABILITY_KEY
+  SENSITIVITY
+  EXTERNAL_WRITE
+  STATE
+  VERSION
+  EXPIRES_AT
+  RESOLUTION_REASON
+  RESOLVED_AT
+  INSERTED_AT
+  UPDATED_AT
+  EXECUTION_ID
+  AUTHORITY_SNAPSHOT_ID
+  OPERATION_ID
+  RESOLUTION_OPERATION_ID
+  RESOLVED_BY_PRINCIPAL_ID
+  CREDENTIAL_ID
+  CONTEXT_EXPANSION_REQUEST_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":agent_approval_request connection"
+type AgentApprovalRequestConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":agent_approval_request edges"
+  edges: [AgentApprovalRequestEdge!]
+}
+
+":agent_approval_request edge"
+type AgentApprovalRequestEdge {
+  "Cursor"
+  cursor: String!
+
+  ":agent_approval_request node"
+  node: AgentApprovalRequest!
+}
+
+input AgentApprovalRequestFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterContextExpansionRequestId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterCredentialId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterResolvedByPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterResolutionOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterAuthoritySnapshotId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentApprovalRequestFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentApprovalRequestFilterResolvedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentApprovalRequestFilterResolutionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentApprovalRequestFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentApprovalRequestFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterExternalWrite {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+}
+
+input AgentApprovalRequestFilterSensitivity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterCapabilityKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterScopeId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterScopeType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterRequestedAction {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterExecutionStateVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentApprovalRequestFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentApprovalRequestFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentApprovalRequestFilterInput {
+  and: [AgentApprovalRequestFilterInput!]
+  or: [AgentApprovalRequestFilterInput!]
+  not: [AgentApprovalRequestFilterInput!]
+  id: AgentApprovalRequestFilterId
+  stepKey: AgentApprovalRequestFilterStepKey
+  executionStateVersion: AgentApprovalRequestFilterExecutionStateVersion
+  requestedAction: AgentApprovalRequestFilterRequestedAction
+  reason: AgentApprovalRequestFilterReason
+  scopeType: AgentApprovalRequestFilterScopeType
+  scopeId: AgentApprovalRequestFilterScopeId
+  capabilityKey: AgentApprovalRequestFilterCapabilityKey
+  sensitivity: AgentApprovalRequestFilterSensitivity
+  externalWrite: AgentApprovalRequestFilterExternalWrite
+  state: AgentApprovalRequestFilterState
+  version: AgentApprovalRequestFilterVersion
+  expiresAt: AgentApprovalRequestFilterExpiresAt
+  resolutionReason: AgentApprovalRequestFilterResolutionReason
+  resolvedAt: AgentApprovalRequestFilterResolvedAt
+  insertedAt: AgentApprovalRequestFilterInsertedAt
+  updatedAt: AgentApprovalRequestFilterUpdatedAt
+  executionId: AgentApprovalRequestFilterExecutionId
+  authoritySnapshotId: AgentApprovalRequestFilterAuthoritySnapshotId
+  operationId: AgentApprovalRequestFilterOperationId
+  resolutionOperationId: AgentApprovalRequestFilterResolutionOperationId
+  resolvedByPrincipalId: AgentApprovalRequestFilterResolvedByPrincipalId
+  credentialId: AgentApprovalRequestFilterCredentialId
+  contextExpansionRequestId: AgentApprovalRequestFilterContextExpansionRequestId
+  organizationId: AgentApprovalRequestFilterOrganizationId
+  workspaceId: AgentApprovalRequestFilterWorkspaceId
+  execution: AgentExecutionFilterInput
+}
+
+input AgentApprovalRequestSortInput {
+  order: SortOrder
+  field: AgentApprovalRequestSortField!
+}
+
+type AgentApprovalRequest implements Node {
+  id: ID!
+  stepKey: String!
+  executionStateVersion: Int!
+  requestedAction: String!
+  reason: String!
+  scopeType: String!
+  scopeId: ID!
+  capabilityKey: String
+  sensitivity: String!
+  externalWrite: Boolean!
+  state: String!
+  version: Int!
+  expiresAt: DateTime!
+  resolutionReason: String
+  resolvedAt: DateTime
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  executionId: ID!
+  authoritySnapshotId: ID!
+  operationId: ID!
+  resolutionOperationId: ID
+  resolvedByPrincipalId: ID
+  credentialId: ID
+  contextExpansionRequestId: ID
+  organizationId: ID!
+  workspaceId: ID!
+  execution: AgentExecution!
+}
+
+enum AgentExecutionSortField {
+  ID
+  INVOCATION_MODE
+  ORIGIN
+  REQUESTED_OUTCOME
+  AUTONOMY_MODE
+  STATE
+  STATE_VERSION
+  CURRENT_STEP_KEY
+  LEASE_EXPIRES_AT
+  ATTEMPT_COUNT
+  FAILURE_CODE
+  STARTED_AT
+  COMPLETED_AT
+  CANCELLED_AT
+  INSERTED_AT
+  UPDATED_AT
+  DEFINITION_ID
+  ORGANIZATION_BINDING_ID
+  RUN_ID
+  GRAPH_ITEM_ID
+  AGENT_PRINCIPAL_ID
+  DELEGATOR_PRINCIPAL_ID
+  OPERATION_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":agent_execution connection"
+type AgentExecutionConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":agent_execution edges"
+  edges: [AgentExecutionEdge!]
+}
+
+":agent_execution edge"
+type AgentExecutionEdge {
+  "Cursor"
+  cursor: String!
+
+  ":agent_execution node"
+  node: AgentExecution!
+}
+
+input AgentExecutionFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterDelegatorPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterAgentPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterOrganizationBindingId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterDefinitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterCancelledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterCompletedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterFailureCode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterAttemptCount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentExecutionFilterLeaseExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input AgentExecutionFilterCurrentStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterStateVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input AgentExecutionFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterAutonomyMode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterRequestedOutcome {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterOrigin {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterInvocationMode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input AgentExecutionFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input AgentExecutionFilterInput {
+  and: [AgentExecutionFilterInput!]
+  or: [AgentExecutionFilterInput!]
+  not: [AgentExecutionFilterInput!]
+  id: AgentExecutionFilterId
+  invocationMode: AgentExecutionFilterInvocationMode
+  origin: AgentExecutionFilterOrigin
+  requestedOutcome: AgentExecutionFilterRequestedOutcome
+  autonomyMode: AgentExecutionFilterAutonomyMode
+  state: AgentExecutionFilterState
+  stateVersion: AgentExecutionFilterStateVersion
+  currentStepKey: AgentExecutionFilterCurrentStepKey
+  leaseExpiresAt: AgentExecutionFilterLeaseExpiresAt
+  attemptCount: AgentExecutionFilterAttemptCount
+  failureCode: AgentExecutionFilterFailureCode
+  startedAt: AgentExecutionFilterStartedAt
+  completedAt: AgentExecutionFilterCompletedAt
+  cancelledAt: AgentExecutionFilterCancelledAt
+  insertedAt: AgentExecutionFilterInsertedAt
+  updatedAt: AgentExecutionFilterUpdatedAt
+  definitionId: AgentExecutionFilterDefinitionId
+  organizationBindingId: AgentExecutionFilterOrganizationBindingId
+  runId: AgentExecutionFilterRunId
+  graphItemId: AgentExecutionFilterGraphItemId
+  agentPrincipalId: AgentExecutionFilterAgentPrincipalId
+  delegatorPrincipalId: AgentExecutionFilterDelegatorPrincipalId
+  operationId: AgentExecutionFilterOperationId
+  organizationId: AgentExecutionFilterOrganizationId
+  workspaceId: AgentExecutionFilterWorkspaceId
+  run: WorkRunFilterInput
+  graphItem: GraphItemFilterInput
+  approvalRequests: AgentApprovalRequestFilterInput
+  contextExpansionRequests: AgentContextExpansionRequestFilterInput
+}
+
+input AgentExecutionSortInput {
+  order: SortOrder
+  field: AgentExecutionSortField!
+}
+
+type AgentExecution implements Node {
+  id: ID!
+  invocationMode: String!
+  origin: String!
+  requestedOutcome: String!
+  autonomyMode: String!
+  state: String!
+  stateVersion: Int!
+  currentStepKey: String
+  leaseExpiresAt: DateTime
+  attemptCount: Int!
+  failureCode: String
+  startedAt: DateTime
+  completedAt: DateTime
+  cancelledAt: DateTime
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  definitionId: ID!
+  organizationBindingId: ID!
+  runId: ID!
+  graphItemId: ID!
+  agentPrincipalId: ID!
+  delegatorPrincipalId: ID
+  operationId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  run: WorkRun!
+  graphItem: GraphItem!
+  approvalRequests(
+    "How to sort the records in the response"
+    sort: [AgentApprovalRequestSortInput]
+
+    "A filter to limit the results"
+    filter: AgentApprovalRequestFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentApprovalRequestConnection!
+  contextExpansionRequests(
+    "How to sort the records in the response"
+    sort: [AgentContextExpansionRequestSortInput]
+
+    "A filter to limit the results"
+    filter: AgentContextExpansionRequestFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentContextExpansionRequestConnection!
+}
+
+enum ConversationMessageSortField {
+  ID
+  STEP_KEY
+  SOURCE
+  VISIBILITY
+  BODY
+  INSERTED_AT
+  CONVERSATION_ID
+  AUTHOR_PRINCIPAL_ID
+  OPERATION_ID
+  DOMAIN_ACTION_OPERATION_ID
+  CONTEXT_PACKAGE_ID
+  EXECUTION_ID
+  PROPOSED_GRAPH_CHANGE_ID
+}
+
+":conversation_message connection"
+type ConversationMessageConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":conversation_message edges"
+  edges: [ConversationMessageEdge!]
+}
+
+":conversation_message edge"
+type ConversationMessageEdge {
+  "Cursor"
+  cursor: String!
+
+  ":conversation_message node"
+  node: ConversationMessage!
+}
+
+input ConversationMessageFilterProposedGraphChangeId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterContextPackageId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterDomainActionOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterAuthorPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterConversationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ConversationMessageFilterBody {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationMessageFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationMessageFilterSource {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationMessageFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationMessageFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationMessageFilterInput {
+  and: [ConversationMessageFilterInput!]
+  or: [ConversationMessageFilterInput!]
+  not: [ConversationMessageFilterInput!]
+  id: ConversationMessageFilterId
+  stepKey: ConversationMessageFilterStepKey
+  source: ConversationMessageFilterSource
+  visibility: ConversationMessageFilterVisibility
+  body: ConversationMessageFilterBody
+  insertedAt: ConversationMessageFilterInsertedAt
+  conversationId: ConversationMessageFilterConversationId
+  authorPrincipalId: ConversationMessageFilterAuthorPrincipalId
+  operationId: ConversationMessageFilterOperationId
+  domainActionOperationId: ConversationMessageFilterDomainActionOperationId
+  contextPackageId: ConversationMessageFilterContextPackageId
+  executionId: ConversationMessageFilterExecutionId
+  proposedGraphChangeId: ConversationMessageFilterProposedGraphChangeId
+  conversation: ConversationFilterInput
+  execution: AgentExecutionFilterInput
+}
+
+input ConversationMessageSortInput {
+  order: SortOrder
+  field: ConversationMessageSortField!
+}
+
+type ConversationMessage implements Node {
+  id: ID!
+  stepKey: String
+  source: String!
+  visibility: String!
+  body: String!
+  insertedAt: DateTime!
+  conversationId: ID!
+  authorPrincipalId: ID
+  operationId: ID!
+  domainActionOperationId: ID
+  contextPackageId: ID
+  executionId: ID
+  proposedGraphChangeId: ID
+  conversation: Conversation!
+  execution: AgentExecution
+}
+
+enum ConversationSortField {
+  ID
+  PURPOSE
+  VISIBILITY
+  STATE
+  STATE_VERSION
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  RUN_ID
+  CREATED_BY_PRINCIPAL_ID
+  OPERATION_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":conversation connection"
+type ConversationConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":conversation edges"
+  edges: [ConversationEdge!]
+}
+
+":conversation edge"
+type ConversationEdge {
+  "Cursor"
+  cursor: String!
+
+  ":conversation node"
+  node: Conversation!
+}
+
+input ConversationFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterCreatedByPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ConversationFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ConversationFilterStateVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input ConversationFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationFilterPurpose {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ConversationFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ConversationFilterInput {
+  and: [ConversationFilterInput!]
+  or: [ConversationFilterInput!]
+  not: [ConversationFilterInput!]
+  id: ConversationFilterId
+  purpose: ConversationFilterPurpose
+  visibility: ConversationFilterVisibility
+  state: ConversationFilterState
+  stateVersion: ConversationFilterStateVersion
+  insertedAt: ConversationFilterInsertedAt
+  updatedAt: ConversationFilterUpdatedAt
+  graphItemId: ConversationFilterGraphItemId
+  runId: ConversationFilterRunId
+  createdByPrincipalId: ConversationFilterCreatedByPrincipalId
+  operationId: ConversationFilterOperationId
+  organizationId: ConversationFilterOrganizationId
+  workspaceId: ConversationFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  run: WorkRunFilterInput
+  messages: ConversationMessageFilterInput
+  agentExecutions: AgentExecutionFilterInput
+}
+
+input ConversationSortInput {
+  order: SortOrder
+  field: ConversationSortField!
+}
+
+type Conversation implements Node {
+  id: ID!
+  purpose: String!
+  visibility: String!
+  state: String!
+  stateVersion: Int!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  runId: ID!
+  createdByPrincipalId: ID!
+  operationId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItem: GraphItem!
+  run: WorkRun!
+  messages(
+    "How to sort the records in the response"
+    sort: [ConversationMessageSortInput]
+
+    "A filter to limit the results"
+    filter: ConversationMessageFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ConversationMessageConnection!
+  agentExecutions(
+    "How to sort the records in the response"
+    sort: [AgentExecutionSortInput]
+
+    "A filter to limit the results"
+    filter: AgentExecutionFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentExecutionConnection!
+}
+
 interface Node {
   "The ID of the object."
   id: ID!
@@ -4387,6 +6477,129 @@ type RootQueryType {
   operatorRunState(id: ID!): OperatorRunState!
   operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
   node(id: ID!): Node
+  getConversation(
+    "The id of the record"
+    id: ID!
+  ): Conversation
+  listConversations(
+    "How to sort the records in the response"
+    sort: [ConversationSortInput]
+
+    "A filter to limit the results"
+    filter: ConversationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ConversationConnection
+  conversationForRunGraphItem(
+    "A filter to limit the results"
+    filter: ConversationFilterInput
+
+    runId: ID!
+
+    graphItemId: ID!
+  ): Conversation
+  getConversationMessage(
+    "The id of the record"
+    id: ID!
+  ): ConversationMessage
+  listConversationMessages(
+    "How to sort the records in the response"
+    sort: [ConversationMessageSortInput]
+
+    "A filter to limit the results"
+    filter: ConversationMessageFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ConversationMessageConnection
+  getAgentExecution(
+    "The id of the record"
+    id: ID!
+  ): AgentExecution
+  listAgentExecutions(
+    "How to sort the records in the response"
+    sort: [AgentExecutionSortInput]
+
+    "A filter to limit the results"
+    filter: AgentExecutionFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentExecutionConnection
+  getAgentApprovalRequest(
+    "The id of the record"
+    id: ID!
+  ): AgentApprovalRequest
+  listAgentApprovalRequests(
+    "How to sort the records in the response"
+    sort: [AgentApprovalRequestSortInput]
+
+    "A filter to limit the results"
+    filter: AgentApprovalRequestFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentApprovalRequestConnection
+  getAgentContextExpansionRequest(
+    "The id of the record"
+    id: ID!
+  ): AgentContextExpansionRequest
+  listAgentContextExpansionRequests(
+    "How to sort the records in the response"
+    sort: [AgentContextExpansionRequestSortInput]
+
+    "A filter to limit the results"
+    filter: AgentContextExpansionRequestFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): AgentContextExpansionRequestConnection
   getWorkRun(
     "The id of the record"
     id: ID!
@@ -4798,14 +7011,14 @@ type StartRunConversationPayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  conversation: OperatorRunConversationRecord!
+  conversation: Conversation!
 }
 
 type AppendConversationMessagePayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  message: OperatorRunConversationMessage!
+  message: ConversationMessage!
 }
 
 input ResolveAgentApprovalInput {
@@ -4824,25 +7037,11 @@ input ResolveAgentContextExpansionInput {
   resolutionReason: String!
 }
 
-type OperatorCommandAgentRequest {
-  id: ID!
-  state: String!
-  version: Int!
-  resolutionOperationId: ID
-}
-
-type OperatorCommandAgentExecution {
-  id: ID!
-  state: String!
-  stateVersion: Int!
-  currentStepKey: String
-}
-
 type InvokeAgentPayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  execution: OperatorCommandAgentExecution!
+  execution: AgentExecution!
   contextPackageId: ID!
 }
 
@@ -4850,23 +7049,23 @@ type CancelAgentExecutionPayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  execution: OperatorCommandAgentExecution!
+  execution: AgentExecution!
 }
 
 type ResolveAgentApprovalPayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  request: OperatorCommandAgentRequest!
-  execution: OperatorCommandAgentExecution!
+  request: AgentApprovalRequest!
+  execution: AgentExecution!
 }
 
 type ResolveAgentContextExpansionPayload {
   command: String!
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
-  request: OperatorCommandAgentRequest!
-  execution: OperatorCommandAgentExecution!
+  request: AgentContextExpansionRequest!
+  execution: AgentExecution!
   contextPackageId: ID
 }
 
@@ -5447,32 +7646,8 @@ type OperatorRunConversationReferencedContext {
   entries: [OperatorRunConversationContextEntry!]!
 }
 
-type OperatorRunConversationRecord {
-  id: ID!
-  runId: ID!
-  graphItemId: ID!
-  createdByPrincipalId: ID!
-  operationId: ID!
-  purpose: String!
-  visibility: String!
-  state: String!
-  stateVersion: Int!
-  insertedAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type OperatorRunConversationMessage {
-  id: ID!
-  source: String!
-  body: String!
-  visibility: String!
-  authorPrincipalId: ID
-  executionId: ID
-  contextPackageId: ID
-  operationId: ID!
-  proposedGraphChangeId: ID
-  domainActionOperationId: ID
-  insertedAt: DateTime!
+type OperatorRunConversationMessageContext {
+  messageId: ID!
   referencedContext: OperatorRunConversationReferencedContext
 }
 
@@ -5481,67 +7656,7 @@ type OperatorRunConversation {
   sourceWatermark: ID!
   allowedNextActions: [String!]!
   commandAffordances: [OperatorCommandAffordance!]!
-  conversation: OperatorRunConversationRecord
-  messages: [OperatorRunConversationMessage!]!
-  executions: [OperatorRunConversationExecution!]!
-  approvalRequests: [OperatorRunConversationApprovalRequest!]!
-  contextExpansionRequests: [OperatorRunConversationContextExpansionRequest!]!
-}
-
-type OperatorRunConversationExecution {
-  id: ID!
-  bindingId: ID!
-  state: String!
-  stateVersion: Int!
-  currentStepKey: String
-  attemptCount: Int!
-  failureCode: String
-  requestedOutcome: String!
-  invocationMode: String!
-  origin: String!
-  autonomyMode: String!
-  insertedAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type OperatorRunConversationApprovalRequest {
-  id: ID!
-  executionId: ID!
-  stepKey: String!
-  requestedAction: String!
-  reason: String!
-  scopeType: String!
-  scopeId: ID!
-  capabilityKey: String
-  sensitivity: String!
-  externalWrite: Boolean!
-  state: String!
-  version: Int!
-  expiresAt: DateTime!
-  resolutionReason: String
-  insertedAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type OperatorRunConversationContextExpansionRequest {
-  id: ID!
-  executionId: ID!
-  stepKey: String!
-  targetResourceType: String!
-  targetResourceId: ID!
-  targetScopeType: String!
-  targetScopeId: ID!
-  accessMode: String!
-  capabilityKey: String
-  reason: String!
-  sensitivity: String!
-  expectedDurationSeconds: Int!
-  state: String!
-  version: Int!
-  expiresAt: DateTime!
-  resolutionReason: String
-  insertedAt: DateTime!
-  updatedAt: DateTime!
+  messageContexts: [OperatorRunConversationMessageContext!]!
 }
 
 type OperatorRunChildSummary {

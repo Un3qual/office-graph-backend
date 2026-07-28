@@ -431,19 +431,8 @@ export const OperatorRunConversationQuery = graphql`
         inputDefaults { field value values }
         targetIds { type id }
       }
-      conversation {
-        id
-        runId
-        graphItemId
-        state
-        stateVersion
-      }
-      messages {
-        id
-        source
-        body
-        executionId
-        insertedAt
+      messageContexts {
+        messageId
         referencedContext {
           visibility
           packageId
@@ -451,54 +440,88 @@ export const OperatorRunConversationQuery = graphql`
           entries { posture rationaleCode }
         }
       }
-      executions {
-        id
-        bindingId
-        state
-        stateVersion
-        currentStepKey
-        attemptCount
-        failureCode
-        requestedOutcome
-        invocationMode
-        origin
-        autonomyMode
-        insertedAt
-        updatedAt
+    }
+    conversation: conversationForRunGraphItem(runId: $runId, graphItemId: $graphItemId) {
+      id
+      run { id }
+      graphItem { id }
+      state
+      stateVersion
+      messages(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
+        edges {
+          node {
+            id
+            source
+            body
+            insertedAt
+            execution { id }
+          }
+        }
       }
-      approvalRequests {
-        id
-        executionId
-        stepKey
-        requestedAction
-        reason
-        scopeType
-        scopeId
-        capabilityKey
-        sensitivity
-        externalWrite
-        state
-        version
-        expiresAt
-        resolutionReason
-      }
-      contextExpansionRequests {
-        id
-        executionId
-        stepKey
-        targetResourceType
-        targetResourceId
-        targetScopeType
-        targetScopeId
-        accessMode
-        capabilityKey
-        reason
-        sensitivity
-        expectedDurationSeconds
-        state
-        version
-        expiresAt
-        resolutionReason
+      agentExecutions(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
+        edges {
+          node {
+            id
+            state
+            stateVersion
+            currentStepKey
+            attemptCount
+            failureCode
+            requestedOutcome
+            invocationMode
+            origin
+            autonomyMode
+            insertedAt
+            updatedAt
+            approvalRequests(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
+              edges {
+                node {
+                  id
+                  execution { id }
+                  stepKey
+                  requestedAction
+                  reason
+                  scopeType
+                  scopeId
+                  capabilityKey
+                  sensitivity
+                  externalWrite
+                  state
+                  version
+                  expiresAt
+                  resolutionReason
+                  insertedAt
+                }
+              }
+            }
+            contextExpansionRequests(
+              first: 100
+              sort: [{ field: INSERTED_AT, order: DESC }]
+            ) {
+              edges {
+                node {
+                  id
+                  execution { id }
+                  stepKey
+                  targetResourceType
+                  targetResourceId
+                  targetScopeType
+                  targetScopeId
+                  accessMode
+                  capabilityKey
+                  reason
+                  sensitivity
+                  expectedDurationSeconds
+                  state
+                  version
+                  expiresAt
+                  resolutionReason
+                  insertedAt
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

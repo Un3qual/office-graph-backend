@@ -11,7 +11,9 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
     domains: [
       OfficeGraph.WorkGraph.Domain,
       OfficeGraph.WorkPackets.Domain,
-      OfficeGraph.Runs.Domain
+      OfficeGraph.Runs.Domain,
+      OfficeGraph.AgentRuntime.Domain,
+      OfficeGraph.NodeConversations.Domain
     ]
 
   alias OfficeGraphWeb.GraphQL.Common.NodeResolver

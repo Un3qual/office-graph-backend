@@ -5,7 +5,9 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
 
   use Ash.Resource,
     domain: OfficeGraph.AgentRuntime.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "agent_approval_requests"
@@ -55,7 +57,8 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -112,6 +115,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
       source_attribute :execution_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :authority_snapshot, OfficeGraph.AgentRuntime.AuthoritySnapshot do
@@ -159,5 +163,26 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
       allow_nil? false
       attribute_public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :agent_approval_request
+  end
+
+  json_api do
+    type "agent_approval_request"
   end
 end

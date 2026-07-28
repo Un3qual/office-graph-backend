@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<5f74db3baa02df231a510ea574303dde>>
+ * @generated SignedSource<<de47aeb9a0105bb6e80df6d503e0d9bf>>
  * @lightSyntaxTransform
  */
 
@@ -103,7 +103,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationMessage",
+        "concreteType": "ConversationMessage",
         "kind": "LinkedField",
         "name": "message",
         "plural": false,

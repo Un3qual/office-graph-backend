@@ -3,7 +3,9 @@ defmodule OfficeGraph.NodeConversations.Conversation do
 
   use Ash.Resource,
     domain: OfficeGraph.NodeConversations.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "conversations"
@@ -38,7 +40,20 @@ defmodule OfficeGraph.NodeConversations.Conversation do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
+    end
+
+    read :read_for_run_graph_item do
+      public? true
+
+      argument :run_id, :uuid, allow_nil?: false, public?: true
+      argument :graph_item_id, :uuid, allow_nil?: false, public?: true
+
+      filter expr(
+               run_id == ^arg(:run_id) and graph_item_id == ^arg(:graph_item_id) and
+                 purpose == "agent_runtime"
+             )
     end
 
     create :create do
@@ -86,12 +101,14 @@ defmodule OfficeGraph.NodeConversations.Conversation do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :created_by_principal, OfficeGraph.Identity.Principal do
@@ -108,6 +125,14 @@ defmodule OfficeGraph.NodeConversations.Conversation do
 
     has_many :messages, OfficeGraph.NodeConversations.ConversationMessage do
       destination_attribute :conversation_id
+      public? true
+    end
+
+    has_many :agent_executions, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :run_id
+      destination_attribute :run_id
+      filter expr(run_id == parent(run_id) and graph_item_id == parent(graph_item_id))
+      public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
@@ -123,5 +148,28 @@ defmodule OfficeGraph.NodeConversations.Conversation do
       allow_nil? false
       attribute_public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :conversation
+
+    paginate_relationship_with(messages: :relay, agent_executions: :relay)
+  end
+
+  json_api do
+    type "conversation"
   end
 end

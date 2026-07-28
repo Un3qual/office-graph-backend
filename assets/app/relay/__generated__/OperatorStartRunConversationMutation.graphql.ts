@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<b5daca2c53f9f2b15a3228a1b5ed096f>>
+ * @generated SignedSource<<f24cccdf2a5a8aaf09e04f5ddd2a6b18>>
  * @lightSyntaxTransform
  */
 
@@ -104,7 +104,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationRecord",
+        "concreteType": "Conversation",
         "kind": "LinkedField",
         "name": "conversation",
         "plural": false,

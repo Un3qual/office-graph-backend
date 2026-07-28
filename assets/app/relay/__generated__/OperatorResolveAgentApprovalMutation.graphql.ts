@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<36eb920444f1267cde1a61cc5472c108>>
+ * @generated SignedSource<<a5aec43a86dfe768bfae75a6d5e78b3c>>
  * @lightSyntaxTransform
  */
 
@@ -117,7 +117,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandAgentRequest",
+        "concreteType": "AgentApprovalRequest",
         "kind": "LinkedField",
         "name": "request",
         "plural": false,
@@ -137,7 +137,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandAgentExecution",
+        "concreteType": "AgentExecution",
         "kind": "LinkedField",
         "name": "execution",
         "plural": false,

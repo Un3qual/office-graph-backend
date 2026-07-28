@@ -440,11 +440,11 @@ function agentNetwork({
           }
         : appendScopedSurface;
       return {
-        data: {
-          operatorRunConversation: noConversation
+        data: agentQueryResponse(
+          noConversation
             ? agentSurfaceWithoutConversation(projectedSurface, variables)
             : projectedSurface,
-        },
+        ),
       };
     },
     OperatorInvokeAgentMutation: () =>
@@ -500,6 +500,66 @@ function agentSurfaceWithoutConversation(
     ],
     conversation: null,
     messages: [],
+  };
+}
+
+type AgentSurface = Omit<ReturnType<typeof agentSurface>, "conversation"> & {
+  conversation: ReturnType<typeof agentSurface>["conversation"] | null;
+};
+
+function agentQueryResponse(surface: AgentSurface) {
+  return {
+    operatorRunConversation: {
+      type: surface.type,
+      sourceWatermark: surface.sourceWatermark,
+      allowedNextActions: surface.allowedNextActions,
+      commandAffordances: surface.commandAffordances,
+      messageContexts: surface.messages.map((message) => ({
+        messageId: message.id,
+        referencedContext: message.referencedContext,
+      })),
+    },
+    conversation: surface.conversation
+      ? {
+          id: surface.conversation.id,
+          run: { id: surface.conversation.runId },
+          graphItem: { id: surface.conversation.graphItemId },
+          state: surface.conversation.state,
+          stateVersion: surface.conversation.stateVersion,
+          messages: {
+            edges: surface.messages.map((message) => ({
+              node: {
+                id: message.id,
+                source: message.source,
+                body: message.body,
+                insertedAt: message.insertedAt,
+                execution: message.executionId ? { id: message.executionId } : null,
+              },
+            })),
+          },
+          agentExecutions: {
+            edges: surface.executions.map((execution) => ({
+              node: {
+                ...execution,
+                approvalRequests: {
+                  edges: surface.approvalRequests
+                    .filter((request) => request.executionId === execution.id)
+                    .map((request) => ({
+                      node: { ...request, execution: { id: request.executionId } },
+                    })),
+                },
+                contextExpansionRequests: {
+                  edges: surface.contextExpansionRequests
+                    .filter((request) => request.executionId === execution.id)
+                    .map((request) => ({
+                      node: { ...request, execution: { id: request.executionId } },
+                    })),
+                },
+              },
+            })),
+          },
+        }
+      : null,
   };
 }
 

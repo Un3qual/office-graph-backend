@@ -36,14 +36,14 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :conversation, non_null(:operator_run_conversation_record)
+    field :conversation, non_null(:conversation)
   end
 
   object :append_conversation_message_payload do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :message, non_null(:operator_run_conversation_message)
+    field :message, non_null(:conversation_message)
   end
 
   input_object :resolve_agent_approval_input do
@@ -62,25 +62,11 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :resolution_reason, non_null(:string)
   end
 
-  object :operator_command_agent_request do
-    field :id, non_null(:id)
-    field :state, non_null(:string)
-    field :version, non_null(:integer)
-    field :resolution_operation_id, :id
-  end
-
-  object :operator_command_agent_execution do
-    field :id, non_null(:id)
-    field :state, non_null(:string)
-    field :state_version, non_null(:integer)
-    field :current_step_key, :string
-  end
-
   object :invoke_agent_payload do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :execution, non_null(:operator_command_agent_execution)
+    field :execution, non_null(:agent_execution)
     field :context_package_id, non_null(:id)
   end
 
@@ -88,23 +74,23 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :execution, non_null(:operator_command_agent_execution)
+    field :execution, non_null(:agent_execution)
   end
 
   object :resolve_agent_approval_payload do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :request, non_null(:operator_command_agent_request)
-    field :execution, non_null(:operator_command_agent_execution)
+    field :request, non_null(:agent_approval_request)
+    field :execution, non_null(:agent_execution)
   end
 
   object :resolve_agent_context_expansion_payload do
     field :command, non_null(:string)
     field :operation_id, non_null(:id)
     field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :request, non_null(:operator_command_agent_request)
-    field :execution, non_null(:operator_command_agent_execution)
+    field :request, non_null(:agent_context_expansion_request)
+    field :execution, non_null(:agent_execution)
     field :context_package_id, :id
   end
 

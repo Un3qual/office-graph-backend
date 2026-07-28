@@ -8,7 +8,9 @@ defmodule OfficeGraphWeb.GraphQL.Common.NodeResolver do
   @domains [
     OfficeGraph.WorkGraph.Domain,
     OfficeGraph.WorkPackets.Domain,
-    OfficeGraph.Runs.Domain
+    OfficeGraph.Runs.Domain,
+    OfficeGraph.AgentRuntime.Domain,
+    OfficeGraph.NodeConversations.Domain
   ]
 
   @custom_node_types [:graph_relationship_view, :operator_workflow_item]

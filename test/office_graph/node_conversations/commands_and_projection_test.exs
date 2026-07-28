@@ -16,6 +16,8 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
 
+  require Ash.Query
+
   test "opens one run-scoped conversation and replays the originating command" do
     context = AgentRuntimeSupport.invocation_fixture()
     attrs = conversation_attrs(context)
@@ -250,23 +252,12 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
                context.graph_item_id
              )
 
-    assert projection.conversation.id == conversation.id
-    assert Enum.map(projection.messages, & &1.source) == ["agent", "human"]
+    projected_agent =
+      Enum.find(projection.message_contexts, &(&1.message_id == agent_message.id))
 
-    projected_agent = Enum.find(projection.messages, &(&1.source == "agent"))
-    assert projected_agent.author_principal_id == context.agent_principal.id
-    assert projected_agent.execution_id == invoked.execution.id
-    assert projected_agent.context_package_id == invoked.context_package.id
     assert projected_agent.referenced_context.visibility == "visible"
     assert projected_agent.referenced_context.package_id == invoked.context_package.id
     assert projected_agent.referenced_context.entries != []
-
-    assert [projected_execution] = projection.executions
-    assert projected_execution.id == invoked.execution.id
-    assert projected_execution.state == "queued"
-    assert projected_execution.requested_outcome == invoked.execution.requested_outcome
-    assert projection.approval_requests == []
-    assert projection.context_expansion_requests == []
 
     other_context = AgentRuntimeSupport.invocation_fixture()
     other_invoked = AgentRuntimeSupport.invoke_human(other_context)
@@ -283,7 +274,9 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
                context.graph_item_id
              )
 
-    projected_agent = Enum.find(redacted_projection.messages, &(&1.source == "agent"))
+    projected_agent =
+      Enum.find(redacted_projection.message_contexts, &(&1.message_id == agent_message.id))
+
     assert projected_agent.referenced_context == %{visibility: "redacted"}
   end
 
@@ -309,10 +302,11 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
                context.graph_item_id
              )
 
-    assert [%{id: execution_id, state: "waiting_approval"}] = projection.executions
-    assert execution_id == invoked.execution.id
+    request =
+      ApprovalRequest
+      |> Ash.Query.filter(execution_id == ^invoked.execution.id)
+      |> Ash.read_one!(actor: context.session)
 
-    assert [request] = projection.approval_requests
     assert request.execution_id == invoked.execution.id
     assert request.step_key == "model:review"
     assert request.requested_action == "model.generate"
@@ -322,6 +316,12 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     assert is_binary(request.scope_type)
     assert is_binary(request.scope_id)
     assert %DateTime{} = request.expires_at
+
+    approval_affordance =
+      Enum.find(projection.command_affordances, &(&1.identity == "resolve_agent_approval"))
+
+    assert %{state: "enabled"} = approval_affordance
+    assert %{type: "agent_approval_request", id: request.id} in approval_affordance.target_ids
   end
 
   test "projects the latest one hundred messages in chronological order" do
@@ -329,33 +329,40 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     conversation = start_conversation!(context)
     base_time = ~U[2026-01-01 00:00:00.000000Z]
 
-    for index <- 1..101 do
-      attrs = %{
-        conversation_id: conversation.id,
-        body: "Bounded message #{index}",
-        contribution_kind: "comment",
-        proposed_graph_change_id: nil,
-        domain_action_operation_id: nil
-      }
+    messages =
+      for index <- 1..101 do
+        attrs = %{
+          conversation_id: conversation.id,
+          body: "Bounded message #{index}",
+          contribution_kind: "comment",
+          proposed_graph_change_id: nil,
+          domain_action_operation_id: nil
+        }
 
-      operation =
-        command!(context.session, :conversation_message_create, "bounded-message-#{index}", attrs)
+        operation =
+          command!(
+            context.session,
+            :conversation_message_create,
+            "bounded-message-#{index}",
+            attrs
+          )
 
-      assert {:ok, message} =
-               NodeConversations.append_human_message(context.session, operation, attrs)
+        assert {:ok, message} =
+                 NodeConversations.append_human_message(context.session, operation, attrs)
 
-      Repo.query!(
-        "UPDATE conversation_messages SET inserted_at = $1 WHERE id = $2",
-        [DateTime.add(base_time, index, :second), Ecto.UUID.dump!(message.id)]
-      )
-    end
+        Repo.query!(
+          "UPDATE conversation_messages SET inserted_at = $1 WHERE id = $2",
+          [DateTime.add(base_time, index, :second), Ecto.UUID.dump!(message.id)]
+        )
+
+        message
+      end
 
     assert {:ok, projection} =
              NodeConversations.project(context.session, context.run.id, context.graph_item_id)
 
-    assert length(projection.messages) == 100
-    assert hd(projection.messages).body == "Bounded message 2"
-    assert List.last(projection.messages).body == "Bounded message 101"
+    assert Enum.map(projection.message_contexts, & &1.message_id) ==
+             messages |> Enum.drop(1) |> Enum.map(& &1.id)
   end
 
   test "keeps active executions inside the bounded agent history" do
@@ -369,9 +376,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     assert {:ok, projection} =
              NodeConversations.project(context.session, context.run.id, context.graph_item_id)
-
-    assert length(projection.executions) == 100
-    assert Enum.any?(projection.executions, &(&1.id == current.id and &1.state == "running"))
 
     cancel_affordance =
       Enum.find(projection.command_affordances, &(&1.identity == "cancel_agent_execution"))
@@ -418,13 +422,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     assert {:ok, projection} =
              NodeConversations.project(context.session, context.run.id, context.graph_item_id)
-
-    assert length(projection.approval_requests) == 100
-    assert Enum.any?(projection.approval_requests, &(&1.id == current_approval.id))
-    assert Enum.any?(projection.approval_requests, &(&1.id == expired_approval.id))
-    assert length(projection.context_expansion_requests) == 100
-    assert Enum.any?(projection.context_expansion_requests, &(&1.id == current_expansion.id))
-    assert Enum.any?(projection.context_expansion_requests, &(&1.id == expired_expansion.id))
 
     approval_affordance =
       Enum.find(projection.command_affordances, &(&1.identity == "resolve_agent_approval"))

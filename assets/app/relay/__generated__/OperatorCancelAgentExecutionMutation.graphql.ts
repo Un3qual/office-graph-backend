@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<ed63d31024634c6b89467f3eb7857b44>>
+ * @generated SignedSource<<5d45b010b7bde9bb4c94dd1eed8da8ca>>
  * @lightSyntaxTransform
  */
 
@@ -103,7 +103,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandAgentExecution",
+        "concreteType": "AgentExecution",
         "kind": "LinkedField",
         "name": "execution",
         "plural": false,

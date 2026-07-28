@@ -5,7 +5,9 @@ defmodule OfficeGraphWeb.JsonApi.Router do
     domains: [
       OfficeGraph.WorkGraph.Domain,
       OfficeGraph.WorkPackets.Domain,
-      OfficeGraph.Runs.Domain
+      OfficeGraph.Runs.Domain,
+      OfficeGraph.AgentRuntime.Domain,
+      OfficeGraph.NodeConversations.Domain
     ],
     prefix: "/api/v1"
 end

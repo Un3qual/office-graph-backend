@@ -5,7 +5,9 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
 
   use Ash.Resource,
     domain: OfficeGraph.AgentRuntime.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "agent_context_expansion_requests"
@@ -63,7 +65,8 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -121,6 +124,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       source_attribute :execution_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :current_context_package, OfficeGraph.AgentRuntime.ContextPackage do
@@ -164,5 +168,26 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       allow_nil? false
       attribute_public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :agent_context_expansion_request
+  end
+
+  json_api do
+    type "agent_context_expansion_request"
   end
 end

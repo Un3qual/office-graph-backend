@@ -53,11 +53,19 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     assert payload["execution"]["state"] == "queued"
     assert is_binary(payload["contextPackageId"])
 
+    raw_execution_id =
+      payload["affectedIds"]
+      |> Enum.find(&(&1["type"] == "agent_execution"))
+      |> Map.fetch!("id")
+
+    assert {:ok, %{type: :agent_execution, id: ^raw_execution_id}} =
+             AshGraphql.Resource.decode_relay_id(payload["execution"]["id"])
+
     cancelled =
       conn
       |> post(~p"/api/v1/commands/cancel-agent-execution", %{
         idempotency_key: "json-cancel-agent-#{context.suffix}",
-        execution_id: payload["execution"]["id"],
+        execution_id: raw_execution_id,
         expected_state_version: payload["execution"]["stateVersion"]
       })
       |> json_response(200)

@@ -107,6 +107,14 @@ relationships, calculations, aggregates, or accepted typed projection actions.
   or redacts endpoints without exposing the underlying GraphRelationship
   resource as an unrestricted generated read
 
+#### Scenario: Run conversation resources are read
+- **WHEN** an authorized client reads a run conversation, its messages, agent
+  executions, approval requests, or context-expansion requests
+- **THEN** AshGraphql MUST return generated Relay resource nodes and
+  connections, AshJsonApi MUST expose generated resource and related routes,
+  and the mixed operator projection MUST retain only command affordances,
+  source watermarking, and independently redacted message-context facts
+
 ## MODIFIED Requirements
 
 ### Requirement: Manual API Migration Ledger

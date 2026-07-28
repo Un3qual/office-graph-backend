@@ -63,9 +63,7 @@ export type OperatorRunState = OperatorRunStateFragment$data & {
   evidenceItems: Array<OperatorRunConnectionNode<OperatorRunResource["evidenceItems"]>>;
   verificationResults: Array<OperatorRunConnectionNode<OperatorRunResource["verificationResults"]>>;
 };
-export type OperatorRunConversation = NonNullable<
-  OperatorRunConversationOperation["response"]["operatorRunConversation"]
->;
+export type OperatorRunConversation = ReturnType<typeof runConversationFromRelay>;
 export type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
@@ -146,11 +144,63 @@ export function useOperatorRunConversation(runId: string, graphItemId: string, f
     { fetchKey, fetchPolicy: "network-only" },
   );
 
-  if (!data.operatorRunConversation) {
-    throw new Error("The GraphQL operator run conversation projection was empty.");
-  }
+  return runConversationFromRelay(data);
+}
 
-  return data.operatorRunConversation;
+function runConversationFromRelay(data: OperatorRunConversationOperation["response"]) {
+  const projection = data.operatorRunConversation;
+  const contextByMessageId = new Map(
+    projection.messageContexts.map((context) => [context.messageId, context.referencedContext]),
+  );
+  const conversation = data.conversation;
+  const executions = conversation ? connectionNodes(conversation.agentExecutions).reverse() : [];
+
+  return {
+    ...projection,
+    conversation: conversation
+      ? {
+          id: conversation.id,
+          runId: conversation.run.id,
+          graphItemId: conversation.graphItem.id,
+          state: conversation.state,
+          stateVersion: conversation.stateVersion,
+        }
+      : null,
+    messages: conversation
+      ? connectionNodes(conversation.messages)
+          .reverse()
+          .map((message) => ({
+            id: message.id,
+            source: message.source,
+            body: message.body,
+            executionId: message.execution?.id ?? null,
+            insertedAt: message.insertedAt,
+            referencedContext: contextByMessageId.get(message.id) ?? null,
+          }))
+      : [],
+    executions,
+    approvalRequests: executions
+      .flatMap((execution) => connectionNodes(execution.approvalRequests))
+      .sort(compareInsertedAt)
+      .map((request) => ({ ...request, executionId: request.execution.id })),
+    contextExpansionRequests: executions
+      .flatMap((execution) => connectionNodes(execution.contextExpansionRequests))
+      .sort(compareInsertedAt)
+      .map((request) => ({ ...request, executionId: request.execution.id })),
+  };
+}
+
+function connectionNodes<T>(connection: {
+  readonly edges?: ReadonlyArray<{ readonly node: T }> | null;
+}): T[] {
+  return (connection.edges ?? []).map((edge) => edge.node);
+}
+
+function compareInsertedAt(
+  left: { readonly insertedAt: string },
+  right: { readonly insertedAt: string },
+) {
+  return left.insertedAt.localeCompare(right.insertedAt);
 }
 
 function workflowConnectionFromRelay(

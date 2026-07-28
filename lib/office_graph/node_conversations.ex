@@ -109,13 +109,17 @@ defmodule OfficeGraph.NodeConversations do
 
       {:ok,
        agent_state
-       |> Map.drop([:invocation_target])
+       |> Map.drop([
+         :invocation_target,
+         :executions,
+         :approval_requests,
+         :context_expansion_requests
+       ])
        |> Map.merge(%{
          type: "operator_run_conversation",
          allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
          command_affordances: command_affordances,
-         conversation: project_conversation(conversation),
-         messages: Enum.map(messages, &project_message(&1, referenced_context))
+         message_contexts: Enum.map(messages, &project_message_context(&1, referenced_context))
        })
        |> Map.put(:source_watermark, source_watermark(conversation, messages, agent_state))}
     end
@@ -477,43 +481,12 @@ defmodule OfficeGraph.NodeConversations do
     end)
   end
 
-  defp project_conversation(nil), do: nil
-
-  defp project_conversation(conversation) do
-    Map.take(conversation, [
-      :id,
-      :run_id,
-      :graph_item_id,
-      :created_by_principal_id,
-      :operation_id,
-      :purpose,
-      :visibility,
-      :state,
-      :state_version,
-      :inserted_at,
-      :updated_at
-    ])
-  end
-
-  defp project_message(message, referenced_context) do
-    message
-    |> Map.take([
-      :id,
-      :source,
-      :body,
-      :visibility,
-      :author_principal_id,
-      :execution_id,
-      :context_package_id,
-      :operation_id,
-      :proposed_graph_change_id,
-      :domain_action_operation_id,
-      :inserted_at
-    ])
-    |> Map.put(
-      :referenced_context,
-      referenced_context_projection(message.context_package_id, referenced_context)
-    )
+  defp project_message_context(message, referenced_context) do
+    %{
+      message_id: message.id,
+      referenced_context:
+        referenced_context_projection(message.context_package_id, referenced_context)
+    }
   end
 
   defp referenced_context_projection(nil, _referenced_context), do: nil

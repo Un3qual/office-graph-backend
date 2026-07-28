@@ -25,7 +25,7 @@ The terminal classes are:
 | Surface | Current owner | Terminal class | Target |
 |---|---|---|---|
 | `graphql.query.health` | `OfficeGraphWeb.GraphQL.Common.Queries` | remove | Keep the HTTP health boundary; do not expose an unrelated GraphQL compatibility field. |
-| `graphql.query.operator_run_conversation` | `OfficeGraph.NodeConversations` | generated resource | Generated conversation read plus generated conversation, message, execution, approval, and context relationships. |
+| `graphql.query.operator_run_conversation` | `OfficeGraph.NodeConversations` | generated resource | `conversationForRunGraphItem` and generated conversation, message, execution, approval, and context relationships own resource data; the existing name retains only command affordances, source watermarking, and independently redacted message-context facts until the projection cleanup milestone. |
 | `graphql.query.github_integration_health` | `OfficeGraph.GitHubIntegration` | mixed projection | Capability-owned typed health projection action. |
 | `graphql.query.graph_relationships` | `OfficeGraph.WorkGraph` | mixed projection | Redacted relationship-view projection; stable returned views remain Relay nodes. |
 | `graphql.query.operator_workflow_items` | `OfficeGraph.Projections` | mixed projection | Capability-owned workflow projection connection. |

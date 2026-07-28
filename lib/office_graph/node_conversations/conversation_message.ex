@@ -3,7 +3,9 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
   use Ash.Resource,
     domain: OfficeGraph.NodeConversations.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "conversation_messages"
@@ -25,14 +27,15 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
     attribute :source, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
     attribute :body, :string, allow_nil?: false, public?: true
-    attribute :body_hash, :string, allow_nil?: false, public?: true
+    attribute :body_hash, :string, allow_nil?: false
     create_timestamp :inserted_at, public?: true
   end
 
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -75,6 +78,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       source_attribute :conversation_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :author_principal, OfficeGraph.Identity.Principal do
@@ -103,6 +107,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       source_attribute :execution_id
       destination_attribute :id
       attribute_public? true
+      public? true
     end
 
     belongs_to :proposed_graph_change, OfficeGraph.ProposedChanges.ProposedGraphChange do
@@ -110,5 +115,26 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       destination_attribute :id
       attribute_public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     conversation.organization_id == ^actor(:organization_id) and
+                       conversation.workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :conversation_message
+  end
+
+  json_api do
+    type "conversation_message"
   end
 end

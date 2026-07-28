@@ -15,8 +15,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
       resolve(fn args, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, run_id} <- normalize_work_run_id(args.run_id),
+             {:ok, graph_item_id} <- normalize_graph_item_id(args.graph_item_id),
              {:ok, projection} <-
-               NodeConversations.project(session_context, args.run_id, args.graph_item_id) do
+               NodeConversations.project(session_context, run_id, graph_item_id) do
           {:ok, projection}
         else
           error -> Errors.to_absinthe(error)
@@ -281,9 +283,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         {:ok, run_id}
 
       :error ->
-        schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
-
-        case Absinthe.Relay.Node.from_global_id(id, schema) do
+        case AshGraphql.Resource.decode_relay_id(id) do
           {:ok, %{type: :work_run, id: run_id}} -> {:ok, run_id}
           _other -> {:error, {:invalid_field, :id}}
         end
@@ -296,9 +296,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         {:ok, graph_item_id}
 
       :error ->
-        schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
-
-        case Absinthe.Relay.Node.from_global_id(id, schema) do
+        case AshGraphql.Resource.decode_relay_id(id) do
           {:ok, %{type: :graph_item, id: graph_item_id}} -> {:ok, graph_item_id}
           _other -> {:error, {:invalid_field, :item_id}}
         end
