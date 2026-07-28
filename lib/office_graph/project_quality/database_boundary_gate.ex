@@ -163,13 +163,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp stale_diagnostics(current, recorded) do
-    Enum.flat_map(recorded, fn occurrence ->
-      if Enum.any?(current, &same_locator?(&1, occurrence)) do
-        []
-      else
-        [diagnostic(occurrence, :stale)]
-      end
+    recorded
+    |> Enum.reject(fn occurrence ->
+      Enum.any?(current, &same_locator?(&1, occurrence))
     end)
+    |> Enum.map(&diagnostic(&1, :stale))
   end
 
   defp inventory_errors(inventory, entries, required_metadata_fields) do
