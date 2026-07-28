@@ -65,79 +65,64 @@ Office Graph SHALL avoid parallel model definitions for the same durable table.
 
 ### Requirement: Direct Ecto Exception Control
 
-Office Graph SHALL keep direct Ecto outside normal model ownership and normal
-domain mutations.
+Office Graph SHALL treat direct Ecto outside Ash-managed domain actions as
+unapproved removal debt unless an accepted OpenSpec change documents the exact
+missing Ash capability and bounded typed-Ecto exception. Repository-authored
+raw SQL is prohibited unless the user explicitly approves the exact occurrence
+in an accepted OpenSpec change.
 
-#### Scenario: Direct Ecto remains useful
+#### Scenario: Existing direct database access remains
 
-- **WHEN** a context uses direct Ecto for a transaction boundary, read model,
-  replay scan, bulk maintenance path, or raw SQL escape hatch
-- **THEN** that path MUST be listed in
-  `openspec/specs/backend-model-ownership/architecture-exceptions.md`
-  with its owner, reason, allowed operation type, approving spec, and retirement
-  condition
+- **WHEN** a current direct-Ecto or raw-SQL occurrence has not received exact approval under the new boundary
+- **THEN** it MUST appear only in the machine-readable removal-debt inventory with an owner and remediation change
 
 #### Scenario: A normal mutation is implemented
 
 - **WHEN** production code creates, updates, or deletes a durable domain record
-- **THEN** it MUST call the owning context command or Ash action rather than
-  `Repo.insert`, `Repo.update`, `Repo.delete`, or schema changesets
+- **THEN** it MUST use the owning Ash action, code interface, managed relationship, bulk action, or generic action rather than direct Ecto
 
 ### Requirement: Architecture Gate Covers Model Ownership
 
-The backend verification gate SHALL fail when implementation and model
-ownership specs diverge.
+The backend verification gate SHALL fail when implementation, model ownership,
+the database-access debt inventory, or the exact approved-exception inventory
+diverge.
 
 #### Scenario: Backend verification runs
 
-- **WHEN** `mix architecture.conformance` or `./bin/verify-backend` runs
-- **THEN** it MUST verify table inventory, Ash domain registration, Ash resource
-  registration, absence of table-backed Ecto schemas, absence of duplicate
-  model definitions, planned MVP graph/software-proving/rich-text resource
-  coverage, and coverage in the existing
-  `openspec/specs/backend-model-ownership/architecture-exceptions.md` direct
-  Ecto exception ledger
+- **WHEN** canonical project verification runs
+- **THEN** it MUST verify table inventory, Ash domain and resource registration, absence of duplicate table-backed Ecto schemas, planned resource coverage, and exact non-growth of database-access debt
 
 ### Requirement: Exception Ledger Is A Burn-Down Contract
 
-Office Graph SHALL treat the direct database and architecture exception ledger
-as a burn-down contract rather than accepted steady-state architecture.
+Office Graph SHALL distinguish unapproved database-access removal debt from
+accepted non-SQL architecture exceptions and explicitly approved raw-SQL
+occurrences.
 
-#### Scenario: Existing exception is touched
+#### Scenario: Existing database debt is touched
 
-- **WHEN** code covered by an architecture exception ledger entry is modified
-- **THEN** the implementation MUST either narrow or retire the exception, or
-  explicitly justify why the same exception scope remains necessary
+- **WHEN** code covered by a database-access debt entry is moved, rewritten, broadened, or removed
+- **THEN** verification MUST reject the stale or changed fingerprint until the same change removes or updates the debt through its owning remediation
 
-#### Scenario: Exception is retired
+#### Scenario: Database debt is retired
 
-- **WHEN** a direct database, raw SQL, broad `authorize?: false`, or manual
-  transaction exception is retired
-- **THEN** tests MUST prove the replacement preserves authorization,
-  idempotency, concurrency, operation correlation, audit/revision behavior, and
-  partial-commit safety that justified the original exception
+- **WHEN** a direct database, raw SQL, broad `authorize?: false`, or manual transaction path is replaced
+- **THEN** tests MUST prove the replacement preserves or strengthens authorization, idempotency, concurrency, operation correlation, audit and revision behavior, and partial-commit safety
 
 ### Requirement: New Direct Database Paths Require Coverage
 
-Office Graph SHALL reject new direct database mutation or raw SQL paths unless
-they are covered by an accepted exception.
+Office Graph SHALL reject new direct-Ecto occurrences by default and SHALL
+reject every new repository-authored raw-SQL occurrence until the user
+explicitly approves that exact occurrence in an accepted OpenSpec change.
 
-#### Scenario: Direct database mutation is added
+#### Scenario: A direct-Ecto path is proposed
 
-- **WHEN** production code adds `Repo.insert`, `Repo.update`, `Repo.delete`,
-  `Repo.insert_all`, raw SQL mutation, or a new transaction that mutates durable
-  Office Graph records
-- **THEN** architecture conformance MUST fail unless the path is owned by a
-  bounded context, listed in the exception ledger, scoped to an allowed
-  operation type, and backed by tests
+- **WHEN** implementation proposes direct Ecto without handwritten SQL
+- **THEN** the design MUST first exhaust built-in Ash and AshPostgres behavior and document the exact missing capability before an exception can be accepted
 
-#### Scenario: Raw SQL read is added
+#### Scenario: A raw-SQL occurrence is proposed
 
-- **WHEN** production code adds raw SQL for validation, locking, replay,
-  analytics, or read-model work
-- **THEN** the exception MUST document why Ash queries or public domain reads
-  are insufficient and MUST define the allowed read scope and retirement
-  condition
+- **WHEN** implementation proposes a SQL query, fragment, unsafe fragment, migration execution, SQL-bearing DDL option, or tracked SQL file
+- **THEN** implementation MUST stop until the user explicitly approves the exact occurrence and its verification and retirement metadata in OpenSpec
 
 ### Requirement: Broad Authorization Bypass Is Accounted For
 
