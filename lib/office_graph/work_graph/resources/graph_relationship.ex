@@ -4,8 +4,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
   use Ash.Resource,
     domain: OfficeGraph.WorkGraph.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "graph_relationships"
@@ -183,13 +182,5 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     identity :active_definition_edge,
              [:organization_id, :definition_id, :source_item_id, :target_item_id],
              where: expr(lifecycle == "active")
-  end
-
-  graphql do
-    type :graph_relationship
-  end
-
-  json_api do
-    type "graph_relationship"
   end
 end

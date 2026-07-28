@@ -33,6 +33,7 @@ defmodule OfficeGraph.WorkGraph.Artifact do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
@@ -52,11 +53,13 @@ defmodule OfficeGraph.WorkGraph.Artifact do
     has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
       source_attribute :id
       destination_attribute :artifact_id
+      public? true
     end
 
     has_many :evidence_items, OfficeGraph.WorkGraph.EvidenceItem do
       source_attribute :id
       destination_attribute :artifact_id
+      public? true
     end
   end
 

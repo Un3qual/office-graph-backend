@@ -2,8 +2,8 @@
 
 - [x] 1.1 Add a classified inventory of every manual GraphQL root field, manual GraphQL object that mirrors an Ash resource, Phoenix JSON route, resolver, controller, serializer, input parser, and error mapper
 - [ ] 1.2 Add failing architecture tests that reject `OfficeGraphWeb.OperatorCommands`, transport `operator_commands` folders, unclassified manual root fields/routes, and duplicate manual objects for generated Ash resources
-- [ ] 1.3 Add failing schema tests that require Relay Node identity and authorized refetch for every stable generated resource object and accepted stable projection object
-- [ ] 1.4 Add failing tests that require Relay connections for growing generated lists and reject wrapper dataloader resolvers
+- [x] 1.3 Add failing schema tests that require Relay Node identity and authorized refetch for every stable generated resource object and accepted stable projection object
+- [x] 1.4 Add failing tests that require Relay connections for growing generated lists and reject wrapper dataloader resolvers
 - [ ] 1.5 Add dual-transport contract tests for typed action arguments, safe errors, operation correlation, affected identities, authorization, idempotency, and conflict outcomes
 
 ## 2. Complete Generated Resource Reads

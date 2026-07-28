@@ -177,6 +177,132 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     end
   end
 
+  test "every generated GraphQL resource type and accepted stable projection is a Relay node" do
+    generated_resource_types =
+      "lib/office_graph/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        source = File.read!(path)
+
+        if source =~ "AshGraphql.Resource" or Regex.match?(~r/^\s+graphql do$/m, source) do
+          ~r/^\s+type :([a-z0-9_]+)$/m
+          |> Regex.scan(source, capture: :all_but_first)
+          |> List.flatten()
+        else
+          []
+        end
+      end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    expected_resource_types = [
+      "agent_approval_request",
+      "agent_context_expansion_request",
+      "agent_execution",
+      "artifact",
+      "conversation",
+      "conversation_message",
+      "evidence_candidate",
+      "evidence_item",
+      "execution_observation",
+      "graph_item",
+      "review_finding",
+      "run_required_check",
+      "signal",
+      "task",
+      "verification_check",
+      "work_graph_verification_result",
+      "work_packet",
+      "work_packet_required_check",
+      "work_packet_source_reference",
+      "work_packet_version",
+      "work_run"
+    ]
+
+    assert generated_resource_types == expected_resource_types
+
+    for type <- generated_resource_types do
+      object =
+        Absinthe.Schema.lookup_type(OfficeGraphWeb.GraphQL.Schema, String.to_existing_atom(type))
+
+      assert object != nil, "Expected generated GraphQL object #{type}"
+
+      assert :node in object.interfaces,
+             "Expected generated GraphQL object #{type} to implement Node"
+
+      assert Map.has_key?(object.fields, :id),
+             "Expected generated GraphQL object #{type} to expose id"
+    end
+
+    projection_source = File.read!("lib/office_graph_web/graphql/operator_workflow/types.ex")
+
+    for type <- [
+          :github_integration_health,
+          :graph_relationship_view,
+          :operator_packet_workspace,
+          :operator_run_conversation,
+          :operator_run_state,
+          :operator_workflow_item
+        ] do
+      assert Regex.match?(
+               ~r/node object\(\s*:#{type}\b/,
+               projection_source
+             ),
+             "Expected stable projection #{type} to use Relay node object"
+    end
+  end
+
+  test "generated growing lists are Relay connections and dataloader calls have no wrapper resolver" do
+    non_relay_lists =
+      "lib/office_graph/**/domain.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        ast = path |> File.read!() |> Code.string_to_quoted!(file: path)
+
+        {_ast, offenders} =
+          Macro.prewalk(ast, [], fn
+            {:list, metadata, [resource, name, action, options]} = node, offenders
+            when is_list(options) ->
+              if Keyword.get(options, :relay?) == true do
+                {node, offenders}
+              else
+                {node,
+                 [
+                   "#{path}:#{Keyword.fetch!(metadata, :line)} " <>
+                     "#{Macro.to_string(resource)} #{name} #{action}"
+                   | offenders
+                 ]}
+              end
+
+            node, offenders ->
+              {node, offenders}
+          end)
+
+        Enum.reverse(offenders)
+      end)
+
+    assert non_relay_lists == [],
+           "Generated growing lists must be Relay connections:\n#{format_errors(non_relay_lists)}"
+
+    wrapper_dataloaders =
+      "lib/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        source = File.read!(path)
+        dataloader_count = length(Regex.scan(~r/\bdataloader\s*\(/, source))
+        direct_count = length(Regex.scan(~r/resolve:\s*dataloader\s*\(/, source))
+
+        if dataloader_count == direct_count do
+          []
+        else
+          ["#{path} has #{dataloader_count - direct_count} wrapped dataloader resolver(s)"]
+        end
+      end)
+
+    assert wrapper_dataloaders == [],
+           "Use resolve: dataloader(Source) directly:\n#{format_errors(wrapper_dataloaders)}"
+  end
+
   test "generated Ash API declarations stay declarative" do
     forbidden_patterns = [
       "OfficeGraphWeb.",

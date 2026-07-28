@@ -81,6 +81,7 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
     has_one :artifact, OfficeGraph.WorkGraph.Artifact do
       source_attribute :id
       destination_attribute :graph_item_id
+      public? true
     end
 
     has_one :evidence_item, OfficeGraph.WorkGraph.EvidenceItem do

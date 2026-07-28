@@ -172,6 +172,7 @@ Relay connections:
 - `graphql.type.operator_missing_evidence`
 - `graphql.type.operator_run_activity`
 - `graphql.type.operator_run_conversation_referenced_context`
+- `graphql.type.operator_run_conversation_message_context`
 - `graphql.type.operator_run_conversation`
 - `graphql.type.operator_run_child_summary`
 - `graphql.type.operator_observation_command_option`

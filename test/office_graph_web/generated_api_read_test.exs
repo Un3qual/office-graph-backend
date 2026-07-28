@@ -7,6 +7,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   alias OfficeGraph.QueryCounter
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkGraph.{Artifact, GraphItem}
   alias OfficeGraph.WorkPackets
 
   describe "generated AshGraphql reads" do
@@ -266,6 +267,51 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
           assert node["data"]["node"]["id"] == node_id
         end
       )
+    end
+
+    test "artifact reads are generated Relay connections with authorized node refetch", %{
+      conn: conn
+    } do
+      fixtures = seed_generated_read_fixtures()
+      artifact_id = relay_id(:artifact, fixtures.local.artifact.id)
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: """
+          query ArtifactRead($id: ID!) {
+            listArtifacts(first: 10) {
+              pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
+              }
+              edges {
+                cursor
+                node { id title graphItem { id } }
+              }
+            }
+            node(id: $id) {
+              id
+              ... on Artifact { title }
+            }
+          }
+          """,
+          variables: %{id: artifact_id}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      assert [listed] = connection_nodes(response["data"]["listArtifacts"])
+      assert listed["id"] == artifact_id
+      assert listed["title"] == fixtures.local.artifact.title
+
+      assert listed["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.artifact.graph_item_id)
+
+      assert response["data"]["node"]["id"] == artifact_id
+      assert response["data"]["node"]["title"] == fixtures.local.artifact.title
     end
 
     test "packet deep-link lookup isolates malformed and unavailable Relay IDs from the list",
@@ -966,6 +1012,37 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         body: "Generated read check body #{suffix}."
       })
 
+    artifact_id = Ecto.UUID.generate()
+
+    graph_item =
+      Ash.create!(
+        GraphItem,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          resource_type: "artifact",
+          resource_id: artifact_id,
+          title: "Generated read artifact #{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    artifact =
+      Ash.create!(
+        Artifact,
+        %{
+          id: artifact_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          graph_item_id: graph_item.id,
+          title: "Generated read artifact #{suffix}",
+          uri: "https://example.test/generated-read-artifact/#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
     {:ok, packet_operation} =
       Operations.start_operation(bootstrap.session, :work_packet_create,
         idempotency_key: "generated-read-packet-#{suffix}"
@@ -1001,6 +1078,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       task: task,
       review_finding: review_finding,
       verification_check: verification_check,
+      artifact: artifact,
       packet: packet_result.packet,
       version: packet_result.version,
       run: run_result.run,

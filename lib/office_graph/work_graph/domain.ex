@@ -28,6 +28,9 @@ defmodule OfficeGraph.WorkGraph.Domain do
       get OfficeGraph.WorkGraph.EvidenceItem, :get_evidence_item, :read
       list OfficeGraph.WorkGraph.EvidenceItem, :list_evidence_items, :read, relay?: true
 
+      get OfficeGraph.WorkGraph.Artifact, :get_artifact, :read
+      list OfficeGraph.WorkGraph.Artifact, :list_artifacts, :read, relay?: true
+
       get OfficeGraph.WorkGraph.VerificationResult, :get_verification_result, :read
 
       list OfficeGraph.WorkGraph.VerificationResult, :list_verification_results, :read,
@@ -44,6 +47,7 @@ defmodule OfficeGraph.WorkGraph.Domain do
         related(:task, :read)
         related(:review_finding, :read)
         related(:verification_check, :read)
+        related(:artifact, :read)
       end
 
       base_route "/signals", OfficeGraph.WorkGraph.Signal do
@@ -87,6 +91,14 @@ defmodule OfficeGraph.WorkGraph.Domain do
       base_route "/evidence-items", OfficeGraph.WorkGraph.EvidenceItem do
         get(:read, primary?: true)
         index :read
+      end
+
+      base_route "/artifacts", OfficeGraph.WorkGraph.Artifact do
+        get(:read, primary?: true)
+        index :read
+        related(:graph_item, :read)
+        related(:evidence_candidates, :read)
+        related(:evidence_items, :read)
       end
 
       base_route "/verification-results", OfficeGraph.WorkGraph.VerificationResult do
