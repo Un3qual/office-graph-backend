@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<61dd8e015b05caedc63bd921b4496c1c>>
+ * @generated SignedSource<<4344d7cc71fc1fb6d40042ccb66ba530>>
  * @lightSyntaxTransform
  */
 
@@ -66,6 +66,10 @@ export type OperatorRunStateQuery$data = {
         readonly node: {
           readonly id: string;
           readonly state: string;
+          readonly verificationCheck: {
+            readonly graphItemId: string;
+            readonly id: string;
+          };
           readonly verificationCheckId: string;
         };
       }> | null | undefined;
@@ -746,13 +750,6 @@ v22 = [
   {
     "alias": null,
     "args": null,
-    "kind": "ScalarField",
-    "name": "defaultAgentGraphItemId",
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
     "concreteType": "OperatorMissingEvidence",
     "kind": "LinkedField",
     "name": "missingEvidence",
@@ -775,7 +772,14 @@ v23 = {
   "name": "first",
   "value": 20
 },
-v24 = [
+v24 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "graphItemId",
+  "storageKey": null
+},
+v25 = [
   (v23/*:: as any*/),
   {
     "kind": "Literal",
@@ -788,7 +792,7 @@ v24 = [
     ]
   }
 ],
-v25 = {
+v26 = {
   "alias": "run",
   "args": (v3/*:: as any*/),
   "concreteType": "WorkRun",
@@ -903,7 +907,20 @@ v25 = {
               "selections": [
                 (v7/*:: as any*/),
                 (v11/*:: as any*/),
-                (v6/*:: as any*/)
+                (v6/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "concreteType": "VerificationCheck",
+                  "kind": "LinkedField",
+                  "name": "verificationCheck",
+                  "plural": false,
+                  "selections": [
+                    (v7/*:: as any*/),
+                    (v24/*:: as any*/)
+                  ],
+                  "storageKey": null
+                }
               ],
               "storageKey": null
             }
@@ -915,7 +932,7 @@ v25 = {
     },
     {
       "alias": null,
-      "args": (v24/*:: as any*/),
+      "args": (v25/*:: as any*/),
       "concreteType": "ExecutionObservationConnection",
       "kind": "LinkedField",
       "name": "executionObservations",
@@ -939,13 +956,7 @@ v25 = {
               "selections": [
                 (v7/*:: as any*/),
                 (v11/*:: as any*/),
-                {
-                  "alias": null,
-                  "args": null,
-                  "kind": "ScalarField",
-                  "name": "graphItemId",
-                  "storageKey": null
-                },
+                (v24/*:: as any*/),
                 (v14/*:: as any*/),
                 (v12/*:: as any*/),
                 (v13/*:: as any*/),
@@ -962,7 +973,7 @@ v25 = {
     },
     {
       "alias": null,
-      "args": (v24/*:: as any*/),
+      "args": (v25/*:: as any*/),
       "concreteType": "EvidenceCandidateConnection",
       "kind": "LinkedField",
       "name": "evidenceCandidates",
@@ -1016,7 +1027,7 @@ v25 = {
     },
     {
       "alias": null,
-      "args": (v24/*:: as any*/),
+      "args": (v25/*:: as any*/),
       "concreteType": "EvidenceItemConnection",
       "kind": "LinkedField",
       "name": "evidenceItems",
@@ -1059,7 +1070,7 @@ v25 = {
     },
     {
       "alias": null,
-      "args": (v24/*:: as any*/),
+      "args": (v25/*:: as any*/),
       "concreteType": "WorkGraphVerificationResultConnection",
       "kind": "LinkedField",
       "name": "verificationResults",
@@ -1182,7 +1193,7 @@ return {
         ],
         "storageKey": null
       },
-      (v25/*:: as any*/)
+      (v26/*:: as any*/)
     ],
     "type": "RootQueryType",
     "abstractKey": null
@@ -1207,20 +1218,20 @@ return {
         "selections": (v22/*:: as any*/),
         "storageKey": null
       },
-      (v25/*:: as any*/)
+      (v26/*:: as any*/)
     ]
   },
   "params": {
-    "cacheID": "d908abc0145c25e4eb714b259581e928",
+    "cacheID": "6fe769e761f786402714d100a0f16183",
     "id": null,
     "metadata": {},
     "name": "OperatorRunStateQuery",
     "operationKind": "query",
-    "text": "query OperatorRunStateQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment_2q9Scy\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n      state\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n        }\n      }\n    }\n    executionObservations(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          graphItemId\n          normalizedStatus\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          executionObservationId\n          claim\n          candidateState\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n          candidateId\n          workRunId\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          evidenceItemId\n          operationId\n          actorPrincipalId\n          policyBasis\n          targetGraphItemId\n          workRunId\n          workPacketVersionId\n        }\n      }\n    }\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  defaultAgentGraphItemId\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
+    "text": "query OperatorRunStateQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment_2q9Scy\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n      state\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n          verificationCheck {\n            id\n            graphItemId\n          }\n        }\n      }\n    }\n    executionObservations(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          graphItemId\n          normalizedStatus\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          executionObservationId\n          claim\n          candidateState\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n          candidateId\n          workRunId\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          evidenceItemId\n          operationId\n          actorPrincipalId\n          policyBasis\n          targetGraphItemId\n          workRunId\n          workPacketVersionId\n        }\n      }\n    }\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "81400162ba722421c4275940d35746ff";
+(node as any).hash = "de24a766070c11edb8246bacd4d53cc4";
 
 export default node;

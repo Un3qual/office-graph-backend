@@ -197,8 +197,6 @@ defmodule OfficeGraph.Projections.RunState do
       command_option_summary: command_option_summary,
       command_option_availability: command_option_availability,
       child_summary: child_summary(summary),
-      default_agent_graph_item_id:
-        default_agent_graph_item_id(summary, verification_checks_by_id),
       missing_evidence:
         summary.missing_evidence
         |> Enum.take(@child_summary_limit)
@@ -215,15 +213,6 @@ defmodule OfficeGraph.Projections.RunState do
       :has_more?,
       Enum.any?(counts, fn {_kind, count} -> count > @child_summary_limit end)
     )
-  end
-
-  defp default_agent_graph_item_id(summary, verification_checks_by_id) do
-    Enum.find_value(summary.required_checks, fn required_check ->
-      get_in(verification_checks_by_id, [
-        required_check.verification_check_id,
-        Access.key(:graph_item_id)
-      ])
-    end) || Enum.find_value(summary.observations, & &1.graph_item_id)
   end
 
   defp command_option_sql("observation") do

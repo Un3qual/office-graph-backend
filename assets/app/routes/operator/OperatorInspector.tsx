@@ -177,7 +177,10 @@ function LoadedRunStatePanels({
   const activityAfter = activityCursors.at(-1) ?? null;
   const runState = useOperatorRunState(runId, fetchKey, activityAfter);
   const verification = verificationOutcomeFromRunState(runState);
-  const agentGraphItemId = graphItemId ?? runState.defaultAgentGraphItemId;
+  const agentGraphItemId =
+    graphItemId ??
+    runState.requiredChecks[0]?.verificationCheck.graphItemId ??
+    runState.observations[0]?.graphItemId;
 
   return (
     <>

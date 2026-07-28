@@ -39,6 +39,7 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
       source_attribute :verification_check_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do

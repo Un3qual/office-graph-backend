@@ -92,6 +92,21 @@ relationships, calculations, aggregates, or accepted typed projection actions.
 - **WHEN** an external JSON API client needs a supported resource relationship
 - **THEN** the owning AshJsonApi domain MUST expose a generated related or relationship route with the resource's authorization and lifecycle rules
 
+#### Scenario: Signal graph spine is read
+- **WHEN** an authorized client reads a Signal and follows its graph item,
+  tasks, review findings, or verification checks
+- **THEN** AshGraphql MUST return generated Relay resource nodes and
+  connections, and AshJsonApi MUST expose the corresponding generated resource
+  and related routes
+
+#### Scenario: Graph relationship endpoints require redaction
+- **WHEN** a client traverses relationships whose opposite endpoint may not be
+  authorized
+- **THEN** the generated GraphItem read MUST remain the resource identity
+  surface while the classified redacted relationship-view projection filters
+  or redacts endpoints without exposing the underlying GraphRelationship
+  resource as an unrestricted generated read
+
 ## MODIFIED Requirements
 
 ### Requirement: Manual API Migration Ledger

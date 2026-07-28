@@ -80,12 +80,14 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :task, OfficeGraph.WorkGraph.Task do
       source_attribute :task_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :body_document, OfficeGraph.Content.Document do
@@ -111,11 +113,15 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
     has_many :verification_checks, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :id
       destination_attribute :review_finding_id
+      public? true
     end
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_proposed_change_replay do
       public? false
@@ -178,6 +184,8 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
 
   graphql do
     type :review_finding
+
+    paginate_relationship_with(verification_checks: :relay)
   end
 
   json_api do

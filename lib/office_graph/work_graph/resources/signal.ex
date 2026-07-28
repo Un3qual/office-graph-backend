@@ -33,6 +33,7 @@ defmodule OfficeGraph.WorkGraph.Signal do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :body_document, OfficeGraph.Content.Document do
@@ -58,6 +59,7 @@ defmodule OfficeGraph.WorkGraph.Signal do
     has_many :tasks, OfficeGraph.WorkGraph.Task do
       source_attribute :id
       destination_attribute :source_signal_id
+      public? true
     end
   end
 
@@ -133,6 +135,8 @@ defmodule OfficeGraph.WorkGraph.Signal do
 
   graphql do
     type :signal
+
+    paginate_relationship_with(tasks: :relay)
   end
 
   json_api do

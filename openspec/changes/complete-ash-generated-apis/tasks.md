@@ -8,8 +8,8 @@
 
 ## 2. Complete Generated Resource Reads
 
-- [ ] 2.1 Replace manual Signal resource object/loading paths with the generated WorkGraph AshGraphql type, Relay node loading, relationships, and AshJsonApi routes
-- [ ] 2.2 Replace resource-shaped graph relationship and graph item fields/routes with generated relationships or typed projection actions while retaining only the redacted relationship-view exception
+- [x] 2.1 Replace manual Signal resource object/loading paths with the generated WorkGraph AshGraphql type, Relay node loading, relationships, and AshJsonApi routes
+- [x] 2.2 Replace resource-shaped graph relationship and graph item fields/routes with generated relationships or typed projection actions while retaining only the redacted relationship-view exception
 - [x] 2.3 Replace packet-workspace resource objects and loaders with generated WorkPacket, WorkPacketVersion, source-reference, and required-check types and relationships
 - [x] 2.4 Replace run-index and run-detail resource objects and loaders with generated WorkRun, RunRequiredCheck, ExecutionObservation, and related packet types
 - [ ] 2.5 Replace conversation, message, agent execution, approval, and context-expansion resource objects and loaders with generated Ash types and relationships

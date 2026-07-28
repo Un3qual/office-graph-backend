@@ -249,7 +249,6 @@ export const OperatorRunStateFragment = graphql`
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
     sourceWatermark
-    defaultAgentGraphItemId
     missingEvidence {
       verificationCheckId
       reason
@@ -350,6 +349,10 @@ export const OperatorRunStateQuery = graphql`
             id
             verificationCheckId
             state
+            verificationCheck {
+              id
+              graphItemId
+            }
           }
         }
       }

@@ -57,21 +57,25 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
     has_one :signal, OfficeGraph.WorkGraph.Signal do
       source_attribute :id
       destination_attribute :graph_item_id
+      public? true
     end
 
     has_one :task, OfficeGraph.WorkGraph.Task do
       source_attribute :id
       destination_attribute :graph_item_id
+      public? true
     end
 
     has_one :review_finding, OfficeGraph.WorkGraph.ReviewFinding do
       source_attribute :id
       destination_attribute :graph_item_id
+      public? true
     end
 
     has_one :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :id
       destination_attribute :graph_item_id
+      public? true
     end
 
     has_one :artifact, OfficeGraph.WorkGraph.Artifact do
@@ -86,7 +90,10 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     create :create do
       accept [:id, :organization_id, :workspace_id, :resource_type, :resource_id, :title]

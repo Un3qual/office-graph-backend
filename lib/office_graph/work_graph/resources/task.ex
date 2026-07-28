@@ -33,11 +33,13 @@ defmodule OfficeGraph.WorkGraph.Task do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :source_signal, OfficeGraph.WorkGraph.Signal do
       source_attribute :source_signal_id
       attribute_public? true
+      public? true
     end
 
     belongs_to :body_document, OfficeGraph.Content.Document do
@@ -63,11 +65,15 @@ defmodule OfficeGraph.WorkGraph.Task do
     has_many :review_findings, OfficeGraph.WorkGraph.ReviewFinding do
       source_attribute :id
       destination_attribute :task_id
+      public? true
     end
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_proposed_change_replay do
       public? false
@@ -127,6 +133,8 @@ defmodule OfficeGraph.WorkGraph.Task do
 
   graphql do
     type :task
+
+    paginate_relationship_with(review_findings: :relay)
   end
 
   json_api do

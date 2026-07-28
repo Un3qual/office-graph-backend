@@ -409,7 +409,6 @@ export function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {
       },
     },
     sourceWatermark: "run_1",
-    defaultAgentGraphItemId: "graph_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
     packetVersion: {
       id: "version_1",
@@ -579,11 +578,6 @@ function operatorRunProjectionResponse(state: ReturnType<typeof operatorRunState
     childSummary: state.childSummary,
     activity: state.activity,
     sourceWatermark: state.sourceWatermark,
-    defaultAgentGraphItemId:
-      state.defaultAgentGraphItemId ??
-      state.requiredChecks.find((check) => check.graphItemId)?.graphItemId ??
-      state.observations.find((observation) => observation.graphItemId)?.graphItemId ??
-      null,
     missingEvidence: state.missingEvidence,
   };
 }
@@ -597,7 +591,15 @@ function operatorRunResourceResponse(state: ReturnType<typeof operatorRunState>)
     workPacket: state.packet,
     workPacketVersion: state.packetVersion,
     requiredChecks: {
-      edges: state.requiredChecks.map(({ graphItemId: _graphItemId, ...node }) => ({ node })),
+      edges: state.requiredChecks.map(({ graphItemId, ...node }) => ({
+        node: {
+          ...node,
+          verificationCheck: {
+            id: node.verificationCheckId,
+            graphItemId,
+          },
+        },
+      })),
     },
     executionObservations: {
       edges: state.observations.map((node) => ({ node })),

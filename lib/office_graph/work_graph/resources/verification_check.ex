@@ -79,12 +79,14 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :graph_item_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :review_finding, OfficeGraph.WorkGraph.ReviewFinding do
       source_attribute :review_finding_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :description_document, OfficeGraph.Content.Document do
@@ -110,21 +112,27 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
     has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
       source_attribute :id
       destination_attribute :verification_check_id
+      public? true
     end
 
     has_many :evidence_items, OfficeGraph.WorkGraph.EvidenceItem do
       source_attribute :id
       destination_attribute :verification_check_id
+      public? true
     end
 
     has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
       source_attribute :id
       destination_attribute :verification_check_id
+      public? true
     end
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_proposed_change_replay do
       public? false
@@ -187,6 +195,12 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
 
   graphql do
     type :verification_check
+
+    paginate_relationship_with(
+      evidence_candidates: :relay,
+      evidence_items: :relay,
+      verification_results: :relay
+    )
   end
 
   json_api do

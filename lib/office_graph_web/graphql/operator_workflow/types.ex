@@ -472,7 +472,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     end
 
     field :source_watermark, :id
-    field :default_agent_graph_item_id, :id
     field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
   end
 

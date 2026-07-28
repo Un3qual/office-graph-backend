@@ -126,6 +126,68 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert response["data"]["getWorkRun"]["state"] == work_run["state"]
     end
 
+    test "signal graph relationships use generated resource nodes and Relay connections", %{
+      conn: conn
+    } do
+      fixtures = seed_generated_read_fixtures()
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_signal_relationships_query(),
+          variables: %{signalId: relay_id(:signal, fixtures.local.signal.id)}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      signal = response["data"]["getSignal"]
+
+      assert signal["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.signal.graph_item_id)
+
+      assert [task_edge] = signal["tasks"]["edges"]
+      task = task_edge["node"]
+      assert task["id"] == relay_id(:task, fixtures.local.task.id)
+      assert task["sourceSignal"]["id"] == signal["id"]
+      assert task["graphItem"]["id"] == relay_id(:graph_item, fixtures.local.task.graph_item_id)
+
+      assert [finding_edge] = task["reviewFindings"]["edges"]
+      finding = finding_edge["node"]
+      assert finding["id"] == relay_id(:review_finding, fixtures.local.review_finding.id)
+      assert finding["task"]["id"] == task["id"]
+
+      assert [check_edge] = finding["verificationChecks"]["edges"]
+      check = check_edge["node"]
+      assert check["id"] == relay_id(:verification_check, fixtures.local.verification_check.id)
+      assert check["reviewFinding"]["id"] == finding["id"]
+
+      assert check["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.verification_check.graph_item_id)
+
+      Enum.each(
+        [
+          signal["graphItem"]["id"],
+          task["id"],
+          task["graphItem"]["id"],
+          finding["id"],
+          check["id"],
+          check["graphItem"]["id"]
+        ],
+        fn node_id ->
+          node =
+            conn
+            |> post(~p"/graphql", %{
+              query: generated_node_query(),
+              variables: %{id: node_id}
+            })
+            |> json_response(200)
+
+          assert node["errors"] in [nil, []]
+          assert node["data"]["node"]["id"] == node_id
+        end
+      )
+    end
+
     test "packet versions and contract links use generated relationships and node refetch",
          %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
@@ -365,6 +427,38 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert signal["id"] == fixtures.local.signal.id
       assert signal["attributes"]["title"] == fixtures.local.signal.title
 
+      graph_items =
+        conn
+        |> json_api_get(~p"/api/v1/graph-items")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert Enum.any?(graph_items, &(&1["id"] == fixtures.local.signal.graph_item_id))
+
+      assert [task] =
+               conn
+               |> json_api_get(~p"/api/v1/tasks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert task["id"] == fixtures.local.task.id
+
+      assert [review_finding] =
+               conn
+               |> json_api_get(~p"/api/v1/review-findings")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert review_finding["id"] == fixtures.local.review_finding.id
+
+      assert [verification_check] =
+               conn
+               |> json_api_get(~p"/api/v1/verification-checks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert verification_check["id"] == fixtures.local.verification_check.id
+
       assert [work_packet] =
                conn
                |> json_api_get(~p"/api/v1/work-packets")
@@ -441,6 +535,45 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       refute signal["id"] == fixtures.foreign.signal.id
       refute work_packet["id"] == fixtures.foreign.packet.id
       refute work_run["id"] == fixtures.foreign.run.id
+    end
+
+    test "mount generated related routes for the signal graph spine", %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+
+      graph_item =
+        conn
+        |> json_api_get(~p"/api/v1/signals/#{fixtures.local.signal.id}/graph_item")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert graph_item["id"] == fixtures.local.signal.graph_item_id
+      assert graph_item["type"] == "graph_item"
+
+      assert [task] =
+               conn
+               |> json_api_get(~p"/api/v1/signals/#{fixtures.local.signal.id}/tasks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert task["id"] == fixtures.local.task.id
+
+      assert [finding] =
+               conn
+               |> json_api_get(~p"/api/v1/tasks/#{fixtures.local.task.id}/review_findings")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert finding["id"] == fixtures.local.review_finding.id
+
+      assert [check] =
+               conn
+               |> json_api_get(
+                 ~p"/api/v1/review-findings/#{fixtures.local.review_finding.id}/verification_checks"
+               )
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert check["id"] == fixtures.local.verification_check.id
     end
 
     test "do not expose generated lifecycle writes", %{conn: conn} do
@@ -604,6 +737,47 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
             node {
               id
               versionNumber
+            }
+          }
+        }
+      }
+    }
+    """
+  end
+
+  defp generated_signal_relationships_query do
+    """
+    query GeneratedSignalRelationships($signalId: ID!) {
+      getSignal(id: $signalId) {
+        id
+        graphItem { id resourceType resourceId }
+        tasks(first: 10, sort: [{ field: INSERTED_AT, order: ASC }]) {
+          edges {
+            node {
+              id
+              sourceSignal { id }
+              graphItem { id resourceType resourceId }
+              reviewFindings(first: 10, sort: [{ field: INSERTED_AT, order: ASC }]) {
+                edges {
+                  node {
+                    id
+                    task { id }
+                    graphItem { id }
+                    verificationChecks(
+                      first: 10
+                      sort: [{ field: INSERTED_AT, order: ASC }]
+                    ) {
+                      edges {
+                        node {
+                          id
+                          reviewFinding { id }
+                          graphItem { id resourceType resourceId }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -824,6 +998,9 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
     %{
       bootstrap: bootstrap,
       signal: signal,
+      task: task,
+      review_finding: review_finding,
+      verification_check: verification_check,
       packet: packet_result.packet,
       version: packet_result.version,
       run: run_result.run,

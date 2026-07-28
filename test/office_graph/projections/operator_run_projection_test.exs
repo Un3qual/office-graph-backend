@@ -53,7 +53,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
 
-    assert initial_state.default_agent_graph_item_id == verification_check.graph_item_id
+    assert hd(initial_state.command_options.observation).source_graph_item_id ==
+             verification_check.graph_item_id
 
     {:ok, observation_result} =
       record_observation(bootstrap.session, run_result.run, verification_check,

@@ -1110,6 +1110,733 @@ type EvidenceCandidate implements Node {
   workspaceId: ID!
 }
 
+enum VerificationCheckSortField {
+  ID
+  TITLE
+  LIFECYCLE_STATE
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  REVIEW_FINDING_ID
+  DESCRIPTION_DOCUMENT_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":verification_check connection"
+type VerificationCheckConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":verification_check edges"
+  edges: [VerificationCheckEdge!]
+}
+
+":verification_check edge"
+type VerificationCheckEdge {
+  "Cursor"
+  cursor: String!
+
+  ":verification_check node"
+  node: VerificationCheck!
+}
+
+input VerificationCheckFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterDescriptionDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterReviewFindingId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input VerificationCheckFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input VerificationCheckFilterLifecycleState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input VerificationCheckFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input VerificationCheckFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input VerificationCheckFilterInput {
+  and: [VerificationCheckFilterInput!]
+  or: [VerificationCheckFilterInput!]
+  not: [VerificationCheckFilterInput!]
+  id: VerificationCheckFilterId
+  title: VerificationCheckFilterTitle
+  lifecycleState: VerificationCheckFilterLifecycleState
+  insertedAt: VerificationCheckFilterInsertedAt
+  updatedAt: VerificationCheckFilterUpdatedAt
+  graphItemId: VerificationCheckFilterGraphItemId
+  reviewFindingId: VerificationCheckFilterReviewFindingId
+  descriptionDocumentId: VerificationCheckFilterDescriptionDocumentId
+  organizationId: VerificationCheckFilterOrganizationId
+  workspaceId: VerificationCheckFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  reviewFinding: ReviewFindingFilterInput
+  evidenceCandidates: EvidenceCandidateFilterInput
+  evidenceItems: EvidenceItemFilterInput
+  verificationResults: WorkGraphVerificationResultFilterInput
+}
+
+input VerificationCheckSortInput {
+  order: SortOrder
+  field: VerificationCheckSortField!
+}
+
+type VerificationCheck implements Node {
+  id: ID!
+  title: String!
+  lifecycleState: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  reviewFindingId: ID!
+  descriptionDocumentId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItem: GraphItem!
+  reviewFinding: ReviewFinding!
+  evidenceCandidates(
+    "How to sort the records in the response"
+    sort: [EvidenceCandidateSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceCandidateFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceCandidateConnection!
+  evidenceItems(
+    "How to sort the records in the response"
+    sort: [EvidenceItemSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceItemFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceItemConnection!
+  verificationResults(
+    "How to sort the records in the response"
+    sort: [WorkGraphVerificationResultSortInput]
+
+    "A filter to limit the results"
+    filter: WorkGraphVerificationResultFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): WorkGraphVerificationResultConnection!
+}
+
+enum ReviewFindingSortField {
+  ID
+  TITLE
+  LIFECYCLE_STATE
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  TASK_ID
+  BODY_DOCUMENT_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":review_finding connection"
+type ReviewFindingConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":review_finding edges"
+  edges: [ReviewFindingEdge!]
+}
+
+":review_finding edge"
+type ReviewFindingEdge {
+  "Cursor"
+  cursor: String!
+
+  ":review_finding node"
+  node: ReviewFinding!
+}
+
+input ReviewFindingFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterBodyDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterTaskId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ReviewFindingFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ReviewFindingFilterLifecycleState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ReviewFindingFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ReviewFindingFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ReviewFindingFilterInput {
+  and: [ReviewFindingFilterInput!]
+  or: [ReviewFindingFilterInput!]
+  not: [ReviewFindingFilterInput!]
+  id: ReviewFindingFilterId
+  title: ReviewFindingFilterTitle
+  lifecycleState: ReviewFindingFilterLifecycleState
+  insertedAt: ReviewFindingFilterInsertedAt
+  updatedAt: ReviewFindingFilterUpdatedAt
+  graphItemId: ReviewFindingFilterGraphItemId
+  taskId: ReviewFindingFilterTaskId
+  bodyDocumentId: ReviewFindingFilterBodyDocumentId
+  organizationId: ReviewFindingFilterOrganizationId
+  workspaceId: ReviewFindingFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  task: TaskFilterInput
+  verificationChecks: VerificationCheckFilterInput
+}
+
+input ReviewFindingSortInput {
+  order: SortOrder
+  field: ReviewFindingSortField!
+}
+
+type ReviewFinding implements Node {
+  id: ID!
+  title: String!
+  lifecycleState: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  taskId: ID!
+  bodyDocumentId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItem: GraphItem!
+  task: Task!
+  verificationChecks(
+    "How to sort the records in the response"
+    sort: [VerificationCheckSortInput]
+
+    "A filter to limit the results"
+    filter: VerificationCheckFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): VerificationCheckConnection!
+}
+
+enum TaskSortField {
+  ID
+  TITLE
+  LIFECYCLE_STATE
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  SOURCE_SIGNAL_ID
+  BODY_DOCUMENT_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":task connection"
+type TaskConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":task edges"
+  edges: [TaskEdge!]
+}
+
+":task edge"
+type TaskEdge {
+  "Cursor"
+  cursor: String!
+
+  ":task node"
+  node: Task!
+}
+
+input TaskFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterBodyDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterSourceSignalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input TaskFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input TaskFilterLifecycleState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input TaskFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input TaskFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input TaskFilterInput {
+  and: [TaskFilterInput!]
+  or: [TaskFilterInput!]
+  not: [TaskFilterInput!]
+  id: TaskFilterId
+  title: TaskFilterTitle
+  lifecycleState: TaskFilterLifecycleState
+  insertedAt: TaskFilterInsertedAt
+  updatedAt: TaskFilterUpdatedAt
+  graphItemId: TaskFilterGraphItemId
+  sourceSignalId: TaskFilterSourceSignalId
+  bodyDocumentId: TaskFilterBodyDocumentId
+  organizationId: TaskFilterOrganizationId
+  workspaceId: TaskFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  sourceSignal: SignalFilterInput
+  reviewFindings: ReviewFindingFilterInput
+}
+
+input TaskSortInput {
+  order: SortOrder
+  field: TaskSortField!
+}
+
+type Task implements Node {
+  id: ID!
+  title: String!
+  lifecycleState: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  sourceSignalId: ID
+  bodyDocumentId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItem: GraphItem!
+  sourceSignal: Signal
+  reviewFindings(
+    "How to sort the records in the response"
+    sort: [ReviewFindingSortInput]
+
+    "A filter to limit the results"
+    filter: ReviewFindingFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ReviewFindingConnection!
+}
+
 enum SignalSortField {
   ID
   TITLE
@@ -1280,6 +2007,8 @@ input SignalFilterInput {
   bodyDocumentId: SignalFilterBodyDocumentId
   organizationId: SignalFilterOrganizationId
   workspaceId: SignalFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  tasks: TaskFilterInput
 }
 
 input SignalSortInput {
@@ -1297,6 +2026,207 @@ type Signal implements Node {
   bodyDocumentId: ID!
   organizationId: ID!
   workspaceId: ID!
+  graphItem: GraphItem!
+  tasks(
+    "How to sort the records in the response"
+    sort: [TaskSortInput]
+
+    "A filter to limit the results"
+    filter: TaskFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): TaskConnection!
+}
+
+enum GraphItemSortField {
+  ID
+  RESOURCE_TYPE
+  RESOURCE_ID
+  TITLE
+  INSERTED_AT
+  UPDATED_AT
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":graph_item connection"
+type GraphItemConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":graph_item edges"
+  edges: [GraphItemEdge!]
+}
+
+":graph_item edge"
+type GraphItemEdge {
+  "Cursor"
+  cursor: String!
+
+  ":graph_item node"
+  node: GraphItem!
+}
+
+input GraphItemFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GraphItemFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GraphItemFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GraphItemFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GraphItemFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GraphItemFilterResourceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GraphItemFilterResourceType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GraphItemFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GraphItemFilterInput {
+  and: [GraphItemFilterInput!]
+  or: [GraphItemFilterInput!]
+  not: [GraphItemFilterInput!]
+  id: GraphItemFilterId
+  resourceType: GraphItemFilterResourceType
+  resourceId: GraphItemFilterResourceId
+  title: GraphItemFilterTitle
+  insertedAt: GraphItemFilterInsertedAt
+  updatedAt: GraphItemFilterUpdatedAt
+  organizationId: GraphItemFilterOrganizationId
+  workspaceId: GraphItemFilterWorkspaceId
+  signal: SignalFilterInput
+  task: TaskFilterInput
+  reviewFinding: ReviewFindingFilterInput
+  verificationCheck: VerificationCheckFilterInput
+}
+
+input GraphItemSortInput {
+  order: SortOrder
+  field: GraphItemSortField!
+}
+
+type GraphItem implements Node {
+  id: ID!
+  resourceType: String!
+  resourceId: ID!
+  title: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  organizationId: ID!
+  workspaceId: ID!
+  signal: Signal
+  task: Task
+  reviewFinding: ReviewFinding
+  verificationCheck: VerificationCheck
 }
 
 enum SortOrder {
@@ -2933,6 +3863,7 @@ input RunRequiredCheckFilterInput {
   verificationCheckId: RunRequiredCheckFilterVerificationCheckId
   organizationId: RunRequiredCheckFilterOrganizationId
   workspaceId: RunRequiredCheckFilterWorkspaceId
+  verificationCheck: VerificationCheckFilterInput
 }
 
 input RunRequiredCheckSortInput {
@@ -2950,6 +3881,7 @@ type RunRequiredCheck implements Node {
   verificationCheckId: ID!
   organizationId: ID!
   workspaceId: ID!
+  verificationCheck: VerificationCheck!
 }
 
 enum WorkRunSortField {
@@ -3616,6 +4548,29 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): WorkPacketRequiredCheckConnection
+  getGraphItem(
+    "The id of the record"
+    id: ID!
+  ): GraphItem
+  listGraphItems(
+    "How to sort the records in the response"
+    sort: [GraphItemSortInput]
+
+    "A filter to limit the results"
+    filter: GraphItemFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GraphItemConnection
   getSignal(
     "The id of the record"
     id: ID!
@@ -3639,6 +4594,75 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): SignalConnection
+  getTask(
+    "The id of the record"
+    id: ID!
+  ): Task
+  listTasks(
+    "How to sort the records in the response"
+    sort: [TaskSortInput]
+
+    "A filter to limit the results"
+    filter: TaskFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): TaskConnection
+  getReviewFinding(
+    "The id of the record"
+    id: ID!
+  ): ReviewFinding
+  listReviewFindings(
+    "How to sort the records in the response"
+    sort: [ReviewFindingSortInput]
+
+    "A filter to limit the results"
+    filter: ReviewFindingFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ReviewFindingConnection
+  getVerificationCheck(
+    "The id of the record"
+    id: ID!
+  ): VerificationCheck
+  listVerificationChecks(
+    "How to sort the records in the response"
+    sort: [VerificationCheckSortInput]
+
+    "A filter to limit the results"
+    filter: VerificationCheckFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): VerificationCheckConnection
   getEvidenceCandidate(
     "The id of the record"
     id: ID!
@@ -4622,7 +5646,6 @@ type OperatorRunState {
   childSummary: OperatorRunChildSummary!
   activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
-  defaultAgentGraphItemId: ID
   missingEvidence: [OperatorMissingEvidence!]!
 }
 
