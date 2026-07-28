@@ -2,7 +2,11 @@ import { graphql } from "react-relay";
 
 export const RunsRouteQuery = graphql`
   query RunsRouteQuery($first: Int!, $after: String) @throwOnFieldError {
-    operatorRuns(first: $first, after: $after) {
+    listWorkRuns(
+      first: $first
+      after: $after
+      sort: [{ field: INSERTED_AT, order: DESC }]
+    ) {
       edges {
         node {
           id
@@ -11,7 +15,7 @@ export const RunsRouteQuery = graphql`
           executionState
           verificationState
           insertedAt
-          packet {
+          workPacket {
             title
           }
         }

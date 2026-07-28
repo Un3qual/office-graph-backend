@@ -34,7 +34,7 @@ export function useRunDetail(runId: string, fetchKey?: number): RunDetailResult 
 }
 
 function runsConnectionFromRelay(data: RunsRouteOperation["response"]): RunsConnectionState {
-  const connection = data.operatorRuns;
+  const connection = data.listWorkRuns;
 
   if (!connection) {
     return { hasNextPage: false, nextCursor: null, rows: [] };

@@ -45,6 +45,7 @@ defmodule OfficeGraph.Runs.Run do
       source_attribute :work_packet_id
       allow_nil? false
       attribute_public? true
+      public? true
     end
 
     belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do

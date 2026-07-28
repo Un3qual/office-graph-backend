@@ -288,18 +288,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :objective, :string
   end
 
-  object :operator_run_summary do
-    field :id, non_null(:id)
-    field :objective, :string
-    field :aggregate_state, non_null(:string)
-    field :execution_state, non_null(:string)
-    field :verification_state, non_null(:string)
-    field :inserted_at, non_null(:datetime)
-    field :packet, non_null(:operator_packet_ref)
-  end
-
-  connection(node_type: :operator_run_summary)
-
   object :operator_observation do
     field :id, non_null(:id)
     field :verification_check_id, :id

@@ -2,7 +2,7 @@ import type { RunActivityFragment$key } from "../../relay/__generated__/RunActiv
 import type { RunDetailQuery as RunDetailOperation } from "../../relay/__generated__/RunDetailQuery.graphql";
 import type { RunsRouteQuery as RunsRouteOperation } from "../../relay/__generated__/RunsRouteQuery.graphql";
 
-type RunsConnection = NonNullable<RunsRouteOperation["response"]["operatorRuns"]>;
+type RunsConnection = NonNullable<RunsRouteOperation["response"]["listWorkRuns"]>;
 type RunsEdge = NonNullable<NonNullable<RunsConnection["edges"]>[number]>;
 
 export type RunSummary = NonNullable<RunsEdge["node"]>;

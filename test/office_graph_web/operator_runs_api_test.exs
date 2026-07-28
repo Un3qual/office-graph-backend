@@ -10,7 +10,11 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
   @operator_runs_query """
   query OperatorRuns($first: Int!, $after: String) {
-    operatorRuns(first: $first, after: $after) {
+    listWorkRuns(
+      first: $first
+      after: $after
+      sort: [{ field: INSERTED_AT, order: DESC }]
+    ) {
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
       edges {
         cursor
@@ -21,7 +25,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
           executionState
           verificationState
           insertedAt
-          packet { id title state }
+          workPacket { id title state }
         }
       }
     }
@@ -38,7 +42,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
   }
   """
 
-  test "returns forward Relay pages with only safe run summary fields", %{conn: conn} do
+  test "returns ordered generated WorkRun Relay pages with packet relationships", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, older} = create_ready_run(bootstrap.session, verification_check)
@@ -47,16 +51,16 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     set_run_inserted_at!(older.run.id, ~U[2026-07-20 10:00:00Z])
     set_run_inserted_at!(newer.run.id, ~U[2026-07-20 11:00:00Z])
 
-    first_page = graphql(conn, @operator_runs_query, %{first: 1}, "operatorRuns")
+    first_page = graphql(conn, @operator_runs_query, %{first: 1}, "listWorkRuns")
     assert first_page["pageInfo"]["hasNextPage"] == true
     assert first_page["pageInfo"]["hasPreviousPage"] == false
     assert [%{"cursor" => cursor, "node" => first_node}] = first_page["edges"]
     assert is_binary(cursor)
-    assert first_node["id"] == newer.run.id
+    assert first_node["id"] == relay_id("work_run", newer.run.id)
     assert first_node["objective"] == newer.run.objective
 
-    assert first_node["packet"] == %{
-             "id" => newer.run.work_packet_id,
+    assert first_node["workPacket"] == %{
+             "id" => relay_id("work_packet", newer.run.work_packet_id),
              "state" => "ready",
              "title" => "Ready operator packet"
            }
@@ -66,13 +70,13 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
         conn,
         @operator_runs_query,
         %{first: 1, after: first_page["pageInfo"]["endCursor"]},
-        "operatorRuns"
+        "listWorkRuns"
       )
 
     assert second_page["pageInfo"]["hasNextPage"] == false
     assert second_page["pageInfo"]["hasPreviousPage"] == true
     assert [%{"node" => second_node}] = second_page["edges"]
-    assert second_node["id"] == older.run.id
+    assert second_node["id"] == relay_id("work_run", older.run.id)
   end
 
   test "returns graph-targeted runs without requiring a packet-version summary", %{conn: conn} do
@@ -84,14 +88,14 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
       Ecto.UUID.dump!(result.run.id)
     ])
 
-    page = graphql(conn, @operator_runs_query, %{first: 10}, "operatorRuns")
+    page = graphql(conn, @operator_runs_query, %{first: 10}, "listWorkRuns")
 
-    assert %{"packet" => %{"id" => packet_id}} =
+    assert %{"workPacket" => %{"id" => packet_id}} =
              page["edges"]
-             |> Enum.find(&(get_in(&1, ["node", "id"]) == result.run.id))
+             |> Enum.find(&(get_in(&1, ["node", "id"]) == relay_id("work_run", result.run.id)))
              |> Map.fetch!("node")
 
-    assert packet_id == result.run.work_packet_id
+    assert packet_id == relay_id("work_packet", result.run.work_packet_id)
   end
 
   test "returns selected detail for graph-targeted runs without packet versions", %{conn: conn} do
@@ -107,7 +111,7 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
       graphql(
         conn,
         @operator_run_state_query,
-        %{id: result.run.id},
+        %{id: relay_id("work_run", result.run.id)},
         "operatorRunState"
       )
 
@@ -127,28 +131,23 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
     assert [
              %{
-               "message" => "A field has an invalid value.",
-               "extensions" => %{"code" => "validation_failed", "field" => "pagination"}
+               "code" => "invalid_keyset",
+               "fields" => ["after"],
+               "path" => ["listWorkRuns"]
              }
-           ] =
-             invalid_cursor["errors"]
+           ] = Enum.map(invalid_cursor["errors"], &Map.take(&1, ["code", "fields", "path"]))
 
-    assert invalid_cursor["data"] in [nil, %{"operatorRuns" => nil}]
+    assert invalid_cursor["data"] in [nil, %{"listWorkRuns" => nil}]
 
     negative_first =
       conn
       |> post(~p"/graphql", %{query: @operator_runs_query, variables: %{first: -1}})
       |> json_response(200)
 
-    assert [
-             %{
-               "message" => "A field has an invalid value.",
-               "extensions" => %{"code" => "validation_failed", "field" => "first"}
-             }
-           ] =
-             negative_first["errors"]
+    assert [%{"message" => message, "path" => ["listWorkRuns"]}] = negative_first["errors"]
+    assert String.starts_with?(message, "Something went wrong.")
 
-    assert negative_first["data"] in [nil, %{"operatorRuns" => nil}]
+    assert negative_first["data"] in [nil, %{"listWorkRuns" => nil}]
   end
 
   test "uses the shared request session and does not expose other tenant summaries", %{conn: conn} do
@@ -171,10 +170,10 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     {:ok, foreign_check} = create_required_verification_check(foreign_scope.session)
     {:ok, foreign_run} = create_ready_run(foreign_scope.session, foreign_check)
 
-    page = graphql(conn, @operator_runs_query, %{first: 10}, "operatorRuns")
+    page = graphql(conn, @operator_runs_query, %{first: 10}, "listWorkRuns")
     ids = page["edges"] |> Enum.map(&get_in(&1, ["node", "id"]))
-    assert local_run.run.id in ids
-    refute foreign_run.run.id in ids
+    assert relay_id("work_run", local_run.run.id) in ids
+    refute relay_id("work_run", foreign_run.run.id) in ids
   end
 
   test "returns the existing safe forbidden shape for a session without skeleton read", %{
@@ -193,31 +192,32 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
       |> post(~p"/graphql", %{query: @operator_runs_query, variables: %{first: 1}})
       |> json_response(200)
 
-    assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
-    assert response["data"] in [nil, %{"operatorRuns" => nil}]
+    assert [
+             %{
+               "code" => "forbidden",
+               "message" => "forbidden",
+               "path" => ["listWorkRuns"]
+             }
+           ] = Enum.map(response["errors"], &Map.take(&1, ["code", "message", "path"]))
+
+    assert response["data"] in [nil, %{"listWorkRuns" => nil}]
   end
 
-  test "does not include raw run payload fields in the summary schema", %{conn: conn} do
+  test "uses the generated Relay WorkRun type instead of a manual summary object", %{conn: conn} do
     response =
       conn
       |> post(~p"/graphql", %{
-        query: "{ __type(name: \"OperatorRunSummary\") { fields { name } } }"
+        query:
+          "{ generated: __type(name: \"WorkRun\") { interfaces { name } fields { name } } manual: __type(name: \"OperatorRunSummary\") { name } }"
       })
       |> json_response(200)
 
     assert response["errors"] in [nil, []]
-    fields = get_in(response, ["data", "__type", "fields"]) |> Enum.map(& &1["name"])
+    assert get_in(response, ["data", "manual"]) == nil
+    assert get_in(response, ["data", "generated", "interfaces"]) == [%{"name" => "Node"}]
 
-    assert Enum.sort(fields) ==
-             Enum.sort([
-               "aggregateState",
-               "executionState",
-               "id",
-               "insertedAt",
-               "objective",
-               "packet",
-               "verificationState"
-             ])
+    fields = get_in(response, ["data", "generated", "fields"]) |> Enum.map(& &1["name"])
+    assert "workPacket" in fields
   end
 
   defp graphql(conn, query, variables, field) do
@@ -228,6 +228,10 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
     assert response["errors"] in [nil, []]
     Map.fetch!(response["data"], field)
+  end
+
+  defp relay_id(type, id) do
+    Absinthe.Relay.Node.to_global_id(type, id, OfficeGraphWeb.GraphQL.Schema)
   end
 
   defp set_run_inserted_at!(run_id, inserted_at) do

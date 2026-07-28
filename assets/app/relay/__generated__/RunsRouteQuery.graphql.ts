@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<24511d019183e70a398cbfdff7453520>>
+ * @generated SignedSource<<b0c47a002bf9be46c44251205d5c36c1>>
  * @lightSyntaxTransform
  */
 
@@ -13,7 +13,7 @@ export type RunsRouteQuery$variables = {
   first: number;
 };
 export type RunsRouteQuery$data = {
-  readonly operatorRuns: {
+  readonly listWorkRuns: {
     readonly edges: ReadonlyArray<{
       readonly node: {
         readonly aggregateState: string;
@@ -21,12 +21,12 @@ export type RunsRouteQuery$data = {
         readonly id: string;
         readonly insertedAt: string;
         readonly objective: string | null | undefined;
-        readonly packet: {
+        readonly verificationState: string;
+        readonly workPacket: {
           readonly title: string;
         };
-        readonly verificationState: string;
-      } | null | undefined;
-    } | null | undefined> | null | undefined;
+      };
+    }> | null | undefined;
     readonly pageInfo: {
       readonly endCursor: string | null | undefined;
       readonly hasNextPage: boolean;
@@ -59,6 +59,16 @@ v2 = [
     "kind": "Variable",
     "name": "first",
     "variableName": "first"
+  },
+  {
+    "kind": "Literal",
+    "name": "sort",
+    "value": [
+      {
+        "field": "INSERTED_AT",
+        "order": "DESC"
+      }
+    ]
   }
 ],
 v3 = {
@@ -150,15 +160,15 @@ return {
       {
         "alias": null,
         "args": (v2/*:: as any*/),
-        "concreteType": "OperatorRunSummaryConnection",
+        "concreteType": "WorkRunConnection",
         "kind": "LinkedField",
-        "name": "operatorRuns",
+        "name": "listWorkRuns",
         "plural": false,
         "selections": [
           {
             "alias": null,
             "args": null,
-            "concreteType": "OperatorRunSummaryEdge",
+            "concreteType": "WorkRunEdge",
             "kind": "LinkedField",
             "name": "edges",
             "plural": true,
@@ -166,7 +176,7 @@ return {
               {
                 "alias": null,
                 "args": null,
-                "concreteType": "OperatorRunSummary",
+                "concreteType": "WorkRun",
                 "kind": "LinkedField",
                 "name": "node",
                 "plural": false,
@@ -180,9 +190,9 @@ return {
                   {
                     "alias": null,
                     "args": null,
-                    "concreteType": "OperatorPacketRef",
+                    "concreteType": "WorkPacket",
                     "kind": "LinkedField",
-                    "name": "packet",
+                    "name": "workPacket",
                     "plural": false,
                     "selections": [
                       (v9/*:: as any*/)
@@ -215,15 +225,15 @@ return {
       {
         "alias": null,
         "args": (v2/*:: as any*/),
-        "concreteType": "OperatorRunSummaryConnection",
+        "concreteType": "WorkRunConnection",
         "kind": "LinkedField",
-        "name": "operatorRuns",
+        "name": "listWorkRuns",
         "plural": false,
         "selections": [
           {
             "alias": null,
             "args": null,
-            "concreteType": "OperatorRunSummaryEdge",
+            "concreteType": "WorkRunEdge",
             "kind": "LinkedField",
             "name": "edges",
             "plural": true,
@@ -231,7 +241,7 @@ return {
               {
                 "alias": null,
                 "args": null,
-                "concreteType": "OperatorRunSummary",
+                "concreteType": "WorkRun",
                 "kind": "LinkedField",
                 "name": "node",
                 "plural": false,
@@ -245,9 +255,9 @@ return {
                   {
                     "alias": null,
                     "args": null,
-                    "concreteType": "OperatorPacketRef",
+                    "concreteType": "WorkPacket",
                     "kind": "LinkedField",
-                    "name": "packet",
+                    "name": "workPacket",
                     "plural": false,
                     "selections": [
                       (v9/*:: as any*/),
@@ -268,16 +278,16 @@ return {
     ]
   },
   "params": {
-    "cacheID": "da1cebdf66b67912fafc067561502140",
+    "cacheID": "dd68ee9ff9c18983f196df75de6cbd91",
     "id": null,
     "metadata": {},
     "name": "RunsRouteQuery",
     "operationKind": "query",
-    "text": "query RunsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  operatorRuns(first: $first, after: $after) {\n    edges {\n      node {\n        id\n        objective\n        aggregateState\n        executionState\n        verificationState\n        insertedAt\n        packet {\n          title\n          id\n        }\n      }\n    }\n    pageInfo {\n      hasNextPage\n      endCursor\n    }\n  }\n}\n"
+    "text": "query RunsRouteQuery(\n  $first: Int!\n  $after: String\n) {\n  listWorkRuns(first: $first, after: $after, sort: [{field: INSERTED_AT, order: DESC}]) {\n    edges {\n      node {\n        id\n        objective\n        aggregateState\n        executionState\n        verificationState\n        insertedAt\n        workPacket {\n          title\n          id\n        }\n      }\n    }\n    pageInfo {\n      hasNextPage\n      endCursor\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "8040f8a6afa93499878121bcae195971";
+(node as any).hash = "0520186dac5626f5322bf847a41b1164";
 
 export default node;

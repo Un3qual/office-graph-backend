@@ -89,7 +89,7 @@ export function runsConnectionResponse(
 ): GraphQLResponse {
   return {
     data: {
-      operatorRuns: {
+      listWorkRuns: {
         edges: rows.map((node, index) => ({
           cursor: `run_cursor_${index + 1}`,
           node,
@@ -143,7 +143,7 @@ export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSumma
     executionState: "completed",
     verificationState: "pending",
     insertedAt: "2026-07-23T19:00:00Z",
-    packet: {
+    workPacket: {
       id: "123e4567-e89b-12d3-a456-426614174000",
       title: "Newest packet",
     },
@@ -260,12 +260,12 @@ function LocationProbe() {
   return <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>;
 }
 
-type RunsConnectionPayload = NonNullable<RunsRouteOperation["response"]["operatorRuns"]>;
+type RunsConnectionPayload = NonNullable<RunsRouteOperation["response"]["listWorkRuns"]>;
 type RunSummaryReaderPayload = NonNullable<
   NonNullable<NonNullable<RunsConnectionPayload["edges"]>[number]>["node"]
 >;
-type RunSummaryPayload = Omit<RunSummaryReaderPayload, "packet"> & {
-  packet: RunSummaryReaderPayload["packet"] & { id: string };
+type RunSummaryPayload = Omit<RunSummaryReaderPayload, "workPacket"> & {
+  workPacket: RunSummaryReaderPayload["workPacket"] & { id: string };
 };
 type PageInfoPayload = RunsConnectionPayload["pageInfo"] & {
   hasPreviousPage: boolean;

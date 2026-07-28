@@ -11,6 +11,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
   @stabilization_change_archive "openspec/changes/archive/2026-06-30-stabilize-architecture-foundation"
   @api_migration_ledger "openspec/specs/backend-model-ownership/api-migration-ledger.md"
+  @api_surface_classification "openspec/changes/complete-ash-generated-apis/api-surface-classification.md"
   @map_field_classification "#{@stabilization_change_archive}/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
@@ -929,6 +930,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       @architecture_exception_ledger unquote(@architecture_exception_ledger)
       @stabilization_change_archive unquote(@stabilization_change_archive)
       @api_migration_ledger unquote(@api_migration_ledger)
+      @api_surface_classification unquote(@api_surface_classification)
       @map_field_classification unquote(@map_field_classification)
       @model_inventory unquote(@model_inventory)
       @stabilization_inventory unquote(@stabilization_inventory)
@@ -1783,6 +1785,24 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def manual_api_surfaces do
     graphql_root_surfaces() ++ json_api_route_surfaces() ++ json_serializer_surfaces()
+  end
+
+  def manual_graphql_type_surfaces do
+    [
+      "lib/office_graph_web/graphql/operator_workflow/types.ex",
+      "lib/office_graph_web/graphql/operator_commands/types.ex"
+    ]
+    |> Enum.flat_map(fn path ->
+      if File.exists?(path) do
+        ~r/^\s*(?:node\s+)?(?:object|input_object)(?:\s+|\()\:([a-z0-9_]+)/m
+        |> Regex.scan(File.read!(path), capture: :all_but_first)
+        |> List.flatten()
+        |> Enum.map(&"graphql.type.#{&1}")
+      else
+        []
+      end
+    end)
+    |> Enum.sort()
   end
 
   def graphql_root_surfaces do

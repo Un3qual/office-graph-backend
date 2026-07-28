@@ -100,41 +100,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       end)
     end
 
-    connection field :operator_runs,
-                 node_type: :operator_run_summary,
-                 paginate: :forward do
-      resolve(fn args, resolution ->
-        with :ok <- validate_first(args),
-             {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, :forward, limit} <- Connection.limit(args, 100),
-             {:ok, page} <-
-               Projections.operator_runs_page(session_context,
-                 limit: limit,
-                 after_cursor: Map.get(args, :after)
-               ) do
-          {:ok, connection} =
-            Connection.from_slice(page.row_edges, 0,
-              has_next_page: page.has_next_page?,
-              has_previous_page: page.has_previous_page?
-            )
-
-          {:ok, connection}
-        else
-          {:ok, _direction, _limit} ->
-            Errors.to_absinthe({:error, {:invalid_field, :first}})
-
-          {:error, {:invalid_field, :after_cursor}} ->
-            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
-
-          {:error, reason} when is_binary(reason) ->
-            Errors.to_absinthe({:error, {:invalid_field, :pagination}})
-
-          error ->
-            Errors.to_absinthe(error)
-        end
-      end)
-    end
-
     field :operator_workflow_item, non_null(:operator_workflow_item) do
       arg(:id, non_null(:id))
 
@@ -236,7 +201,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
       resolve(fn %{id: id}, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, run_state} <- Projections.operator_run_state(session_context, id) do
+             {:ok, run_id} <- normalize_work_run_id(id),
+             {:ok, run_state} <- Projections.operator_run_state(session_context, run_id) do
           {:ok, run_state}
         else
           error -> Errors.to_absinthe(error)
@@ -253,11 +219,12 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
       resolve(fn args, resolution ->
         with :ok <- validate_first(args),
              {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
+             {:ok, run_id} <- normalize_work_run_id(args.id),
              {:ok, :forward, limit} <- Connection.limit(args, 100),
              {:ok, page} <-
                Projections.operator_run_command_option_page(
                  session_context,
-                 args.id,
+                 run_id,
                  args.kind,
                  limit: limit,
                  after_cursor: Map.get(args, :after)
@@ -283,7 +250,8 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
       resolve(fn %{id: id}, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, outcome} <- Projections.verification_outcome(session_context, id) do
+             {:ok, run_id} <- normalize_work_run_id(id),
+             {:ok, outcome} <- Projections.verification_outcome(session_context, run_id) do
           {:ok, outcome}
         else
           error -> Errors.to_absinthe(error)
@@ -316,6 +284,21 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
         case Absinthe.Relay.Node.from_global_id(id, schema) do
           {:ok, %{type: :work_packet, id: packet_id}} -> {:ok, packet_id}
+          _other -> {:error, {:invalid_field, :id}}
+        end
+    end
+  end
+
+  defp normalize_work_run_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, run_id} ->
+        {:ok, run_id}
+
+      :error ->
+        schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])
+
+        case Absinthe.Relay.Node.from_global_id(id, schema) do
+          {:ok, %{type: :work_run, id: run_id}} -> {:ok, run_id}
           _other -> {:error, {:invalid_field, :id}}
         end
     end

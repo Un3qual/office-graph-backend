@@ -740,6 +740,7 @@ input WorkRunFilterInput {
   initiatorPrincipalId: WorkRunFilterInitiatorPrincipalId
   organizationId: WorkRunFilterOrganizationId
   workspaceId: WorkRunFilterWorkspaceId
+  workPacket: WorkPacketFilterInput
 }
 
 input WorkRunSortInput {
@@ -767,6 +768,7 @@ type WorkRun implements Node {
   initiatorPrincipalId: ID
   organizationId: ID
   workspaceId: ID
+  workPacket: WorkPacket!
 }
 
 interface Node {
@@ -780,7 +782,6 @@ type RootQueryType {
   githubIntegrationHealth(installationId: ID!, limit: Int): GithubIntegrationHealth!
   graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
-  operatorRuns(after: String, first: Int!): OperatorRunSummaryConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
   operatorRelationshipDetails(after: String, first: Int!, id: ID!): OperatorRelationshipDetailConnection
   operatorPacketReadiness(input: OperatorPacketReadinessInput!): OperatorPacketReadiness!
@@ -1602,21 +1603,6 @@ type OperatorPacketVersionRef {
   objective: String
 }
 
-type OperatorRunSummary {
-  id: ID!
-  objective: String
-  aggregateState: String!
-  executionState: String!
-  verificationState: String!
-  insertedAt: DateTime!
-  packet: OperatorPacketRef!
-}
-
-type OperatorRunSummaryConnection {
-  pageInfo: PageInfo!
-  edges: [OperatorRunSummaryEdge]
-}
-
 type OperatorObservation {
   id: ID!
   verificationCheckId: ID
@@ -1972,11 +1958,6 @@ type OperatorRunCommandOptionChoiceEdge {
 
 type OperatorRunActivityEdge {
   node: OperatorRunActivity
-  cursor: String
-}
-
-type OperatorRunSummaryEdge {
-  node: OperatorRunSummary
   cursor: String
 }
 

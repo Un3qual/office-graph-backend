@@ -22,6 +22,39 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     end
   end
 
+  test "active API classification covers every manual root, type, route, and transport helper" do
+    assert File.exists?(@api_surface_classification)
+    classification = File.read!(@api_surface_classification)
+
+    classified_surface_ids =
+      manual_api_surfaces()
+      |> Enum.map(& &1.id)
+      |> Kernel.++(manual_graphql_type_surfaces())
+
+    missing_surface_ids =
+      Enum.reject(classified_surface_ids, &String.contains?(classification, "`#{&1}`"))
+
+    assert missing_surface_ids == [],
+           "#{@api_surface_classification} is missing:\n#{format_errors(missing_surface_ids)}"
+
+    migration_helpers = [
+      "lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex",
+      "lib/office_graph_web/graphql/operator_commands/resolvers/github.ex",
+      "lib/office_graph_web/graphql/operator_commands/resolvers/intake.ex",
+      "lib/office_graph_web/graphql/operator_commands/resolvers/packets.ex",
+      "lib/office_graph_web/graphql/operator_commands/resolvers/runs.ex",
+      "lib/office_graph_web/graphql/operator_commands/resolvers/verification.ex",
+      "lib/office_graph_web/operator_commands/input.ex",
+      "lib/office_graph_web/operator_commands/errors.ex"
+    ]
+
+    missing_helpers =
+      Enum.reject(migration_helpers, &String.contains?(classification, "`#{&1}`"))
+
+    assert missing_helpers == [],
+           "#{@api_surface_classification} is missing:\n#{format_errors(missing_helpers)}"
+  end
+
   test "manual GraphQL and JSON API surfaces are covered by migration ledger entries" do
     unledgered =
       manual_api_surfaces()
