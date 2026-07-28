@@ -6,7 +6,34 @@ type RunsConnection = NonNullable<RunsRouteOperation["response"]["listWorkRuns"]
 type RunsEdge = NonNullable<NonNullable<RunsConnection["edges"]>[number]>;
 
 export type RunSummary = NonNullable<RunsEdge["node"]>;
-export type RunDetailState = NonNullable<RunDetailOperation["response"]["operatorRunState"]>;
+type RunDetailResponse = RunDetailOperation["response"];
+type RunProjection = NonNullable<RunDetailResponse["operatorRunState"]>;
+type RunResource = NonNullable<RunDetailResponse["run"]>;
+type RunRequiredCheckConnection = RunResource["requiredChecks"];
+type EvidenceCandidateConnection = RunResource["evidenceCandidates"];
+type EvidenceItemConnection = RunResource["evidenceItems"];
+type VerificationResultConnection = RunResource["verificationResults"];
+type ConnectionNode<TConnection extends { readonly edges?: ReadonlyArray<unknown> | null }> =
+  NonNullable<NonNullable<TConnection["edges"]>[number]> extends {
+    readonly node: infer TNode;
+  }
+    ? NonNullable<TNode>
+    : never;
+
+export type RunDetailState = RunProjection & {
+  packet: {
+    relayId: string;
+    title: string;
+  };
+  packetVersion: RunResource["workPacketVersion"];
+  run: Pick<RunResource, "id" | "aggregateState" | "executionState" | "verificationState">;
+  requiredChecks: Array<ConnectionNode<RunRequiredCheckConnection>>;
+  evidenceCandidates: Array<
+    Omit<ConnectionNode<EvidenceCandidateConnection>, "candidateState"> & { state: string }
+  >;
+  evidenceItems: Array<ConnectionNode<EvidenceItemConnection>>;
+  verificationResults: Array<ConnectionNode<VerificationResultConnection>>;
+};
 export type RunDetailResult = {
   activityRef: RunActivityFragment$key;
   detail: RunDetailState;

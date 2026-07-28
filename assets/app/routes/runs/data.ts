@@ -63,44 +63,61 @@ export const RunDetailQuery = graphql`
     ...RunActivityFragment @arguments(id: $id, first: $activityFirst)
     operatorRunState(id: $id) {
       status
-      packet {
-        relayId
+      missingEvidence {
+        verificationCheckId
+        reason
+      }
+    }
+    run: getWorkRun(id: $id) {
+      id
+      aggregateState
+      executionState
+      verificationState
+      workPacket {
+        id
         title
       }
-      packetVersion {
+      workPacketVersion {
+        id
         versionNumber
         lifecycleState
         objective
       }
-      run {
-        id
-        aggregateState
-        executionState
-        verificationState
+      requiredChecks(first: 20, sort: [{ field: POSITION, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            state
+          }
+        }
       }
-      requiredChecks {
-        id
-        verificationCheckId
-        state
+      evidenceCandidates(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            claim
+            candidateState
+          }
+        }
       }
-      evidenceCandidates {
-        id
-        claim
-        state
+      evidenceItems(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            state
+          }
+        }
       }
-      evidenceItems {
-        id
-        state
-      }
-      verificationResults {
-        id
-        result
-        verificationCheckId
-        policyBasis
-      }
-      missingEvidence {
-        verificationCheckId
-        reason
+      verificationResults(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            result
+            verificationCheckId
+            policyBasis
+          }
+        }
       }
     }
   }

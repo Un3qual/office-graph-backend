@@ -26,7 +26,7 @@ describe("all-runs route recovery", () => {
       if (request.name === "RunDetailQuery") {
         detailAttempts += 1;
         if (detailAttempts === 1) throw new Error(rawErrorSentinel);
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -76,7 +76,7 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -133,7 +133,7 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -185,7 +185,7 @@ describe("all-runs route recovery", () => {
 
         if (request.name === "RunDetailQuery") {
           if (kind === "forbidden") throw new Error(rawErrorSentinel);
-          return { data: { operatorRunState: null } };
+          return { data: { operatorRunState: null, run: null } };
         }
 
         throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -222,7 +222,7 @@ describe("all-runs route recovery", () => {
         expect(body.variables.id).toBe("run_stale");
 
         return Response.json({
-          data: { operatorRunState: null },
+          data: { operatorRunState: null, run: null },
           errors: [
             {
               message: rawErrorSentinel,
@@ -253,22 +253,7 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        const state = support.runState();
-
-        return {
-          data: {
-            operatorRunState: {
-              ...state,
-              activity: null,
-            },
-          },
-          errors: [
-            {
-              message: rawErrorSentinel,
-              path: ["operatorRunState", "activity"],
-            },
-          ],
-        };
+        return support.runDetailActivityErrorResponse(rawErrorSentinel);
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);

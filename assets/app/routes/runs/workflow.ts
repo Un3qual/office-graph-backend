@@ -26,11 +26,41 @@ export function useRunDetail(runId: string, fetchKey?: number): RunDetailResult 
     { fetchKey, fetchPolicy: "network-only" },
   );
 
-  if (!data.operatorRunState) {
+  if (!data.operatorRunState || !data.run) {
     throw new Error("The selected run is unavailable.");
   }
 
-  return { activityRef: data, detail: data.operatorRunState };
+  const run = data.run;
+
+  return {
+    activityRef: data,
+    detail: {
+      ...data.operatorRunState,
+      packet: {
+        relayId: run.workPacket.id,
+        title: run.workPacket.title,
+      },
+      packetVersion: run.workPacketVersion,
+      run: {
+        id: run.id,
+        aggregateState: run.aggregateState,
+        executionState: run.executionState,
+        verificationState: run.verificationState,
+      },
+      requiredChecks: (run.requiredChecks.edges ?? []).flatMap((edge) =>
+        edge?.node ? [edge.node] : [],
+      ),
+      evidenceCandidates: (run.evidenceCandidates.edges ?? []).flatMap((edge) =>
+        edge?.node ? [{ ...edge.node, state: edge.node.candidateState }] : [],
+      ),
+      evidenceItems: (run.evidenceItems.edges ?? []).flatMap((edge) =>
+        edge?.node ? [edge.node] : [],
+      ),
+      verificationResults: (run.verificationResults.edges ?? []).flatMap((edge) =>
+        edge?.node ? [edge.node] : [],
+      ),
+    },
+  };
 }
 
 function runsConnectionFromRelay(data: RunsRouteOperation["response"]): RunsConnectionState {

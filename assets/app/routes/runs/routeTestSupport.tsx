@@ -11,10 +11,10 @@ import {
 } from "relay-runtime";
 import { vi } from "vitest";
 import type { RunActivityFragment$data } from "../../relay/__generated__/RunActivityFragment.graphql";
-import type { RunDetailQuery as RunDetailOperation } from "../../relay/__generated__/RunDetailQuery.graphql";
 import type { RunsRouteQuery as RunsRouteOperation } from "../../relay/__generated__/RunsRouteQuery.graphql";
 import { getOfficeGraphDataID } from "../../relay/environment";
 import RunsRoute from "./route";
+import type { RunDetailState } from "./types";
 
 export function renderWithRelay(network: FetchFunction, initialEntry = "/runs") {
   return renderWithRelayEnvironment(createRelayTestEnvironment(network), initialEntry);
@@ -63,20 +63,17 @@ export function createRunsNetwork({
     }
 
     if (request.name === "RunDetailQuery") {
-      return {
-        data: {
-          operatorRunState:
-            states[String(variables.id)] ??
-            runState({
-              run: {
-                id: String(variables.id),
-                aggregateState: "running",
-                executionState: "completed",
-                verificationState: "pending",
-              },
-            }),
-        },
-      };
+      return runDetailResponse(
+        states[String(variables.id)] ??
+          runState({
+            run: {
+              id: String(variables.id),
+              aggregateState: "running",
+              executionState: "completed",
+              verificationState: "pending",
+            },
+          }),
+      );
     }
 
     throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -239,6 +236,69 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
   };
 }
 
+export function runDetailResponse(state: RunStatePayload = runState()): GraphQLResponse {
+  return {
+    data: {
+      operatorRunState: {
+        status: state.status,
+        missingEvidence: state.missingEvidence,
+        activity: state.activity,
+      },
+      run: runResourceResponse(state),
+    },
+  };
+}
+
+export function runDetailActivityErrorResponse(
+  message: string,
+  state: RunStatePayload = runState(),
+): GraphQLResponse {
+  return {
+    data: {
+      operatorRunState: {
+        status: state.status,
+        missingEvidence: state.missingEvidence,
+        activity: null,
+      },
+      run: runResourceResponse(state),
+    },
+    errors: [
+      {
+        message,
+        path: ["operatorRunState", "activity"],
+      },
+    ],
+  };
+}
+
+function runResourceResponse(state: RunStatePayload) {
+  return {
+    id: state.run.id,
+    aggregateState: state.run.aggregateState,
+    executionState: state.run.executionState,
+    verificationState: state.run.verificationState,
+    workPacket: {
+      id: state.packet.relayId,
+      title: state.packet.title,
+    },
+    workPacketVersion: state.packetVersion,
+    requiredChecks: {
+      edges: state.requiredChecks.map((node) => ({ node })),
+    },
+    evidenceCandidates: {
+      edges: state.evidenceCandidates.map(({ state: candidateState, ...node }) => ({
+        node: { ...node, candidateState },
+      })),
+    },
+    evidenceItems: {
+      edges: state.evidenceItems.map((node) => ({ node })),
+    },
+    verificationResults: {
+      edges: state.verificationResults.map((node) => ({ node })),
+    },
+  };
+}
+
 export function deferredGraphQLResponse() {
   let resolve!: (value: GraphQLResponse) => void;
   let reject!: (reason: Error) => void;
@@ -271,10 +331,9 @@ type PageInfoPayload = RunsConnectionPayload["pageInfo"] & {
   hasPreviousPage: boolean;
   startCursor: string | null;
 };
-type RunDetailReaderPayload = NonNullable<RunDetailOperation["response"]["operatorRunState"]>;
-type RunDetailPayload = Omit<RunDetailReaderPayload, "packet" | "packetVersion"> & {
-  packet: RunDetailReaderPayload["packet"] & { id: string };
-  packetVersion: (NonNullable<RunDetailReaderPayload["packetVersion"]> & { id: string }) | null;
+type RunDetailPayload = Omit<RunDetailState, "packet" | "packetVersion"> & {
+  packet: RunDetailState["packet"] & { id: string };
+  packetVersion: (NonNullable<RunDetailState["packetVersion"]> & { id: string }) | null;
 };
 type ActivityPayload = NonNullable<
   Extract<RunActivityFragment$data["operatorRunState"]["activity"], { readonly ok: true }>["value"]

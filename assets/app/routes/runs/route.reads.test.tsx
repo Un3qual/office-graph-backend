@@ -35,7 +35,7 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -73,7 +73,7 @@ describe("all-runs route reads", () => {
           throw new Error("raw detail authorization failure");
         }
 
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -104,7 +104,7 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: null } };
+        return { data: { operatorRunState: null, run: null } };
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -286,7 +286,7 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -344,7 +344,7 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -381,9 +381,7 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return variables.id === "run_second"
-          ? replacement.promise
-          : { data: { operatorRunState: support.runState() } };
+        return variables.id === "run_second" ? replacement.promise : support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
@@ -399,9 +397,9 @@ describe("all-runs route reads", () => {
     });
     expect(screen.getByText("Loading selected run...")).toBeInTheDocument();
 
-    replacement.resolve({
-      data: {
-        operatorRunState: support.runState({
+    replacement.resolve(
+      support.runDetailResponse(
+        support.runState({
           packet: {
             id: "packet_second",
             relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
@@ -414,8 +412,8 @@ describe("all-runs route reads", () => {
             verificationState: "pending",
           },
         }),
-      },
-    });
+      ),
+    );
 
     expect(await screen.findByRole("heading", { name: "Second packet" })).toBeInTheDocument();
   });

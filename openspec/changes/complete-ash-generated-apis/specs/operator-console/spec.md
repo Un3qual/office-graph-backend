@@ -66,17 +66,20 @@ bootstrap fallback, alias, compatibility route, or compatibility query.
 - **WHEN** route and GraphQL architecture coverage inspects all-runs entry
   points
 - **THEN** it MUST find only the canonical `/runs` route and the documented
-  generated `listWorkRuns` and mixed-projection `operatorRunState` reads, with
-  no alias or compatibility route/query
+  generated `listWorkRuns`, generated `getWorkRun`, and derived
+  `operatorRunState` reads, with no alias or compatibility route/query
 
 ### Requirement: All Runs Preserves Authoritative List And Detail State
 
 Office Graph SHALL render an explicit list, selection, detail, and bounded
 activity state from route-owned Relay reads. It SHALL obtain its list from the
-generated `listWorkRuns` connection and selected-run detail from the
-`operatorRunState(id:)` mixed projection, including that projection's first
-bounded activity page. It SHALL treat the list and selected-detail reads as
-independent recoverable boundaries.
+generated `listWorkRuns` connection. It SHALL obtain selected-run resource state
+and relationships from generated `getWorkRun`, including packet, packet
+version, required checks, evidence candidates, evidence items, and verification
+results. It SHALL obtain only derived status, missing-evidence, and bounded
+activity state from `operatorRunState(id:)`. The generated and projection reads
+SHALL share one route-owned detail operation and SHALL remain independently
+recoverable from the list read.
 
 #### Scenario: Authorized run list is empty
 
@@ -93,10 +96,19 @@ independent recoverable boundaries.
 
 #### Scenario: Detail read fails
 
-- **WHEN** `operatorRunState` is missing, forbidden, invalid, stale, or fails
+- **WHEN** `getWorkRun` or `operatorRunState` is missing, forbidden, invalid,
+  stale, or fails
 - **THEN** the list MUST remain visible, stale selected-run detail MUST be
   cleared, and the route MUST render a safe detail error with an explicit
   detail retry that authoritatively re-reads the run
+
+#### Scenario: Selected run detail loads
+
+- **WHEN** the route loads an authorized selected run
+- **THEN** packet, packet-version, required-check, evidence, and verification
+  resource fields MUST resolve through generated AshGraphql resource objects
+  and Relay relationships, while `operatorRunState` MUST provide only the
+  derived status, missing-evidence, and activity projection
 
 #### Scenario: List page read fails
 

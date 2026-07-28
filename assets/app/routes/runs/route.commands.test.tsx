@@ -19,7 +19,7 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: firstState } };
+        return support.runDetailResponse(firstState);
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -62,7 +62,7 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -114,7 +114,7 @@ describe("all-runs route activity and command boundaries", () => {
 
       if (request.name === "RunDetailQuery") {
         detailAttempts += 1;
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -183,43 +183,41 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunDetailQuery" && variables.id === "run_second") {
-        return {
-          data: {
-            operatorRunState: support.runState({
-              packet: {
-                id: "packet_second",
-                relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
-                title: "Second packet",
-              },
-              run: {
-                id: "run_second",
-                aggregateState: "running",
-                executionState: "running",
-                verificationState: "pending",
-              },
-              activity: {
-                edges: [
-                  {
-                    cursor: "second_activity_cursor_1",
-                    node: {
-                      __typename: "OperatorRunActivity",
-                      kind: "run",
-                      stableId: "run_second",
-                      title: "Second run started",
-                      status: "running",
-                    },
+        return support.runDetailResponse(
+          support.runState({
+            packet: {
+              id: "packet_second",
+              relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
+              title: "Second packet",
+            },
+            run: {
+              id: "run_second",
+              aggregateState: "running",
+              executionState: "running",
+              verificationState: "pending",
+            },
+            activity: {
+              edges: [
+                {
+                  cursor: "second_activity_cursor_1",
+                  node: {
+                    __typename: "OperatorRunActivity",
+                    kind: "run",
+                    stableId: "run_second",
+                    title: "Second run started",
+                    status: "running",
                   },
-                ],
-                pageInfo: {
-                  hasNextPage: false,
-                  hasPreviousPage: false,
-                  startCursor: "second_activity_cursor_1",
-                  endCursor: "second_activity_cursor_1",
                 },
+              ],
+              pageInfo: {
+                hasNextPage: false,
+                hasPreviousPage: false,
+                startCursor: "second_activity_cursor_1",
+                endCursor: "second_activity_cursor_1",
               },
-            }),
-          },
-        };
+            },
+          }),
+        );
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -227,7 +225,7 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return { data: { operatorRunState: support.runState() } };
+        return support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
