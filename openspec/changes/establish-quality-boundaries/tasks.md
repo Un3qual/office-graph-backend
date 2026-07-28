@@ -20,5 +20,5 @@
 ## 4. Verify And Close The Boundary Change
 
 - [x] 4.1 Run formatter, focused architecture and project-quality tests, compilation with warnings as errors, and strict OpenSpec validation
-- [ ] 4.2 Run the complete canonical `bin/verify` gate and confirm it leaves the worktree unchanged
-- [ ] 4.3 Review the final diff for copied historical plans, accidental implied SQL approvals, vague exceptions, placeholders, and unrelated behavior changes
+- [x] 4.2 Run the complete canonical `bin/verify` gate and confirm it leaves the worktree unchanged
+- [x] 4.3 Review the final diff for copied historical plans, accidental implied SQL approvals, vague exceptions, placeholders, and unrelated behavior changes
