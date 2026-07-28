@@ -1,8 +1,8 @@
 ## 1. Reconcile Repository Planning
 
-- [ ] 1.1 Classify every `docs/superpowers/**` file as already canonical, obsolete, or containing a unique current normative decision and record the evidence inside this OpenSpec change
-- [ ] 1.2 Promote only unique current normative decisions into their owning OpenSpec capabilities and update `openspec/project.md` with the approved OpenSpec-only, Ash-first, and raw-SQL approval boundaries
-- [ ] 1.3 Remove `docs/superpowers/**` and update repository guidance so required agent workflows write project designs and tasks only through OpenSpec
+- [x] 1.1 Classify every `docs/superpowers/**` file as already canonical, obsolete, or containing a unique current normative decision and record the evidence inside this OpenSpec change
+- [x] 1.2 Promote only unique current normative decisions into their owning OpenSpec capabilities and update `openspec/project.md` with the approved OpenSpec-only, Ash-first, and raw-SQL approval boundaries
+- [x] 1.3 Remove `docs/superpowers/**` and update repository guidance so required agent workflows write project designs and tasks only through OpenSpec
 
 ## 2. Enforce Database Access Boundaries
 

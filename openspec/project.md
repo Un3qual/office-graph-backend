@@ -41,7 +41,10 @@ decisions into this file or into formal OpenSpec specs.
   such as close, update, react, comment, approve, and subscribe. These
   interfaces sit over typed resources and authorization-aware resolvers; they
   do not justify polymorphic local storage or generic mutation paths.
-- Workflow source of truth: OpenSpec.
+- Workflow source of truth: OpenSpec. Durable proposals, designs,
+  implementation tasks, and accepted project decisions belong under
+  `openspec/**`; do not create a parallel planning tree elsewhere in the
+  repository.
 - Office Graph is unreleased. Current product direction wins over old demo
   paths, old adapter request/response code, and module layouts. Keep old code paths only when
   a current caller, current verification need, external contract, data-safety
@@ -249,8 +252,18 @@ Locked or strongly preferred technical direction:
   real requirement forces it.
 - Use Ash for resource actions, policies, validation, state transitions, and
   API-facing domain boundaries.
-- Use explicit SQL/Ecto where graph traversal, replay, analytics, or bulk
-  operations exceed what should be forced through Ash.
+- Prefer built-in Ash and AshPostgres actions, code interfaces, relationships,
+  managed relationships, identities, aggregates, validations, changes, atomic
+  updates, optimistic locks, hooks, bulk operations, generic actions, and
+  action-managed transactions before direct Ecto.
+- Direct Ecto and explicit `Repo.transaction` are removal debt by default. A
+  proposed exception must identify the exact missing Ash capability and be
+  accepted through OpenSpec.
+- Repository-authored raw SQL, SQL fragments, unsafe fragments, SQL-bearing
+  migration execution, and tracked SQL files are prohibited unless the user
+  explicitly approves the exact occurrence in an accepted OpenSpec change.
+  Broad categories such as traversal, replay, analytics, reconciliation,
+  migration, tests, or bulk work do not constitute approval.
 - Treat query shape as part of the design review for new or changed reads.
   Keep watching for avoidable query fanout and N+1 patterns in API,
   projection, GraphQL, JSON, and background-job paths; prefer batched reads,
@@ -427,5 +440,7 @@ Locked or strongly preferred technical direction:
   requirements after decisions have been made.
 - Do not turn every brainstorm into a spec. Promote only stable decisions and
   requirements into OpenSpec specs.
+- Do not create `docs/superpowers/**`, standalone implementation-plan trees,
+  or other durable planning systems outside OpenSpec.
 - Keep OpenSpec-specific concepts out of the Office Graph product model unless
   a future integration or dogfooding feature explicitly requires them.
