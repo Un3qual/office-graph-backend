@@ -18,7 +18,6 @@ defmodule OfficeGraph.Runs.RunEvent do
     uuid_primary_key :id, writable?: true
     attribute :run_id, :uuid, allow_nil?: false, public?: true
     attribute :event_type, :string, allow_nil?: false, public?: true
-    attribute :payload, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -41,7 +40,7 @@ defmodule OfficeGraph.Runs.RunEvent do
     create :create do
       public? false
 
-      accept [:id, :run_id, :event_type, :payload]
+      accept [:id, :run_id, :event_type]
     end
   end
 end

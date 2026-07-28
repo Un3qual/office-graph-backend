@@ -49,7 +49,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     assert archive.body == body
     assert archive.archive_kind == "provider_delivery"
-    refute inspect(archive.metadata) =~ context.webhook_secret
+    assert archive.provider_event == "pull_request"
+    assert archive.external_installation_id == context.external_installation_id
+    refute inspect(archive) =~ context.webhook_secret
 
     assert {:ok, scoped_archive} =
              Integrations.provider_delivery_archive(

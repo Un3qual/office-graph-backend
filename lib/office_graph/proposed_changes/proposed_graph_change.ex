@@ -39,7 +39,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     attribute :step_key, :string, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
-    attribute :payload, :map, allow_nil?: false, default: %{}, public?: true
+    attribute :title, :string, allow_nil?: false, public?: true
+    attribute :body, :string, allow_nil?: false, public?: true
     attribute :validation_errors, {:array, :string}, allow_nil?: false, default: [], public?: true
     attribute :applied_at, :utc_datetime_usec, public?: true
 
@@ -64,7 +65,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
         :context_package_id,
         :step_key,
         :change_type,
-        :payload
+        :title,
+        :body
       ]
 
       change OfficeGraph.ProposedChanges.ProposedGraphChange.TraceReferenceScope
@@ -72,9 +74,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidateUniqueNormalizedEventChangeType
     end
 
-    update :set_payload do
+    update :set_content do
       require_atomic? false
-      accept [:payload]
+      accept [:title, :body]
       validate attribute_equals(:status, "pending")
       change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
     end
@@ -116,7 +118,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
                     capability: :manual_intake_submit}
     end
 
-    policy action(:set_payload) do
+    policy action(:set_content) do
       forbid_unless {OfficeGraph.ProposedChanges.ProposedGraphChange.OriginatingOperationActor,
                      action: "manual_intake.submit"}
 

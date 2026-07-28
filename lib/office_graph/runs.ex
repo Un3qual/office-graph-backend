@@ -59,7 +59,7 @@ defmodule OfficeGraph.Runs do
             freshness_state: "fresh",
             trust_basis: "agent_reported",
             rationale: summary,
-            metadata: %{"classification" => "observation"}
+            classification: "observation"
           })
 
         observation ->
@@ -514,7 +514,7 @@ defmodule OfficeGraph.Runs do
           freshness_state: attrs[:freshness_state],
           trust_basis: attrs[:trust_basis],
           rationale: attrs[:rationale],
-          metadata: Map.new(attrs[:metadata] || %{})
+          classification: attrs[:classification]
         }
       )
 
@@ -717,7 +717,7 @@ defmodule OfficeGraph.Runs do
       observation.freshness_state == attrs[:freshness_state] and
       observation.trust_basis == attrs[:trust_basis] and
       observation.rationale == attrs[:rationale] and
-      observation.metadata == Map.new(attrs[:metadata] || %{})
+      observation.classification == attrs[:classification]
   end
 
   defp validate_preflight_observation_replay(

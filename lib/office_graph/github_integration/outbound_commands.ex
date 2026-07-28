@@ -356,25 +356,42 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
   defp create_action!(session_context, operation, installation, target, action_kind, attrs) do
     target_type = if(action_kind == "review_reply", do: "review_comment", else: "check_run")
 
-    input =
-      attrs
-      |> Map.drop([:installation_id, :review_comment_id, :check_run_id])
-      |> Map.put(:target_node_id, target.node_id)
+    command_attrs =
+      case action_kind do
+        "review_reply" ->
+          %{
+            target_node_id: target.node_id,
+            reply_body: attrs.body
+          }
+
+        "check_update" ->
+          %{
+            target_node_id: target.node_id,
+            check_status: attrs.status,
+            check_conclusion: attrs.conclusion,
+            details_url: attrs.details_url
+          }
+      end
 
     action =
-      Repo.ash_create!(OutboundAction, %{
-        id: Ecto.UUID.generate(),
-        installation_id: installation.id,
-        operation_id: operation.id,
-        principal_id: session_context.principal_id,
-        organization_id: session_context.organization_id,
-        workspace_id: installation.workspace_id,
-        action_kind: action_kind,
-        target_type: target_type,
-        target_id: target.record.id,
-        expected_provider_version: attrs.expected_provider_version,
-        input: input
-      })
+      Repo.ash_create!(
+        OutboundAction,
+        Map.merge(
+          %{
+            id: Ecto.UUID.generate(),
+            installation_id: installation.id,
+            operation_id: operation.id,
+            principal_id: session_context.principal_id,
+            organization_id: session_context.organization_id,
+            workspace_id: installation.workspace_id,
+            action_kind: action_kind,
+            target_type: target_type,
+            target_id: target.record.id,
+            expected_provider_version: attrs.expected_provider_version
+          },
+          command_attrs
+        )
+      )
 
     case enqueue(action) do
       {:ok, _job} ->

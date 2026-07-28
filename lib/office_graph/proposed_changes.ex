@@ -53,13 +53,14 @@ defmodule OfficeGraph.ProposedChanges do
             context_package_id: context_package.id,
             step_key: step_key,
             change_type: change_type,
-            payload: %{"title" => summary, "body" => summary}
+            title: summary,
+            body: summary
           })
 
         change ->
           if change.operation_id == operation.id and
                change.context_package_id == context_package.id and
-               change.payload == %{"title" => summary, "body" => summary},
+               change.title == summary and change.body == summary,
              do: change,
              else: Repo.rollback(:agent_proposal_replay_conflict)
       end
@@ -120,16 +121,21 @@ defmodule OfficeGraph.ProposedChanges do
         case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
           [] ->
             Enum.map(@required_change_types, fn change_type ->
+              attrs =
+                Map.merge(
+                  %{
+                    organization_id: session_context.organization_id,
+                    workspace_id: session_context.workspace_id,
+                    operation_id: operation.id,
+                    normalized_event_id: normalized_event.id,
+                    change_type: change_type
+                  },
+                  change_payload(change_type, title, attrs.body)
+                )
+
               ash_create!(
                 ProposedGraphChange,
-                %{
-                  organization_id: session_context.organization_id,
-                  workspace_id: session_context.workspace_id,
-                  operation_id: operation.id,
-                  normalized_event_id: normalized_event.id,
-                  change_type: change_type,
-                  payload: change_payload(change_type, title, attrs.body)
-                },
+                attrs,
                 session_context
               )
             end)
@@ -578,12 +584,7 @@ defmodule OfficeGraph.ProposedChanges do
   end
 
   defp invalid?(change) do
-    blank?(payload_value(change.payload, "title")) or
-      blank?(payload_value(change.payload, "body"))
-  end
-
-  defp payload_value(payload, key) do
-    Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
+    blank?(change.title) or blank?(change.body)
   end
 
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
@@ -598,11 +599,11 @@ defmodule OfficeGraph.ProposedChanges do
   end
 
   defp apply_signal(change, session_context, operation) do
-    WorkGraph.create_signal(session_context, operation, atomize_payload(change.payload))
+    WorkGraph.create_signal(session_context, operation, change_attributes(change))
   end
 
   defp apply_task(change, session_context, operation, signal) do
-    WorkGraph.create_task(session_context, operation, signal, atomize_payload(change.payload))
+    WorkGraph.create_task(session_context, operation, signal, change_attributes(change))
   end
 
   defp apply_review_finding(change, session_context, operation, task) do
@@ -610,7 +611,7 @@ defmodule OfficeGraph.ProposedChanges do
       session_context,
       operation,
       task,
-      atomize_payload(change.payload)
+      change_attributes(change)
     )
   end
 
@@ -619,7 +620,7 @@ defmodule OfficeGraph.ProposedChanges do
       session_context,
       operation,
       review_finding,
-      atomize_payload(change.payload)
+      change_attributes(change)
     )
   end
 
@@ -686,9 +687,5 @@ defmodule OfficeGraph.ProposedChanges do
   defp change_payload("create_verification_check", title, _body),
     do: %{title: "Verify: " <> title, body: "Evidence required for: " <> title}
 
-  defp atomize_payload(payload) do
-    payload
-    |> Map.take(["title", "body", :title, :body])
-    |> Map.new(fn {key, value} -> {String.to_existing_atom(to_string(key)), value} end)
-  end
+  defp change_attributes(change), do: %{title: change.title, body: change.body}
 end

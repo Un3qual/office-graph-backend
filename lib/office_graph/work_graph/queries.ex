@@ -202,7 +202,10 @@ defmodule OfficeGraph.WorkGraph.Queries do
       run_id: relationship.run_id,
       integration_event_id: relationship.integration_event_id,
       supersedes_relationship_id: relationship.supersedes_relationship_id,
-      tombstone_id: relationship.tombstone_id,
+      deletion_operation_id: relationship.deletion_operation_id,
+      deleted_by_principal_id: relationship.deleted_by_principal_id,
+      deleted_at: relationship.deleted_at,
+      deletion_reason: relationship.deletion_reason,
       source: endpoint_view(relationship.source_item_id, endpoints),
       target: endpoint_view(relationship.target_item_id, endpoints)
     }

@@ -18,7 +18,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
           :run_id,
           :integration_event_id,
           :supersedes_relationship_id,
-          :tombstone_id
+          :deletion_operation_id,
+          :deleted_by_principal_id,
+          :deleted_at,
+          :deletion_reason
         ] do
       assert attribute in attribute_names
     end
@@ -62,9 +65,28 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert relationships.operation == OfficeGraph.Operations.OperationCorrelation
     assert relationships.asserting_principal == OfficeGraph.Identity.Principal
     assert relationships.superseded_relationship == GraphRelationship
-    assert relationships.tombstone == OfficeGraph.Tombstones.Tombstone
+    assert relationships.deletion_operation == OfficeGraph.Operations.OperationCorrelation
+    assert relationships.deleted_by_principal == OfficeGraph.Identity.Principal
 
     refute Map.has_key?(relationships, :related_run)
     refute Map.has_key?(relationships, :integration_event)
+  end
+
+  test "tombstone and restore own in-table deletion metadata" do
+    tombstone = Ash.Resource.Info.action(GraphRelationship, :tombstone)
+    restore = Ash.Resource.Info.action(GraphRelationship, :restore)
+
+    assert MapSet.new(tombstone.accept) ==
+             MapSet.new([
+               :operation_id,
+               :asserting_principal_id,
+               :deletion_operation_id,
+               :deleted_by_principal_id,
+               :deletion_reason
+             ])
+
+    for field <- [:deletion_operation_id, :deleted_by_principal_id, :deleted_at, :deletion_reason] do
+      refute field in restore.accept
+    end
   end
 end

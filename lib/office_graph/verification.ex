@@ -389,7 +389,6 @@ defmodule OfficeGraph.Verification do
           acceptance_operation_id: operation.id,
           acceptance_policy_basis: attrs[:acceptance_policy_basis],
           accepted_at: now,
-          visibility_constraints: Map.new(attrs[:visibility_constraints] || %{}),
           sensitivity: candidate.sensitivity,
           freshness_state: candidate.freshness_state,
           trust_basis: candidate.trust_basis,
@@ -772,7 +771,6 @@ defmodule OfficeGraph.Verification do
   defp same_acceptance_replay?(evidence_item, verification_result, body, attrs) do
     evidence_item.title == attrs[:title] and
       evidence_item.acceptance_policy_basis == attrs[:acceptance_policy_basis] and
-      evidence_item.visibility_constraints == Map.new(attrs[:visibility_constraints] || %{}) and
       body == (attrs[:body] || "") and verification_result.result == (attrs[:result] || "passed") and
       verification_result.policy_basis == attrs[:acceptance_policy_basis] and
       verification_result.reason == attrs[:reason]

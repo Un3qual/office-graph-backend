@@ -1,23 +1,23 @@
 ## 1. Lock Resource Conventions With Tests
 
-- [ ] 1.1 Add failing architecture tests that compare concrete migration foreign keys with compiled Ash relationships and reject unexplained `define_attribute? false`
-- [ ] 1.2 Add failing architecture tests that reject generic `:map` resource attributes and the generic Tombstones context/table
-- [ ] 1.3 Add failing tests for database-generated primary-key metadata, UUIDv7 values from ordinary creates, and permitted explicit identifiers
-- [ ] 1.4 Add failing layout tests for responsibility-based grouping and value-object behavior ownership
+- [x] 1.1 Add failing architecture tests that compare concrete migration foreign keys with compiled Ash relationships and reject unexplained `define_attribute? false`
+- [x] 1.2 Add failing architecture tests that reject generic `:map` resource attributes and the generic Tombstones context/table
+- [x] 1.3 Add failing tests for database-generated primary-key metadata, UUIDv7 values from ordinary creates, and permitted explicit identifiers
+- [x] 1.4 Add failing layout tests for responsibility-based grouping and value-object behavior ownership
 
 ## 2. Normalize Generic Map Fields
 
-- [ ] 2.1 Replace execution-observation metadata and operation-correlation metadata with typed classification and command-digest columns, callers, and replay tests
-- [ ] 2.2 Replace raw-archive metadata with typed provider event and installation envelope columns and update webhook receipt/worker tests
-- [ ] 2.3 Replace proposed-change payload maps with typed title/body columns and update creation, validation, replay, and application tests
-- [ ] 2.4 Replace GitHub outbound-action input maps with validated typed review-reply/check-update columns and update worker/command tests
-- [ ] 2.5 Remove unused run-event payload, document-mark attrs, and evidence visibility constraints while preserving supported behavior and API contracts
+- [x] 2.1 Replace execution-observation metadata and operation-correlation metadata with typed classification and command-digest columns, callers, and replay tests
+- [x] 2.2 Replace raw-archive metadata with typed provider event and installation envelope columns and update webhook receipt/worker tests
+- [x] 2.3 Replace proposed-change payload maps with typed title/body columns and update creation, validation, replay, and application tests
+- [x] 2.4 Replace GitHub outbound-action input maps with validated typed review-reply/check-update columns and update worker/command tests
+- [x] 2.5 Remove unused run-event payload, document-mark attrs, and evidence visibility constraints while preserving supported behavior and API contracts
 
 ## 3. Move Soft Deletion Into Owning Resources
 
-- [ ] 3.1 Add failing graph-relationship deletion and restore tests for in-table deletion actor, operation, timestamp, reason, lifecycle, and projection behavior
-- [ ] 3.2 Implement graph-relationship tombstone/restore actions with in-table deletion fields and remove the tombstone relationship from projections and APIs
-- [ ] 3.3 Remove the Tombstones context, domain, resource, schema inventory entry, configuration, and boundary references
+- [x] 3.1 Add failing graph-relationship deletion and restore tests for in-table deletion actor, operation, timestamp, reason, lifecycle, and projection behavior
+- [x] 3.2 Implement graph-relationship tombstone/restore actions with in-table deletion fields and remove the tombstone relationship from projections and APIs
+- [x] 3.3 Remove the Tombstones context, domain, resource, schema inventory entry, configuration, and boundary references
 
 ## 4. Complete Ash Relationships
 
@@ -43,7 +43,7 @@
 
 ## 7. Migrate And Verify
 
-- [ ] 7.1 Generate the forward resource migration, verify upgrade behavior, and verify all migrations from an empty database without editing archived migrations
+- [x] 7.1 Generate the forward resource migration, verify upgrade behavior, and verify all migrations from an empty database without editing archived migrations
 - [ ] 7.2 Run formatter, focused architecture/resource/action/concurrency/API tests, compilation with warnings as errors, and strict OpenSpec validation
 - [ ] 7.3 Run the complete canonical `bin/verify` gate and confirm the worktree and database-access inventories are stable
 - [ ] 7.4 Review the final diff for hidden JSON wrappers, false polymorphic relationships, application UUID defaults, generic tombstones, namespace churn, empty abstractions, and unrelated behavior changes

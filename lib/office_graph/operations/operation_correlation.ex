@@ -33,7 +33,7 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
     attribute :subject_kind, :string, public?: true
     attribute :subject_id, :uuid, public?: true
     attribute :subject_version, :integer, public?: true
-    attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
+    attribute :command_input_digest, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -63,7 +63,7 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
         :subject_kind,
         :subject_id,
         :subject_version,
-        :metadata
+        :command_input_digest
       ]
 
       validate present([:authority_basis, :causation_key, :idempotency_scope]),

@@ -351,7 +351,6 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
         freshness_state,
         trust_basis,
         rationale,
-        metadata,
         inserted_at,
         updated_at
       )
@@ -372,7 +371,6 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
         'fresh',
         'owner_attested',
         'Malformed legacy row.',
-        '{}'::jsonb,
         $8,
         $8
       )

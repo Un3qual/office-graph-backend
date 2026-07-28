@@ -167,7 +167,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:whitespace", attrs)
 
     assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
-    assert action.input["body"] == body
+    assert action.reply_body == body
 
     Provider.put(%{
       {"review_reply", "PRRC_outbound"} => {:ok, %{id: "reply-whitespace", version: "v1"}}
@@ -821,7 +821,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:ok, action} = OutboundCommands.update_check(context.session, operation, attrs)
     assert action.state == "pending"
-    assert action.input["conclusion"] == nil
+    assert action.check_conclusion == nil
   end
 
   test "outbound check updates reject provider-only startup failures", context do
@@ -1226,11 +1226,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:invalid-input", attrs)
     assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    unknown_key = "unrecognized_#{Ecto.UUID.generate()}"
-
     Repo.query!(
-      "UPDATE github_outbound_actions SET input = $2 WHERE id::text = $1",
-      [action.id, %{unknown_key => "value"}]
+      "UPDATE github_outbound_actions SET target_node_id = NULL WHERE id::text = $1",
+      [action.id]
     )
 
     assert {:cancel, "invalid_provider_response"} = OutboundWorker.perform(job_for(action.id))

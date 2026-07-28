@@ -83,10 +83,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
                   Integrations.archive_system_delivery(operation, source, %{
                     external_delivery_id: delivery_id,
                     body: raw_body,
-                    metadata: %{
-                      "event" => event_name,
-                      "installation_id" => installation.external_installation_id
-                    }
+                    provider_event: event_name,
+                    external_installation_id: installation.external_installation_id
                   }),
                 {:ok, receipt_state} <-
                   record_delivery_effects(

@@ -12,8 +12,7 @@ defmodule OfficeGraph.WorkGraph do
       OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.Revisions,
-      OfficeGraph.Tenancy,
-      OfficeGraph.Tombstones
+      OfficeGraph.Tenancy
     ],
     exports: []
 

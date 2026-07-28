@@ -27,7 +27,6 @@ Derived from committed migrations; expected count: 83 tables.
 | `domain_events` | `OfficeGraph.DurableDelivery.Domain` | `OfficeGraph.DurableDelivery.DomainEvent` |
 | `audit_records` | `OfficeGraph.Audit.Domain` | `OfficeGraph.Audit.AuditRecord` |
 | `revisions` | `OfficeGraph.Revisions.Domain` | `OfficeGraph.Revisions.Revision` |
-| `tombstones` | `OfficeGraph.Tombstones.Domain` | `OfficeGraph.Tombstones.Tombstone` |
 | `documents` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.Document` |
 | `document_blocks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.DocumentBlock` |
 | `document_marks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.DocumentMark` |

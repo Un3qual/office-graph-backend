@@ -847,7 +847,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     CREATE FUNCTION office_graph_test_proposed_change_failure()
     RETURNS trigger AS $$
     BEGIN
-      IF NEW.payload->>'body' = TG_ARGV[0] THEN
+      IF NEW.body = TG_ARGV[0] THEN
         RAISE EXCEPTION 'forced proposed graph change failure for manual intake atomicity';
       END IF;
 

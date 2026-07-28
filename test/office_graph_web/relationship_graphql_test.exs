@@ -117,7 +117,10 @@ defmodule OfficeGraphWeb.RelationshipGraphqlTest do
         runId
         integrationEventId
         supersedesRelationshipId
-        tombstoneId
+        deletionOperationId
+        deletedByPrincipalId
+        deletedAt
+        deletionReason
         source { visibility id }
         target { visibility id }
       }

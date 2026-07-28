@@ -62,8 +62,9 @@ defmodule OfficeGraph.Integrations do
         content_hash: content_hash(body),
         archive_kind: "provider_delivery",
         external_delivery_id: Map.fetch!(attrs, :external_delivery_id),
-        body: body,
-        metadata: Map.get(attrs, :metadata, %{})
+        provider_event: Map.get(attrs, :provider_event),
+        external_installation_id: Map.get(attrs, :external_installation_id),
+        body: body
       }
 
       case Repo.get_or_insert(
@@ -198,14 +199,8 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp command_operation?(operation) do
-    operation
-    |> Map.get(:metadata, %{})
-    |> command_digest?()
+    is_binary(Map.get(operation, :command_input_digest))
   end
-
-  defp command_digest?(%{"command_input_digest" => digest}), do: is_binary(digest)
-  defp command_digest?(%{command_input_digest: digest}), do: is_binary(digest)
-  defp command_digest?(_metadata), do: false
 
   defp existing_intake_for_operation(session_context, operation) do
     NormalizedIntakeEvent
@@ -260,8 +255,7 @@ defmodule OfficeGraph.Integrations do
                source_id: source.id,
                operation_id: operation.id,
                content_hash: content_hash(attrs.body),
-               body: attrs.body,
-               metadata: %{}
+               body: attrs.body
              }),
            {:ok, normalized_event} <-
              ash_create(NormalizedIntakeEvent, %{

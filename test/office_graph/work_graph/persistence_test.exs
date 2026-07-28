@@ -437,7 +437,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     end
   end
 
-  test "content resources autogenerate ids for direct Ash creates", %{
+  test "content resources receive database-generated UUIDv7 ids and permit explicit ids", %{
     bootstrap: bootstrap,
     operation: operation
   } do
@@ -504,6 +504,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
 
     for resource <- [document, block, mark, reference, revision] do
       assert {:ok, _binary_id} = Ecto.UUID.dump(resource.id)
+      assert uuid_version(resource.id) == 7
     end
 
     explicit_id = Ecto.UUID.generate()
@@ -522,6 +523,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
       )
 
     assert explicit_document.id == explicit_id
+    assert uuid_version(explicit_document.id) == 4
   end
 
   test "content identity constraints surface duplicate block positions and revision numbers", %{
@@ -910,6 +912,11 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert same_scope_duplicate.normalized_event.outcome == "duplicate"
     assert same_scope_duplicate.normalized_event.duplicate_of_id == first.normalized_event.id
     assert same_scope_duplicate.proposed_changes == []
+  end
+
+  defp uuid_version(uuid) do
+    <<_timestamp_and_random::48, version::4, _rest::76>> = Ecto.UUID.dump!(uuid)
+    version
   end
 
   defp ash_error_message(%Ash.Changeset{} = changeset) do

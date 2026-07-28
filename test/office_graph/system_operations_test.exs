@@ -189,8 +189,7 @@ defmodule OfficeGraph.SystemOperationsTest do
       workspace_id: nil,
       action: "integration.reconcile",
       correlation_id: Ecto.UUID.generate(),
-      idempotency_key: "missing-system-envelope",
-      metadata: %{}
+      idempotency_key: "missing-system-envelope"
     }
 
     assert {:error, error} =

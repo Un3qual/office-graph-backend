@@ -143,7 +143,7 @@ defmodule OfficeGraph.Operations do
       with {:ok, operation} <-
              start_operation(session_context, action,
                idempotency_key: idempotency_key,
-               metadata: %{"command_input_digest" => digest}
+               command_input_digest: digest
              ),
            :ok <- validate_command_replay(operation, input) do
         {:ok, operation}
@@ -152,10 +152,7 @@ defmodule OfficeGraph.Operations do
   end
 
   def validate_command_replay(operation, input) when is_map(operation) do
-    expected_digest =
-      operation
-      |> Map.get(:metadata, %{})
-      |> command_digest_from_metadata()
+    expected_digest = Map.get(operation, :command_input_digest)
 
     if expected_digest == command_input_digest(input) do
       :ok
@@ -303,7 +300,7 @@ defmodule OfficeGraph.Operations do
       subject_kind: request.subject_kind,
       subject_id: request.subject_id,
       subject_version: request.subject_version,
-      metadata: %{}
+      command_input_digest: nil
     }
 
     OperationCorrelation
@@ -381,7 +378,7 @@ defmodule OfficeGraph.Operations do
       action: action_name,
       correlation_id: correlation_id,
       idempotency_key: idempotency_key,
-      metadata: Map.new(attrs[:metadata] || %{})
+      command_input_digest: attrs[:command_input_digest]
     }
 
     OperationCorrelation
@@ -452,11 +449,6 @@ defmodule OfficeGraph.Operations do
     do: Enum.map(value, &normalize_command_input/1)
 
   defp normalize_command_input(value), do: value
-
-  defp command_digest_from_metadata(%{"command_input_digest" => digest}), do: digest
-  defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
-
-  defp command_digest_from_metadata(_metadata), do: nil
 
   defp with_operation_storage_boundary(fun) do
     fun.()

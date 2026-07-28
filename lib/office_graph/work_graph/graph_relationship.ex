@@ -36,7 +36,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     attribute :run_id, :uuid, public?: true
     attribute :integration_event_id, :uuid, public?: true
     attribute :supersedes_relationship_id, :uuid, public?: true
-    attribute :tombstone_id, :uuid, public?: true
+    attribute :deletion_operation_id, :uuid, public?: true
+    attribute :deleted_by_principal_id, :uuid, public?: true
+    attribute :deleted_at, :utc_datetime_usec, public?: true
+    attribute :deletion_reason, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -89,8 +92,13 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       define_attribute? false
     end
 
-    belongs_to :tombstone, OfficeGraph.Tombstones.Tombstone do
-      source_attribute :tombstone_id
+    belongs_to :deletion_operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :deletion_operation_id
+      define_attribute? false
+    end
+
+    belongs_to :deleted_by_principal, OfficeGraph.Identity.Principal do
+      source_attribute :deleted_by_principal_id
       define_attribute? false
     end
   end
@@ -116,8 +124,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
         :valid_from,
         :run_id,
         :integration_event_id,
-        :supersedes_relationship_id,
-        :tombstone_id
+        :supersedes_relationship_id
       ]
 
       change OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints
@@ -139,12 +146,31 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       change set_attribute(:valid_until, &DateTime.utc_now/0)
     end
 
+    update :tombstone do
+      public? false
+
+      accept [
+        :operation_id,
+        :asserting_principal_id,
+        :deletion_operation_id,
+        :deleted_by_principal_id,
+        :deletion_reason
+      ]
+
+      change set_attribute(:lifecycle, "tombstoned")
+      change set_attribute(:valid_until, &DateTime.utc_now/0)
+      change set_attribute(:deleted_at, &DateTime.utc_now/0)
+    end
+
     update :restore do
       public? false
       accept [:operation_id, :asserting_principal_id, :valid_from]
       change set_attribute(:lifecycle, "active")
       change set_attribute(:valid_until, nil)
-      change set_attribute(:tombstone_id, nil)
+      change set_attribute(:deletion_operation_id, nil)
+      change set_attribute(:deleted_by_principal_id, nil)
+      change set_attribute(:deleted_at, nil)
+      change set_attribute(:deletion_reason, nil)
     end
   end
 

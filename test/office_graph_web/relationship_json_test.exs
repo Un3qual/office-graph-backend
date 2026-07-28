@@ -39,7 +39,10 @@ defmodule OfficeGraphWeb.RelationshipJsonTest do
              "run_id" => nil,
              "integration_event_id" => nil,
              "supersedes_relationship_id" => nil,
-             "tombstone_id" => nil,
+             "deletion_operation_id" => nil,
+             "deleted_by_principal_id" => nil,
+             "deleted_at" => nil,
+             "deletion_reason" => nil,
              "source" => %{
                "visibility" => "visible",
                "id" => context.visible_item.id,

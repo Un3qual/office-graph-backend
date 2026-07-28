@@ -43,8 +43,6 @@
       "OfficeGraph.SoftwareProving",
       "OfficeGraph.Tenancy",
       "OfficeGraph.Tenancy.*",
-      "OfficeGraph.Tombstones",
-      "OfficeGraph.Tombstones.*",
       "OfficeGraph.Verification",
       "OfficeGraph.Verification.*",
       "OfficeGraph.WorkContainers",

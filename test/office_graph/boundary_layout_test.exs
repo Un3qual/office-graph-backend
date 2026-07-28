@@ -14,7 +14,6 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.WorkGraph,
     OfficeGraph.Content,
     OfficeGraph.OrderedPlacement,
-    OfficeGraph.Tombstones,
     OfficeGraph.ExternalRefs,
     OfficeGraph.RawArchives,
     OfficeGraph.Integrations,
@@ -27,6 +26,17 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.NodeConversations,
     OfficeGraph.Projections,
     OfficeGraph.ApiSupport
+  ]
+
+  @behavior_value_objects [
+    {OfficeGraph.AgentRuntime.InvocationRequest,
+     "lib/office_graph/agent_runtime/values/invocation_request.ex",
+     [new: 1, new!: 1, command_input: 1]},
+    {OfficeGraph.GitHubIntegration.ReconciliationRequest,
+     "lib/office_graph/github_integration/requests/reconciliation_request.ex", [new: 1, new!: 1]},
+    {OfficeGraph.WorkGraph.RelationshipRequest,
+     "lib/office_graph/work_graph/requests/relationship_request.ex",
+     [new: 1, new!: 1, validate: 1]}
   ]
 
   test "boundary compiler is part of the backend verification path" do
@@ -95,5 +105,30 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
     assert Code.ensure_loaded?(waiver)
     assert function_exported?(waiver, :execute, 5)
+  end
+
+  test "crowded contexts group internal files by responsibility" do
+    for context <- ["agent_runtime", "github_integration", "work_graph"] do
+      direct_files =
+        "lib/office_graph/#{context}/*.ex"
+        |> Path.wildcard()
+        |> Enum.map(&Path.basename/1)
+        |> Enum.sort()
+
+      assert direct_files == ["domain.ex"],
+             "#{context} must keep only its domain module at the context root, got #{inspect(direct_files)}"
+    end
+  end
+
+  test "value objects live with their responsibility and own reusable behavior" do
+    for {module, path, functions} <- @behavior_value_objects do
+      assert File.regular?(path), "#{inspect(module)} must live at #{path}"
+      assert Code.ensure_loaded?(module)
+
+      for {function, arity} <- functions do
+        assert function_exported?(module, function, arity),
+               "#{inspect(module)} must own #{function}/#{arity}"
+      end
+    end
   end
 end

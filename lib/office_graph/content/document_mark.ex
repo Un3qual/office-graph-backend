@@ -18,7 +18,6 @@ defmodule OfficeGraph.Content.DocumentMark do
     uuid_primary_key :id, writable?: true
     attribute :block_id, :uuid, allow_nil?: false, public?: true
     attribute :mark_type, :string, allow_nil?: false, public?: true
-    attribute :attrs, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -31,7 +30,7 @@ defmodule OfficeGraph.Content.DocumentMark do
     end
 
     create :create do
-      accept [:id, :block_id, :mark_type, :attrs]
+      accept [:id, :block_id, :mark_type]
     end
   end
 end

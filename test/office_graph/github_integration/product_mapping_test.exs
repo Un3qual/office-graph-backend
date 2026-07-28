@@ -1332,8 +1332,9 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
         action_kind: "review_reply",
         target_type: "review_comment",
         target_id: Ecto.UUID.generate(),
+        target_node_id: "PRRC_succeeded",
         expected_provider_version: "v1",
-        input: %{}
+        reply_body: "Already sent."
       })
 
     action

@@ -77,7 +77,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :run_id, :id
     field :integration_event_id, :id
     field :supersedes_relationship_id, :id
-    field :tombstone_id, :id
+    field :deletion_operation_id, :id
+    field :deleted_by_principal_id, :id
+    field :deleted_at, :datetime
+    field :deletion_reason, :string
     field :source, non_null(:graph_relationship_endpoint)
     field :target, non_null(:graph_relationship_endpoint)
   end

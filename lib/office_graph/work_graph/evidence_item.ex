@@ -30,7 +30,6 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
     attribute :acceptance_operation_id, :uuid, allow_nil?: true, public?: true
     attribute :acceptance_policy_basis, :string, allow_nil?: true, public?: true
     attribute :accepted_at, :utc_datetime_usec, allow_nil?: true, public?: true
-    attribute :visibility_constraints, :map, allow_nil?: false, public?: true, default: %{}
     attribute :sensitivity, :string, allow_nil?: true, public?: true
     attribute :freshness_state, :string, allow_nil?: true, public?: true
     attribute :trust_basis, :string, allow_nil?: true, public?: true
@@ -96,7 +95,6 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
         :acceptance_operation_id,
         :acceptance_policy_basis,
         :accepted_at,
-        :visibility_constraints,
         :sensitivity,
         :freshness_state,
         :trust_basis,

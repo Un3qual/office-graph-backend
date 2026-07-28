@@ -38,7 +38,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     attribute :freshness_state, :string, allow_nil?: false, public?: true
     attribute :trust_basis, :string, allow_nil?: false, public?: true
     attribute :rationale, :string, allow_nil?: true, public?: true
-    attribute :metadata, :map, allow_nil?: false, public?: true, default: %{}
+    attribute :classification, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -94,7 +94,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
         :freshness_state,
         :trust_basis,
         :rationale,
-        :metadata
+        :classification
       ]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,

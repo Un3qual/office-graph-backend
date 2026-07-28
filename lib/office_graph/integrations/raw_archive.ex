@@ -28,13 +28,13 @@ defmodule OfficeGraph.Integrations.RawArchive do
     attribute :content_hash, :string, allow_nil?: false, public?: true
     attribute :archive_kind, :string, allow_nil?: false, default: "manual_intake", public?: true
     attribute :external_delivery_id, :string, public?: true
+    attribute :provider_event, :string, public?: true
+    attribute :external_installation_id, :integer, public?: true
 
     attribute :body, :string,
       allow_nil?: false,
       public?: true,
       constraints: [trim?: false]
-
-    attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -56,8 +56,9 @@ defmodule OfficeGraph.Integrations.RawArchive do
         :content_hash,
         :archive_kind,
         :external_delivery_id,
-        :body,
-        :metadata
+        :provider_event,
+        :external_installation_id,
+        :body
       ]
     end
   end

@@ -46,7 +46,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.DurableDelivery.Domain, OfficeGraph.DurableDelivery.DomainEvent},
     "audit_records" => {OfficeGraph.Audit.Domain, OfficeGraph.Audit.AuditRecord},
     "revisions" => {OfficeGraph.Revisions.Domain, OfficeGraph.Revisions.Revision},
-    "tombstones" => {OfficeGraph.Tombstones.Domain, OfficeGraph.Tombstones.Tombstone},
     "documents" => {OfficeGraph.Content.Domain, OfficeGraph.Content.Document},
     "document_blocks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.DocumentBlock},
     "document_marks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.DocumentMark},
@@ -546,7 +545,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       superseded_relationship:
         {:belongs_to, OfficeGraph.WorkGraph.GraphRelationship, :supersedes_relationship_id, :id},
-      tombstone: {:belongs_to, OfficeGraph.Tombstones.Tombstone, :tombstone_id, :id}
+      deletion_operation:
+        {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :deletion_operation_id, :id},
+      deleted_by_principal:
+        {:belongs_to, OfficeGraph.Identity.Principal, :deleted_by_principal_id, :id}
     },
     OfficeGraph.WorkGraph.Signal => %{
       graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
@@ -807,13 +809,42 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   def migration_tables do
     "priv/repo/migrations/*.exs"
     |> Path.wildcard()
-    |> Enum.flat_map(fn path ->
+    |> Enum.sort()
+    |> Enum.reduce(MapSet.new(), fn path, tables ->
       path
       |> File.read!()
-      |> then(&Regex.scan(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, &1, capture: :all_but_first))
-      |> List.flatten()
+      |> migration_forward_source()
+      |> String.split("\n")
+      |> Enum.reduce(tables, fn line, current_tables ->
+        case {
+          Regex.run(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, line),
+          Regex.run(~r/drop\s+table\(:([a-zA-Z0-9_]+)\b/, line)
+        } do
+          {[_, table], _drop} ->
+            MapSet.put(current_tables, table)
+
+          {_create, [_, table]} ->
+            MapSet.delete(current_tables, table)
+
+          _no_table_operation ->
+            current_tables
+        end
+      end)
     end)
+    |> MapSet.to_list()
     |> Enum.sort()
+  end
+
+  def migration_forward_source(source) do
+    case String.split(source, ~r/^\s*def up do\s*$/m, parts: 2) do
+      [_before_up, up_and_after] ->
+        up_and_after
+        |> String.split(~r/^\s*def down do\s*$/m, parts: 2)
+        |> hd()
+
+      [_change_migration] ->
+        source
+    end
   end
 
   def expected_domains do

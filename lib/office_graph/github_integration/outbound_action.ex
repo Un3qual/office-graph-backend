@@ -23,8 +23,17 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
     attribute :action_kind, :string, allow_nil?: false, public?: true
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true
+    attribute :target_node_id, :string, allow_nil?: false, public?: false
     attribute :expected_provider_version, :string, allow_nil?: false, public?: true
-    attribute :input, :map, allow_nil?: false, default: %{}, public?: false, sensitive?: true
+
+    attribute :reply_body, :string,
+      constraints: [trim?: false],
+      public?: false,
+      sensitive?: true
+
+    attribute :check_status, :string, public?: false
+    attribute :check_conclusion, :string, public?: false
+    attribute :details_url, :string, public?: false
     attribute :state, :string, allow_nil?: false, default: "pending", public?: true
     attribute :provider_response_id, :string, public?: true
     attribute :provider_response_version, :string, public?: true
@@ -53,12 +62,26 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
         :action_kind,
         :target_type,
         :target_id,
+        :target_node_id,
         :expected_provider_version,
-        :input
+        :reply_body,
+        :check_status,
+        :check_conclusion,
+        :details_url
       ]
 
       change set_attribute(:state, "pending")
       validate one_of(:action_kind, ~w(review_reply check_update))
+      validate present(:reply_body), where: [attribute_equals(:action_kind, "review_reply")]
+
+      validate absent([:check_status, :check_conclusion, :details_url]),
+        where: [attribute_equals(:action_kind, "review_reply")]
+
+      validate present([:check_status, :details_url]),
+        where: [attribute_equals(:action_kind, "check_update")]
+
+      validate absent(:reply_body), where: [attribute_equals(:action_kind, "check_update")]
+      validate one_of(:check_status, ~w(queued in_progress completed))
       public? false
     end
 

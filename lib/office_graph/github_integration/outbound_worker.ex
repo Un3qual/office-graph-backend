@@ -186,7 +186,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     do: record_adapter_result(result, action, job)
 
   defp reconciled_provider_result(%OutboundAction{action_kind: "check_update"} = action) do
-    with {:ok, request} <- normalize_input(action.input),
+    with {:ok, request} <- action_request(action),
          {:ok, target} <- current_target(CheckRun, action) do
       cond do
         target.provider_version == action.expected_provider_version ->
@@ -340,7 +340,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp call_adapter(action, installation, credential) do
     adapter = Application.fetch_env!(:office_graph, :github_adapter)
 
-    with {:ok, request} <- normalize_input(action.input) do
+    with {:ok, request} <- action_request(action) do
       request =
         request
         |> Map.put(:idempotency_key, action.id)
@@ -974,25 +974,33 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     end
   end
 
-  @input_keys %{
-    "body" => :body,
-    "conclusion" => :conclusion,
-    "details_url" => :details_url,
-    "expected_provider_version" => :expected_provider_version,
-    "status" => :status,
-    "target_node_id" => :target_node_id
-  }
-
-  defp normalize_input(input) when is_map(input) do
-    Enum.reduce_while(input, {:ok, %{}}, fn {key, value}, {:ok, normalized} ->
-      case Map.fetch(@input_keys, to_string(key)) do
-        {:ok, atom_key} -> {:cont, {:ok, Map.put(normalized, atom_key, value)}}
-        :error -> {:halt, {:error, :invalid_provider_response}}
-      end
-    end)
+  defp action_request(%OutboundAction{
+         action_kind: "review_reply",
+         target_node_id: target_node_id,
+         reply_body: body
+       })
+       when is_binary(target_node_id) and is_binary(body) do
+    {:ok, %{target_node_id: target_node_id, body: body}}
   end
 
-  defp normalize_input(_input), do: {:error, :invalid_provider_response}
+  defp action_request(%OutboundAction{
+         action_kind: "check_update",
+         target_node_id: target_node_id,
+         check_status: status,
+         check_conclusion: conclusion,
+         details_url: details_url
+       })
+       when is_binary(target_node_id) and is_binary(status) and is_binary(details_url) do
+    {:ok,
+     %{
+       target_node_id: target_node_id,
+       status: status,
+       conclusion: conclusion,
+       details_url: details_url
+     }}
+  end
+
+  defp action_request(_action), do: {:error, :invalid_provider_response}
 
   defp safe_code(code) when is_atom(code), do: Atom.to_string(code)
   defp safe_code(code) when is_binary(code), do: code

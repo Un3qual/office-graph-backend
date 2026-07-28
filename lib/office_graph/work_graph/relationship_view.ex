@@ -27,7 +27,10 @@ defmodule OfficeGraph.WorkGraph.RelationshipView do
     :run_id,
     :integration_event_id,
     :supersedes_relationship_id,
-    :tombstone_id,
+    :deletion_operation_id,
+    :deleted_by_principal_id,
+    :deleted_at,
+    :deletion_reason,
     :source,
     :target
   ]

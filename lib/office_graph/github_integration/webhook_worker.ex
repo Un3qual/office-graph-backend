@@ -157,7 +157,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
            delivery_id,
            record_loader: RecordLoader
          ) do
-      {:ok, %{metadata: %{"installation_id" => external_installation_id}} = archive}
+      {:ok, %{external_installation_id: external_installation_id} = archive}
       when external_installation_id == installation.external_installation_id ->
         {:ok, archive}
 
@@ -205,7 +205,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   defp reconciliation_request(archive, installation, delivery_id, pull_request_id) do
-    event_name = Map.get(archive.metadata, "event")
+    event_name = archive.provider_event
 
     with {:ok, payload} <- Jason.decode(archive.body),
          {:ok, {object_type, object_id}} <- provider_object(event_name, payload),
