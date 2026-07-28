@@ -39,7 +39,13 @@ defmodule OfficeGraph.SoftwareProving.Resource do
       end
 
       attributes do
-        uuid_primary_key :id, writable?: true
+        attribute :id, :uuid,
+          primary_key?: true,
+          allow_nil?: false,
+          public?: true,
+          writable?: true,
+          generated?: true
+
         attribute :provider_version, :string, public?: true
         attribute :provider_sequence, :integer, public?: true
         attribute :provider_updated_at, :utc_datetime_usec, public?: true

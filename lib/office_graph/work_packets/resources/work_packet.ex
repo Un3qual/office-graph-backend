@@ -1,0 +1,143 @@
+defmodule OfficeGraph.WorkPackets.WorkPacket do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.WorkPackets.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
+
+  postgres do
+    table "work_packets"
+    repo OfficeGraph.Repo
+    migrate? false
+
+    foreign_key_names organization_id: "work_packets_organization_id_fkey",
+                      workspace_id: "work_packets_workspace_id_fkey"
+
+    identity_index_names unique_operation: "work_packets_operation_id_unique_index"
+  end
+
+  attributes do
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
+    attribute :title, :string, allow_nil?: false, public?: true
+    attribute :state, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      attribute_public? true
+    end
+
+    belongs_to :current_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :current_version_id
+      attribute_public? true
+    end
+
+    has_many :versions, OfficeGraph.WorkPackets.WorkPacketVersion do
+      destination_attribute :work_packet_id
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+  end
+
+  actions do
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
+
+    read :read_for_version_command do
+      public? false
+    end
+
+    create :create do
+      public? false
+
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :operation_id,
+        :title
+      ]
+
+      change set_attribute(:state, "draft")
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
+    end
+
+    update :set_current_version do
+      public? false
+      require_atomic? false
+      accept [:current_version_id]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                current_version_id: OfficeGraph.WorkPackets.WorkPacketVersion
+              ]}
+
+      change OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion
+    end
+  end
+
+  identities do
+    identity :unique_operation, [:operation_id], where: expr(not is_nil(operation_id))
+  end
+
+  policies do
+    policy action(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_version_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_version_create}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+  end
+
+  graphql do
+    type :work_packet
+  end
+
+  json_api do
+    type "work_packet"
+  end
+end

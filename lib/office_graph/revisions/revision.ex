@@ -12,7 +12,13 @@ defmodule OfficeGraph.Revisions.Revision do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
     attribute :revision_type, :string, allow_nil?: false, public?: true

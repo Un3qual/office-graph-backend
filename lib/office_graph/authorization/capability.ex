@@ -13,7 +13,13 @@ defmodule OfficeGraph.Authorization.Capability do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :key, :string, allow_nil?: false, public?: true
     attribute :description, :string, public?: true
 

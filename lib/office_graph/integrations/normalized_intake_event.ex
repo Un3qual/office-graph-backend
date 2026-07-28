@@ -19,7 +19,13 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :source_identity, :string, allow_nil?: false, public?: true
     attribute :replay_identity, :string, allow_nil?: false, public?: true
     attribute :outcome, :string, allow_nil?: false, public?: true

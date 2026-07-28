@@ -13,7 +13,13 @@ defmodule OfficeGraph.Tenancy.Organization do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :name, :string, allow_nil?: false, public?: true
     attribute :slug, :string, allow_nil?: false, public?: true
 

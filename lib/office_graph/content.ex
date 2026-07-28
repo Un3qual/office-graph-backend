@@ -113,28 +113,23 @@ defmodule OfficeGraph.Content do
   end
 
   defp persist_plain_document(scope, operation, plain_text) do
-    document_id = Ecto.UUID.generate()
-
     Repo.transaction(fn ->
       with {:ok, document} <-
              ash_create(Document, %{
-               id: document_id,
                organization_id: scope.organization_id,
                workspace_id: scope.workspace_id,
                plain_text: plain_text
              }),
            {:ok, _block} <-
              ash_create(DocumentBlock, %{
-               id: Ecto.UUID.generate(),
-               document_id: document_id,
+               document_id: document.id,
                position: 0,
                block_type: "paragraph",
                text: plain_text
              }),
            {:ok, _revision} <-
              ash_create(DocumentRevision, %{
-               id: Ecto.UUID.generate(),
-               document_id: document_id,
+               document_id: document.id,
                operation_id: operation.id,
                revision_number: 1,
                semantic_summary: "initial"

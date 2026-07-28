@@ -27,7 +27,13 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :applied_resource_id, :uuid, public?: true
     attribute :step_key, :string, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true

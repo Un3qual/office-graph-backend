@@ -18,7 +18,13 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :step_key, :string, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :source_identity, :string, allow_nil?: false, public?: true

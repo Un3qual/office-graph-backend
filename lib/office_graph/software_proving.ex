@@ -44,7 +44,6 @@ defmodule OfficeGraph.SoftwareProving do
     record =
       attrs
       |> Map.merge(%{
-        id: Map.get(attrs, :id, Ecto.UUID.generate()),
         organization_id: operation.organization_id,
         workspace_id: operation.workspace_id,
         source_id: source.id,

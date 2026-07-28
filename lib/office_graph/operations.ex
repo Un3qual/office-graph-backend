@@ -284,7 +284,6 @@ defmodule OfficeGraph.Operations do
 
   defp create_system_operation(request) do
     attrs = %{
-      id: Ecto.UUID.generate(),
       operation_kind: "system",
       principal_id: request.principal_id,
       session_id: nil,
@@ -370,7 +369,6 @@ defmodule OfficeGraph.Operations do
 
   defp create_operation(session_context, action_name, correlation_id, idempotency_key, attrs) do
     operation_attrs = %{
-      id: Ecto.UUID.generate(),
       principal_id: session_context.principal_id,
       session_id: session_context.session_id,
       organization_id: session_context.organization_id,

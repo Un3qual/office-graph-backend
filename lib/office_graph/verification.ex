@@ -68,7 +68,6 @@ defmodule OfficeGraph.Verification do
       |> case do
         nil ->
           Repo.ash_create!(EvidenceCandidate, %{
-            id: Ecto.UUID.generate(),
             organization_id: execution.organization_id,
             workspace_id: execution.workspace_id,
             verification_check_id: required_check.verification_check_id,
@@ -297,7 +296,6 @@ defmodule OfficeGraph.Verification do
     Repo.ash_create!(
       EvidenceCandidate,
       %{
-        id: Ecto.UUID.generate(),
         organization_id: session_context.organization_id,
         workspace_id: session_context.workspace_id,
         verification_check_id: attrs[:verification_check_id],
@@ -417,7 +415,6 @@ defmodule OfficeGraph.Verification do
       Repo.ash_create!(
         VerificationResult,
         %{
-          id: Ecto.UUID.generate(),
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           verification_check_id: candidate.verification_check_id,

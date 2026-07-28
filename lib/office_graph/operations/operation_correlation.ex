@@ -17,7 +17,13 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :operation_kind, :string, allow_nil?: false, default: "human", public?: true
     attribute :action, :string, allow_nil?: false, public?: true
     attribute :correlation_id, :string, allow_nil?: false, public?: true

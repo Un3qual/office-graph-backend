@@ -13,7 +13,13 @@ defmodule OfficeGraph.Authorization.RoleCapability do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end

@@ -13,7 +13,6 @@ defmodule OfficeGraph.Audit do
     Ash.create!(
       AuditRecord,
       %{
-        id: Ecto.UUID.generate(),
         operation_id: operation.id,
         actor_principal_id: operation.principal_id,
         action: action,

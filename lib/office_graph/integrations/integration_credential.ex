@@ -17,7 +17,13 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :kind, :string, allow_nil?: false, public?: true
     attribute :secret_reference, :string, allow_nil?: false, public?: false, sensitive?: true
     attribute :status, :string, allow_nil?: false, default: "active", public?: true

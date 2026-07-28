@@ -20,7 +20,6 @@ defmodule OfficeGraph.Authentication do
     result =
       with {:ok, config} <- configuration() do
         transaction = %{
-          id: Ecto.UUID.generate(),
           state: random_value(),
           nonce: random_value(),
           pkce_verifier: random_value(),
@@ -37,10 +36,10 @@ defmodule OfficeGraph.Authentication do
         case oidc_client().authorization_uri(request) do
           {:ok, authorization_uri} when is_binary(authorization_uri) ->
             case Identity.store_oidc_login_transaction(
-                   transaction.id,
                    transaction.issued_at_unix + @login_transaction_ttl_seconds
                  ) do
-              :ok ->
+              {:ok, transaction_id} ->
+                transaction = Map.put(transaction, :id, transaction_id)
                 {:ok, %{authorization_uri: authorization_uri, transaction: transaction}}
 
               {:error, _reason} = error ->

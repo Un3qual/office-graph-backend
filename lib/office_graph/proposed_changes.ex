@@ -45,7 +45,6 @@ defmodule OfficeGraph.ProposedChanges do
       |> case do
         nil ->
           Repo.ash_create!(ProposedGraphChange, %{
-            id: Ecto.UUID.generate(),
             organization_id: execution.organization_id,
             workspace_id: execution.workspace_id,
             operation_id: operation.id,

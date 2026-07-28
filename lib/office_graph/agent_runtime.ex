@@ -279,7 +279,6 @@ defmodule OfficeGraph.AgentRuntime do
 
     binding =
       Repo.ash_create!(OrganizationBinding, %{
-        id: Ecto.UUID.generate(),
         definition_id: definition.id,
         organization_id: session_context.organization_id,
         workspace_id: session_context.workspace_id,

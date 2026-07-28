@@ -153,12 +153,12 @@ defmodule OfficeGraph.MixProject do
       "lib/office_graph/verification/*.ex",
       "lib/office_graph/runs/changes/*.ex",
       "lib/office_graph/work_graph/changes/*.ex",
-      "lib/office_graph/work_graph/proposal_commands.ex",
-      "lib/office_graph/work_graph/command_support.ex",
-      "lib/office_graph/work_graph/queries.ex",
-      "lib/office_graph/work_graph/verification_commands.ex",
+      "lib/office_graph/work_graph/commands/proposal_commands.ex",
+      "lib/office_graph/work_graph/commands/command_support.ex",
+      "lib/office_graph/work_graph/queries/queries.ex",
+      "lib/office_graph/work_graph/commands/verification_commands.ex",
       "lib/office_graph/work_packets/changes/*.ex",
-      "lib/office_graph/work_packets/readiness.ex"
+      "lib/office_graph/work_packets/services/readiness.ex"
     ]
   end
 end

@@ -197,26 +197,43 @@ defmodule OfficeGraph.Identity do
   defdelegate record_authentication_event(attrs), to: HumanSessions, as: :record_event
   defdelegate reject_human_session(session_context, reason, opts), to: HumanSessions, as: :reject
 
-  def store_oidc_login_transaction(transaction_id, expires_at_unix)
-      when is_binary(transaction_id) and is_integer(expires_at_unix) do
-    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id),
-         {:ok, expires_at} <- DateTime.from_unix(expires_at_unix) do
+  def store_oidc_login_transaction(expires_at_unix) when is_integer(expires_at_unix) do
+    with {:ok, expires_at} <- DateTime.from_unix(expires_at_unix) do
       case Repo.query(
              """
              WITH expired_transactions AS (
                DELETE FROM oidc_login_transactions
                WHERE expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
              )
-             INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
-             VALUES ($1, $2, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             INSERT INTO oidc_login_transactions (expires_at, inserted_at)
+             VALUES ($1, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             RETURNING id
              """,
-             [Ecto.UUID.dump!(transaction_id), expires_at]
+             [expires_at]
            ) do
-        {:ok, _result} -> :ok
+        {:ok, %{rows: [[transaction_id]]}} -> {:ok, Ecto.UUID.load!(transaction_id)}
         {:error, _storage_error} -> {:error, :identity_storage_unavailable}
       end
+    end
+  end
+
+  def store_oidc_login_transaction(_expires_at_unix), do: {:error, :invalid_login_transaction}
+
+  def store_oidc_login_transaction(transaction_id, expires_at_unix)
+      when is_binary(transaction_id) and is_integer(expires_at_unix) do
+    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id),
+         {:ok, expires_at} <- DateTime.from_unix(expires_at_unix),
+         {:ok, _transaction} <-
+           OfficeGraph.Identity.OidcLoginTransaction
+           |> Ash.Changeset.for_create(:create, %{
+             id: transaction_id,
+             expires_at: expires_at
+           })
+           |> Ash.create(authorize?: false) do
+      :ok
     else
       :error -> {:error, :invalid_login_transaction}
+      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
     end
   end
 

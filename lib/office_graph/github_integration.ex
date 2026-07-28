@@ -231,7 +231,6 @@ defmodule OfficeGraph.GitHubIntegration do
 
     installation =
       Repo.ash_create!(Installation, %{
-        id: Ecto.UUID.generate(),
         organization_id: session_context.organization_id,
         workspace_id: attrs.workspace_id,
         external_installation_id: attrs.external_installation_id,
@@ -246,7 +245,6 @@ defmodule OfficeGraph.GitHubIntegration do
 
     snapshot =
       Repo.ash_create!(PermissionSnapshot, %{
-        id: Ecto.UUID.generate(),
         installation_id: installation.id,
         version: 1,
         captured_at: DateTime.utc_now(),
@@ -258,7 +256,6 @@ defmodule OfficeGraph.GitHubIntegration do
         Repo.ash_create!(
           PermissionEntry,
           Map.merge(permission, %{
-            id: Ecto.UUID.generate(),
             permission_snapshot_id: snapshot.id
           })
         )
@@ -330,7 +327,6 @@ defmodule OfficeGraph.GitHubIntegration do
 
     binding =
       Repo.ash_create!(InstallationCredential, %{
-        id: Ecto.UUID.generate(),
         installation_id: installation.id,
         credential_id: credential.id,
         purpose: purpose,

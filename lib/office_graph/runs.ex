@@ -42,7 +42,6 @@ defmodule OfficeGraph.Runs do
       |> case do
         nil ->
           Repo.ash_create!(ExecutionObservation, %{
-            id: Ecto.UUID.generate(),
             organization_id: execution.organization_id,
             workspace_id: execution.workspace_id,
             work_run_id: execution.run_id,
@@ -498,7 +497,6 @@ defmodule OfficeGraph.Runs do
       Repo.ash_create!(
         ExecutionObservation,
         %{
-          id: Ecto.UUID.generate(),
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           work_run_id: run.id,
@@ -524,8 +522,6 @@ defmodule OfficeGraph.Runs do
   end
 
   defp create_run_records(session_context, operation, packet_version, attrs) do
-    run_id = Ecto.UUID.generate()
-
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
 
@@ -545,8 +541,7 @@ defmodule OfficeGraph.Runs do
             operation,
             packet_version,
             attrs,
-            required_checks,
-            run_id
+            required_checks
           )
 
         {:ok, run_result} ->
@@ -596,14 +591,12 @@ defmodule OfficeGraph.Runs do
          operation,
          packet_version,
          attrs,
-         required_checks,
-         run_id
+         required_checks
        ) do
     run =
       Repo.ash_create!(
         Run,
         %{
-          id: run_id,
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           work_packet_id: packet_version.work_packet_id,
@@ -622,7 +615,6 @@ defmodule OfficeGraph.Runs do
       |> Enum.with_index()
       |> Enum.map(fn {required_check, position} ->
         %{
-          id: Ecto.UUID.generate(),
           run_id: run.id,
           verification_check_id: required_check.verification_check_id,
           organization_id: session_context.organization_id,

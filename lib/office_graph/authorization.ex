@@ -468,7 +468,6 @@ defmodule OfficeGraph.Authorization do
 
   defp record_decision(session_context, operation, action, decision, reason) do
     attrs = %{
-      id: Ecto.UUID.generate(),
       operation_id: Map.fetch!(operation, :id),
       principal_id: session_context.principal_id,
       organization_id: session_context.organization_id,

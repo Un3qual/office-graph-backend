@@ -22,7 +22,13 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :provider, :string, public?: true
     attribute :object_type, :string, public?: true
     attribute :external_id, :string, allow_nil?: false, public?: true

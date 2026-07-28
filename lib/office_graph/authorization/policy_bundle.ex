@@ -13,7 +13,13 @@ defmodule OfficeGraph.Authorization.PolicyBundle do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :version, :integer, allow_nil?: false, public?: true
     attribute :status, :string, allow_nil?: false, public?: true
 

@@ -410,7 +410,6 @@ defmodule OfficeGraph.Integrations do
       "external_sources",
       [
         %{
-          id: Ecto.UUID.dump!(Ecto.UUID.generate()),
           key: source_identity,
           name: "Manual Intake",
           kind: "manual",

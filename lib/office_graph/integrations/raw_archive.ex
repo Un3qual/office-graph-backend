@@ -20,7 +20,13 @@ defmodule OfficeGraph.Integrations.RawArchive do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :content_hash, :string, allow_nil?: false, public?: true
     attribute :archive_kind, :string, allow_nil?: false, default: "manual_intake", public?: true
     attribute :external_delivery_id, :string, public?: true

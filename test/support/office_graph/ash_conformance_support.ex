@@ -15,6 +15,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
 
+  @shared_primary_key_relationships %{
+    OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => :repository_id,
+    OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => :pull_request_id,
+    OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => :review_thread_id,
+    OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => :review_comment_id,
+    OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => :check_run_id
+  }
+
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
     "workspaces" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Workspace},
@@ -926,6 +934,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       @stabilization_inventory unquote(@stabilization_inventory)
       @expected_resources unquote(Macro.escape(@expected_resources))
       @work_graph_resources unquote(Macro.escape(@work_graph_resources))
+      @shared_primary_key_relationships unquote(Macro.escape(@shared_primary_key_relationships))
       @intentional_non_relationship_uuid_identifiers unquote(
                                                        Macro.escape(
                                                          @intentional_non_relationship_uuid_identifiers
@@ -1487,8 +1496,21 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def work_graph_resources_modules do
-    "lib/office_graph/work_graph/resources/*.ex"
+    "lib/office_graph/work_graph/**/*.ex"
     |> Path.wildcard()
+    |> Enum.flat_map(fn path ->
+      path
+      |> File.stream!()
+      |> Enum.flat_map(fn line ->
+        case Regex.run(
+               ~r/^\s*defmodule\s+(OfficeGraph\.WorkGraph\.Resources\.[A-Za-z0-9_.]+)/,
+               line
+             ) do
+          [_, module] -> ["#{path}: #{module}"]
+          _no_parallel_namespace -> []
+        end
+      end)
+    end)
     |> Enum.sort()
   end
 

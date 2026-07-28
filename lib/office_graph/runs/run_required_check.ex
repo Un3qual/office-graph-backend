@@ -14,7 +14,13 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 

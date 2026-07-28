@@ -329,9 +329,6 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp create_packet_records(session_context, operation, attrs) do
-    packet_id = Ecto.UUID.generate()
-    version_id = Ecto.UUID.generate()
-
     Repo.transaction(fn ->
       _operation = lock_operation!(operation.id)
 
@@ -342,9 +339,7 @@ defmodule OfficeGraph.WorkPackets do
               create_packet_records!(
                 session_context,
                 operation,
-                attrs,
-                packet_id,
-                version_id
+                attrs
               )
 
             {:error, error} ->
@@ -361,18 +356,11 @@ defmodule OfficeGraph.WorkPackets do
     |> normalize_transaction_result()
   end
 
-  defp create_packet_records!(
-         session_context,
-         operation,
-         attrs,
-         packet_id,
-         version_id
-       ) do
+  defp create_packet_records!(session_context, operation, attrs) do
     packet =
       Repo.ash_create!(
         WorkPacket,
         %{
-          id: packet_id,
           organization_id: session_context.organization_id,
           workspace_id: session_context.workspace_id,
           operation_id: operation.id,
@@ -384,7 +372,6 @@ defmodule OfficeGraph.WorkPackets do
       Repo.ash_create!(
         WorkPacketVersion,
         version_attrs(session_context, operation, packet, 1, attrs)
-        |> Map.put(:id, version_id)
       )
 
     source_references = create_source_references!(session_context, version, attrs)
@@ -407,7 +394,6 @@ defmodule OfficeGraph.WorkPackets do
 
   defp version_attrs(session_context, operation, packet, version_number, attrs) do
     %{
-      id: Ecto.UUID.generate(),
       work_packet_id: packet.id,
       organization_id: session_context.organization_id,
       workspace_id: session_context.workspace_id,
@@ -431,7 +417,6 @@ defmodule OfficeGraph.WorkPackets do
       |> Enum.with_index()
       |> Enum.map(fn {graph_item_id, position} ->
         %{
-          id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           graph_item_id: graph_item_id,
           organization_id: session_context.organization_id,
@@ -450,7 +435,6 @@ defmodule OfficeGraph.WorkPackets do
       |> Enum.with_index()
       |> Enum.map(fn {verification_check_id, position} ->
         %{
-          id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           verification_check_id: verification_check_id,
           organization_id: session_context.organization_id,

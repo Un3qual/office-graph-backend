@@ -47,7 +47,6 @@ defmodule OfficeGraph.NodeConversations do
         case read_conversation(session_context, run_id, graph_item_id, lock?: true) do
           {:ok, nil} ->
             Repo.ash_create!(Conversation, %{
-              id: Ecto.UUID.generate(),
               organization_id: session_context.organization_id,
               workspace_id: session_context.workspace_id,
               graph_item_id: graph_item_id,
@@ -133,7 +132,6 @@ defmodule OfficeGraph.NodeConversations do
       case existing_agent_message(execution.id, step_key) do
         nil ->
           Repo.ash_create!(ConversationMessage, %{
-            id: Ecto.UUID.generate(),
             conversation_id: conversation.id,
             execution_id: execution.id,
             author_principal_id: execution.agent_principal_id,
@@ -175,7 +173,6 @@ defmodule OfficeGraph.NodeConversations do
     |> case do
       nil ->
         Repo.ash_create!(Conversation, %{
-          id: Ecto.UUID.generate(),
           organization_id: execution.organization_id,
           workspace_id: execution.workspace_id,
           graph_item_id: execution.graph_item_id,
@@ -373,7 +370,6 @@ defmodule OfficeGraph.NodeConversations do
 
   defp create_human_message!(session_context, operation, conversation, normalized) do
     Repo.ash_create!(ConversationMessage, %{
-      id: Ecto.UUID.generate(),
       conversation_id: conversation.id,
       author_principal_id: session_context.principal_id,
       operation_id: operation.id,

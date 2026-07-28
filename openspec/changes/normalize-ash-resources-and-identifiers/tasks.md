@@ -29,17 +29,17 @@
 
 ## 5. Adopt Database-Generated UUIDv7
 
-- [ ] 5.1 Define the writable data-layer-generated UUID primary-key convention and add focused create tests against PostgreSQL
-- [ ] 5.2 Convert all durable Ash resource primary keys to the convention and remove ordinary application UUID generation from create paths
-- [ ] 5.3 Preserve and test only pre-insert identifier allocation required for replay, import, fixtures, or multi-record graph linkage
+- [x] 5.1 Define the writable data-layer-generated UUID primary-key convention and add focused create tests against PostgreSQL
+- [x] 5.2 Convert all durable Ash resource primary keys to the convention and remove ordinary application UUID generation from create paths
+- [x] 5.3 Preserve and test only pre-insert identifier allocation required for replay, import, fixtures, or multi-record graph linkage
 - [ ] 5.4 Generate and review the AshPostgres UUIDv7 default/function migration and update the exact database-access inventory entries
 
 ## 6. Improve Physical Organization
 
-- [ ] 6.1 Move AgentRuntime resources, commands, adapters, workers, and value objects into responsibility-based subfolders without module-name changes
-- [ ] 6.2 Move WorkGraph and GitHubIntegration internals into responsibility-based subfolders without module-name changes
-- [ ] 6.3 Review every other `lib/office_graph` and `lib/office_graph_web` folder and group materially crowded mixed-responsibility folders
-- [ ] 6.4 Move reusable construction, normalization, and validation into owning struct modules while documenting genuinely passive DTOs through placement and module docs
+- [x] 6.1 Move AgentRuntime resources, commands, adapters, workers, and value objects into responsibility-based subfolders without module-name changes
+- [x] 6.2 Move WorkGraph and GitHubIntegration internals into responsibility-based subfolders without module-name changes
+- [x] 6.3 Review every other `lib/office_graph` and `lib/office_graph_web` folder and group materially crowded mixed-responsibility folders
+- [x] 6.4 Move reusable construction, normalization, and validation into owning struct modules while documenting genuinely passive DTOs through placement and module docs
 
 ## 7. Migrate And Verify
 

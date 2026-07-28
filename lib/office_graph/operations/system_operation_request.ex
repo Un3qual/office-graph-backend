@@ -1,5 +1,7 @@
 defmodule OfficeGraph.Operations.SystemOperationRequest do
-  @moduledoc false
+  @moduledoc """
+  Validated input envelope for creating or replaying a system operation.
+  """
 
   @enforce_keys [
     :organization_id,

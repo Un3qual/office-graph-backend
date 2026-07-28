@@ -38,9 +38,11 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
   end
 
   test "WorkGraph proposal commands rely on Ash create changes for parent validation" do
-    proposal_source = File.read!("lib/office_graph/work_graph/proposal_commands.ex")
-    review_finding_source = File.read!("lib/office_graph/work_graph/review_finding.ex")
-    verification_check_source = File.read!("lib/office_graph/work_graph/verification_check.ex")
+    proposal_source = File.read!("lib/office_graph/work_graph/commands/proposal_commands.ex")
+    review_finding_source = File.read!("lib/office_graph/work_graph/resources/review_finding.ex")
+
+    verification_check_source =
+      File.read!("lib/office_graph/work_graph/resources/verification_check.ex")
 
     refute proposal_source =~ "Support.validate_scope!(session_context, task)"
     refute proposal_source =~ "Support.validate_scope!(session_context, review_finding)"
@@ -84,7 +86,7 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
   end
 
   test "verification completion centralizes parent-before-child lock acquisition" do
-    source = File.read!("lib/office_graph/work_graph/verification_commands.ex")
+    source = File.read!("lib/office_graph/work_graph/commands/verification_commands.ex")
 
     assert source =~ "lock_completion_graph!(session_context, verification_check.id)"
     assert source =~ "lock_review_findings_for_task!("
@@ -92,8 +94,10 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
   end
 
   test "direct child create validations lock parents before accepting" do
-    review_finding_source = File.read!("lib/office_graph/work_graph/review_finding.ex")
-    verification_check_source = File.read!("lib/office_graph/work_graph/verification_check.ex")
+    review_finding_source = File.read!("lib/office_graph/work_graph/resources/review_finding.ex")
+
+    verification_check_source =
+      File.read!("lib/office_graph/work_graph/resources/verification_check.ex")
 
     assert review_finding_source =~ "Ash.Changeset.before_action"
     assert review_finding_source =~ "Ash.Query.lock(:for_update)"

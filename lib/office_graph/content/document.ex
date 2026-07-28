@@ -16,7 +16,13 @@ defmodule OfficeGraph.Content.Document do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :plain_text, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true

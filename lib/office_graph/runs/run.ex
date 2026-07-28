@@ -18,7 +18,13 @@ defmodule OfficeGraph.Runs.Run do
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :objective, :string, allow_nil?: true, public?: true
     attribute :authority_posture, :string, allow_nil?: true, public?: true
     attribute :source_surface, :string, allow_nil?: true, public?: true

@@ -19,7 +19,7 @@ defmodule OfficeGraph.Repo do
   def ash_bulk_create!(_resource, []), do: []
 
   def ash_bulk_create!(resource, inputs) do
-    input_ids = Enum.map(inputs, &Map.fetch!(&1, :id))
+    input_ids = Enum.map(inputs, &Map.get(&1, :id))
 
     case Ash.bulk_create(inputs, resource, :create,
            authorize?: false,
@@ -31,8 +31,12 @@ defmodule OfficeGraph.Repo do
            transaction: false
          ) do
       %Ash.BulkResult{status: :success, records: records} ->
-        records_by_id = Map.new(records, &{&1.id, &1})
-        Enum.map(input_ids, &Map.fetch!(records_by_id, &1))
+        if Enum.all?(input_ids, &is_binary/1) do
+          records_by_id = Map.new(records, &{&1.id, &1})
+          Enum.map(input_ids, &Map.fetch!(records_by_id, &1))
+        else
+          records
+        end
 
       %Ash.BulkResult{errors: errors} when is_list(errors) and errors != [] ->
         errors
@@ -53,12 +57,7 @@ defmodule OfficeGraph.Repo do
   def get_or_insert!(resource, lookup, attrs, insert_contract, fetch \\ &fetch_by_lookup/2) do
     case fetch.(resource, lookup) do
       {:ok, nil} ->
-        attrs =
-          attrs
-          |> Map.new()
-          |> Map.put_new(:id, Ecto.UUID.generate())
-
-        insert_then_fetch!(resource, lookup, attrs, insert_contract, fetch)
+        insert_then_fetch!(resource, lookup, Map.new(attrs), insert_contract, fetch)
 
       {:ok, record} ->
         record
@@ -115,10 +114,14 @@ defmodule OfficeGraph.Repo do
 
   defp dump_uuid_fields(attrs, fields) do
     Enum.reduce(fields, attrs, fn field, acc ->
-      Map.update!(acc, field, fn
-        nil -> nil
-        value -> Ecto.UUID.dump!(value)
-      end)
+      if Map.has_key?(acc, field) do
+        Map.update!(acc, field, fn
+          nil -> nil
+          value -> Ecto.UUID.dump!(value)
+        end)
+      else
+        acc
+      end
     end)
   end
 
