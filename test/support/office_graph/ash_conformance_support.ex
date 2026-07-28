@@ -24,7 +24,13 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     "principals" => {OfficeGraph.Identity.Domain, OfficeGraph.Identity.Principal},
     "principal_profiles" => {OfficeGraph.Identity.Domain, OfficeGraph.Identity.PrincipalProfile},
     "credentials" => {OfficeGraph.Identity.Domain, OfficeGraph.Identity.Credential},
+    "external_identity_links" =>
+      {OfficeGraph.Identity.Domain, OfficeGraph.Identity.ExternalIdentityLink},
     "sessions" => {OfficeGraph.Identity.Domain, OfficeGraph.Identity.Session},
+    "authentication_events" =>
+      {OfficeGraph.Identity.Domain, OfficeGraph.Identity.AuthenticationEvent},
+    "oidc_login_transactions" =>
+      {OfficeGraph.Identity.Domain, OfficeGraph.Identity.OidcLoginTransaction},
     "capabilities" => {OfficeGraph.Authorization.Domain, OfficeGraph.Authorization.Capability},
     "roles" => {OfficeGraph.Authorization.Domain, OfficeGraph.Authorization.Role},
     "role_capabilities" =>
@@ -225,6 +231,9 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
     OfficeGraph.Identity.Credential => %{unique_subject: [:provider, :subject]},
+    OfficeGraph.Identity.ExternalIdentityLink => %{
+      provider_subject: [:provider, :provider_tenant, :subject]
+    },
     OfficeGraph.Integrations.RawArchive => %{
       provider_delivery: %{
         keys: [:source_id, :external_delivery_id],

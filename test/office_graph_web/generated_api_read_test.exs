@@ -194,46 +194,34 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       )
     end
 
-    test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
-      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
-      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+    test "return structured forbidden errors without a human actor", %{conn: conn} do
+      response =
+        conn
+        |> without_human_session()
+        |> post(~p"/graphql", %{query: generated_reads_query()})
+        |> json_response(200)
 
-      try do
-        response =
-          conn
-          |> post(~p"/graphql", %{query: generated_reads_query()})
-          |> json_response(200)
+      assert [%{"code" => "forbidden"} | _rest] = response["errors"]
 
-        assert [%{"code" => "forbidden"} | _rest] = response["errors"]
-
-        assert response["data"] in [
-                 nil,
-                 %{"listSignals" => nil, "listWorkPackets" => nil, "listWorkRuns" => nil}
-               ]
-      after
-        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
-      end
+      assert response["data"] in [
+               nil,
+               %{"listSignals" => nil, "listWorkPackets" => nil, "listWorkRuns" => nil}
+             ]
     end
 
-    test "node(id:) returns structured forbidden errors when no actor can be bootstrapped",
+    test "node(id:) returns structured forbidden errors without a human actor",
          %{conn: conn} do
       seed_generated_read_fixtures()
       signal_id = generated_signal_node_id(conn)
 
-      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
-      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+      response =
+        conn
+        |> without_human_session()
+        |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
+        |> json_response(200)
 
-      try do
-        response =
-          conn
-          |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
-          |> json_response(200)
-
-        assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
-        assert response["data"] in [nil, %{"node" => nil}]
-      after
-        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
-      end
+      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert response["data"] in [nil, %{"node" => nil}]
     end
 
     test "node(id:) preserves forbidden errors from trusted actors without read grants",
@@ -265,9 +253,6 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
 
     test "return structured forbidden errors for generated node refetches without an actor",
          %{conn: conn} do
-      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
-      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
-
       relay_id =
         Absinthe.Relay.Node.to_global_id(
           :signal,
@@ -275,17 +260,14 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
           OfficeGraphWeb.GraphQL.Schema
         )
 
-      try do
-        response =
-          conn
-          |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: relay_id}})
-          |> json_response(200)
+      response =
+        conn
+        |> without_human_session()
+        |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: relay_id}})
+        |> json_response(200)
 
-        assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
-        assert response["data"] in [nil, %{"node" => nil}]
-      after
-        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
-      end
+      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert response["data"] in [nil, %{"node" => nil}]
     end
   end
 
@@ -352,20 +334,14 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert conn.status in [404, 405]
     end
 
-    test "return structured forbidden errors when no actor can be bootstrapped", %{conn: conn} do
-      original = Application.get_env(:office_graph, :allow_local_api_owner_bootstrap)
-      Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, false)
+    test "return structured forbidden errors without a human actor", %{conn: conn} do
+      response =
+        conn
+        |> without_human_session()
+        |> json_api_get(~p"/api/v1/signals")
+        |> json_response(403)
 
-      try do
-        response =
-          conn
-          |> json_api_get(~p"/api/v1/signals")
-          |> json_response(403)
-
-        assert [%{"code" => "forbidden"} | _rest] = response["errors"]
-      after
-        Application.put_env(:office_graph, :allow_local_api_owner_bootstrap, original)
-      end
+      assert [%{"code" => "forbidden"} | _rest] = response["errors"]
     end
   end
 

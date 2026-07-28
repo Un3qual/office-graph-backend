@@ -7,6 +7,9 @@ defmodule OfficeGraph.Identity.Domain do
     resource OfficeGraph.Identity.Principal
     resource OfficeGraph.Identity.PrincipalProfile
     resource OfficeGraph.Identity.Credential
+    resource OfficeGraph.Identity.ExternalIdentityLink
     resource OfficeGraph.Identity.Session
+    resource OfficeGraph.Identity.AuthenticationEvent
+    resource OfficeGraph.Identity.OidcLoginTransaction
   end
 end

@@ -15,9 +15,15 @@ defmodule OfficeGraph.Identity.Session do
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
     attribute :principal_id, :uuid, allow_nil?: false, public?: true
+    attribute :external_identity_link_id, :uuid, public?: true
     attribute :organization_id, :uuid, allow_nil?: false, public?: true
     attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :purpose, :string, allow_nil?: false, public?: true
+    attribute :authentication_method, :string, public?: true
+    attribute :issued_at, :utc_datetime_usec, public?: true
+    attribute :expires_at, :utc_datetime_usec, public?: true
+    attribute :source_surface, :string, public?: true
+    attribute :trace_id, :string, public?: true
     attribute :revoked_at, :utc_datetime_usec, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -28,7 +34,24 @@ defmodule OfficeGraph.Identity.Session do
     defaults [:read]
 
     create :create do
-      accept [:id, :principal_id, :organization_id, :workspace_id, :purpose, :revoked_at]
+      accept [
+        :id,
+        :principal_id,
+        :external_identity_link_id,
+        :organization_id,
+        :workspace_id,
+        :purpose,
+        :authentication_method,
+        :issued_at,
+        :expires_at,
+        :source_surface,
+        :trace_id,
+        :revoked_at
+      ]
+    end
+
+    update :revoke do
+      accept [:revoked_at]
     end
   end
 

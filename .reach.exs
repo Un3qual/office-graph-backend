@@ -10,6 +10,8 @@
       "OfficeGraph.ApiSupport",
       "OfficeGraph.Audit",
       "OfficeGraph.Audit.*",
+      "OfficeGraph.Authentication",
+      "OfficeGraph.Authentication.*",
       "OfficeGraph.Authorization",
       "OfficeGraph.Authorization.*",
       "OfficeGraph.Content",

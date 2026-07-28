@@ -27,6 +27,12 @@ defmodule OfficeGraph.Identity.Principal do
 
     create :create do
       accept [:id, :email, :kind, :status]
+      validate one_of(:status, ~w(active inactive disabled))
+    end
+
+    update :set_status do
+      accept [:status]
+      validate one_of(:status, ~w(active inactive disabled))
     end
   end
 

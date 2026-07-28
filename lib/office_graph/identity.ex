@@ -3,9 +3,17 @@ defmodule OfficeGraph.Identity do
   Public boundary for principals, profiles, credentials, and local bootstrap identity.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: [SessionContext]
+  use Boundary, deps: [OfficeGraph.Repo, OfficeGraph.Tenancy], exports: [SessionContext]
 
-  alias OfficeGraph.Identity.{Principal, PrincipalProfile, Session, SessionContext}
+  alias OfficeGraph.Identity.{
+    ExternalIdentityReconciliation,
+    HumanSessions,
+    Principal,
+    PrincipalProfile,
+    Session,
+    SessionContext
+  }
+
   alias OfficeGraph.Repo
 
   require Ash.Query
@@ -65,6 +73,29 @@ defmodule OfficeGraph.Identity do
         trusted?: true
       }
     end)
+  end
+
+  def validate_session_context(
+        %SessionContext{external_identity_link_id: external_identity_link_id} = session_context
+      )
+      when is_binary(external_identity_link_id) do
+    case HumanSessions.resolve(session_context.session_id) do
+      {:ok, resolved} ->
+        if resolved.principal_id == session_context.principal_id and
+             resolved.organization_id == session_context.organization_id and
+             resolved.workspace_id == session_context.workspace_id and
+             resolved.external_identity_link_id == external_identity_link_id do
+          :ok
+        else
+          {:error, :forbidden}
+        end
+
+      {:error, :invalid_session} ->
+        {:error, :forbidden}
+
+      {:error, :identity_storage_unavailable} = error ->
+        error
+    end
   end
 
   def validate_session_context(%SessionContext{} = session_context) do
@@ -147,6 +178,73 @@ defmodule OfficeGraph.Identity do
   end
 
   def ensure_system_principal(_email, _kind), do: {:error, :forbidden}
+
+  defdelegate reconcile_oidc_identity(claims, opts),
+    to: ExternalIdentityReconciliation,
+    as: :reconcile
+
+  defdelegate reconcile_oidc_identity_with_evidence(claims, opts),
+    to: ExternalIdentityReconciliation,
+    as: :reconcile_with_evidence
+
+  defdelegate issue_human_session(principal, link, scope, opts),
+    to: HumanSessions,
+    as: :issue
+
+  defdelegate resolve_human_session(session_id), to: HumanSessions, as: :resolve
+  defdelegate resolve_human_session(session_id, opts), to: HumanSessions, as: :resolve
+  defdelegate revoke_human_session(session_id, opts), to: HumanSessions, as: :revoke
+  defdelegate record_authentication_event(attrs), to: HumanSessions, as: :record_event
+  defdelegate reject_human_session(session_context, reason, opts), to: HumanSessions, as: :reject
+
+  def store_oidc_login_transaction(transaction_id, expires_at_unix)
+      when is_binary(transaction_id) and is_integer(expires_at_unix) do
+    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id),
+         {:ok, expires_at} <- DateTime.from_unix(expires_at_unix) do
+      case Repo.query(
+             """
+             WITH expired_transactions AS (
+               DELETE FROM oidc_login_transactions
+               WHERE expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             )
+             INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             """,
+             [Ecto.UUID.dump!(transaction_id), expires_at]
+           ) do
+        {:ok, _result} -> :ok
+        {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+      end
+    else
+      :error -> {:error, :invalid_login_transaction}
+    end
+  end
+
+  def store_oidc_login_transaction(_transaction_id, _expires_at_unix),
+    do: {:error, :invalid_login_transaction}
+
+  def consume_oidc_login_transaction(transaction_id) when is_binary(transaction_id) do
+    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id) do
+      case Repo.query(
+             """
+             DELETE FROM oidc_login_transactions
+             WHERE id = $1
+             RETURNING expires_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+             """,
+             [Ecto.UUID.dump!(transaction_id)]
+           ) do
+        {:ok, %{rows: [[true]]}} -> :ok
+        {:ok, %{rows: []}} -> {:error, :invalid_login_transaction}
+        {:ok, %{rows: [[false]]}} -> {:error, :invalid_login_transaction}
+        {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+      end
+    else
+      :error -> {:error, :invalid_login_transaction}
+    end
+  end
+
+  def consume_oidc_login_transaction(_transaction_id),
+    do: {:error, :invalid_login_transaction}
 
   defp active_principal?(principal_id) do
     match?(

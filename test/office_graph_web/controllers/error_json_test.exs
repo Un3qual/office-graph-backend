@@ -1,6 +1,8 @@
 defmodule OfficeGraphWeb.ErrorJSONTest do
   use OfficeGraphWeb.ConnCase, async: true
 
+  @moduletag :unauthenticated
+
   test "renders 404" do
     assert OfficeGraphWeb.ErrorJSON.render("404.json", %{}) == %{errors: %{detail: "Not Found"}}
   end

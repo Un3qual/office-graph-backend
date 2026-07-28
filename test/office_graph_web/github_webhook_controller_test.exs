@@ -1,6 +1,8 @@
 defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
+  @moduletag :unauthenticated
+
   import OfficeGraph.SessionCaseHelpers
 
   alias OfficeGraph.{Foundation, GitHubIntegration}

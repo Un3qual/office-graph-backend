@@ -8,7 +8,9 @@ defmodule OfficeGraphWeb.Endpoint do
     store: :cookie,
     key: "_office_graph_key",
     signing_salt: "Z1G9Eq74",
-    same_site: "Lax"
+    same_site: "Lax",
+    http_only: true,
+    secure: Application.compile_env(:office_graph, :session_cookie_secure, false)
   ]
 
   # Serve at "/" the static files from "priv/static" directory.

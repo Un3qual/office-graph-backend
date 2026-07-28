@@ -194,6 +194,25 @@ defmodule OfficeGraph.Authorization do
   def authorize_principal(_principal_id, _organization_id, _workspace_id, _action),
     do: {:error, :forbidden}
 
+  def resolve_login_scope(principal_id, preferred_scope \\ nil)
+
+  def resolve_login_scope(principal_id, preferred_scope) when is_binary(principal_id) do
+    case RoleAssignment
+         |> Ash.Query.filter(principal_id == ^principal_id and not is_nil(workspace_id))
+         |> Ash.read(authorize?: false) do
+      {:ok, assignments} ->
+        assignments
+        |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
+        |> Enum.uniq()
+        |> select_login_scope(preferred_scope)
+
+      {:error, _storage_error} ->
+        {:error, :authorization_storage_unavailable}
+    end
+  end
+
+  def resolve_login_scope(_principal_id, _preferred_scope), do: {:error, :no_login_scope}
+
   def intersect_principal_capabilities(
         principal_id,
         organization_id,
@@ -591,6 +610,26 @@ defmodule OfficeGraph.Authorization do
 
   defp normalize_exists_result({:error, _storage_error}),
     do: {:error, :integration_storage_unavailable}
+
+  defp select_login_scope([], _preferred_scope), do: {:error, :no_login_scope}
+  defp select_login_scope([scope], nil), do: {:ok, scope}
+
+  defp select_login_scope(scopes, %{
+         organization_id: organization_id,
+         workspace_id: workspace_id
+       })
+       when is_binary(organization_id) and is_binary(workspace_id) do
+    preferred = %{organization_id: organization_id, workspace_id: workspace_id}
+
+    if preferred in scopes do
+      {:ok, preferred}
+    else
+      {:error, :scope_selection_required}
+    end
+  end
+
+  defp select_login_scope(_scopes, _preferred_scope),
+    do: {:error, :scope_selection_required}
 
   defp ensure_capability!(key) do
     get_or_create!(
