@@ -78,15 +78,6 @@ defmodule OfficeGraph.Runs do
     Operations.validate_agent_output_operation(operation, execution, context_package, step_key)
   end
 
-  def graphql_node_type(%Run{}), do: :work_run
-  def graphql_node_type(_value), do: nil
-
-  def graphql_node(session_context, :work_run, id) do
-    Ash.get(Run, id, actor: session_context, not_found_error?: false)
-  end
-
-  def graphql_node(_session_context, _type, _id), do: {:ok, nil}
-
   def get_packet_version_for_start_command(session_context, id) do
     Operations.read_command_target(
       WorkPacketVersion,

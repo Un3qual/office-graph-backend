@@ -713,8 +713,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         [verification_check.id]
       )
       |> Map.merge(%{
-        packetId: packet_result.packet.id,
-        expectedCurrentVersionId: packet_result.version.id,
+        packetId: relay_id(:work_packet, packet_result.packet.id),
+        expectedCurrentVersionId: relay_id(:work_packet_version, packet_result.version.id),
         title: "Version-only command packet v2"
       })
 
@@ -769,6 +769,10 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     response = raw_graphql(conn, query, variables)
     assert response["errors"] in [nil, []]
     response["data"] |> Map.values() |> hd()
+  end
+
+  defp relay_id(type, id) do
+    Absinthe.Relay.Node.to_global_id(Atom.to_string(type), id, OfficeGraphWeb.GraphQL.Schema)
   end
 
   defp raw_graphql(conn, query, variables) do

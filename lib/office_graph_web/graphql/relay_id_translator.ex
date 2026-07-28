@@ -19,6 +19,9 @@ defmodule OfficeGraphWeb.GraphQL.RelayIdTranslator do
 
   defp normalize_type_name("signal"), do: "Signal"
   defp normalize_type_name("work_packet"), do: "WorkPacket"
+  defp normalize_type_name("work_packet_version"), do: "WorkPacketVersion"
+  defp normalize_type_name("work_packet_source_reference"), do: "WorkPacketSourceReference"
+  defp normalize_type_name("work_packet_required_check"), do: "WorkPacketRequiredCheck"
   defp normalize_type_name("work_run"), do: "WorkRun"
   defp normalize_type_name(type_name), do: type_name
 end

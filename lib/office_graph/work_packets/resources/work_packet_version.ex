@@ -49,10 +49,12 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
 
     has_many :source_references, OfficeGraph.WorkPackets.WorkPacketSourceReference do
       destination_attribute :work_packet_version_id
+      public? true
     end
 
     has_many :required_checks, OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
       destination_attribute :work_packet_version_id
+      public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
@@ -81,7 +83,10 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_run_start_command do
       public? false

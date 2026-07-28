@@ -23,6 +23,12 @@ export const secondPacketIdentity = {
   relayId: "d29ya19wYWNrZXQ6MjIzZTQ1NjctZTg5Yi0xMmQzLWE0NTYtNDI2NjE0MTc0MDAw",
 } as const;
 
+export const packetVersionIdentity = {
+  rawId: "323e4567-e89b-12d3-a456-426614174000",
+  relayId:
+    "d29ya19wYWNrZXRfdmVyc2lvbjozMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDA=",
+} as const;
+
 export function renderWithRelay(network: FetchFunction, initialEntry = "/packets") {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
@@ -92,12 +98,28 @@ export function packetWorkspaceResponse(
     endCursor: detail.versions.at(-1)?.id ?? null,
   },
 ): GraphQLResponse {
+  const { packet, currentVersion, versions, ...projection } = detail;
+
   return {
     data: {
-      operatorPacketWorkspace: {
-        ...detail,
-        versionHistory: {
-          edges: detail.versions.map((version, index) => ({
+      operatorPacketWorkspace: projection,
+      packet: {
+        ...packet,
+        currentVersion: {
+          ...currentVersion,
+          sourceReferences: currentVersion.sourceGraphItemIds.map((graphItemId, index) => ({
+            id: `source-reference-${index}`,
+            graphItemId,
+          })),
+          requiredChecks: currentVersion.verificationCheckIds.map(
+            (verificationCheckId, index) => ({
+              id: `required-check-${index}`,
+              verificationCheckId,
+            }),
+          ),
+        },
+        versions: {
+          edges: versions.map((version, index) => ({
             cursor: `${pageInfo.startCursor ?? "version"}:${index}`,
             node: version,
           })),
@@ -145,7 +167,7 @@ export function workspace(overrides: Partial<WorkspacePayload> = {}): WorkspaceP
 
 export function packetWorkspacePacket(overrides: Partial<WorkspacePacketPayload> = {}) {
   return {
-    id: "packet_1",
+    id: packetIdentity.relayId,
     title: "First packet",
     state: "ready",
     currentVersionId: "version_1",
@@ -156,7 +178,7 @@ export function packetWorkspacePacket(overrides: Partial<WorkspacePacketPayload>
 
 export function packetVersion(overrides: Partial<WorkspaceVersionPayload> = {}) {
   return {
-    id: "version_1",
+    id: packetVersionIdentity.relayId,
     versionNumber: 1,
     lifecycleState: "ready",
     title: "First packet",

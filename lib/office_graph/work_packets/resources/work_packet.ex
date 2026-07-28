@@ -42,10 +42,12 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
     belongs_to :current_version, OfficeGraph.WorkPackets.WorkPacketVersion do
       source_attribute :current_version_id
       attribute_public? true
+      public? true
     end
 
     has_many :versions, OfficeGraph.WorkPackets.WorkPacketVersion do
       destination_attribute :work_packet_id
+      public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
@@ -135,6 +137,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
 
   graphql do
     type :work_packet
+    paginate_relationship_with(versions: :relay)
   end
 
   json_api do

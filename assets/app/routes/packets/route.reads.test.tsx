@@ -52,7 +52,7 @@ describe("packet workspace route reads", () => {
         return support.packetWorkspaceResponse(
           support.workspace({
             packet: support.packetWorkspacePacket({
-              id: support.secondPacketIdentity.rawId,
+              id: support.secondPacketIdentity.relayId,
               title: "Linked packet",
             }),
           }),
@@ -108,10 +108,10 @@ describe("packet workspace route reads", () => {
         const packet =
           variables.id === support.secondPacketIdentity.relayId
             ? support.packetWorkspacePacket({
-                id: support.secondPacketIdentity.rawId,
+                id: support.secondPacketIdentity.relayId,
                 title: "Linked packet",
               })
-            : support.packetWorkspacePacket({ id: support.packetIdentity.rawId });
+            : support.packetWorkspacePacket({ id: support.packetIdentity.relayId });
         return support.packetWorkspaceResponse(support.workspace({ packet }));
       }
 
@@ -309,10 +309,10 @@ describe("packet workspace route reads", () => {
             packet:
               variables.id === support.secondPacketIdentity.relayId
                 ? support.packetWorkspacePacket({
-                    id: support.secondPacketIdentity.rawId,
+                    id: support.secondPacketIdentity.relayId,
                     title: "Second packet",
                   })
-                : support.packetWorkspacePacket({ id: support.packetIdentity.rawId }),
+                : support.packetWorkspacePacket({ id: support.packetIdentity.relayId }),
           }),
         );
       }
@@ -577,7 +577,7 @@ describe("packet workspace route reads", () => {
         return support.packetWorkspaceResponse(
           support.workspace({
             packet: support.packetWorkspacePacket({
-              id: support.secondPacketIdentity.rawId,
+              id: support.secondPacketIdentity.relayId,
               title: "Explicit packet",
             }),
           }),

@@ -33,7 +33,7 @@ The terminal classes are:
 | `graphql.query.operator_workflow_item` | `OfficeGraph.Projections` | mixed projection | Capability-owned workflow projection node read. |
 | `graphql.query.operator_relationship_details` | `OfficeGraph.WorkGraph` | mixed projection | Redacted relationship-detail projection connection. |
 | `graphql.query.operator_packet_readiness` | `OfficeGraph.WorkPackets` | generated action | Typed packet-readiness Ash query action. |
-| `graphql.query.operator_packet_workspace` | `OfficeGraph.WorkPackets` | generated resource | `getWorkPacket` plus generated current-version, source-reference, and required-check relationships. |
+| `graphql.query.operator_packet_workspace` | `OfficeGraph.Projections` | mixed projection | Retain only readiness, blockers, next actions, and command affordances; `getWorkPacket` and generated relationships own every packet resource field. |
 | `graphql.query.operator_packet_create_affordance` | `OfficeGraph.WorkPackets` | mixed projection | Capability-owned command-affordance projection. |
 | `graphql.query.operator_manual_intake_affordance` | `OfficeGraph.Integrations` | mixed projection | Capability-owned command-affordance projection. |
 | `graphql.query.operator_run_state` | `OfficeGraph.Runs` | generated resource | `getWorkRun` plus generated checks, observations, evidence, verification, packet, and version relationships. |

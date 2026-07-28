@@ -9,12 +9,52 @@ defmodule OfficeGraph.WorkPackets.Domain do
     queries do
       get OfficeGraph.WorkPackets.WorkPacket, :get_work_packet, :read
       list OfficeGraph.WorkPackets.WorkPacket, :list_work_packets, :read, relay?: true
+
+      get OfficeGraph.WorkPackets.WorkPacketVersion, :get_work_packet_version, :read
+
+      list OfficeGraph.WorkPackets.WorkPacketVersion, :list_work_packet_versions, :read,
+        relay?: true
+
+      get OfficeGraph.WorkPackets.WorkPacketSourceReference,
+          :get_work_packet_source_reference,
+          :read
+
+      list OfficeGraph.WorkPackets.WorkPacketSourceReference,
+           :list_work_packet_source_references,
+           :read,
+           relay?: true
+
+      get OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+          :get_work_packet_required_check,
+          :read
+
+      list OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+           :list_work_packet_required_checks,
+           :read,
+           relay?: true
     end
   end
 
   json_api do
     routes do
       base_route "/work-packets", OfficeGraph.WorkPackets.WorkPacket do
+        get(:read, primary?: true)
+        index :read
+      end
+
+      base_route "/work-packet-versions", OfficeGraph.WorkPackets.WorkPacketVersion do
+        get(:read, primary?: true)
+        index :read
+      end
+
+      base_route "/work-packet-source-references",
+                 OfficeGraph.WorkPackets.WorkPacketSourceReference do
+        get(:read, primary?: true)
+        index :read
+      end
+
+      base_route "/work-packet-required-checks",
+                 OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
         get(:read, primary?: true)
         index :read
       end

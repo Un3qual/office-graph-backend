@@ -1426,52 +1426,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         third_attrs
       )
 
-    relay_packet_id =
-      Absinthe.Relay.Node.to_global_id(
-        :work_packet,
-        packet_result.packet.id,
-        OfficeGraphWeb.GraphQL.Schema
-      )
+    relay_packet_id = relay_global_id(:work_packet, packet_result.packet.id)
 
     workspace =
       graphql(
         conn,
         """
-        query PacketWorkspace($id: ID!, $first: Int!, $after: String) {
+        query PacketWorkspace($id: ID!) {
           operatorPacketWorkspace(id: $id) {
             sourceWatermark
             ready
             status
             blockerReasons
             allowedNextActions
-            packet { id title state currentVersionId operationId }
-            currentVersion {
-              id
-              versionNumber
-              lifecycleState
-              title
-              objective
-              contextSummary
-              requirements
-              successCriteria
-              autonomyPosture
-              sourceGraphItemIds
-              verificationCheckIds
-              operationId
-              insertedAt
-            }
-            versionHistory(first: $first, after: $after) {
-              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
-              edges {
-                node {
-                  id
-                  versionNumber
-                  title
-                  sourceGraphItemIds
-                  verificationCheckIds
-                }
-              }
-            }
             commandAffordances {
               identity
               state
@@ -1484,8 +1451,65 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
           }
         }
         """,
-        %{id: relay_packet_id, first: 2},
+        %{id: relay_packet_id},
         "operatorPacketWorkspace"
+      )
+
+    packet =
+      graphql(
+        conn,
+        """
+        query PacketResource($id: ID!, $first: Int!, $after: String) {
+          getWorkPacket(id: $id) {
+            id
+            title
+            state
+            currentVersionId
+            operationId
+            currentVersion {
+              id
+              versionNumber
+              lifecycleState
+              title
+              objective
+              contextSummary
+              requirements
+              successCriteria
+              autonomyPosture
+              operationId
+              insertedAt
+              sourceReferences(sort: [{ field: POSITION, order: ASC }]) {
+                graphItemId
+              }
+              requiredChecks(sort: [{ field: POSITION, order: ASC }]) {
+                verificationCheckId
+              }
+            }
+            versions(
+              first: $first
+              after: $after
+              sort: [{ field: VERSION_NUMBER, order: ASC }]
+            ) {
+              pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+              edges {
+                node {
+                  id
+                  versionNumber
+                  title
+                  sourceReferences(sort: [{ field: POSITION, order: ASC }]) {
+                    graphItemId
+                  }
+                  requiredChecks(sort: [{ field: POSITION, order: ASC }]) {
+                    verificationCheckId
+                  }
+                }
+              }
+            }
+          }
+        }
+        """,
+        %{id: relay_packet_id, first: 2},
+        "getWorkPacket"
       )
 
     assert workspace["sourceWatermark"]
@@ -1493,20 +1517,30 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert workspace["status"] == "ready_for_run"
     assert workspace["blockerReasons"] == []
     assert workspace["allowedNextActions"] == ["create_work_packet_version", "start_work_run"]
-    assert workspace["packet"]["currentVersionId"] == third_version_result.version.id
-    assert workspace["packet"]["title"] == "Packet workspace version three"
-    assert workspace["currentVersion"]["id"] == third_version_result.version.id
-    assert workspace["currentVersion"]["versionNumber"] == 3
-    assert workspace["currentVersion"]["sourceGraphItemIds"] == [verification_check.graph_item_id]
-    assert workspace["currentVersion"]["verificationCheckIds"] == [verification_check.id]
+    assert packet["id"] == relay_packet_id
+    assert packet["currentVersionId"] == third_version_result.version.id
+    assert packet["title"] == "Packet workspace version three"
 
-    assert workspace["versionHistory"]["pageInfo"]["hasNextPage"] == true
-    assert workspace["versionHistory"]["pageInfo"]["hasPreviousPage"] == false
-    first_versions = Enum.map(workspace["versionHistory"]["edges"], & &1["node"])
+    assert packet["currentVersion"]["id"] ==
+             relay_global_id(:work_packet_version, third_version_result.version.id)
+
+    assert packet["currentVersion"]["versionNumber"] == 3
+
+    assert packet["currentVersion"]["sourceReferences"] == [
+             %{"graphItemId" => verification_check.graph_item_id}
+           ]
+
+    assert packet["currentVersion"]["requiredChecks"] == [
+             %{"verificationCheckId" => verification_check.id}
+           ]
+
+    assert packet["versions"]["pageInfo"]["hasNextPage"] == true
+    assert packet["versions"]["pageInfo"]["hasPreviousPage"] == false
+    first_versions = Enum.map(packet["versions"]["edges"], & &1["node"])
 
     assert Enum.map(first_versions, & &1["id"]) == [
-             packet_result.version.id,
-             version_result.version.id
+             relay_global_id(:work_packet_version, packet_result.version.id),
+             relay_global_id(:work_packet_version, version_result.version.id)
            ]
 
     assert Enum.map(first_versions, & &1["title"]) == [
@@ -1514,23 +1548,23 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
              "Packet workspace version two"
            ]
 
-    assert Enum.map(first_versions, & &1["sourceGraphItemIds"]) == [
-             [verification_check.graph_item_id],
-             [verification_check.graph_item_id]
-           ]
+    assert Enum.map(first_versions, & &1["sourceReferences"]) ==
+             List.duplicate([%{"graphItemId" => verification_check.graph_item_id}], 2)
 
-    assert Enum.map(first_versions, & &1["verificationCheckIds"]) == [
-             [verification_check.id],
-             [verification_check.id]
-           ]
+    assert Enum.map(first_versions, & &1["requiredChecks"]) ==
+             List.duplicate([%{"verificationCheckId" => verification_check.id}], 2)
 
-    second_workspace =
+    second_packet_page =
       graphql(
         conn,
         """
         query PacketWorkspacePage($id: ID!, $first: Int!, $after: String) {
-          operatorPacketWorkspace(id: $id) {
-            versionHistory(first: $first, after: $after) {
+          getWorkPacket(id: $id) {
+            versions(
+              first: $first
+              after: $after
+              sort: [{ field: VERSION_NUMBER, order: ASC }]
+            ) {
               pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
               edges { node { id versionNumber title } }
             }
@@ -1540,18 +1574,18 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         %{
           id: relay_packet_id,
           first: 2,
-          after: workspace["versionHistory"]["pageInfo"]["endCursor"]
+          after: packet["versions"]["pageInfo"]["endCursor"]
         },
-        "operatorPacketWorkspace"
+        "getWorkPacket"
       )
 
-    assert second_workspace["versionHistory"]["pageInfo"]["hasNextPage"] == false
-    assert second_workspace["versionHistory"]["pageInfo"]["hasPreviousPage"] == true
+    assert second_packet_page["versions"]["pageInfo"]["hasNextPage"] == false
+    assert second_packet_page["versions"]["pageInfo"]["hasPreviousPage"] == true
 
     assert [%{"node" => %{"id" => third_id, "versionNumber" => 3}}] =
-             second_workspace["versionHistory"]["edges"]
+             second_packet_page["versions"]["edges"]
 
-    assert third_id == third_version_result.version.id
+    assert third_id == relay_global_id(:work_packet_version, third_version_result.version.id)
 
     assert [create_version, start_run] = workspace["commandAffordances"]
     assert create_version["identity"] == "create_work_packet_version"
@@ -1945,5 +1979,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       result: Keyword.get(opts, :result, "passed"),
       acceptance_policy_basis: "owner_acceptance"
     })
+  end
+
+  defp relay_global_id(type, id) do
+    Absinthe.Relay.Node.to_global_id(Atom.to_string(type), id, OfficeGraphWeb.GraphQL.Schema)
   end
 end

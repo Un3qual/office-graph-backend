@@ -21,7 +21,16 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
   end
 
   def create_version(%{input: input}, resolution) do
-    with {:ok, parsed} <- Input.parse(:create_work_packet_version, input),
+    with {:ok, input} <-
+           normalize_relay_id(input, :packet_id, :work_packet, resolution.schema),
+         {:ok, input} <-
+           normalize_relay_id(
+             input,
+             :expected_current_version_id,
+             :work_packet_version,
+             resolution.schema
+           ),
+         {:ok, parsed} <- Input.parse(:create_work_packet_version, input),
          {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
          {idempotency_key, command_input} <- Map.pop!(parsed, :idempotency_key),
          {:ok, operation} <-
@@ -54,4 +63,19 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.Packets do
   end
 
   defp typed_id(type, id), do: %{type: type, id: id}
+
+  defp normalize_relay_id(input, field, expected_type, schema) do
+    value = Map.get(input, field)
+
+    case Ecto.UUID.cast(value) do
+      {:ok, id} ->
+        {:ok, Map.put(input, field, id)}
+
+      :error ->
+        case Absinthe.Relay.Node.from_global_id(value, schema) do
+          {:ok, %{type: ^expected_type, id: id}} -> {:ok, Map.put(input, field, id)}
+          _other -> {:error, {:invalid_field, field}}
+        end
+    end
+  end
 end

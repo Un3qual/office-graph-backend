@@ -190,32 +190,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_watermark, :id
   end
 
-  object :operator_packet_workspace_packet do
-    field :id, non_null(:id)
-    field :title, non_null(:string)
-    field :state, non_null(:string)
-    field :current_version_id, non_null(:id)
-    field :operation_id, :id
-  end
-
-  object :operator_packet_workspace_version do
-    field :id, non_null(:id)
-    field :version_number, non_null(:integer)
-    field :lifecycle_state, non_null(:string)
-    field :title, non_null(:string)
-    field :objective, non_null(:string)
-    field :context_summary, non_null(:string)
-    field :requirements, non_null(:string)
-    field :success_criteria, :string
-    field :autonomy_posture, non_null(:string)
-    field :source_graph_item_ids, non_null(list_of(non_null(:id)))
-    field :verification_check_ids, non_null(list_of(non_null(:id)))
-    field :operation_id, non_null(:id)
-    field :inserted_at, non_null(:datetime)
-  end
-
-  connection(node_type: :operator_packet_workspace_version)
-
   object :operator_packet_workspace do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
@@ -228,39 +202,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :blocker_reasons, non_null(list_of(non_null(:string)))
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
-    field :packet, non_null(:operator_packet_workspace_packet)
-    field :current_version, non_null(:operator_packet_workspace_version)
-
-    connection field :version_history,
-                 node_type: :operator_packet_workspace_version,
-                 paginate: :forward do
-      resolve(fn
-        %{first: first}, _resolution when is_integer(first) and first < 0 ->
-          {:error, "A field has an invalid value."}
-
-        args, %{source: workspace} = resolution ->
-          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-               {:ok, :forward, limit} <- Connection.limit(args, 100),
-               {:ok, page} <-
-                 Projections.packet_version_history_page(session_context, workspace.packet.id,
-                   limit: limit,
-                   after_cursor: Map.get(args, :after)
-                 ) do
-            {:ok,
-             %{
-               edges: page.edges,
-               page_info: %{
-                 has_next_page: page.has_next_page?,
-                 has_previous_page: page.has_previous_page?,
-                 start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
-                 end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
-               }
-             }}
-          else
-            error -> Errors.to_absinthe(error)
-          end
-      end)
-    end
   end
 
   object :operator_run_ref do

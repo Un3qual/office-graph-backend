@@ -7,21 +7,14 @@ defmodule OfficeGraph.WorkGraph.Queries do
     GraphItem,
     GraphRelationship,
     RelationshipView,
-    Signal,
     VerificationCheck
   }
 
   require Ash.Query
 
-  def graphql_node_type(%Signal{}), do: :signal
-
   def graphql_node_type(%RelationshipView{}), do: :graph_relationship_view
 
   def graphql_node_type(_value), do: nil
-
-  def graphql_node(session_context, :signal, id) do
-    Ash.get(Signal, id, actor: session_context, not_found_error?: false)
-  end
 
   def graphql_node(session_context, :graph_relationship_view, id) do
     get_relationship(session_context, id)

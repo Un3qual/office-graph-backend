@@ -277,8 +277,8 @@ describe("packet workspace route reads", () => {
 
       expect(request.name).toBe("PacketsCreateWorkPacketVersionMutation");
       expect(variables.input).toMatchObject({
-        packetId: "packet_1",
-        expectedCurrentVersionId: "version_1",
+        packetId: support.packetIdentity.relayId,
+        expectedCurrentVersionId: support.packetVersionIdentity.relayId,
         title: "Revised packet",
         sourceGraphItemIds: ["graph_1"],
         verificationCheckIds: ["check_1"],

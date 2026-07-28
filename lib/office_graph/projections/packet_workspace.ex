@@ -3,7 +3,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Projections.CommandAffordance
-  alias OfficeGraph.Projections.KeysetCursor
   alias OfficeGraph.Runs
   alias OfficeGraph.Runs.Run
 
@@ -50,7 +49,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          {:ok, current_version} <- read_current_version(session_context, packet),
          {:ok, source_references} <- read_source_references(session_context, [current_version]),
          {:ok, required_checks} <- read_required_checks(session_context, [current_version]),
-         {:ok, version_count} <- count_versions(session_context, packet.id),
          {:ok, verification_checks} <-
            read_verification_checks(session_context, current_version, required_checks),
          {:ok, current_version_runs} <-
@@ -60,40 +58,11 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          session_context,
          packet,
          current_version,
-         version_count,
          source_references,
          required_checks,
          verification_checks,
          current_version_runs
        )}
-    end
-  end
-
-  def version_history_page(session_context, packet_id, opts) do
-    limit = Keyword.fetch!(opts, :limit)
-    after_cursor = Keyword.get(opts, :after_cursor)
-
-    with :ok <- authorize_read(session_context),
-         {:ok, _packet} <- read_packet(session_context, packet_id),
-         {:ok, after_key} <- decode_version_cursor(after_cursor),
-         {:ok, versions} <- read_versions_page(session_context, packet_id, after_key, limit + 1),
-         page_versions = Enum.take(versions, limit),
-         {:ok, source_references} <- read_source_references(session_context, page_versions),
-         {:ok, required_checks} <- read_required_checks(session_context, page_versions) do
-      has_next_page? = length(versions) > limit
-
-      {:ok,
-       %{
-         edges:
-           Enum.map(page_versions, fn version ->
-             %{
-               node: version_projection(version, source_references, required_checks),
-               cursor: version_cursor(version)
-             }
-           end),
-         has_next_page?: has_next_page?,
-         has_previous_page?: not is_nil(after_cursor)
-       }}
     end
   end
 
@@ -114,36 +83,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
       {:ok, nil} -> {:error, {:not_found, WorkPacket, packet_id}}
       result -> result
     end
-  end
-
-  defp read_versions_page(session_context, packet_id, after_key, limit) do
-    WorkPacketVersion
-    |> Ash.Query.filter(
-      work_packet_id == ^packet_id and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
-    |> Ash.Query.sort(version_number: :asc, inserted_at: :asc, id: :asc)
-    |> after_version(after_key)
-    |> Ash.Query.limit(limit)
-    |> Ash.read(authorize?: false)
-  end
-
-  defp after_version(query, nil), do: query
-
-  defp after_version(query, {version_number, id}) do
-    Ash.Query.filter(
-      query,
-      version_number > ^version_number or (version_number == ^version_number and id > ^id)
-    )
-  end
-
-  defp count_versions(session_context, packet_id) do
-    WorkPacketVersion
-    |> Ash.Query.filter(
-      work_packet_id == ^packet_id and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
-    |> Ash.count(authorize?: false)
   end
 
   defp read_current_version(_session_context, %{current_version_id: nil} = packet),
@@ -222,7 +161,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
          session_context,
          packet,
          current_version,
-         version_count,
          source_references,
          required_checks,
          verification_checks,
@@ -256,9 +194,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
     workspace = %{
       type: "operator_packet_workspace",
-      packet: packet_projection(packet),
-      current_version: version_projection(current_version, source_references, required_checks),
-      version_count: version_count,
       ready?: ready?,
       status: if(ready?, do: "ready_for_run", else: "blocked"),
       blocker_reasons: blockers,
@@ -267,49 +202,6 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
     }
 
     Map.put(workspace, :source_watermark, projection_watermark(workspace))
-  end
-
-  defp packet_projection(packet) do
-    %{
-      id: packet.id,
-      title: packet.title,
-      state: packet.state,
-      current_version_id: packet.current_version_id,
-      operation_id: packet.operation_id
-    }
-  end
-
-  defp version_projection(version, source_references, required_checks) do
-    %{
-      id: version.id,
-      version_number: version.version_number,
-      lifecycle_state: version.lifecycle_state,
-      title: version.title,
-      objective: version.objective,
-      context_summary: version.context_summary,
-      requirements: version.requirements,
-      success_criteria: version.success_criteria,
-      autonomy_posture: version.autonomy_posture,
-      source_graph_item_ids: ids_for_version(source_references, version.id, :graph_item_id),
-      verification_check_ids:
-        ids_for_version(required_checks, version.id, :verification_check_id),
-      operation_id: version.operation_id,
-      inserted_at: version.inserted_at
-    }
-  end
-
-  defp version_cursor(version),
-    do: KeysetCursor.encode([version.version_number, version.id])
-
-  defp decode_version_cursor(nil), do: {:ok, nil}
-
-  defp decode_version_cursor(cursor) do
-    with {:ok, [version_number, id]} <- KeysetCursor.decode(cursor, 2),
-         true <- is_integer(version_number) and is_binary(id) do
-      {:ok, {version_number, id}}
-    else
-      _invalid -> {:error, {:invalid_field, :pagination}}
-    end
   end
 
   defp version_attrs(version, source_ids, check_ids) do
