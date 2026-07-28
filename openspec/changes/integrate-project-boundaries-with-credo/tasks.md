@@ -18,5 +18,5 @@
 ## 4. Verify And Close
 
 - [x] 4.1 Run formatter, focused project-quality tests, the focused Credo invocation, compilation with warnings as errors, and strict OpenSpec validation
-- [ ] 4.2 Run the complete canonical `bin/verify` gate and confirm the worktree and database-access inventories remain unchanged
-- [ ] 4.3 Review the final diff for duplicate scanners, product-runtime Credo coupling, changed fingerprints, vague diagnostics, placeholders, and unrelated behavior changes
+- [x] 4.2 Run the complete canonical `bin/verify` gate and confirm the worktree and database-access inventories remain unchanged
+- [x] 4.3 Review the final diff for duplicate scanners, product-runtime Credo coupling, changed fingerprints, vague diagnostics, placeholders, and unrelated behavior changes

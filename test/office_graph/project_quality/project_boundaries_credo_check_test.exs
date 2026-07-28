@@ -10,7 +10,10 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
   @approved_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   setup_all do
-    {:ok, _applications} = Application.ensure_all_started(:credo)
+    if Process.whereis(Credo.Supervisor) == nil do
+      {:ok, _applications} = Application.ensure_all_started(:credo)
+    end
+
     :ok
   end
 
@@ -160,7 +163,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       Execution.build()
       |> Map.put(:cli_options, %{path: root})
 
-    :ok = apply(@check, :run_on_all_source_files, [exec, [], []])
+    :ok = OfficeGraph.Credo.Check.ProjectBoundaries.run_on_all_source_files(exec, [], [])
 
     exec
     |> ExecutionIssues.to_map()
