@@ -129,6 +129,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
            ]
   end
 
+  test "current repository matches the reviewed database-access inventories" do
+    assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
+  end
+
   defp occurrence(fingerprint) do
     %{
       fingerprint: fingerprint,

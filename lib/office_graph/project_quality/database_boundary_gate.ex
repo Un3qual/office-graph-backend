@@ -15,6 +15,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "verification"
   ]
 
+  alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
+
   @spec compare([map()], [map()], [map()]) :: [map()]
   def compare(current, debt, approved_exceptions) do
     current = Enum.map(current, &normalize_entry/1)
@@ -30,6 +32,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ) ++
       current_diagnostics(current, recorded) ++
       stale_diagnostics(current, recorded)
+  end
+
+  @spec check_repository(Path.t()) :: [map()]
+  def check_repository(root \\ File.cwd!()) do
+    debt_path =
+      Path.join(root, "openspec/specs/ecto-sql-boundaries/database-access-debt.json")
+
+    approved_path =
+      Path.join(
+        root,
+        "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
+      )
+
+    compare(
+      DatabaseBoundaryScanner.scan_repository(root),
+      load_debt_inventory!(debt_path),
+      load_approved_inventory!(approved_path)
+    )
   end
 
   @spec decode_debt_inventory!(map()) :: [map()]

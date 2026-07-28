@@ -131,6 +131,8 @@ defmodule OfficeGraph.MixProject do
       verify: [
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
+        "office_graph.planning_boundaries",
+        "office_graph.database_boundaries",
         "format --check-formatted",
         "boundary.check",
         "architecture.check",

@@ -13,12 +13,12 @@
 
 ## 3. Integrate Canonical Verification
 
-- [ ] 3.1 Add a non-mutating planning-boundary check that rejects `docs/superpowers/**` and other prohibited parallel planning roots
-- [ ] 3.2 Add the database-boundary comparison command to canonical verification and make its diagnostics identify new, changed, and stale occurrences
-- [ ] 3.3 Add regression coverage proving the canonical gate rejects new parallel plans and unclassified SQL while accepting the reviewed unchanged debt baseline
+- [x] 3.1 Add a non-mutating planning-boundary check that rejects `docs/superpowers/**` and other prohibited parallel planning roots
+- [x] 3.2 Add the database-boundary comparison command to canonical verification and make its diagnostics identify new, changed, and stale occurrences
+- [x] 3.3 Add regression coverage proving the canonical gate rejects new parallel plans and unclassified SQL while accepting the reviewed unchanged debt baseline
 
 ## 4. Verify And Close The Boundary Change
 
-- [ ] 4.1 Run formatter, focused architecture and project-quality tests, compilation with warnings as errors, and strict OpenSpec validation
+- [x] 4.1 Run formatter, focused architecture and project-quality tests, compilation with warnings as errors, and strict OpenSpec validation
 - [ ] 4.2 Run the complete canonical `bin/verify` gate and confirm it leaves the worktree unchanged
 - [ ] 4.3 Review the final diff for copied historical plans, accidental implied SQL approvals, vague exceptions, placeholders, and unrelated behavior changes
