@@ -6,6 +6,7 @@ import {
   Environment,
   type FetchFunction,
   type GraphQLResponse,
+  type GraphQLSingularResponse,
   Network,
   RecordSource,
   Store,
@@ -19,7 +20,7 @@ export function operatorCommandNetwork(runState: ReturnType<typeof operatorRunSt
       return workflowConnectionResponse([operatorWorkflowItem()], variables);
     }
     if (request.name === "OperatorRunStateQuery") {
-      return { data: { operatorRunState: runState } };
+      return operatorRunStateResponse(runState);
     }
     if (request.name.endsWith("Mutation")) {
       return new Promise<GraphQLResponse>(() => undefined);
@@ -39,7 +40,7 @@ export function renderWithRelay(
 ) {
   const environment = new Environment({
     getDataID: getOfficeGraphDataID,
-    network: Network.create(withEmptyAgentActivityFallback(network)),
+    network: Network.create(withOperatorTestResponses(network)),
     store: new Store(new RecordSource()),
   });
 
@@ -50,15 +51,17 @@ export function renderWithRelay(
   );
 }
 
-function withEmptyAgentActivityFallback(network: FetchFunction): FetchFunction {
+function withOperatorTestResponses(network: FetchFunction): FetchFunction {
   return async (request, variables, cacheConfig, uploadables) => {
     try {
-      return await (network(
+      const response = await (network(
         request,
         variables,
         cacheConfig,
         uploadables,
       ) as Promise<GraphQLResponse>);
+
+      return normalizeOperatorRunStateResponse(request.name, response);
     } catch (error) {
       if (
         request.name !== "OperatorRunConversationQuery" ||
@@ -110,11 +113,7 @@ export function createOperatorNetwork({
     }
 
     if (request.name === "OperatorRunStateQuery") {
-      return {
-        data: {
-          operatorRunState: runState ?? operatorRunState(),
-        },
-      };
+      return operatorRunStateResponse(runState ?? operatorRunState());
     }
 
     throw new Error(`Unexpected Relay request in operator route test: ${request.name}`);
@@ -410,6 +409,7 @@ export function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {
       },
     },
     sourceWatermark: "run_1",
+    defaultAgentGraphItemId: "graph_1",
     packet: { id: "packet_1", title: "Operator console packet", state: "active" },
     packetVersion: {
       id: "version_1",
@@ -521,6 +521,97 @@ export function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {
         expectedVerificationState: state.run.verificationState,
         policyBasis: "owner_exception",
       })),
+    },
+  };
+}
+
+export function operatorRunStateResponse(
+  state: ReturnType<typeof operatorRunState> = operatorRunState(),
+): GraphQLResponse {
+  return {
+    data: {
+      operatorRunState: operatorRunProjectionResponse(state),
+      run: operatorRunResourceResponse(state),
+    },
+  };
+}
+
+function normalizeOperatorRunStateResponse(
+  requestName: string,
+  response: GraphQLResponse,
+): GraphQLResponse {
+  if (requestName !== "OperatorRunStateQuery" || Array.isArray(response)) {
+    return response;
+  }
+
+  const singularResponse = response as GraphQLSingularResponse;
+  const data = "data" in singularResponse ? singularResponse.data : null;
+
+  if (!data || typeof data !== "object" || "run" in data) {
+    return response;
+  }
+
+  const state = data.operatorRunState as ReturnType<typeof operatorRunState> | null | undefined;
+
+  if (!state) {
+    return { ...singularResponse, data: { ...data, run: null } };
+  }
+
+  return {
+    ...singularResponse,
+    data: {
+      ...data,
+      operatorRunState: operatorRunProjectionResponse(state),
+      run: operatorRunResourceResponse(state),
+    },
+  };
+}
+
+function operatorRunProjectionResponse(state: ReturnType<typeof operatorRunState>) {
+  return {
+    type: state.type,
+    status: state.status,
+    allowedNextActions: state.allowedNextActions,
+    commandAffordances: state.commandAffordances,
+    commandOptions: state.commandOptions,
+    commandOptionsOverflow: state.commandOptionsOverflow,
+    commandOptionSummary: state.commandOptionSummary,
+    childSummary: state.childSummary,
+    activity: state.activity,
+    sourceWatermark: state.sourceWatermark,
+    defaultAgentGraphItemId:
+      state.defaultAgentGraphItemId ??
+      state.requiredChecks.find((check) => check.graphItemId)?.graphItemId ??
+      state.observations.find((observation) => observation.graphItemId)?.graphItemId ??
+      null,
+    missingEvidence: state.missingEvidence,
+  };
+}
+
+function operatorRunResourceResponse(state: ReturnType<typeof operatorRunState>) {
+  return {
+    id: state.run.id,
+    aggregateState: state.run.aggregateState,
+    executionState: state.run.executionState,
+    verificationState: state.run.verificationState,
+    workPacket: state.packet,
+    workPacketVersion: state.packetVersion,
+    requiredChecks: {
+      edges: state.requiredChecks.map(({ graphItemId: _graphItemId, ...node }) => ({ node })),
+    },
+    executionObservations: {
+      edges: state.observations.map((node) => ({ node })),
+    },
+    evidenceCandidates: {
+      edges: state.evidenceCandidates.map(({ state: candidateState, ...node }) => ({
+        node: { ...node, candidateState },
+      })),
+    },
+    evidenceItems: {
+      edges: state.evidenceItems.map((node) => ({ node })),
+    },
+    verificationResults: {
+      edges: state.verificationResults.map((node) => ({ node })),
     },
   };
 }

@@ -1,6 +1,6 @@
-import type { OperatorRunStateFragment$data } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorWorkflowItemFragment$data } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
 import type { DerivedPacketReadiness, PacketReadinessInput } from "./types";
+import type { OperatorRunState } from "./workflow";
 
 export function packetReadinessInputForItem(
   item: OperatorWorkflowItemFragment$data,
@@ -68,7 +68,7 @@ export function itemTitle(item: OperatorWorkflowItemFragment$data) {
   return item.title;
 }
 
-export function verificationOutcomeFromRunState(runState: OperatorRunStateFragment$data) {
+export function verificationOutcomeFromRunState(runState: OperatorRunState) {
   return {
     type: "verification_outcome",
     status: runState.status,

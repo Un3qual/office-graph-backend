@@ -129,29 +129,6 @@ defmodule OfficeGraph.Projections.RunState do
     }
   end
 
-  def verification_outcome(session_context, run_id) do
-    with {:ok, summary} <- Runs.get_verification_outcome_summary(session_context, run_id) do
-      verification_results =
-        Enum.map(summary.verification_results, &verification_result_projection/1)
-
-      missing_evidence = Enum.map(summary.missing_evidence, &missing_evidence_projection/1)
-
-      {:ok,
-       with_source_watermark(%{
-         type: "verification_outcome",
-         status: run_status(summary, []),
-         run: %{
-           id: summary.run.id,
-           aggregate_state: summary.run.aggregate_state,
-           execution_state: summary.run.execution_state,
-           verification_state: summary.run.verification_state
-         },
-         verification_results: verification_results,
-         missing_evidence: missing_evidence
-       })}
-    end
-  end
-
   defp read_evidence_candidates(session_context, run_id, limit) do
     EvidenceCandidate
     |> Ash.Query.filter(
@@ -204,6 +181,7 @@ defmodule OfficeGraph.Projections.RunState do
 
     %{
       type: "operator_run_state",
+      run_id: summary.run.id,
       status: status,
       allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
       command_affordances: command_affordances,
@@ -219,67 +197,8 @@ defmodule OfficeGraph.Projections.RunState do
       command_option_summary: command_option_summary,
       command_option_availability: command_option_availability,
       child_summary: child_summary(summary),
-      packet: %{
-        id: summary.packet.id,
-        title: summary.packet.title,
-        state: summary.packet.state
-      },
-      packet_version: packet_version_projection(summary.packet_version),
-      run: %{
-        id: summary.run.id,
-        aggregate_state: summary.run.aggregate_state,
-        execution_state: summary.run.execution_state,
-        verification_state: summary.run.verification_state
-      },
-      required_checks:
-        summary.required_checks
-        |> Enum.take(@child_summary_limit)
-        |> Enum.map(fn required_check ->
-          %{
-            id: required_check.id,
-            verification_check_id: required_check.verification_check_id,
-            graph_item_id:
-              get_in(verification_checks_by_id, [
-                required_check.verification_check_id,
-                Access.key(:graph_item_id)
-              ]),
-            state: required_check.state
-          }
-        end),
-      observations:
-        summary.observations
-        |> Enum.take(@child_summary_limit)
-        |> Enum.map(fn observation ->
-          %{
-            id: observation.id,
-            verification_check_id: observation.verification_check_id,
-            graph_item_id: observation.graph_item_id,
-            normalized_status: observation.normalized_status,
-            freshness_state: observation.freshness_state,
-            trust_basis: observation.trust_basis,
-            source_kind: observation.source_kind,
-            source_identity: observation.source_identity
-          }
-        end),
-      evidence_candidates:
-        evidence_candidates
-        |> Enum.take(@child_summary_limit)
-        |> Enum.map(&evidence_candidate_projection/1),
-      evidence_items:
-        summary.evidence_items
-        |> Enum.take(@child_summary_limit)
-        |> Enum.map(fn evidence_item ->
-          %{
-            id: evidence_item.id,
-            state: evidence_item.state,
-            candidate_id: evidence_item.candidate_id,
-            work_run_id: evidence_item.work_run_id
-          }
-        end),
-      verification_results:
-        summary.verification_results
-        |> Enum.take(@child_summary_limit)
-        |> Enum.map(&verification_result_projection/1),
+      default_agent_graph_item_id:
+        default_agent_graph_item_id(summary, verification_checks_by_id),
       missing_evidence:
         summary.missing_evidence
         |> Enum.take(@child_summary_limit)
@@ -298,30 +217,13 @@ defmodule OfficeGraph.Projections.RunState do
     )
   end
 
-  defp verification_result_projection(result) do
-    %{
-      id: result.id,
-      result: result.result,
-      verification_check_id: result.verification_check_id,
-      evidence_item_id: result.evidence_item_id,
-      operation_id: result.operation_id,
-      actor_principal_id: result.actor_principal_id,
-      policy_basis: result.policy_basis,
-      target_graph_item_id: result.target_graph_item_id,
-      work_run_id: result.work_run_id,
-      work_packet_version_id: result.work_packet_version_id
-    }
-  end
-
-  defp packet_version_projection(nil), do: nil
-
-  defp packet_version_projection(packet_version) do
-    %{
-      id: packet_version.id,
-      version_number: packet_version.version_number,
-      lifecycle_state: packet_version.lifecycle_state,
-      objective: packet_version.objective
-    }
+  defp default_agent_graph_item_id(summary, verification_checks_by_id) do
+    Enum.find_value(summary.required_checks, fn required_check ->
+      get_in(verification_checks_by_id, [
+        required_check.verification_check_id,
+        Access.key(:graph_item_id)
+      ])
+    end) || Enum.find_value(summary.observations, & &1.graph_item_id)
   end
 
   defp command_option_sql("observation") do
@@ -1147,20 +1049,6 @@ defmodule OfficeGraph.Projections.RunState do
     candidate.candidate_state == "candidate" and
       MapSet.member?(missing_check_ids, candidate.verification_check_id) and
       Verification.acceptable_evidence_source?(candidate)
-  end
-
-  defp evidence_candidate_projection(candidate) do
-    %{
-      id: candidate.id,
-      verification_check_id: candidate.verification_check_id,
-      execution_observation_id: candidate.execution_observation_id,
-      claim: candidate.claim,
-      state: candidate.candidate_state,
-      freshness_state: candidate.freshness_state,
-      trust_basis: candidate.trust_basis,
-      source_kind: candidate.source_kind,
-      source_identity: candidate.source_identity
-    }
   end
 
   defp missing_evidence_projection(%{

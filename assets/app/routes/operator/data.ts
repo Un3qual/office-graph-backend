@@ -249,68 +249,7 @@ export const OperatorRunStateFragment = graphql`
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
     sourceWatermark
-    packet {
-      id
-      title
-      state
-    }
-    packetVersion {
-      id
-      versionNumber
-      lifecycleState
-      objective
-    }
-    run {
-      id
-      aggregateState
-      executionState
-      verificationState
-    }
-    requiredChecks {
-      id
-      graphItemId
-      verificationCheckId
-      state
-    }
-    observations {
-      id
-      verificationCheckId
-      graphItemId
-      normalizedStatus
-      freshnessState
-      trustBasis
-      sourceKind
-      sourceIdentity
-    }
-    evidenceCandidates {
-      id
-      verificationCheckId
-      executionObservationId
-      claim
-      state
-      freshnessState
-      trustBasis
-      sourceKind
-      sourceIdentity
-    }
-    evidenceItems {
-      id
-      state
-      candidateId
-      workRunId
-    }
-    verificationResults {
-      id
-      result
-      verificationCheckId
-      evidenceItemId
-      operationId
-      actorPrincipalId
-      policyBasis
-      targetGraphItemId
-      workRunId
-      workPacketVersionId
-    }
+    defaultAgentGraphItemId
     missingEvidence {
       verificationCheckId
       reason
@@ -388,6 +327,87 @@ export const OperatorRunStateQuery = graphql`
     operatorRunState(id: $id) {
       ...OperatorRunStateFragment
         @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
+    }
+    run: getWorkRun(id: $id) {
+      id
+      aggregateState
+      executionState
+      verificationState
+      workPacket {
+        id
+        title
+        state
+      }
+      workPacketVersion {
+        id
+        versionNumber
+        lifecycleState
+        objective
+      }
+      requiredChecks(first: 20, sort: [{ field: POSITION, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            state
+          }
+        }
+      }
+      executionObservations(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            graphItemId
+            normalizedStatus
+            freshnessState
+            trustBasis
+            sourceKind
+            sourceIdentity
+          }
+        }
+      }
+      evidenceCandidates(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            executionObservationId
+            claim
+            candidateState
+            freshnessState
+            trustBasis
+            sourceKind
+            sourceIdentity
+          }
+        }
+      }
+      evidenceItems(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            state
+            candidateId
+            workRunId
+          }
+        }
+      }
+      verificationResults(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            result
+            verificationCheckId
+            evidenceItemId
+            operationId
+            actorPrincipalId
+            policyBasis
+            targetGraphItemId
+            workRunId
+            workPacketVersionId
+          }
+        }
+      }
     }
   }
 `;

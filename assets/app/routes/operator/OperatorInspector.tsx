@@ -3,28 +3,28 @@ import { readInlineData, useLazyLoadQuery } from "react-relay";
 import { AsyncBoundary } from "../../../src/ui/AsyncBoundary";
 import { Button } from "../../../src/ui/Button";
 import { Panel } from "../../../src/ui/Panel";
-import { AgentActivityPanel } from "./components/AgentActivityPanel";
-import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
-import { RunPanel } from "./components/RunPanel";
-import { VerificationPanel } from "./components/VerificationPanel";
-import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
-import { RunCommandForm } from "./components/RunCommandForm";
-import { PacketCommandForm } from "./components/PacketCommandForm";
-import {
-  OperatorRunCommandOptionPageConnectionFragment,
-  OperatorRunCommandOptionPageQuery,
-} from "./data";
 import type {
   OperatorRunCommandOptionPageConnectionFragment$data,
   OperatorRunCommandOptionPageConnectionFragment$key,
 } from "../../relay/__generated__/OperatorRunCommandOptionPageConnectionFragment.graphql";
 import type { OperatorRunCommandOptionPageQuery as OperatorRunCommandOptionPageOperation } from "../../relay/__generated__/OperatorRunCommandOptionPageQuery.graphql";
+import { AgentActivityPanel } from "./components/AgentActivityPanel";
+import { EvidenceCommandForm } from "./components/EvidenceCommandForm";
+import { PacketCommandForm } from "./components/PacketCommandForm";
+import { ReadinessPanel, ReadinessPanelError } from "./components/ReadinessPanel";
+import { RunCommandForm } from "./components/RunCommandForm";
+import { RunPanel } from "./components/RunPanel";
+import { VerificationPanel } from "./components/VerificationPanel";
+import {
+  OperatorRunCommandOptionPageConnectionFragment,
+  OperatorRunCommandOptionPageQuery,
+} from "./data";
 import { verificationOutcomeFromRunState } from "./derived";
 import type { PacketReadinessInput } from "./types";
 import {
+  type OperatorRunState,
   type PacketReadinessState,
   useOperatorRunConversation,
-  type OperatorRunState,
   useOperatorRunState,
   useValidatedPacketReadiness,
 } from "./workflow";
@@ -177,8 +177,7 @@ function LoadedRunStatePanels({
   const activityAfter = activityCursors.at(-1) ?? null;
   const runState = useOperatorRunState(runId, fetchKey, activityAfter);
   const verification = verificationOutcomeFromRunState(runState);
-  const agentGraphItemId =
-    graphItemId ?? runState.requiredChecks[0]?.graphItemId ?? runState.observations[0]?.graphItemId;
+  const agentGraphItemId = graphItemId ?? runState.defaultAgentGraphItemId;
 
   return (
     <>

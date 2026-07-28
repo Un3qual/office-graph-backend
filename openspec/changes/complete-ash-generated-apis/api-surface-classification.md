@@ -36,9 +36,9 @@ The terminal classes are:
 | `graphql.query.operator_packet_workspace` | `OfficeGraph.Projections` | mixed projection | Retain only readiness, blockers, next actions, and command affordances; `getWorkPacket` and generated relationships own every packet resource field. |
 | `graphql.query.operator_packet_create_affordance` | `OfficeGraph.WorkPackets` | mixed projection | Capability-owned command-affordance projection. |
 | `graphql.query.operator_manual_intake_affordance` | `OfficeGraph.Integrations` | mixed projection | Capability-owned command-affordance projection. |
-| `graphql.query.operator_run_state` | `OfficeGraph.Runs` | generated resource | `getWorkRun` plus generated checks, observations, evidence, verification, packet, and version relationships. |
+| `graphql.query.operator_run_state` | `OfficeGraph.Runs` | mixed projection | Retain only derived status, command affordances and options, child summary, activity, default agent graph context, missing-evidence facts, and a source watermark; `getWorkRun` owns all resource fields and relationships. |
 | `graphql.query.operator_run_command_option_page` | `OfficeGraph.Runs` | mixed projection | Capability-owned command-option projection connection. |
-| `graphql.query.operator_verification_outcome` | `OfficeGraph.Verification` | generated action | Typed verification-outcome Ash query action returning generated resource relationships and explicit missing-evidence facts. |
+| `graphql.query.operator_verification_outcome` | `OfficeGraph.Verification` | remove | Fold derived status and missing-evidence facts into `operatorRunState`; generated `getWorkRun` relationships own verification-result resources. |
 
 Every current mutation is a generated owning-domain action target:
 
@@ -183,7 +183,6 @@ Relay connections:
 - `graphql.type.operator_run_command_option_choice`
 - `graphql.type.operator_run_command_option_summary`
 - `graphql.type.operator_run_state`
-- `graphql.type.operator_verification_outcome`
 - `graphql.type.github_integration_permission_health`
 - `graphql.type.github_integration_credential_health`
 - `graphql.type.github_integration_failure_health`

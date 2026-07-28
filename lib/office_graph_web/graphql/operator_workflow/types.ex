@@ -204,74 +204,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
   end
 
-  object :operator_run_ref do
-    field :id, non_null(:id)
-    field :aggregate_state, non_null(:string)
-    field :execution_state, non_null(:string)
-    field :verification_state, non_null(:string)
-  end
-
-  object :operator_packet_ref do
-    field :id, non_null(:id)
-
-    field :relay_id, non_null(:id) do
-      resolve(fn %{id: id}, _, _ -> {:ok, relay_id("work_packet", id)} end)
-    end
-
-    field :title, non_null(:string)
-    field :state, non_null(:string)
-  end
-
-  object :operator_packet_version_ref do
-    field :id, non_null(:id)
-    field :version_number, non_null(:integer)
-    field :lifecycle_state, non_null(:string)
-    field :objective, :string
-  end
-
-  object :operator_observation do
-    field :id, non_null(:id)
-    field :verification_check_id, :id
-    field :graph_item_id, :id
-    field :normalized_status, non_null(:string)
-    field :freshness_state, non_null(:string)
-    field :trust_basis, non_null(:string)
-    field :source_kind, non_null(:string)
-    field :source_identity, non_null(:string)
-  end
-
-  object :operator_evidence_candidate do
-    field :id, non_null(:id)
-    field :verification_check_id, non_null(:id)
-    field :execution_observation_id, :id
-    field :claim, non_null(:string)
-    field :state, non_null(:string)
-    field :freshness_state, non_null(:string)
-    field :trust_basis, non_null(:string)
-    field :source_kind, non_null(:string)
-    field :source_identity, non_null(:string)
-  end
-
-  object :operator_evidence_item do
-    field :id, non_null(:id)
-    field :state, non_null(:string)
-    field :candidate_id, :id
-    field :work_run_id, :id
-  end
-
-  object :operator_verification_result do
-    field :id, non_null(:id)
-    field :result, non_null(:string)
-    field :verification_check_id, non_null(:id)
-    field :evidence_item_id, :id
-    field :operation_id, :id
-    field :actor_principal_id, :id
-    field :policy_basis, :string
-    field :target_graph_item_id, :id
-    field :work_run_id, :id
-    field :work_packet_version_id, :id
-  end
-
   object :operator_missing_evidence do
     field :verification_check_id, non_null(:id)
     field :reason, non_null(:string)
@@ -519,7 +451,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
           with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
                {:ok, :forward, limit} <- Connection.limit(args, 100),
                {:ok, page} <-
-                 Projections.operator_run_activity_page(session_context, run_state.run.id,
+                 Projections.operator_run_activity_page(session_context, run_state.run_id,
                    limit: limit,
                    after_cursor: Map.get(args, :after)
                  ) do
@@ -540,23 +472,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     end
 
     field :source_watermark, :id
-    field :packet, non_null(:operator_packet_ref)
-    field :packet_version, :operator_packet_version_ref
-    field :run, non_null(:operator_run_ref)
-    field :required_checks, non_null(list_of(non_null(:operator_required_check)))
-    field :observations, non_null(list_of(non_null(:operator_observation)))
-    field :evidence_candidates, non_null(list_of(non_null(:operator_evidence_candidate)))
-    field :evidence_items, non_null(list_of(non_null(:operator_evidence_item)))
-    field :verification_results, non_null(list_of(non_null(:operator_verification_result)))
-    field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
-  end
-
-  object :operator_verification_outcome do
-    field :type, non_null(:string)
-    field :status, non_null(:string)
-    field :source_watermark, :id
-    field :run, non_null(:operator_run_ref)
-    field :verification_results, non_null(list_of(non_null(:operator_verification_result)))
+    field :default_agent_graph_item_id, :id
     field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
   end
 

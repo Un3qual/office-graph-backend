@@ -1,23 +1,6 @@
 defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
   use OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  test "operator run state projects graph-targeted runs without packet versions" do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
-
-    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
-      Ecto.UUID.dump!(run_result.run.id)
-    ])
-
-    assert {:ok, run_state} =
-             Projections.operator_run_state(bootstrap.session, run_result.run.id)
-
-    assert run_state.packet_version == nil
-    assert run_state.packet.id == run_result.run.work_packet_id
-    assert run_state.run.id == run_result.run.id
-  end
-
   test "operator run state moves from missing evidence to verified" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -70,8 +53,7 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
 
-    assert [%{graph_item_id: graph_item_id}] = initial_state.required_checks
-    assert graph_item_id == verification_check.graph_item_id
+    assert initial_state.default_agent_graph_item_id == verification_check.graph_item_id
 
     {:ok, observation_result} =
       record_observation(bootstrap.session, run_result.run, verification_check,
@@ -151,18 +133,6 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              "acceptance_policy_basis"
            ]
 
-    assert [
-             %{
-               id: candidate_id,
-               state: "candidate",
-               freshness_state: "fresh",
-               trust_basis: "owner_attested",
-               execution_observation_id: observation_id
-             }
-           ] = awaiting_evidence.evidence_candidates
-
-    assert candidate_id == candidate.id
-    assert observation_id == observation_result.observation.id
     assert %{type: "evidence_candidate", id: candidate.id} in accept_evidence.target_ids
 
     {:ok, accepted} =
@@ -175,26 +145,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
     assert verified_state.allowed_next_actions == []
     assert verified_state.command_affordances == []
     assert verified_state.missing_evidence == []
-    assert [%{id: evidence_item_id, state: "accepted"}] = verified_state.evidence_items
-    assert evidence_item_id == accepted.evidence_item.id
-
-    assert [
-             %{
-               id: result_id,
-               result: "passed",
-               evidence_item_id: evidence_item_id,
-               operation_id: operation_id,
-               actor_principal_id: actor_principal_id,
-               policy_basis: "owner_acceptance",
-               target_graph_item_id: target_graph_item_id
-             }
-           ] = verified_state.verification_results
-
-    assert result_id == accepted.verification_result.id
-    assert evidence_item_id == accepted.evidence_item.id
-    assert operation_id == accepted.verification_result.operation_id
-    assert actor_principal_id == bootstrap.session.principal_id
-    assert target_graph_item_id == verification_check.graph_item_id
+    assert verified_state.child_summary.evidence_items == 1
+    assert verified_state.child_summary.verification_results == 1
   end
 
   test "operator run state advertises GraphQL observation and waiver commands" do
@@ -315,9 +267,11 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
                "waive_verification_check"
              ]
 
-      assert Enum.any?(
-               awaiting_evidence.evidence_candidates,
-               &(&1.id == candidate.id and &1.state == "candidate")
+      assert awaiting_evidence.command_options.evidence_acceptance == []
+
+      refute Enum.any?(
+               awaiting_evidence.command_affordances,
+               &(%{type: "evidence_candidate", id: candidate.id} in &1.target_ids)
              )
     end
   end
@@ -431,9 +385,9 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
            ]
 
     assert Enum.any?(
-             waiting_state.evidence_candidates,
-             &(&1.id == second_candidate.id and &1.verification_check_id == second_check.id and
-                 &1.state == "candidate")
+             waiting_state.command_options.evidence_acceptance,
+             &(&1.evidence_candidate_id == second_candidate.id and
+                 &1.verification_check_id == second_check.id)
            )
 
     assert waiting_state.missing_evidence == [
@@ -478,8 +432,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              %{verification_check_id: verification_check.id, reason: "failed_check"}
            ]
 
-    assert [%{id: result_id, result: "failed"}] = failed_state.verification_results
-    assert result_id == accepted.verification_result.id
+    assert failed_state.child_summary.verification_results == 1
+    assert accepted.verification_result.result == "failed"
   end
 
   test "operator run state command affordances require command capabilities" do

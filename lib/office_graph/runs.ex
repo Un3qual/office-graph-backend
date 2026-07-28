@@ -377,21 +377,6 @@ defmodule OfficeGraph.Runs do
   def validate_agent_invocation_scope(_run, _graph_item_id, _autonomy_mode),
     do: {:error, :forbidden}
 
-  def get_verification_outcome_summary(session_context, run_id) do
-    with {:ok, run} <- get_projection_run(session_context, run_id),
-         {:ok, required_checks} <- read_run_required_checks(run),
-         {:ok, verification_results} <- read_verification_results(run),
-         {:ok, child_counts} <- projection_child_counts(run) do
-      {:ok,
-       %{
-         run: run,
-         verification_results: verification_results,
-         missing_evidence: missing_evidence(required_checks, verification_results),
-         child_counts: child_counts
-       }}
-    end
-  end
-
   defp create_observation(session_context, operation, run, attrs) do
     attrs = normalize_observation_attrs(attrs)
 

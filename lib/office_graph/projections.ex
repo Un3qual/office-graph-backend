@@ -55,8 +55,6 @@ defmodule OfficeGraph.Projections do
     to: RunState,
     as: :command_option_page
 
-  defdelegate verification_outcome(session_context, run_id), to: RunState
-
   defdelegate agent_context(authority, graph_item_id, run_id), to: AgentContext, as: :project
 
   defdelegate integration_health(session_context, installation_id, opts \\ []),

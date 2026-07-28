@@ -4,12 +4,12 @@ import type {
   OperatorPacketReadinessFragment$key,
 } from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
 import type { OperatorPacketReadinessQuery as OperatorPacketReadinessOperation } from "../../relay/__generated__/OperatorPacketReadinessQuery.graphql";
+import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorRunStateFragment$data,
   OperatorRunStateFragment$key,
 } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorRunStateQuery as OperatorRunStateOperation } from "../../relay/__generated__/OperatorRunStateQuery.graphql";
-import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorWorkflowItemFragment$data,
   OperatorWorkflowItemFragment$key,
@@ -18,15 +18,15 @@ import type { OperatorWorkflowRouteQuery as OperatorWorkflowRouteOperation } fro
 import {
   OperatorPacketReadinessFragment,
   OperatorPacketReadinessQuery,
-  OperatorRunStateFragment,
   OperatorRunConversationQuery,
+  OperatorRunStateFragment,
   OperatorRunStateQuery,
   OperatorWorkflowItemFragment,
   OperatorWorkflowRouteQuery,
 } from "./data";
 import {
-  packetReadinessInputForItem,
   packetReadinessForItem,
+  packetReadinessInputForItem,
   primarySourceGraphItemIdForItem,
   runIdForItem,
 } from "./derived";
@@ -40,7 +40,29 @@ type OperatorWorkflowInput = {
 };
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
-export type OperatorRunState = OperatorRunStateFragment$data;
+type OperatorRunResource = NonNullable<OperatorRunStateOperation["response"]["run"]>;
+type OperatorRunConnectionNode<
+  TConnection extends { readonly edges?: ReadonlyArray<unknown> | null },
+> = NonNullable<NonNullable<TConnection["edges"]>[number]> extends {
+  readonly node: infer TNode;
+}
+  ? NonNullable<TNode>
+  : never;
+
+export type OperatorRunState = OperatorRunStateFragment$data & {
+  packet: OperatorRunResource["workPacket"];
+  packetVersion: OperatorRunResource["workPacketVersion"];
+  run: Pick<OperatorRunResource, "id" | "aggregateState" | "executionState" | "verificationState">;
+  requiredChecks: Array<OperatorRunConnectionNode<OperatorRunResource["requiredChecks"]>>;
+  observations: Array<OperatorRunConnectionNode<OperatorRunResource["executionObservations"]>>;
+  evidenceCandidates: Array<
+    Omit<OperatorRunConnectionNode<OperatorRunResource["evidenceCandidates"]>, "candidateState"> & {
+      state: string;
+    }
+  >;
+  evidenceItems: Array<OperatorRunConnectionNode<OperatorRunResource["evidenceItems"]>>;
+  verificationResults: Array<OperatorRunConnectionNode<OperatorRunResource["verificationResults"]>>;
+};
 export type OperatorRunConversation = NonNullable<
   OperatorRunConversationOperation["response"]["operatorRunConversation"]
 >;
@@ -163,17 +185,38 @@ function workflowConnectionFromRelay(
   };
 }
 
-function runStateFromRelay(
-  data: OperatorRunStateOperation["response"],
-): OperatorRunStateFragment$data {
-  if (!data.operatorRunState) {
-    throw new Error("The GraphQL operator run state projection was empty.");
+function runStateFromRelay(data: OperatorRunStateOperation["response"]): OperatorRunState {
+  if (!data.operatorRunState || !data.run) {
+    throw new Error("The GraphQL operator run state read was empty.");
   }
 
-  return readInlineData<OperatorRunStateFragment$key>(
+  const projection = readInlineData<OperatorRunStateFragment$key>(
     OperatorRunStateFragment,
     data.operatorRunState,
   );
+  const run = data.run;
+
+  return {
+    ...projection,
+    packet: run.workPacket,
+    packetVersion: run.workPacketVersion,
+    run: {
+      id: run.id,
+      aggregateState: run.aggregateState,
+      executionState: run.executionState,
+      verificationState: run.verificationState,
+    },
+    requiredChecks: (run.requiredChecks.edges ?? []).map(({ node }) => node),
+    observations: (run.executionObservations.edges ?? []).map(({ node }) => node),
+    evidenceCandidates: (run.evidenceCandidates.edges ?? []).map(
+      ({ node: { candidateState, ...candidate } }) => ({
+        ...candidate,
+        state: candidateState,
+      }),
+    ),
+    evidenceItems: (run.evidenceItems.edges ?? []).map(({ node }) => node),
+    verificationResults: (run.verificationResults.edges ?? []).map(({ node }) => node),
+  };
 }
 
 function packetReadinessFromRelay(

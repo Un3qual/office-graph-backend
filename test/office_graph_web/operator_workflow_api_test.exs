@@ -547,7 +547,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert second_node["normalizedEventId"] == older_intake.normalized_event.id
   end
 
-  test "GraphQL exposes packet readiness, run state, and verification outcome", %{conn: conn} do
+  test "GraphQL combines packet readiness and run projections with generated run resources", %{
+    conn: conn
+  } do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
 
@@ -623,19 +625,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         key: "graphql-run"
       )
 
-    awaiting_evidence_outcome =
+    awaiting_evidence_state =
       graphql(
         conn,
         """
-        query AwaitingEvidenceOutcome($id: ID!) {
-          operatorVerificationOutcome(id: $id) { status sourceWatermark }
+        query AwaitingEvidenceState($id: ID!) {
+          operatorRunState(id: $id) { status sourceWatermark }
         }
         """,
         %{id: run_result.run.id},
-        "operatorVerificationOutcome"
+        "operatorRunState"
       )
 
-    assert awaiting_evidence_outcome["status"] == "awaiting_evidence"
+    assert awaiting_evidence_state["status"] == "awaiting_evidence"
 
     {:ok, candidate} =
       create_evidence_candidate(
@@ -646,8 +648,15 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         key: "graphql-run"
       )
 
-    run_state =
-      graphql(
+    run_relay_id =
+      Absinthe.Relay.Node.to_global_id(
+        "work_run",
+        run_result.run.id,
+        OfficeGraphWeb.GraphQL.Schema
+      )
+
+    run_read =
+      graphql_data(
         conn,
         """
         query RunState($id: ID!) {
@@ -667,17 +676,29 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
               traceLinks { type id }
               decisionLinks { type id }
             }
-            packet { id relayId }
-            run { id aggregateState verificationState }
             missingEvidence { verificationCheckId reason }
-            evidenceCandidates { id state verificationCheckId executionObservationId }
+          }
+          run: getWorkRun(id: $id) {
+            id
+            workPacket { id }
+            evidenceCandidates(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+              edges {
+                node {
+                  id
+                  candidateState
+                  verificationCheckId
+                  executionObservationId
+                }
+              }
+            }
           }
         }
         """,
-        %{id: run_result.run.id},
-        "operatorRunState"
+        %{id: run_relay_id}
       )
 
+    run_state = run_read["operatorRunState"]
+    generated_run = run_read["run"]
     assert run_state["status"] == "awaiting_evidence_acceptance"
     assert is_binary(run_state["sourceWatermark"])
     assert run_state["allowedNextActions"] == ["accept_evidence", "waive_verification_check"]
@@ -694,74 +715,94 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert waive_check["identity"] == "waive_verification_check"
     assert waive_check["state"] == "enabled"
 
-    assert run_state["packet"]["id"] == run_result.run.work_packet_id
+    assert generated_run["id"] == run_relay_id
 
-    assert run_state["packet"]["relayId"] ==
+    assert generated_run["workPacket"]["id"] ==
              Absinthe.Relay.Node.to_global_id(
                "work_packet",
                run_result.run.work_packet_id,
                OfficeGraphWeb.GraphQL.Schema
              )
 
-    refute run_state["packet"]["relayId"] == run_state["packet"]["id"]
-    assert run_state["run"]["id"] == run_result.run.id
     assert hd(run_state["missingEvidence"])["reason"] == "missing_accepted_evidence"
-    assert hd(run_state["evidenceCandidates"])["id"] == candidate.id
     assert %{"type" => "evidence_candidate", "id" => candidate.id} in accept_evidence["targetIds"]
 
-    assert hd(run_state["evidenceCandidates"])["executionObservationId"] ==
+    assert [candidate_edge] = generated_run["evidenceCandidates"]["edges"]
+
+    assert candidate_edge["node"]["id"] ==
+             Absinthe.Relay.Node.to_global_id(
+               "evidence_candidate",
+               candidate.id,
+               OfficeGraphWeb.GraphQL.Schema
+             )
+
+    assert candidate_edge["node"]["candidateState"] == "candidate"
+
+    assert candidate_edge["node"]["executionObservationId"] ==
              observation_result.observation.id
 
-    pending_outcome =
+    pending_state =
       graphql(
         conn,
         """
-        query PendingOutcome($id: ID!) {
-          operatorVerificationOutcome(id: $id) { status sourceWatermark }
+        query PendingState($id: ID!) {
+          operatorRunState(id: $id) { status sourceWatermark }
         }
         """,
         %{id: run_result.run.id},
-        "operatorVerificationOutcome"
+        "operatorRunState"
       )
 
-    assert pending_outcome["status"] == "awaiting_evidence_acceptance"
+    assert pending_state["status"] == "awaiting_evidence_acceptance"
 
-    refute pending_outcome["sourceWatermark"] ==
-             awaiting_evidence_outcome["sourceWatermark"]
+    refute pending_state["sourceWatermark"] ==
+             awaiting_evidence_state["sourceWatermark"]
 
     {:ok, accepted} =
       accept_candidate(bootstrap.session, candidate, key: "graphql-run", result: "passed")
 
-    outcome =
-      graphql(
+    outcome_read =
+      graphql_data(
         conn,
         """
         query Outcome($id: ID!) {
-          operatorVerificationOutcome(id: $id) {
+          operatorRunState(id: $id) {
             status
-            run { id }
-            verificationResults {
-              id
-              result
-              evidenceItemId
-              operationId
-              actorPrincipalId
-              policyBasis
-              targetGraphItemId
-            }
             missingEvidence { verificationCheckId reason }
+          }
+          run: getWorkRun(id: $id) {
+            id
+            verificationResults(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+              edges {
+                node {
+                  id
+                  result
+                  evidenceItemId
+                  operationId
+                  actorPrincipalId
+                  policyBasis
+                  targetGraphItemId
+                }
+              }
+            }
           }
         }
         """,
-        %{id: accepted.work_run.id},
-        "operatorVerificationOutcome"
+        %{id: relay_global_id(:work_run, accepted.work_run.id)}
       )
 
-    assert outcome["status"] == "verified"
-    assert outcome["run"]["id"] == accepted.work_run.id
-    assert outcome["missingEvidence"] == []
-    assert [result] = outcome["verificationResults"]
-    assert result["id"] == accepted.verification_result.id
+    assert outcome_read["operatorRunState"]["status"] == "verified"
+    assert outcome_read["operatorRunState"]["missingEvidence"] == []
+    assert [result_edge] = outcome_read["run"]["verificationResults"]["edges"]
+    result = result_edge["node"]
+
+    assert result["id"] ==
+             Absinthe.Relay.Node.to_global_id(
+               "work_graph_verification_result",
+               accepted.verification_result.id,
+               OfficeGraphWeb.GraphQL.Schema
+             )
+
     assert result["result"] == "passed"
     assert result["evidenceItemId"] == accepted.evidence_item.id
     assert result["operationId"] == accepted.verification_result.operation_id
@@ -1290,25 +1331,28 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     end)
 
     outcome =
-      graphql(
+      graphql_data(
         conn,
         """
         query CompleteOutcome($id: ID!) {
-          operatorVerificationOutcome(id: $id) {
-            verificationResults { id verificationCheckId result }
+          operatorRunState(id: $id) {
             missingEvidence { verificationCheckId reason }
+          }
+          run: getWorkRun(id: $id) {
+            verificationResults(first: 50, sort: [{ field: INSERTED_AT, order: ASC }]) {
+              edges { node { id verificationCheckId result } }
+            }
           }
         }
         """,
-        %{id: run_result.run.id},
-        "operatorVerificationOutcome"
+        %{id: relay_global_id(:work_run, run_result.run.id)}
       )
 
-    assert length(outcome["verificationResults"]) == 25
-    assert outcome["missingEvidence"] == []
+    assert length(outcome["run"]["verificationResults"]["edges"]) == 25
+    assert outcome["operatorRunState"]["missingEvidence"] == []
 
     before_late_observation =
-      graphql(
+      graphql_data(
         conn,
         """
         query RunStateBeforeLateObservation($id: ID!) {
@@ -1316,17 +1360,20 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             status
             sourceWatermark
             childSummary { observations }
-            observations { id }
+          }
+          run: getWorkRun(id: $id) {
+            executionObservations(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+              edges { node { id } }
+            }
           }
         }
         """,
-        %{id: run_result.run.id},
-        "operatorRunState"
+        %{id: relay_global_id(:work_run, run_result.run.id)}
       )
 
-    assert before_late_observation["status"] == "verified"
-    assert before_late_observation["childSummary"]["observations"] == 25
-    assert length(before_late_observation["observations"]) == 20
+    assert before_late_observation["operatorRunState"]["status"] == "verified"
+    assert before_late_observation["operatorRunState"]["childSummary"]["observations"] == 25
+    assert length(before_late_observation["run"]["executionObservations"]["edges"]) == 20
 
     {:ok, _late_observation} =
       record_observation(bootstrap.session, run_result.run, List.first(checks),
@@ -1334,7 +1381,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
       )
 
     after_late_observation =
-      graphql(
+      graphql_data(
         conn,
         """
         query RunStateAfterLateObservation($id: ID!) {
@@ -1342,20 +1389,25 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
             status
             sourceWatermark
             childSummary { observations }
-            observations { id }
+          }
+          run: getWorkRun(id: $id) {
+            executionObservations(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+              edges { node { id } }
+            }
           }
         }
         """,
-        %{id: run_result.run.id},
-        "operatorRunState"
+        %{id: relay_global_id(:work_run, run_result.run.id)}
       )
 
-    assert after_late_observation["status"] == "verified"
-    assert after_late_observation["childSummary"]["observations"] == 26
-    assert after_late_observation["observations"] == before_late_observation["observations"]
+    assert after_late_observation["operatorRunState"]["status"] == "verified"
+    assert after_late_observation["operatorRunState"]["childSummary"]["observations"] == 26
 
-    refute after_late_observation["sourceWatermark"] ==
-             before_late_observation["sourceWatermark"]
+    assert after_late_observation["run"]["executionObservations"]["edges"] ==
+             before_late_observation["run"]["executionObservations"]["edges"]
+
+    refute after_late_observation["operatorRunState"]["sourceWatermark"] ==
+             before_late_observation["operatorRunState"]["sourceWatermark"]
   end
 
   test "GraphQL exposes packet workspace version history and run-start affordance", %{conn: conn} do
@@ -1797,13 +1849,19 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp graphql(conn, query, variables, field) do
+    conn
+    |> graphql_data(query, variables)
+    |> Map.fetch!(field)
+  end
+
+  defp graphql_data(conn, query, variables) do
     response =
       conn
       |> post(~p"/graphql", %{query: query, variables: variables})
       |> json_response(200)
 
     assert response["errors"] in [nil, []]
-    Map.fetch!(response["data"], field)
+    response["data"]
   end
 
   defp camelize_keys(map) do

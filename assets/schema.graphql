@@ -3454,7 +3454,6 @@ type RootQueryType {
   operatorManualIntakeAffordance: OperatorCommandAffordance!
   operatorRunState(id: ID!): OperatorRunState!
   operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
-  operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
   node(id: ID!): Node
   getWorkRun(
     "The id of the record"
@@ -4395,70 +4394,6 @@ type OperatorPacketWorkspace {
   commandAffordances: [OperatorCommandAffordance!]!
 }
 
-type OperatorRunRef {
-  id: ID!
-  aggregateState: String!
-  executionState: String!
-  verificationState: String!
-}
-
-type OperatorPacketRef {
-  id: ID!
-  relayId: ID!
-  title: String!
-  state: String!
-}
-
-type OperatorPacketVersionRef {
-  id: ID!
-  versionNumber: Int!
-  lifecycleState: String!
-  objective: String
-}
-
-type OperatorObservation {
-  id: ID!
-  verificationCheckId: ID
-  graphItemId: ID
-  normalizedStatus: String!
-  freshnessState: String!
-  trustBasis: String!
-  sourceKind: String!
-  sourceIdentity: String!
-}
-
-type OperatorEvidenceCandidate {
-  id: ID!
-  verificationCheckId: ID!
-  executionObservationId: ID
-  claim: String!
-  state: String!
-  freshnessState: String!
-  trustBasis: String!
-  sourceKind: String!
-  sourceIdentity: String!
-}
-
-type OperatorEvidenceItem {
-  id: ID!
-  state: String!
-  candidateId: ID
-  workRunId: ID
-}
-
-type OperatorVerificationResult {
-  id: ID!
-  result: String!
-  verificationCheckId: ID!
-  evidenceItemId: ID
-  operationId: ID
-  actorPrincipalId: ID
-  policyBasis: String
-  targetGraphItemId: ID
-  workRunId: ID
-  workPacketVersionId: ID
-}
-
 type OperatorMissingEvidence {
   verificationCheckId: ID!
   reason: String!
@@ -4687,23 +4622,7 @@ type OperatorRunState {
   childSummary: OperatorRunChildSummary!
   activity(after: String, first: Int!): OperatorRunActivityConnection
   sourceWatermark: ID
-  packet: OperatorPacketRef!
-  packetVersion: OperatorPacketVersionRef
-  run: OperatorRunRef!
-  requiredChecks: [OperatorRequiredCheck!]!
-  observations: [OperatorObservation!]!
-  evidenceCandidates: [OperatorEvidenceCandidate!]!
-  evidenceItems: [OperatorEvidenceItem!]!
-  verificationResults: [OperatorVerificationResult!]!
-  missingEvidence: [OperatorMissingEvidence!]!
-}
-
-type OperatorVerificationOutcome {
-  type: String!
-  status: String!
-  sourceWatermark: ID
-  run: OperatorRunRef!
-  verificationResults: [OperatorVerificationResult!]!
+  defaultAgentGraphItemId: ID
   missingEvidence: [OperatorMissingEvidence!]!
 }
 

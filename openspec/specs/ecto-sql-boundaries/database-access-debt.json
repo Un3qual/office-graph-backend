@@ -5092,20 +5092,6 @@
     {
       "occurrences": [
         [
-          "sha256:6aa1bbea4f82ea40ec151d9b6875e93bc5d3b44300eb0fe998b8ad60c82af112",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "test/office_graph/projections/operator_run_projection_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:95d02db6e858559d930c73866cff8784136db17cad076cc9134fa150566963ae",
           "raw_sql",
           "Repo.query!",

@@ -48,7 +48,8 @@ session, fallback, manual summary object, or manual resource loader.
 - **THEN** it MUST add no run mutation, hidden compatibility query, manual
   `OperatorRunSummary` object, or second detailed-run projection;
   `operatorRunState` remains only the accepted derived status, command,
-  missing-evidence, and activity projection
+  child-summary, activity, default-agent graph context, missing-evidence, and
+  source-watermark projection
 
 #### Scenario: Shared actor context resolves the read
 

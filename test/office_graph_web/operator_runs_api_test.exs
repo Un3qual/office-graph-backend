@@ -32,12 +32,15 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
   }
   """
 
-  @operator_run_state_query """
-  query OperatorRunState($id: ID!) {
-    operatorRunState(id: $id) {
-      packet { id title state }
-      packetVersion { id versionNumber lifecycleState objective }
-      run { id aggregateState executionState verificationState }
+  @operator_run_detail_query """
+  query OperatorRunDetail($id: ID!) {
+    getWorkRun(id: $id) {
+      id
+      workPacket { id title state }
+      workPacketVersion { id versionNumber lifecycleState objective }
+      aggregateState
+      executionState
+      verificationState
     }
   }
   """
@@ -110,14 +113,14 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     detail =
       graphql(
         conn,
-        @operator_run_state_query,
+        @operator_run_detail_query,
         %{id: relay_id("work_run", result.run.id)},
-        "operatorRunState"
+        "getWorkRun"
       )
 
-    assert detail["packetVersion"] == nil
-    assert detail["packet"]["id"] == result.run.work_packet_id
-    assert detail["run"]["id"] == result.run.id
+    assert detail["workPacketVersion"] == nil
+    assert detail["workPacket"]["id"] == relay_id("work_packet", result.run.work_packet_id)
+    assert detail["id"] == relay_id("work_run", result.run.id)
   end
 
   test "rejects invalid Relay input without returning a partial page", %{conn: conn} do

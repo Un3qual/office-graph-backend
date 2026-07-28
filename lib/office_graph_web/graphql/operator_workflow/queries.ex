@@ -244,20 +244,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
         end
       end)
     end
-
-    field :operator_verification_outcome, non_null(:operator_verification_outcome) do
-      arg(:id, non_null(:id))
-
-      resolve(fn %{id: id}, resolution ->
-        with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-             {:ok, run_id} <- normalize_work_run_id(id),
-             {:ok, outcome} <- Projections.verification_outcome(session_context, run_id) do
-          {:ok, outcome}
-        else
-          error -> Errors.to_absinthe(error)
-        end
-      end)
-    end
   end
 
   defp validate_first(%{first: first}) when is_integer(first) and first < 0,
