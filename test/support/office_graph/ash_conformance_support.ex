@@ -11,7 +11,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
   @stabilization_change_archive "openspec/changes/archive/2026-06-30-stabilize-architecture-foundation"
   @api_migration_ledger "openspec/specs/backend-model-ownership/api-migration-ledger.md"
-  @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
   @map_field_classification "#{@stabilization_change_archive}/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
@@ -752,7 +751,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       @architecture_exception_ledger unquote(@architecture_exception_ledger)
       @stabilization_change_archive unquote(@stabilization_change_archive)
       @api_migration_ledger unquote(@api_migration_ledger)
-      @implementation_summary unquote(@implementation_summary)
       @map_field_classification unquote(@map_field_classification)
       @model_inventory unquote(@model_inventory)
       @stabilization_inventory unquote(@stabilization_inventory)
@@ -1682,66 +1680,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   defp function_head({:when, _metadata, [head | _guards]}), do: function_head(head)
   defp function_head({name, _metadata, arguments}), do: {name, arguments}
 
-  def direct_ecto_ledger_entries do
-    @architecture_exception_ledger
-    |> File.read!()
-    |> parse_direct_ecto_ledger_entries()
-  end
-
-  def parse_direct_ecto_ledger_entries(ledger) do
-    ledger
-    |> String.split("\n")
-    |> Enum.flat_map(fn line ->
-      case Regex.run(~r/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|/, line) do
-        [_, path, _functions_cell] ->
-          ledger_tuple_values(line)
-          |> Enum.map(fn {function, operation} ->
-            %{path: path, function: function, operation: operation}
-          end)
-
-        _ ->
-          []
-      end
-    end)
-  end
-
-  def ledger_approves_operation?(entries, operation) do
-    Enum.any?(entries, fn entry ->
-      entry.path == operation.path and
-        entry.function == operation.function and
-        entry.operation == operation.operation
-    end)
-  end
-
-  def direct_ecto_ledger_metadata_errors(ledger) do
-    rows = markdown_table_rows(ledger)
-    [header | data_rows] = rows
-
-    required_headers = [
-      "File",
-      "Owner",
-      "Approved functions",
-      "Allowed operation type",
-      "Approving spec",
-      "Reason",
-      "Retirement condition"
-    ]
-
-    missing_headers = required_headers -- header
-
-    row_errors =
-      data_rows
-      |> Enum.with_index(1)
-      |> Enum.flat_map(fn {row, row_number} ->
-        for header_name <- required_headers,
-            blank?(table_cell(row, header, header_name)) do
-          "row #{row_number} missing #{header_name}"
-        end
-      end)
-
-    Enum.map(missing_headers, &"missing required column #{&1}") ++ row_errors
-  end
-
   def markdown_table_rows(markdown) do
     markdown
     |> String.split("\n")
@@ -1845,58 +1783,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def blank?(value), do: String.trim(to_string(value)) == ""
-
-  def ledger_tuple_values(line) do
-    tuple_values =
-      ~r/`\{\s*([^`,{}]+)\s*,\s*((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`,{}]+)\s*\}`/
-      |> Regex.scan(line, capture: :all_but_first)
-      |> Enum.map(fn [function, operation] ->
-        {String.trim(function), String.trim(operation)}
-      end)
-
-    tuple_values ++ ledger_row_tuple_values(line)
-  end
-
-  def ledger_row_tuple_values(line) do
-    cells =
-      line
-      |> String.trim()
-      |> String.trim_leading("|")
-      |> String.trim_trailing("|")
-      |> String.split("|")
-      |> Enum.map(&String.trim/1)
-
-    case cells do
-      [_path_cell, function_cell, operation_cell | _rest] ->
-        with {:ok, function} <- single_backticked_value(function_cell),
-             {:ok, operation} <- single_operation_value(operation_cell) do
-          [{function, operation}]
-        else
-          _ -> []
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  def single_backticked_value(cell) do
-    case Regex.scan(~r/`([^`]+)`/, cell, capture: :all_but_first) do
-      [[value]] -> {:ok, value}
-      _ -> :error
-    end
-  end
-
-  def single_operation_value(cell) do
-    case Regex.scan(
-           ~r/`((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`]+)`/,
-           cell,
-           capture: :all_but_first
-         ) do
-      [[value]] -> {:ok, value}
-      _ -> :error
-    end
-  end
 
   def normalize_direct_ecto_operation(receiver, operation)
       when receiver in ["Multi", "Ecto.Multi"] do

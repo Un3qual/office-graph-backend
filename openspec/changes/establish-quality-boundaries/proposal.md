@@ -48,6 +48,9 @@ None.
   explicit per-occurrence user approval for raw SQL.
 - `backend-architecture`: Remove direct Ecto/SQL as a generally available Ash
   escape hatch.
+- `backend-model-ownership`: Replace the historical direct-Ecto approval table
+  with machine-readable unapproved removal debt and exact approved-exception
+  inventories.
 - `architecture-stabilization`: Treat the current direct-database inventory as
   removal debt rather than accepted architecture exceptions.
 

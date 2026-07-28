@@ -466,27 +466,4 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     assert operations == [],
            "Traceability contexts must create/count through Ash actions:\n#{format_direct_operations(operations)}"
   end
-
-  @tag :scanner_contract
-  test "direct Ecto ledger approval requires exact path function operation tuples" do
-    entries =
-      parse_direct_ecto_ledger_entries("""
-      | File | Function | Operation |
-      | --- | --- | --- |
-      | `lib/example.ex` | `allowed/0` | `Repo.insert` |
-      | `lib/example.ex` | `{other/0, Repo.update}` | Synthetic tuple approval |
-      """)
-
-    assert ledger_approves_operation?(entries, %{
-             path: "lib/example.ex",
-             function: "allowed/0",
-             operation: "Repo.insert"
-           })
-
-    refute ledger_approves_operation?(entries, %{
-             path: "lib/example.ex",
-             function: "other/0",
-             operation: "Repo.insert"
-           })
-  end
 end

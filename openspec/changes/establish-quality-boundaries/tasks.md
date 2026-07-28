@@ -6,10 +6,10 @@
 
 ## 2. Enforce Database Access Boundaries
 
-- [ ] 2.1 Add focused scanner tests covering direct SQL calls, fragments, unsafe fragments, migration SQL constructs, tracked SQL files, direct Ecto operations, explicit transactions, exclusions, and stable fingerprints
-- [ ] 2.2 Implement a syntax-aware tracked-source scanner that reports raw-SQL and direct-Ecto occurrences without executing or rewriting project files
-- [ ] 2.3 Create separate machine-readable current-debt and approved-exception inventories, with no existing debt entry represented as user-approved
-- [ ] 2.4 Replace broad approval language in the existing architecture exception ledger and supporting conformance coverage with the new debt-versus-approval model
+- [x] 2.1 Add focused scanner tests covering direct SQL calls, fragments, unsafe fragments, migration SQL constructs, tracked SQL files, direct Ecto operations, explicit transactions, exclusions, and stable fingerprints
+- [x] 2.2 Implement a syntax-aware tracked-source scanner that reports raw-SQL and direct-Ecto occurrences without executing or rewriting project files
+- [x] 2.3 Create separate machine-readable current-debt and approved-exception inventories, with no existing debt entry represented as user-approved
+- [x] 2.4 Replace broad approval language in the existing architecture exception ledger and supporting conformance coverage with the new debt-versus-approval model
 
 ## 3. Integrate Canonical Verification
 

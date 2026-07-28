@@ -31,6 +31,11 @@ choosing custom code. In particular:
   resolvers;
 - AshJsonApi domain routes and relationship routes precede custom controllers.
 
+The historical direct-Ecto table in
+`openspec/specs/backend-model-ownership/architecture-exceptions.md` is part of
+the affected surface. Its database rows preserve useful remediation rationale
+but do not constitute the user's approval under this change.
+
 ## Goals / Non-Goals
 
 **Goals:**

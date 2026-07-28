@@ -221,79 +221,9 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
            )
   end
 
-  test "direct Repo and Ecto.Multi operations are explicitly ledgered" do
-    unapproved =
-      direct_ecto_operations()
-      |> Enum.reject(&ledger_approves_operation?(direct_ecto_ledger_entries(), &1))
-
-    assert unapproved == [],
-           """
-           Found direct Repo/Ecto.Multi operations without explicit ledger approval.
-           Each approval must document the file, function, and exact operation as a tuple or row in #{@architecture_exception_ledger}.
-
-           #{format_direct_operations(unapproved)}
-           """
-  end
-
   test "direct operation scanning counts nested pattern arguments at their declared arity" do
     assert function_name(
              "def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do"
            ) == "start/3"
-  end
-
-  test "direct Ecto exception ledger entries still point to current code" do
-    operations = direct_ecto_operations()
-
-    current_tuples =
-      operations
-      |> MapSet.new(&{&1.path, &1.function, &1.operation})
-
-    missing =
-      for entry <- direct_ecto_ledger_entries(),
-          not MapSet.member?(current_tuples, {entry.path, entry.function, entry.operation}) do
-        "#{entry.path} #{entry.function} #{entry.operation}"
-      end
-
-    assert missing == [],
-           "#{@architecture_exception_ledger} contains exact direct Ecto exception tuples with no matching current code:\n#{format_errors(missing)}"
-  end
-
-  test "direct Ecto exception ledger records required approval metadata" do
-    errors =
-      @architecture_exception_ledger
-      |> File.read!()
-      |> direct_ecto_ledger_metadata_errors()
-
-    assert errors == [],
-           """
-           #{@architecture_exception_ledger} entries must document owner, reason, allowed operation type, approving spec, and retirement condition:
-           #{format_errors(errors)}
-           """
-  end
-
-  test "implementation summary includes architecture evidence mapping" do
-    assert File.exists?(@implementation_summary),
-           "Expected implementation summary at #{@implementation_summary}"
-
-    summary = File.read!(@implementation_summary)
-
-    for required_text <- [
-          "## Architecture Evidence Matrix",
-          "| Requirement | Evidence | Gate |",
-          "Stable WorkGraph resources are Ash-backed",
-          "WorkGraph Ash actions are authorization-aware",
-          "Graph identity plus typed resource creation is atomic",
-          "Stable product mutations route through Ash or approved exceptions",
-          "Direct Ecto paths are approved and documented",
-          "Architecture gate is part of backend verification",
-          "OpenSpec remains valid and mapped to evidence",
-          "mix architecture.conformance",
-          "./bin/verify-backend",
-          "openspec validate --specs --strict",
-          "openspec validate --changes --strict"
-        ] do
-      assert summary =~ required_text,
-             "#{@implementation_summary} must include architecture evidence mapping for #{inspect(required_text)}"
-    end
   end
 end

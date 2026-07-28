@@ -1,12 +1,17 @@
-# Architecture Exception Ledger
+# Architecture Debt And Authorization Bypass Ledger
 
-This ledger records the remaining approved direct Ecto mutation paths after the
-WorkGraph Ash repair. Normal walking-loop product resources should move through
-Ash resources and domain actions. Entries here are explicit exceptions that keep
-graph identity, relationship, bootstrap, intake, change-proposal, and
-maintenance writes visible until a later change narrows or retires them.
+## Historical Direct Database Debt Context
 
-| File | Owner | Approved functions | Allowed operation type | Approving spec | Reason | Retirement condition |
+The first table preserves the rationale previously recorded for direct database
+paths. Every row is unapproved removal debt under the current boundary; neither
+its presence here nor its historical source spec grants permission to retain,
+move, rewrite, or broaden the occurrence. The machine-readable
+`openspec/specs/ecto-sql-boundaries/database-access-debt.json` inventory is the
+authoritative current baseline, and
+`openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json` is the
+only repository inventory of exact user-approved raw-SQL occurrences.
+
+| File | Owner | Recorded operations | Operation type | Historical source spec | Removal rationale | Retirement condition |
 | --- | --- | --- | --- | --- | --- | --- |
 | `lib/office_graph/work_graph/command_support.ex` | `OfficeGraph.WorkGraph` | `{transaction/1, Repo.transaction}` | Transaction boundary only | `repair-ash-model-conformance/backend-model-ownership` | Focused WorkGraph command modules share one explicit transaction boundary for graph identity, relationship, typed resource, lifecycle, and document writes so partially-created graph state is not committed. Table-backed WorkGraph records use Ash actions inside that boundary. | Retire or narrow this entry when WorkGraph creation and lifecycle completion are expressed as fully Ash-managed atomic workflows. |
 | `lib/office_graph/integrations.ex` | `OfficeGraph.Integrations` | `{insert_manual_intake/4, Repo.transaction}`, `{submit_or_replay_manual_intake_command/3, Repo.transaction}`, `{insert_source_then_refetch/1, Repo.insert_all}` | Transaction boundary plus idempotent conflict insert | `complete-operator-command-loop/manual-intake-adapter` | Manual intake command replay locks the operation before choosing replay or creation, while intake persistence creates source, raw archive, normalized event, and proposals through Ash actions inside the same transaction. External source creation uses one `ON CONFLICT DO NOTHING` insert plus an Ash refetch so first concurrent intakes sharing a source do not poison the transaction. | Retire or narrow this entry when manual intake storage and command replay are expressed as a fully Ash-managed atomic workflow or Ash upsert handles these races without direct SQL. |
