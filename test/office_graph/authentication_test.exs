@@ -112,6 +112,17 @@ defmodule OfficeGraph.AuthenticationTest do
 
       assert TestAdapter.calls(:authorization_uri) == 0
     end
+
+    test "reports rejected login-start evidence storage failures" do
+      TestAdapter.put(%{authorization_uri: {:error, :provider_down}})
+      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
+
+      assert {:error, :identity_storage_unavailable} =
+               Authentication.begin_login(@redirect_uri,
+                 trace_id: "login-start-evidence-storage",
+                 source_surface: "web"
+               )
+    end
   end
 
   describe "OIDC adapter failures" do

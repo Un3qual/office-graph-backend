@@ -109,6 +109,31 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert get_session(conn, :oidc_login_transaction).return_to == "/operator?q=100%free"
   end
 
+  test "login rejects a double-encoded return target before callback redirect", %{
+    conn: conn
+  } do
+    bootstrap = bootstrap("double-encoded-return")
+    login_conn = get(conn, "/auth/login?return_to=%252Foperator")
+    transaction = get_session(login_conn, :oidc_login_transaction)
+
+    assert transaction.return_to == "/operator"
+
+    TestAdapter.put(%{
+      exchange: {:ok, claims(bootstrap.principal.email, "double-encoded-return-subject")}
+    })
+
+    callback_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
+
+    assert redirected_to(callback_conn) == "/operator"
+    assert is_binary(get_session(callback_conn, :human_session_id))
+  end
+
   test "login fails closed when the provider is unavailable", %{conn: conn} do
     Application.put_env(:office_graph, :human_oidc, issuer: @issuer)
 
@@ -116,6 +141,15 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
     assert response(conn, 503) == "Authentication unavailable"
     refute get_session(conn, :oidc_login_transaction)
+    assert [request_id] = get_resp_header(conn, "x-request-id")
+
+    assert [event] = Ash.read!(AuthenticationEvent, authorize?: false)
+    assert event.event == "login"
+    assert event.result == "rejected"
+    assert event.reason == "authentication_unavailable"
+    assert event.authentication_method == "oidc"
+    assert event.source_surface == "web"
+    assert event.trace_id == request_id
   end
 
   test "callback clears a mismatched-state cookie without calling the provider", %{conn: conn} do

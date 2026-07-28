@@ -10,7 +10,9 @@ defmodule OfficeGraphWeb.AuthenticationController do
     return_to = safe_return_to(params["return_to"])
 
     case Authentication.begin_login(callback_uri(),
-           return_to: return_to
+           return_to: return_to,
+           trace_id: trace_id(conn),
+           source_surface: "web"
          ) do
       {:ok, login} ->
         conn
@@ -111,22 +113,23 @@ defmodule OfficeGraphWeb.AuthenticationController do
   defp safe_return_to(return_to) when is_binary(return_to) do
     decoded_return_to = fully_decode(return_to)
 
-    if String.valid?(decoded_return_to) do
-      uri = URI.parse(decoded_return_to)
-
-      if uri.scheme == nil and uri.host == nil and String.starts_with?(decoded_return_to, "/") and
-           not String.starts_with?(decoded_return_to, "//") and
-           not Regex.match?(~r/[\\\x00-\x1F\x7F]/u, decoded_return_to) do
-        return_to
-      else
-        @default_return_to
-      end
+    if String.valid?(return_to) and String.valid?(decoded_return_to) and
+         root_relative?(return_to) and root_relative?(decoded_return_to) do
+      return_to
     else
       @default_return_to
     end
   end
 
   defp safe_return_to(_return_to), do: @default_return_to
+
+  defp root_relative?(return_to) do
+    uri = URI.parse(return_to)
+
+    uri.scheme == nil and uri.host == nil and String.starts_with?(return_to, "/") and
+      not String.starts_with?(return_to, "//") and
+      not Regex.match?(~r/[\\\x00-\x1F\x7F]/u, return_to)
+  end
 
   defp fully_decode(value) do
     case URI.decode(value) do

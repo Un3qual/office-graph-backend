@@ -17,39 +17,47 @@ defmodule OfficeGraph.Authentication do
   def begin_login(redirect_uri, opts \\ [])
 
   def begin_login(redirect_uri, opts) when is_binary(redirect_uri) and is_list(opts) do
-    with {:ok, config} <- configuration() do
-      transaction = %{
-        id: Ecto.UUID.generate(),
-        state: random_value(),
-        nonce: random_value(),
-        pkce_verifier: random_value(),
-        redirect_uri: redirect_uri,
-        return_to: Keyword.get(opts, :return_to, @default_return_to),
-        issued_at_unix: System.system_time(:second)
-      }
+    result =
+      with {:ok, config} <- configuration() do
+        transaction = %{
+          id: Ecto.UUID.generate(),
+          state: random_value(),
+          nonce: random_value(),
+          pkce_verifier: random_value(),
+          redirect_uri: redirect_uri,
+          return_to: Keyword.get(opts, :return_to, @default_return_to),
+          issued_at_unix: System.system_time(:second)
+        }
 
-      request =
-        transaction
-        |> Map.take([:state, :nonce, :pkce_verifier, :redirect_uri])
-        |> Map.put(:config, config)
+        request =
+          transaction
+          |> Map.take([:state, :nonce, :pkce_verifier, :redirect_uri])
+          |> Map.put(:config, config)
 
-      case oidc_client().authorization_uri(request) do
-        {:ok, authorization_uri} when is_binary(authorization_uri) ->
-          case Identity.store_oidc_login_transaction(
-                 transaction.id,
-                 transaction.issued_at_unix + @login_transaction_ttl_seconds
-               ) do
-            :ok ->
-              {:ok, %{authorization_uri: authorization_uri, transaction: transaction}}
+        case oidc_client().authorization_uri(request) do
+          {:ok, authorization_uri} when is_binary(authorization_uri) ->
+            case Identity.store_oidc_login_transaction(
+                   transaction.id,
+                   transaction.issued_at_unix + @login_transaction_ttl_seconds
+                 ) do
+              :ok ->
+                {:ok, %{authorization_uri: authorization_uri, transaction: transaction}}
 
-            {:error, _reason} = error ->
-              error
-          end
+              {:error, _reason} = error ->
+                error
+            end
 
-        _provider_error ->
-          {:error, :provider_unavailable}
+          _provider_error ->
+            {:error, :provider_unavailable}
+        end
       end
-    end
+
+    finalize_login_result(
+      result,
+      Keyword.get(opts, :trace_id),
+      Keyword.get(opts, :source_surface, "web"),
+      nil
+    )
   end
 
   def begin_login(_redirect_uri, _opts), do: {:error, :invalid_redirect_uri}
