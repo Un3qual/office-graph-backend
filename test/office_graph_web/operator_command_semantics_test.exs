@@ -9,7 +9,8 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
 
   alias OfficeGraphWeb.GraphQL.Common.Errors, as: GraphQLErrors
   alias OfficeGraphWeb.JsonApi.Common.Errors, as: JsonErrors
-  alias OfficeGraphWeb.OperatorCommands.{Errors, Input}
+  alias OfficeGraph.CommandSupport.CommandError, as: Errors
+  alias OfficeGraphWeb.OperatorCommands.Input
 
   describe "shared command input" do
     test "preserves raw strings while trimming ordinary strings" do

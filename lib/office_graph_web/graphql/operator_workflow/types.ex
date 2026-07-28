@@ -7,11 +7,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.RequestSession
 
-  object :operator_typed_id do
-    field :type, non_null(:string)
-    field :id, non_null(:id)
-  end
-
   object :operator_source do
     field :identity, non_null(:string)
     field :replay_identity, non_null(:string)

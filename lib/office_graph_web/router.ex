@@ -51,10 +51,6 @@ defmodule OfficeGraphWeb.Router do
         JsonApi.Relationships.Controller,
         :index
 
-    post "/v1/commands/submit-manual-intake",
-         JsonApi.OperatorCommands.IntakeController,
-         :submit_manual_intake
-
     post "/v1/commands/bind-github-installation",
          JsonApi.OperatorCommands.GitHubController,
          :bind_installation
@@ -70,10 +66,6 @@ defmodule OfficeGraphWeb.Router do
     get "/v1/github/installations/:installation_id/health",
         JsonApi.GitHubHealthController,
         :show
-
-    post "/v1/commands/apply-proposed-changes",
-         JsonApi.OperatorCommands.IntakeController,
-         :apply_proposed_changes
 
     post "/v1/commands/create-work-packet",
          JsonApi.OperatorCommands.PacketsController,

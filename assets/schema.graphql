@@ -3,6 +3,29 @@ schema {
   query: RootQueryType
 }
 
+type ApplyProposedChangesPayload {
+  verificationCheck: VerificationCheck!
+  task: Task!
+  signal: Signal!
+  reviewFinding: ReviewFinding!
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type OperatorTypedId {
+  type: String!
+  id: ID!
+}
+
+type SubmitManualIntakePayload {
+  proposedChanges: [ProposedGraphChange!]!
+  operationId: ID!
+  normalizedEvent: NormalizedIntakeEvent!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
 enum WorkGraphVerificationResultSortField {
   ID
   POLICY_BASIS
@@ -1110,6 +1133,212 @@ type EvidenceCandidate implements Node {
   workspaceId: ID!
 }
 
+enum ArtifactSortField {
+  ID
+  TITLE
+  URI
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":artifact connection"
+type ArtifactConnection {
+  "Total count on all pages"
+  count: Int
+
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":artifact edges"
+  edges: [ArtifactEdge!]
+}
+
+":artifact edge"
+type ArtifactEdge {
+  "Cursor"
+  cursor: String!
+
+  ":artifact node"
+  node: Artifact!
+}
+
+input ArtifactFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ArtifactFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ArtifactFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ArtifactFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ArtifactFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ArtifactFilterUri {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ArtifactFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ArtifactFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ArtifactFilterInput {
+  and: [ArtifactFilterInput!]
+  or: [ArtifactFilterInput!]
+  not: [ArtifactFilterInput!]
+  id: ArtifactFilterId
+  title: ArtifactFilterTitle
+  uri: ArtifactFilterUri
+  insertedAt: ArtifactFilterInsertedAt
+  updatedAt: ArtifactFilterUpdatedAt
+  graphItemId: ArtifactFilterGraphItemId
+  organizationId: ArtifactFilterOrganizationId
+  workspaceId: ArtifactFilterWorkspaceId
+  graphItem: GraphItemFilterInput
+  evidenceCandidates: EvidenceCandidateFilterInput
+  evidenceItems: EvidenceItemFilterInput
+}
+
+input ArtifactSortInput {
+  order: SortOrder
+  field: ArtifactSortField!
+}
+
+type Artifact implements Node {
+  id: ID!
+  title: String!
+  uri: String
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+  graphItem: GraphItem!
+  evidenceCandidates(
+    "How to sort the records in the response"
+    sort: [EvidenceCandidateSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceCandidateFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [EvidenceCandidate!]!
+  evidenceItems(
+    "How to sort the records in the response"
+    sort: [EvidenceItemSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceItemFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [EvidenceItem!]!
+}
+
 enum VerificationCheckSortField {
   ID
   TITLE
@@ -2207,6 +2436,7 @@ input GraphItemFilterInput {
   task: TaskFilterInput
   reviewFinding: ReviewFindingFilterInput
   verificationCheck: VerificationCheckFilterInput
+  artifact: ArtifactFilterInput
 }
 
 input GraphItemSortInput {
@@ -2227,6 +2457,7 @@ type GraphItem implements Node {
   task: Task
   reviewFinding: ReviewFinding
   verificationCheck: VerificationCheck
+  artifact: Artifact
 }
 
 enum SortOrder {
@@ -4365,6 +4596,598 @@ type WorkRun implements Node {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): WorkGraphVerificationResultConnection!
+}
+
+input SubmitManualIntakeInput {
+  idempotencyKey: String!
+  sourceIdentity: String!
+  replayIdentity: String!
+  body: String!
+}
+
+enum NormalizedIntakeEventSortField {
+  ID
+  SOURCE_IDENTITY
+  REPLAY_IDENTITY
+  OUTCOME
+  INSERTED_AT
+  UPDATED_AT
+  DUPLICATE_OF_ID
+  OPERATION_ID
+  ORGANIZATION_ID
+  RAW_ARCHIVE_ID
+  WORKSPACE_ID
+}
+
+":normalized_intake_event connection"
+type NormalizedIntakeEventConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":normalized_intake_event edges"
+  edges: [NormalizedIntakeEventEdge!]
+}
+
+":normalized_intake_event edge"
+type NormalizedIntakeEventEdge {
+  "Cursor"
+  cursor: String!
+
+  ":normalized_intake_event node"
+  node: NormalizedIntakeEvent!
+}
+
+input NormalizedIntakeEventFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterRawArchiveId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterDuplicateOfId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input NormalizedIntakeEventFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input NormalizedIntakeEventFilterOutcome {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input NormalizedIntakeEventFilterReplayIdentity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input NormalizedIntakeEventFilterSourceIdentity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input NormalizedIntakeEventFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input NormalizedIntakeEventFilterInput {
+  and: [NormalizedIntakeEventFilterInput!]
+  or: [NormalizedIntakeEventFilterInput!]
+  not: [NormalizedIntakeEventFilterInput!]
+  id: NormalizedIntakeEventFilterId
+  sourceIdentity: NormalizedIntakeEventFilterSourceIdentity
+  replayIdentity: NormalizedIntakeEventFilterReplayIdentity
+  outcome: NormalizedIntakeEventFilterOutcome
+  insertedAt: NormalizedIntakeEventFilterInsertedAt
+  updatedAt: NormalizedIntakeEventFilterUpdatedAt
+  duplicateOfId: NormalizedIntakeEventFilterDuplicateOfId
+  operationId: NormalizedIntakeEventFilterOperationId
+  organizationId: NormalizedIntakeEventFilterOrganizationId
+  rawArchiveId: NormalizedIntakeEventFilterRawArchiveId
+  workspaceId: NormalizedIntakeEventFilterWorkspaceId
+  proposedChanges: ProposedGraphChangeFilterInput
+}
+
+input NormalizedIntakeEventSortInput {
+  order: SortOrder
+  field: NormalizedIntakeEventSortField!
+}
+
+type NormalizedIntakeEvent implements Node {
+  id: ID!
+  sourceIdentity: String!
+  replayIdentity: String!
+  outcome: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  duplicateOfId: ID
+  operationId: ID!
+  organizationId: ID!
+  rawArchiveId: ID!
+  workspaceId: ID!
+  proposedChanges(
+    "How to sort the records in the response"
+    sort: [ProposedGraphChangeSortInput]
+
+    "A filter to limit the results"
+    filter: ProposedGraphChangeFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ProposedGraphChangeConnection!
+}
+
+input ApplyProposedChangesInput {
+  idempotencyKey: String!
+  normalizedEventId: ID!
+  proposedChangeIds: [ID!]!
+}
+
+enum ProposedGraphChangeSortField {
+  ID
+  APPLIED_RESOURCE_ID
+  STEP_KEY
+  STATUS
+  CHANGE_TYPE
+  TITLE
+  BODY
+  APPLIED_AT
+  INSERTED_AT
+  UPDATED_AT
+  APPLIED_OPERATION_ID
+  CONTEXT_PACKAGE_ID
+  EXECUTION_ID
+  NORMALIZED_EVENT_ID
+  OPERATION_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":proposed_graph_change connection"
+type ProposedGraphChangeConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":proposed_graph_change edges"
+  edges: [ProposedGraphChangeEdge!]
+}
+
+":proposed_graph_change edge"
+type ProposedGraphChangeEdge {
+  "Cursor"
+  cursor: String!
+
+  ":proposed_graph_change node"
+  node: ProposedGraphChange!
+}
+
+input ProposedGraphChangeFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterNormalizedEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterContextPackageId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterAppliedOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ProposedGraphChangeFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ProposedGraphChangeFilterAppliedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ProposedGraphChangeFilterBody {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ProposedGraphChangeFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ProposedGraphChangeFilterChangeType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ProposedGraphChangeFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ProposedGraphChangeFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ProposedGraphChangeFilterAppliedResourceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ProposedGraphChangeFilterInput {
+  and: [ProposedGraphChangeFilterInput!]
+  or: [ProposedGraphChangeFilterInput!]
+  not: [ProposedGraphChangeFilterInput!]
+  id: ProposedGraphChangeFilterId
+  appliedResourceId: ProposedGraphChangeFilterAppliedResourceId
+  stepKey: ProposedGraphChangeFilterStepKey
+  status: ProposedGraphChangeFilterStatus
+  changeType: ProposedGraphChangeFilterChangeType
+  title: ProposedGraphChangeFilterTitle
+  body: ProposedGraphChangeFilterBody
+  appliedAt: ProposedGraphChangeFilterAppliedAt
+  insertedAt: ProposedGraphChangeFilterInsertedAt
+  updatedAt: ProposedGraphChangeFilterUpdatedAt
+  appliedOperationId: ProposedGraphChangeFilterAppliedOperationId
+  contextPackageId: ProposedGraphChangeFilterContextPackageId
+  executionId: ProposedGraphChangeFilterExecutionId
+  normalizedEventId: ProposedGraphChangeFilterNormalizedEventId
+  operationId: ProposedGraphChangeFilterOperationId
+  organizationId: ProposedGraphChangeFilterOrganizationId
+  workspaceId: ProposedGraphChangeFilterWorkspaceId
+}
+
+input ProposedGraphChangeSortInput {
+  order: SortOrder
+  field: ProposedGraphChangeSortField!
+}
+
+type ProposedGraphChange implements Node {
+  id: ID!
+  appliedResourceId: ID
+  stepKey: String
+  status: String!
+  changeType: String!
+  title: String!
+  body: String!
+  validationErrors: [String!]!
+  appliedAt: DateTime
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  appliedOperationId: ID
+  contextPackageId: ID
+  executionId: ID
+  normalizedEventId: ID
+  operationId: ID!
+  organizationId: ID!
+  workspaceId: ID!
 }
 
 enum AgentContextExpansionRequestSortField {
@@ -6600,6 +7423,52 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): AgentContextExpansionRequestConnection
+  getProposedGraphChange(
+    "The id of the record"
+    id: ID!
+  ): ProposedGraphChange
+  listProposedGraphChanges(
+    "How to sort the records in the response"
+    sort: [ProposedGraphChangeSortInput]
+
+    "A filter to limit the results"
+    filter: ProposedGraphChangeFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ProposedGraphChangeConnection
+  getNormalizedIntakeEvent(
+    "The id of the record"
+    id: ID!
+  ): NormalizedIntakeEvent
+  listNormalizedIntakeEvents(
+    "How to sort the records in the response"
+    sort: [NormalizedIntakeEventSortInput]
+
+    "A filter to limit the results"
+    filter: NormalizedIntakeEventFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): NormalizedIntakeEventConnection
   getWorkRun(
     "The id of the record"
     id: ID!
@@ -6876,6 +7745,29 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): VerificationCheckConnection
+  getArtifact(
+    "The id of the record"
+    id: ID!
+  ): Artifact
+  listArtifacts(
+    "How to sort the records in the response"
+    sort: [ArtifactSortInput]
+
+    "A filter to limit the results"
+    filter: ArtifactFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ArtifactConnection
   getEvidenceCandidate(
     "The id of the record"
     id: ID!
@@ -6957,8 +7849,6 @@ type RootMutationType {
   bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
   replyToGithubReview(input: ReplyToGithubReviewInput!): GithubOutboundActionPayload!
   updateGithubCheck(input: UpdateGithubCheckInput!): GithubOutboundActionPayload!
-  submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
-  applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
   createWorkPacket(input: CreateWorkPacketInput!): CreateWorkPacketPayload!
   createWorkPacketVersion(input: CreateWorkPacketVersionInput!): CreateWorkPacketVersionPayload!
   startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
@@ -6966,6 +7856,8 @@ type RootMutationType {
   createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
   acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
   waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
+  applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
+  submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
 }
 
 """
@@ -7164,19 +8056,6 @@ type GithubOutboundActionPayload {
   action: GithubOutboundActionCommandResult!
 }
 
-input SubmitManualIntakeInput {
-  idempotencyKey: String!
-  sourceIdentity: String!
-  replayIdentity: String!
-  body: String!
-}
-
-input ApplyProposedChangesInput {
-  idempotencyKey: String!
-  normalizedEventId: ID!
-  proposedChangeIds: [ID!]!
-}
-
 input CreateWorkPacketInput {
   idempotencyKey: String!
   title: String!
@@ -7258,23 +8137,6 @@ input WaiveVerificationCheckInput {
   policyBasis: String!
 }
 
-type OperatorCommandSignal {
-  id: ID!
-}
-
-type OperatorCommandTask {
-  id: ID!
-}
-
-type OperatorCommandReviewFinding {
-  id: ID!
-}
-
-type OperatorCommandVerificationCheck {
-  id: ID!
-  graphItemId: ID!
-}
-
 type OperatorCommandWorkPacket {
   id: ID!
   currentVersionId: ID!
@@ -7318,24 +8180,6 @@ type OperatorCommandEvidenceItem {
 type OperatorCommandVerificationResult {
   id: ID!
   result: String!
-}
-
-type SubmitManualIntakePayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  normalizedEventId: ID!
-  proposedChangeIds: [ID!]!
-}
-
-type ApplyProposedChangesPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  signal: OperatorCommandSignal!
-  task: OperatorCommandTask!
-  reviewFinding: OperatorCommandReviewFinding!
-  verificationCheck: OperatorCommandVerificationCheck!
 }
 
 type CreateWorkPacketPayload {
@@ -7394,11 +8238,6 @@ type WaiveVerificationCheckPayload {
   verificationResult: OperatorCommandVerificationResult!
   requiredCheck: OperatorCommandRunRequiredCheck!
   run: OperatorCommandWorkRun!
-}
-
-type OperatorTypedId {
-  type: String!
-  id: ID!
 }
 
 type OperatorSource {

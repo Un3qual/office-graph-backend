@@ -1,7 +1,88 @@
-defmodule OfficeGraphWeb.OperatorCommands.Errors do
+defmodule OfficeGraph.CommandSupport.CommandError do
   @moduledoc false
 
-  alias OfficeGraphWeb.OperatorCommands.Input
+  use Splode.Error,
+    fields: [:category, :code, :detail, :fields, :metadata],
+    class: :invalid
+
+  @public_fields ~w(
+    acceptance_policy_basis
+    account_login
+    account_type
+    app_private_key_reference
+    app_slug
+    approval_request_id
+    authority_posture
+    autonomy_mode
+    autonomy_posture
+    binding_id
+    body
+    check_run_id
+    claim
+    conclusion
+    context_expansion_request_id
+    context_summary
+    contribution_kind
+    conversation_id
+    decision
+    details_url
+    domain_action_operation_id
+    evidence_candidate_id
+    execution_id
+    execution_observation_id
+    expected_current_version_id
+    expected_execution_state
+    expected_provider_version
+    expected_state_version
+    expected_verification_state
+    expected_version
+    external_installation_id
+    freshness_state
+    graph_item_id
+    idempotency_key
+    installation_id
+    normalized_event_id
+    normalized_status
+    objective
+    observation_idempotency_key
+    observation_rationale
+    observation_source_identity
+    observation_source_kind
+    observed_status
+    packet_id
+    packet_version_id
+    permissions
+    policy_basis
+    proposed_change_ids
+    proposed_graph_change_id
+    reason
+    replay_identity
+    requested_capabilities
+    requested_outcome
+    requirements
+    resolution_reason
+    result
+    review_comment_id
+    run_id
+    run_required_check_id
+    sensitivity
+    service_principal_email
+    source_graph_item_id
+    source_graph_item_ids
+    source_identity
+    source_kind
+    source_surface
+    status
+    success_criteria
+    title
+    trust_basis
+    verification_check_id
+    verification_check_ids
+    webhook_principal_email
+    webhook_secret_reference
+    work_run_id
+    workspace_id
+  )
 
   @uuid_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @uuid_metadata_keys [
@@ -70,6 +151,15 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
           fields: [map()],
           metadata: map()
         }
+
+  def new(error) do
+    error
+    |> classify()
+    |> Map.to_list()
+    |> exception()
+  end
+
+  def message(error), do: error.detail
 
   @spec classify(term()) :: classification()
   def classify({:error, error}), do: classify(error)
@@ -483,7 +573,7 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   defp sanitize_field(field) when is_atom(field), do: sanitize_field(Atom.to_string(field))
 
   defp sanitize_field(field) when is_binary(field) do
-    if Input.public_field?(field) or field in @auxiliary_fields, do: field, else: "invalid"
+    if field in @public_fields or field in @auxiliary_fields, do: field, else: "invalid"
   end
 
   defp sanitize_field(_field), do: "invalid"
@@ -501,4 +591,35 @@ defmodule OfficeGraphWeb.OperatorCommands.Errors do
   end
 
   defp any_ash_forbidden_error?(_malformed), do: false
+
+  defimpl AshGraphql.Error do
+    def to_error(error) do
+      %{
+        message: error.detail,
+        short_message: error.detail,
+        code: error.code,
+        fields: Enum.map(error.fields, & &1.field),
+        vars: Map.put(error.metadata, :fields, error.fields)
+      }
+    end
+  end
+
+  defimpl AshJsonApi.ToJsonApiError do
+    def to_json_api_error(error) do
+      %AshJsonApi.Error{
+        id: Ash.UUID.generate(),
+        status_code: status_code(error.category),
+        code: error.code,
+        title: Macro.camelize(error.code),
+        detail: error.detail,
+        meta: Map.put(error.metadata, :fields, error.fields)
+      }
+    end
+
+    defp status_code(:authorization), do: 403
+    defp status_code(:availability), do: 503
+    defp status_code(:conflict), do: 409
+    defp status_code(:not_found), do: 404
+    defp status_code(:validation), do: 422
+  end
 end

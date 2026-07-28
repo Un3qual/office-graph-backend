@@ -3,7 +3,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
 
   alias OfficeGraphWeb.GraphQL.OperatorCommands.Resolvers.{
     GitHub,
-    Intake,
     Packets,
     Runs,
     Agents,
@@ -55,16 +54,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Mutations do
     field :update_github_check, non_null(:github_outbound_action_payload) do
       arg(:input, non_null(:update_github_check_input))
       resolve(&GitHub.update_check/2)
-    end
-
-    field :submit_manual_intake, non_null(:submit_manual_intake_payload) do
-      arg(:input, non_null(:submit_manual_intake_input))
-      resolve(&Intake.submit/2)
-    end
-
-    field :apply_proposed_changes, non_null(:apply_proposed_changes_payload) do
-      arg(:input, non_null(:apply_proposed_changes_input))
-      resolve(&Intake.apply_proposed_changes/2)
     end
 
     field :create_work_packet, non_null(:create_work_packet_payload) do

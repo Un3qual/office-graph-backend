@@ -5512,20 +5512,6 @@
     {
       "occurrences": [
         [
-          "sha256:bd2b47203413440e02f0a73c196729539a0256ff927d0ad5ab543095b270c920",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ]
-      ],
-      "owner": "OfficeGraphWeb",
-      "path": "test/office_graph_web/operator_commands_graphql_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:d789eea3ef03ba878fc39c1829734ce8e4726de990f295b5c2bcf966f7fd687a",
           "raw_sql",
           "Repo.query!",

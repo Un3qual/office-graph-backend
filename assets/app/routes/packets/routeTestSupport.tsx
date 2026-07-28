@@ -25,8 +25,7 @@ export const secondPacketIdentity = {
 
 export const packetVersionIdentity = {
   rawId: "323e4567-e89b-12d3-a456-426614174000",
-  relayId:
-    "d29ya19wYWNrZXRfdmVyc2lvbjozMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDA=",
+  relayId: "d29ya19wYWNrZXRfdmVyc2lvbjozMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDA=",
 } as const;
 
 export function renderWithRelay(network: FetchFunction, initialEntry = "/packets") {
@@ -111,12 +110,10 @@ export function packetWorkspaceResponse(
             id: `source-reference-${index}`,
             graphItemId,
           })),
-          requiredChecks: currentVersion.verificationCheckIds.map(
-            (verificationCheckId, index) => ({
-              id: `required-check-${index}`,
-              verificationCheckId,
-            }),
-          ),
+          requiredChecks: currentVersion.verificationCheckIds.map((verificationCheckId, index) => ({
+            id: `required-check-${index}`,
+            verificationCheckId,
+          })),
         },
         versions: {
           edges: versions.map((version, index) => ({

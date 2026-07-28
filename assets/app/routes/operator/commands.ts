@@ -9,8 +9,12 @@ export const OperatorSubmitManualIntakeMutation = graphql`
         type
         id
       }
-      normalizedEventId
-      proposedChangeIds
+      normalizedEvent {
+        id
+      }
+      proposedChanges {
+        id
+      }
     }
   }
 `;

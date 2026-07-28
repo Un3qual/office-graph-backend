@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<ab8b3f63323bdf41a032fe2a0be69ed9>>
+ * @generated SignedSource<<65839e4396ecbfddc6f9dd4fe8d877aa>>
  * @lightSyntaxTransform
  */
 
@@ -21,7 +21,7 @@ export type OperatorApplyProposedChangesMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly operationId: string;
     readonly reviewFinding: {
@@ -113,7 +113,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandSignal",
+        "concreteType": "Signal",
         "kind": "LinkedField",
         "name": "signal",
         "plural": false,
@@ -123,7 +123,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandTask",
+        "concreteType": "Task",
         "kind": "LinkedField",
         "name": "task",
         "plural": false,
@@ -133,7 +133,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandReviewFinding",
+        "concreteType": "ReviewFinding",
         "kind": "LinkedField",
         "name": "reviewFinding",
         "plural": false,
@@ -143,7 +143,7 @@ v3 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandVerificationCheck",
+        "concreteType": "VerificationCheck",
         "kind": "LinkedField",
         "name": "verificationCheck",
         "plural": false,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GraphQLResponseError } from "./fetchGraphQL";
-import { mapCommandFailure } from "./commandMutation";
+import { commandMutationSuccess, mapCommandFailure } from "./commandMutation";
 
 describe("command mutation failure mapping", () => {
   it("maps every field-specific validation error without losing safe server copy", () => {
@@ -74,6 +74,24 @@ describe("command mutation failure mapping", () => {
       status: "error",
       code: "unknown",
       message: "Unable to complete this action. Try again.",
+    });
+  });
+});
+
+describe("command mutation success mapping", () => {
+  it("omits nullable generated list slots from affected identities", () => {
+    expect(
+      commandMutationSuccess(
+        {
+          operationId: "operation-1",
+          affectedIds: [null, { type: "signal", id: "signal-1" }, undefined],
+        },
+        { id: "result-1" },
+      ),
+    ).toEqual({
+      operationId: "operation-1",
+      affectedIds: [{ type: "signal", id: "signal-1" }],
+      result: { id: "result-1" },
     });
   });
 });

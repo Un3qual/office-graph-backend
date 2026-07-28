@@ -139,8 +139,8 @@ const submitManualIntakeConfig = {
   mapSuccess(response) {
     const payload = response.submitManualIntake;
     return commandMutationSuccess(payload, {
-      normalizedEventId: payload.normalizedEventId,
-      proposedChangeIds: payload.proposedChangeIds,
+      normalizedEventId: payload.normalizedEvent.id,
+      proposedChangeIds: payload.proposedChanges.map(({ id }) => id),
     });
   },
 } satisfies CommandMutationConfig<

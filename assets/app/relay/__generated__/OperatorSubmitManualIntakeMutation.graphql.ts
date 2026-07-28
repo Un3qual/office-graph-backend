@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<c7279b48c636dc46b1d539660b93d47f>>
+ * @generated SignedSource<<11ef9752ba5e3dbddf366b4b3a462264>>
  * @lightSyntaxTransform
  */
 
@@ -22,11 +22,15 @@ export type OperatorSubmitManualIntakeMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
-    readonly normalizedEventId: string;
+    readonly normalizedEvent: {
+      readonly id: string;
+    };
     readonly operationId: string;
-    readonly proposedChangeIds: ReadonlyArray<string>;
+    readonly proposedChanges: ReadonlyArray<{
+      readonly id: string;
+    }>;
   };
 };
 export type OperatorSubmitManualIntakeMutation = {
@@ -42,7 +46,17 @@ var v0 = [
     "name": "input"
   }
 ],
-v1 = [
+v1 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "id",
+  "storageKey": null
+},
+v2 = [
+  (v1/*:: as any*/)
+],
+v3 = [
   {
     "alias": null,
     "args": [
@@ -86,28 +100,28 @@ v1 = [
             "name": "type",
             "storageKey": null
           },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "id",
-            "storageKey": null
-          }
+          (v1/*:: as any*/)
         ],
         "storageKey": null
       },
       {
         "alias": null,
         "args": null,
-        "kind": "ScalarField",
-        "name": "normalizedEventId",
+        "concreteType": "NormalizedIntakeEvent",
+        "kind": "LinkedField",
+        "name": "normalizedEvent",
+        "plural": false,
+        "selections": (v2/*:: as any*/),
         "storageKey": null
       },
       {
         "alias": null,
         "args": null,
-        "kind": "ScalarField",
-        "name": "proposedChangeIds",
+        "concreteType": "ProposedGraphChange",
+        "kind": "LinkedField",
+        "name": "proposedChanges",
+        "plural": true,
+        "selections": (v2/*:: as any*/),
         "storageKey": null
       }
     ],
@@ -120,7 +134,7 @@ return {
     "kind": "Fragment",
     "metadata": null,
     "name": "OperatorSubmitManualIntakeMutation",
-    "selections": (v1/*:: as any*/),
+    "selections": (v3/*:: as any*/),
     "type": "RootMutationType",
     "abstractKey": null
   },
@@ -129,19 +143,19 @@ return {
     "argumentDefinitions": (v0/*:: as any*/),
     "kind": "Operation",
     "name": "OperatorSubmitManualIntakeMutation",
-    "selections": (v1/*:: as any*/)
+    "selections": (v3/*:: as any*/)
   },
   "params": {
-    "cacheID": "8273bec27dd9c49bf2bd99b5e9c1a352",
+    "cacheID": "049d8a286ebcc88421205552dbca3817",
     "id": null,
     "metadata": {},
     "name": "OperatorSubmitManualIntakeMutation",
     "operationKind": "mutation",
-    "text": "mutation OperatorSubmitManualIntakeMutation(\n  $input: SubmitManualIntakeInput!\n) {\n  submitManualIntake(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    normalizedEventId\n    proposedChangeIds\n  }\n}\n"
+    "text": "mutation OperatorSubmitManualIntakeMutation(\n  $input: SubmitManualIntakeInput!\n) {\n  submitManualIntake(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    normalizedEvent {\n      id\n    }\n    proposedChanges {\n      id\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "449fa00bf81e935a168fd23b60533dba";
+(node as any).hash = "4b101e1161d48d0ec22dde7e6724afe3";
 
 export default node;

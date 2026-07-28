@@ -12,6 +12,8 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
       OfficeGraph.WorkGraph.Domain,
       OfficeGraph.WorkPackets.Domain,
       OfficeGraph.Runs.Domain,
+      OfficeGraph.Integrations.Domain,
+      OfficeGraph.ProposedChanges.Domain,
       OfficeGraph.AgentRuntime.Domain,
       OfficeGraph.NodeConversations.Domain
     ]

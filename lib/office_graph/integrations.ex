@@ -6,6 +6,7 @@ defmodule OfficeGraph.Integrations do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.Operations,
       OfficeGraph.ProposedChanges,

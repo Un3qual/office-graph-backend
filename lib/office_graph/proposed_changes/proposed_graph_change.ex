@@ -4,7 +4,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   use Ash.Resource,
     domain: OfficeGraph.ProposedChanges.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "proposed_graph_changes"
@@ -97,7 +98,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   actions do
     read :read do
       primary? true
-      public? false
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -142,6 +143,15 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
       change set_attribute(:status, "applied")
     end
+
+    action :apply_proposed_changes,
+           OfficeGraph.ProposedChanges.CommandResults.ApplyProposedChanges do
+      argument :idempotency_key, :string, allow_nil?: false
+      argument :normalized_event_id, :uuid, allow_nil?: false
+      argument :proposed_change_ids, {:array, :uuid}, allow_nil?: false
+
+      run OfficeGraph.ProposedChanges.Actions.ApplyProposedChanges
+    end
   end
 
   policies do
@@ -180,5 +190,18 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     policy action(:mark_applied) do
       forbid_if always()
     end
+
+    policy action(:apply_proposed_changes) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :proposed_change_apply}
+    end
+  end
+
+  graphql do
+    type :proposed_graph_change
+  end
+
+  json_api do
+    type "proposed-graph-change"
   end
 end

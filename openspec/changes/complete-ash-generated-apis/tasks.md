@@ -19,7 +19,7 @@
 
 - [ ] 3.1 Add typed Ash errors and GraphQL/JSON API protocol implementations for the safe command outcomes currently handled by the shared web error switch
 - [ ] 3.2 Add responsibility-owned Ash typed input/result types only where action arguments, multiple records, or operation facts cannot use existing resource types and action metadata
-- [ ] 3.3 Expose manual-intake submission and proposed-change application through owning Integrations and ProposedChanges generic actions
+- [x] 3.3 Expose manual-intake submission and proposed-change application through owning Integrations and ProposedChanges generic actions
 - [ ] 3.4 Expose packet creation and version creation through owning WorkPackets generic actions
 - [ ] 3.5 Expose run start and execution-observation recording through owning Runs generic actions
 - [ ] 3.6 Expose evidence-candidate creation, evidence acceptance, and verification waiver through owning WorkGraph and Verification generic actions

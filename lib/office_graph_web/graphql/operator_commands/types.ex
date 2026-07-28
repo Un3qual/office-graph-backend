@@ -189,19 +189,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :action, non_null(:github_outbound_action_command_result)
   end
 
-  input_object :submit_manual_intake_input do
-    field :idempotency_key, non_null(:string)
-    field :source_identity, non_null(:string)
-    field :replay_identity, non_null(:string)
-    field :body, non_null(:string)
-  end
-
-  input_object :apply_proposed_changes_input do
-    field :idempotency_key, non_null(:string)
-    field :normalized_event_id, non_null(:id)
-    field :proposed_change_ids, non_null(list_of(non_null(:id)))
-  end
-
   input_object :create_work_packet_input do
     field :idempotency_key, non_null(:string)
     field :title, non_null(:string)
@@ -283,23 +270,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
     field :policy_basis, non_null(:string)
   end
 
-  object :operator_command_signal do
-    field :id, non_null(:id)
-  end
-
-  object :operator_command_task do
-    field :id, non_null(:id)
-  end
-
-  object :operator_command_review_finding do
-    field :id, non_null(:id)
-  end
-
-  object :operator_command_verification_check do
-    field :id, non_null(:id)
-    field :graph_item_id, non_null(:id)
-  end
-
   object :operator_command_work_packet do
     field :id, non_null(:id)
     field :current_version_id, non_null(:id)
@@ -343,24 +313,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorCommands.Types do
   object :operator_command_verification_result do
     field :id, non_null(:id)
     field :result, non_null(:string)
-  end
-
-  object :submit_manual_intake_payload do
-    field :command, non_null(:string)
-    field :operation_id, non_null(:id)
-    field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :normalized_event_id, non_null(:id)
-    field :proposed_change_ids, non_null(list_of(non_null(:id)))
-  end
-
-  object :apply_proposed_changes_payload do
-    field :command, non_null(:string)
-    field :operation_id, non_null(:id)
-    field :affected_ids, non_null(list_of(non_null(:operator_typed_id)))
-    field :signal, non_null(:operator_command_signal)
-    field :task, non_null(:operator_command_task)
-    field :review_finding, non_null(:operator_command_review_finding)
-    field :verification_check, non_null(:operator_command_verification_check)
   end
 
   object :create_work_packet_payload do

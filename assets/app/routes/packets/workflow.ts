@@ -118,9 +118,7 @@ export function usePacketWorkspaceDetail(
     ),
   };
 
-  const versions = (packet.versions.edges ?? []).flatMap((edge) =>
-    edge?.node ? [edge.node] : [],
-  );
+  const versions = (packet.versions.edges ?? []).flatMap((edge) => (edge?.node ? [edge.node] : []));
 
   const detail: PacketWorkspaceDetail = {
     ...workspace,

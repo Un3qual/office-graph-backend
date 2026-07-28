@@ -40,12 +40,10 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     migration_helpers = [
       "lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/github.ex",
-      "lib/office_graph_web/graphql/operator_commands/resolvers/intake.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/packets.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/runs.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/verification.ex",
-      "lib/office_graph_web/operator_commands/input.ex",
-      "lib/office_graph_web/operator_commands/errors.ex"
+      "lib/office_graph_web/operator_commands/input.ex"
     ]
 
     missing_helpers =
@@ -206,6 +204,8 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       "evidence_item",
       "execution_observation",
       "graph_item",
+      "normalized_intake_event",
+      "proposed_graph_change",
       "review_finding",
       "run_required_check",
       "signal",
@@ -396,7 +396,7 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       |> Path.wildcard()
       |> Enum.sort()
 
-    assert length(resolver_paths) == 6
+    assert length(resolver_paths) == 5
 
     for path <- resolver_paths do
       source = File.read!(path)

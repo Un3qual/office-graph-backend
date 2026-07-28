@@ -37,7 +37,9 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
         actor_scope(actor)
 
       _subject ->
-        if read_action?(context), do: actor_scope(actor), else: {:error, :missing_target_scope}
+        if actor_scoped_action?(context),
+          do: actor_scope(actor),
+          else: {:error, :missing_target_scope}
     end
   end
 
@@ -70,11 +72,11 @@ defmodule OfficeGraph.Authorization.Checks.HasCapability do
     {:ok, scope_value(actor, :organization_id), scope_value(actor, :workspace_id)}
   end
 
-  defp read_action?(context) when is_map(context) do
-    match?(%{type: :read}, Map.get(context, :action))
+  defp actor_scoped_action?(context) when is_map(context) do
+    match?(%{type: type} when type in [:action, :read], Map.get(context, :action))
   end
 
-  defp read_action?(_context), do: false
+  defp actor_scoped_action?(_context), do: false
 
   defp scope_matches?(actor, organization_id, workspace_id) do
     scope_value(actor, :organization_id) == organization_id and

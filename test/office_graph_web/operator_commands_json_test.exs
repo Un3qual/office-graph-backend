@@ -21,24 +21,24 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       intake = command(conn, "submit-manual-intake", intake_input)
       assert intake["command"] == "submit_manual_intake"
       assert is_binary(intake["operation_id"])
-      assert is_binary(intake["result"]["normalized_event_id"])
-      assert [_first | _rest] = intake["result"]["proposed_change_ids"]
+      assert is_binary(intake["normalized_event"]["id"])
+      assert [_first | _rest] = intake["proposed_changes"]
       assert command(conn, "submit-manual-intake", intake_input) == intake
 
       apply_input = %{
         idempotency_key: unique_key("apply"),
-        normalized_event_id: intake["result"]["normalized_event_id"],
-        proposed_change_ids: intake["result"]["proposed_change_ids"]
+        normalized_event_id: intake["normalized_event"]["id"],
+        proposed_change_ids: Enum.map(intake["proposed_changes"], & &1["id"])
       }
 
       applied = command(conn, "apply-proposed-changes", apply_input)
       assert applied["command"] == "apply_proposed_changes"
       assert is_binary(applied["operation_id"])
-      assert is_binary(applied["result"]["signal"]["id"])
-      assert is_binary(applied["result"]["task"]["id"])
-      assert is_binary(applied["result"]["review_finding"]["id"])
-      assert is_binary(applied["result"]["verification_check"]["id"])
-      assert is_binary(applied["result"]["verification_check"]["graph_item_id"])
+      assert is_binary(applied["signal"]["id"])
+      assert is_binary(applied["task"]["id"])
+      assert is_binary(applied["review_finding"]["id"])
+      assert is_binary(applied["verification_check"]["id"])
+      assert is_binary(applied["verification_check"]["graph_item_id"])
       assert command(conn, "apply-proposed-changes", apply_input) == applied
 
       affected_types = MapSet.new(applied["affected_ids"], & &1["type"])
@@ -60,15 +60,14 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       owner_conn = Ash.PlugHelpers.set_actor(conn, bootstrap.session)
 
       invalid = raw_command(owner_conn, "submit-manual-intake", %{idempotency_key: "missing"})
-      assert invalid.status == 422
+      assert invalid.status == 400
 
-      assert %{
-               "command" => "submit_manual_intake",
-               "error" => %{
-                 "code" => "validation_failed",
-                 "field" => "source_identity"
-               }
-             } = json_response(invalid, 422)
+      assert %{"errors" => invalid_errors} = json_response(invalid, 400)
+
+      assert Enum.any?(invalid_errors, fn error ->
+               error["code"] == "required" and
+                 error["source"] == %{"pointer" => "/data/source_identity"}
+             end)
 
       no_capabilities =
         create_session_with_capabilities!(bootstrap, [], prefix: "json-command-forbidden")
@@ -85,10 +84,7 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       assert forbidden.status == 403
 
-      assert %{
-               "command" => "submit_manual_intake",
-               "error" => %{"code" => "forbidden"}
-             } = json_response(forbidden, 403)
+      assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(forbidden, 403)
 
       intake_input = %{
         idempotency_key: unique_key("conflict"),
@@ -108,10 +104,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       assert conflict.status == 409
 
-      assert %{
-               "command" => "submit_manual_intake",
-               "error" => %{"code" => "idempotency_conflict"}
-             } = json_response(conflict, 409)
+      assert %{"errors" => [%{"code" => "idempotency_conflict"}]} =
+               json_response(conflict, 409)
 
       intake =
         command(owner_conn, "submit-manual-intake", %{
@@ -123,8 +117,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       apply_input = %{
         idempotency_key: unique_key("first-apply"),
-        normalized_event_id: intake["result"]["normalized_event_id"],
-        proposed_change_ids: intake["result"]["proposed_change_ids"]
+        normalized_event_id: intake["normalized_event"]["id"],
+        proposed_change_ids: Enum.map(intake["proposed_changes"], & &1["id"])
       }
 
       _applied = command(owner_conn, "apply-proposed-changes", apply_input)
@@ -138,12 +132,10 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       assert stale.status == 409
 
-      assert %{
-               "command" => "apply_proposed_changes",
-               "error" => %{"code" => "invalid_proposed_change_status"}
-             } = json_response(stale, 409)
+      assert %{"errors" => [%{"code" => "invalid_proposed_change_status"}]} =
+               json_response(stale, 409)
 
-      assert Enum.all?(intake["result"]["proposed_change_ids"], fn id ->
+      assert Enum.all?(Enum.map(intake["proposed_changes"], & &1["id"]), fn id ->
                Ash.get!(ProposedGraphChange, id, authorize?: false).status == "applied"
              end)
     end
@@ -154,7 +146,7 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
       conn = Ash.PlugHelpers.set_actor(conn, bootstrap.session)
       applied = create_applied_workflow(conn, "packet-sequence")
-      check = applied["result"]["verification_check"]
+      check = applied["verification_check"]
 
       packet_input = %{
         idempotency_key: unique_key("packet"),
@@ -219,7 +211,7 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
       conn = Ash.PlugHelpers.set_actor(conn, bootstrap.session)
       applied = create_applied_workflow(conn, "stale-version")
-      check = applied["result"]["verification_check"]
+      check = applied["verification_check"]
 
       packet =
         command(conn, "create-work-packet", %{
@@ -275,10 +267,10 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
     test "match GraphQL command, replay, authorization, and stale-state semantics", %{conn: conn} do
       {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
       conn = Ash.PlugHelpers.set_actor(conn, bootstrap.session)
-      first = create_applied_workflow(conn, "verification-first")["result"]["verification_check"]
+      first = create_applied_workflow(conn, "verification-first")["verification_check"]
 
       second =
-        create_applied_workflow(conn, "verification-second")["result"]["verification_check"]
+        create_applied_workflow(conn, "verification-second")["verification_check"]
 
       started = create_started_run(conn, "verification", [first, second])
 
@@ -411,12 +403,36 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
   defp command(conn, command, input) do
     conn
     |> raw_command(command, input)
-    |> json_response(200)
+    |> json_response(command_status(command))
   end
 
   defp raw_command(conn, command, input) do
-    post(conn, "/api/v1/commands/#{command}", input)
+    body =
+      if generated_command?(command) do
+        %{data: input}
+      else
+        input
+      end
+
+    conn =
+      if generated_command?(command) do
+        conn
+        |> put_req_header("accept", "application/vnd.api+json")
+        |> put_req_header("content-type", "application/vnd.api+json")
+      else
+        conn
+      end
+
+    post(conn, "/api/v1/commands/#{command}", body)
   end
+
+  defp command_status(command) when command in ["submit-manual-intake", "apply-proposed-changes"],
+    do: 201
+
+  defp command_status(_command), do: 200
+
+  defp generated_command?(command),
+    do: command in ["submit-manual-intake", "apply-proposed-changes"]
 
   defp create_applied_workflow(conn, label) do
     intake =
@@ -429,8 +445,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
     command(conn, "apply-proposed-changes", %{
       idempotency_key: unique_key("#{label}-apply"),
-      normalized_event_id: intake["result"]["normalized_event_id"],
-      proposed_change_ids: intake["result"]["proposed_change_ids"]
+      normalized_event_id: intake["normalized_event"]["id"],
+      proposed_change_ids: Enum.map(intake["proposed_changes"], & &1["id"])
     })
   end
 

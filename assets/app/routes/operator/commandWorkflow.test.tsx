@@ -59,8 +59,8 @@ describe("operator command workflow", () => {
             command: "submit_manual_intake",
             operationId: "operation-1",
             affectedIds: [{ type: "normalized_intake_event", id: "event-1" }],
-            normalizedEventId: "event-1",
-            proposedChangeIds: ["proposal-1"],
+            normalizedEvent: { id: "event-1" },
+            proposedChanges: [{ id: "proposal-1" }],
           },
         },
       });

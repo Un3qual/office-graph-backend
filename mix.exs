@@ -64,6 +64,7 @@ defmodule OfficeGraph.MixProject do
       {:ash_postgres, "~> 2.10"},
       {:ash_graphql, "~> 1.9"},
       {:ash_json_api, "~> 1.6"},
+      {:open_api_spex, "~> 3.16"},
       {:absinthe, "~> 1.11"},
       {:absinthe_relay, "~> 1.6"},
       {:absinthe_plug, "~> 1.5"},

@@ -4,7 +4,8 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
   use Ash.Resource,
     domain: OfficeGraph.Integrations.Domain,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "normalized_intake_events"
@@ -76,13 +77,14 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
     has_many :proposed_changes, OfficeGraph.ProposedChanges.ProposedGraphChange do
       source_attribute :id
       destination_attribute :normalized_event_id
+      public? true
     end
   end
 
   actions do
     read :read do
       primary? true
-      public? false
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -98,11 +100,51 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
         :duplicate_of_id
       ]
     end
+
+    action :submit_manual_intake,
+           OfficeGraph.Integrations.CommandResults.SubmitManualIntake do
+      argument :idempotency_key, :string, allow_nil?: false
+      argument :source_identity, :string, allow_nil?: false
+      argument :replay_identity, :string, allow_nil?: false
+
+      argument :body, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, match: ~r/\S/]
+
+      run OfficeGraph.Integrations.Actions.SubmitManualIntake
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:submit_manual_intake) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :manual_intake_submit}
+    end
   end
 
   identities do
     identity :accepted_replay_key,
              [:organization_id, :workspace_id, :source_identity, :replay_identity],
              where: expr(outcome == "accepted")
+  end
+
+  graphql do
+    type :normalized_intake_event
+    paginate_relationship_with(proposed_changes: :relay)
+  end
+
+  json_api do
+    type "normalized-intake-event"
   end
 end
