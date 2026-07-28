@@ -16,6 +16,10 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
     assert migration_tables() == expected_tables
   end
 
+  test "declarative migration foreign keys have concrete Ash relationships" do
+    assert migration_foreign_key_relationship_errors(@expected_resources) == []
+  end
+
   test "repo-wide Ash ownership inventory matches the OpenSpec model inventory" do
     assert expected_resource_inventory() == model_inventory_resources()
   end
@@ -73,6 +77,30 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
 
     assert errors == [],
            "Ordinary belongs_to relationships must own their source attributes:\n#{format_errors(errors)}"
+  end
+
+  test "non-relationship UUID identifiers are explicitly classified" do
+    expected_fields =
+      @intentional_non_relationship_uuid_identifiers
+      |> Map.keys()
+      |> MapSet.new()
+
+    assert unmodeled_uuid_identifier_fields(@expected_resources) == expected_fields
+
+    for {{resource, identifier}, {_classification, discriminator}} <-
+          @intentional_non_relationship_uuid_identifiers do
+      assert Ash.Resource.Info.attribute(resource, identifier)
+      assert Ash.Resource.Info.attribute(resource, discriminator)
+
+      refute Enum.any?(Ash.Resource.Info.relationships(resource), fn relationship ->
+               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
+                 relationship.source_attribute == identifier
+             end)
+    end
+  end
+
+  test "stable inverse relationships are modeled on owning resources" do
+    assert_relationship_contracts!(@stable_inverse_relationships)
   end
 
   test "generic tombstone resources are absent from the Ash model" do

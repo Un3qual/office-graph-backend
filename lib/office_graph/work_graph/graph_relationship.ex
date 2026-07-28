@@ -18,26 +18,14 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :definition_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
-    attribute :source_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :target_item_id, :uuid, allow_nil?: false, public?: true
 
     attribute :lifecycle, :string,
       allow_nil?: false,
       public?: true,
       constraints: [match: ~r/\A(active|superseded|archived|tombstoned)\z/]
 
-    attribute :asserting_principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :valid_from, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :valid_until, :utc_datetime_usec, public?: true
-    attribute :run_id, :uuid, public?: true
-    attribute :integration_event_id, :uuid, public?: true
-    attribute :supersedes_relationship_id, :uuid, public?: true
-    attribute :deletion_operation_id, :uuid, public?: true
-    attribute :deleted_by_principal_id, :uuid, public?: true
     attribute :deleted_at, :utc_datetime_usec, public?: true
     attribute :deletion_reason, :string, public?: true
 
@@ -48,58 +36,70 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
   relationships do
     belongs_to :definition, OfficeGraph.WorkGraph.RelationshipDefinition do
       source_attribute :definition_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
       source_attribute :organization_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :governing_workspace, OfficeGraph.Tenancy.Workspace do
       source_attribute :workspace_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :source_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :source_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :target_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :target_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :asserting_principal, OfficeGraph.Identity.Principal do
       source_attribute :asserting_principal_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :superseded_relationship, __MODULE__ do
       source_attribute :supersedes_relationship_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :deletion_operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :deletion_operation_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :deleted_by_principal, OfficeGraph.Identity.Principal do
       source_attribute :deleted_by_principal_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :integration_event, OfficeGraph.Integrations.NormalizedIntakeEvent do
+      source_attribute :integration_event_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :run, OfficeGraph.Runs.Run do
+      source_attribute :run_id
+      destination_attribute :id
+      attribute_public? true
     end
   end
 

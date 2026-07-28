@@ -27,7 +27,6 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
       public?: true
 
     attribute :model_adapter_key, :string, allow_nil?: false, public?: true
-    attribute :model_credential_id, :uuid, public?: true
     attribute :tool_allowlist, {:array, :string}, allow_nil?: false, default: [], public?: true
     attribute :default_autonomy_mode, :string, allow_nil?: false, public?: true
 
@@ -82,8 +81,8 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
   relationships do
     belongs_to :model_credential, OfficeGraph.Integrations.IntegrationCredential do
       source_attribute :model_credential_id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_many :organization_bindings, OfficeGraph.AgentRuntime.OrganizationBinding do

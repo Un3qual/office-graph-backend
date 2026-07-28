@@ -14,15 +14,6 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
     ]
 
   attributes do
-    attribute :check_run_id, :uuid,
-      primary_key?: true,
-      allow_nil?: false,
-      writable?: true,
-      public?: true
-
-    attribute :pull_request_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     attribute :database_id, :integer, public?: true
     attribute :check_suite_database_id, :integer, public?: true
@@ -34,15 +25,30 @@ defmodule OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do
     belongs_to :check_run, OfficeGraph.SoftwareProving.CheckRun do
       source_attribute :check_run_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
+      allow_nil? false
+      primary_key? true
     end
 
     belongs_to :pull_request, OfficeGraph.SoftwareProving.PullRequest do
       source_attribute :pull_request_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
     end
   end
 

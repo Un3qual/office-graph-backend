@@ -15,11 +15,6 @@ defmodule OfficeGraph.WorkGraph.Task do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :source_signal_id, :uuid, allow_nil?: true, public?: true
-    attribute :body_document_id, :uuid, allow_nil?: false, public?: true
     attribute :title, :string, allow_nil?: false, public?: true
     attribute :lifecycle_state, :string, allow_nil?: false, public?: true
 
@@ -30,19 +25,38 @@ defmodule OfficeGraph.WorkGraph.Task do
   relationships do
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :source_signal, OfficeGraph.WorkGraph.Signal do
       source_attribute :source_signal_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :body_document, OfficeGraph.Content.Document do
       source_attribute :body_document_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :review_findings, OfficeGraph.WorkGraph.ReviewFinding do
+      source_attribute :id
+      destination_attribute :task_id
     end
   end
 

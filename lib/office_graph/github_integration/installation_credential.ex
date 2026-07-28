@@ -16,10 +16,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCredential do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :installation_id, :uuid, allow_nil?: false, public?: true
-    attribute :credential_id, :uuid, allow_nil?: false, public?: true
     attribute :purpose, :string, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -45,22 +42,22 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCredential do
     belongs_to :installation, OfficeGraph.GitHubIntegration.Installation do
       source_attribute :installation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :credential, OfficeGraph.Integrations.IntegrationCredential do
       source_attribute :credential_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 end

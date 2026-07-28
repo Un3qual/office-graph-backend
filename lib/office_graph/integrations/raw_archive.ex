@@ -21,10 +21,6 @@ defmodule OfficeGraph.Integrations.RawArchive do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
-    attribute :source_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :content_hash, :string, allow_nil?: false, public?: true
     attribute :archive_kind, :string, allow_nil?: false, default: "manual_intake", public?: true
     attribute :external_delivery_id, :string, public?: true
@@ -38,6 +34,40 @@ defmodule OfficeGraph.Integrations.RawArchive do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :external_source, OfficeGraph.Integrations.ExternalSource do
+      source_attribute :source_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    has_many :normalized_events, OfficeGraph.Integrations.NormalizedIntakeEvent do
+      source_attribute :id
+      destination_attribute :raw_archive_id
+    end
   end
 
   actions do

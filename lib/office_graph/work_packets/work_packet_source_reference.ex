@@ -15,10 +15,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :work_packet_version_id, :uuid, allow_nil?: false, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :rationale, :string, allow_nil?: false, public?: true
@@ -32,14 +28,28 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
   relationships do
     belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
       source_attribute :work_packet_version_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 

@@ -21,6 +21,13 @@ defmodule OfficeGraph.Tenancy.Organization do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    has_many :workspaces, OfficeGraph.Tenancy.Workspace do
+      source_attribute :id
+      destination_attribute :organization_id
+    end
+  end
+
   actions do
     defaults [:read]
 

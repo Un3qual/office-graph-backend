@@ -16,7 +16,6 @@ defmodule OfficeGraph.Runs.RunEvent do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :run_id, :uuid, allow_nil?: false, public?: true
     attribute :event_type, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -26,8 +25,8 @@ defmodule OfficeGraph.Runs.RunEvent do
   relationships do
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
   end
 

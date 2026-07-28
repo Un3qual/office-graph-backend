@@ -15,14 +15,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :conversation_id, :uuid, allow_nil?: false, public?: true
-    attribute :execution_id, :uuid, public?: true
-    attribute :author_principal_id, :uuid, public?: true
-    attribute :context_package_id, :uuid, public?: true
     attribute :step_key, :string, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :proposed_graph_change_id, :uuid, public?: true
-    attribute :domain_action_operation_id, :uuid, public?: true
     attribute :source, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
     attribute :body, :string, allow_nil?: false, public?: true
@@ -74,24 +67,42 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
   relationships do
     belongs_to :conversation, OfficeGraph.NodeConversations.Conversation do
       source_attribute :conversation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :author_principal, OfficeGraph.Identity.Principal do
       source_attribute :author_principal_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :domain_action_operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :domain_action_operation_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
+      source_attribute :context_package_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :execution_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :proposed_graph_change, OfficeGraph.ProposedChanges.ProposedGraphChange do
+      source_attribute :proposed_graph_change_id
+      destination_attribute :id
+      attribute_public? true
     end
   end
 end

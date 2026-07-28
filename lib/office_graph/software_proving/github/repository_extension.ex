@@ -13,14 +13,6 @@ defmodule OfficeGraph.SoftwareProving.GitHub.RepositoryExtension do
     ]
 
   attributes do
-    attribute :repository_id, :uuid,
-      primary_key?: true,
-      allow_nil?: false,
-      writable?: true,
-      public?: true
-
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :node_id, :string, allow_nil?: false, public?: true
     attribute :database_id, :integer, public?: true
     attribute :owner_login, :string, allow_nil?: false, public?: true
@@ -32,8 +24,23 @@ defmodule OfficeGraph.SoftwareProving.GitHub.RepositoryExtension do
     belongs_to :repository, OfficeGraph.SoftwareProving.Repository do
       source_attribute :repository_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
+      allow_nil? false
+      primary_key? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
     end
   end
 

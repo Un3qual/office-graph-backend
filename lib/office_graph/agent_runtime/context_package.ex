@@ -16,15 +16,6 @@ defmodule OfficeGraph.AgentRuntime.ContextPackage do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :execution_id, :uuid, allow_nil?: false, public?: true
-    attribute :authority_snapshot_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :selected_graph_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :run_id, :uuid, allow_nil?: false, public?: true
-    attribute :previous_package_id, :uuid, public?: true
-    attribute :expansion_request_id, :uuid, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :version, :integer, allow_nil?: false, public?: true
     attribute :package_hash, :string, allow_nil?: false, public?: true
     attribute :assembled_at, :utc_datetime_usec, allow_nil?: false, public?: true
@@ -65,45 +56,89 @@ defmodule OfficeGraph.AgentRuntime.ContextPackage do
   relationships do
     belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
       source_attribute :execution_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :authority_snapshot, OfficeGraph.AgentRuntime.AuthoritySnapshot do
       source_attribute :authority_snapshot_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :selected_graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :selected_graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :previous_package, OfficeGraph.AgentRuntime.ContextPackage do
       source_attribute :previous_package_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :expansion_request, OfficeGraph.AgentRuntime.ContextExpansionRequest do
       source_attribute :expansion_request_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     has_many :entries, OfficeGraph.AgentRuntime.ContextEntry do
+      destination_attribute :context_package_id
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :proposed_changes, OfficeGraph.ProposedChanges.ProposedGraphChange do
+      source_attribute :id
+      destination_attribute :context_package_id
+    end
+
+    has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
+      source_attribute :id
+      destination_attribute :context_package_id
+    end
+
+    has_many :model_requests, OfficeGraph.AgentRuntime.ModelRequest do
+      source_attribute :id
+      destination_attribute :context_package_id
+    end
+
+    has_many :tool_requests, OfficeGraph.AgentRuntime.ToolRequest do
+      source_attribute :id
+      destination_attribute :context_package_id
+    end
+
+    has_many :execution_observations, OfficeGraph.Runs.ExecutionObservation do
+      source_attribute :id
+      destination_attribute :context_package_id
+    end
+
+    has_many :conversation_messages, OfficeGraph.NodeConversations.ConversationMessage do
+      source_attribute :id
       destination_attribute :context_package_id
     end
   end

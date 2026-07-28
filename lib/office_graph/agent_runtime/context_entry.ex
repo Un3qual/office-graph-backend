@@ -15,19 +15,14 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :context_package_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
     attribute :entry_type, :string, allow_nil?: false, public?: true
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
-    attribute :external_reference_id, :uuid, public?: true
     attribute :posture, :string, allow_nil?: false, public?: true
     attribute :rationale_code, :string, allow_nil?: false, public?: true
     attribute :source_version, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :content_hash, :string, public?: true
     attribute :ordinal, :integer, allow_nil?: false, constraints: [min: 0], public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
   end
 
@@ -68,19 +63,33 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
   relationships do
     belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
       source_attribute :context_package_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :external_reference, OfficeGraph.ExternalRefs.ExternalReference do
       source_attribute :external_reference_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 end

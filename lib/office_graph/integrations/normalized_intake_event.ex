@@ -20,17 +20,57 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :raw_archive_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :source_identity, :string, allow_nil?: false, public?: true
     attribute :replay_identity, :string, allow_nil?: false, public?: true
     attribute :outcome, :string, allow_nil?: false, public?: true
-    attribute :duplicate_of_id, :uuid, public?: true
-
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :duplicate_of, OfficeGraph.Integrations.NormalizedIntakeEvent do
+      source_attribute :duplicate_of_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :raw_archive, OfficeGraph.Integrations.RawArchive do
+      source_attribute :raw_archive_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :duplicate_events, OfficeGraph.Integrations.NormalizedIntakeEvent do
+      source_attribute :id
+      destination_attribute :duplicate_of_id
+    end
+
+    has_many :proposed_changes, OfficeGraph.ProposedChanges.ProposedGraphChange do
+      source_attribute :id
+      destination_attribute :normalized_event_id
+    end
   end
 
   actions do

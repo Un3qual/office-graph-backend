@@ -11,12 +11,15 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
   @constraint_migration_module OfficeGraph.Repo.Migrations.HardenRelationshipPolicyConstraints
   @validity_migration_version 20_260_713_104_000
   @validity_migration_module OfficeGraph.Repo.Migrations.EnforceGraphRelationshipValidityStart
+  @normalization_migration_version 20_260_728_120_000
+  @normalization_migration_module OfficeGraph.Repo.Migrations.NormalizeAshResourceStorage
 
   test "all legacy edge values become canonical typed edges and roll back losslessly" do
-    run_migration!(:down)
-
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    run_migration!(:down)
+
     legacy = insert_legacy_relationships!(bootstrap, operation)
 
     run_migration!(:up)
@@ -80,10 +83,10 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
   end
 
   test "unknown legacy values abort before changing rows" do
-    run_migration!(:down)
-
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
+
+    run_migration!(:down)
 
     source_id = insert_graph_item!(bootstrap, "task")
     target_id = insert_graph_item!(bootstrap, "task")
@@ -98,6 +101,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
   end
 
   defp run_migration!(:down) do
+    run_migration!(
+      @normalization_migration_version,
+      @normalization_migration_module,
+      "20260728120000_normalize_ash_resource_storage.exs",
+      :down
+    )
+
     run_migration!(
       @validity_migration_version,
       @validity_migration_module,
@@ -139,6 +149,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipMigrationTest do
       @validity_migration_version,
       @validity_migration_module,
       "20260713104000_enforce_graph_relationship_validity_start.exs",
+      :up
+    )
+
+    run_migration!(
+      @normalization_migration_version,
+      @normalization_migration_module,
+      "20260728120000_normalize_ash_resource_storage.exs",
       :up
     )
   end

@@ -17,13 +17,26 @@ defmodule OfficeGraph.Content.DocumentBlock do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :document_id, :uuid, allow_nil?: false, public?: true
     attribute :position, :integer, allow_nil?: false, public?: true
     attribute :block_type, :string, allow_nil?: false, public?: true
     attribute :text, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :document, OfficeGraph.Content.Document do
+      source_attribute :document_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :marks, OfficeGraph.Content.DocumentMark do
+      source_attribute :id
+      destination_attribute :block_id
+    end
   end
 
   actions do

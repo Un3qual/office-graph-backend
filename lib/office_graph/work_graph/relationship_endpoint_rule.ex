@@ -14,10 +14,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipEndpointRule do
   attributes do
     uuid_primary_key :id
 
-    attribute :relationship_definition_id, :uuid,
-      allow_nil?: false,
-      public?: true
-
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :target_kind, :string, allow_nil?: false, public?: true
 
@@ -28,8 +24,8 @@ defmodule OfficeGraph.WorkGraph.RelationshipEndpointRule do
   relationships do
     belongs_to :definition, OfficeGraph.WorkGraph.RelationshipDefinition do
       source_attribute :relationship_definition_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
   end
 

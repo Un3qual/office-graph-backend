@@ -15,15 +15,6 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
-    attribute :evidence_item_id, :uuid, allow_nil?: true, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :work_run_id, :uuid, allow_nil?: true, public?: true
-    attribute :work_packet_version_id, :uuid, allow_nil?: true, public?: true
-    attribute :target_graph_item_id, :uuid, allow_nil?: true, public?: true
-    attribute :actor_principal_id, :uuid, allow_nil?: true, public?: true
     attribute :policy_basis, :string, allow_nil?: true, public?: true
     attribute :reason, :string, allow_nil?: true, public?: true
     attribute :recorded_at, :utc_datetime_usec, allow_nil?: true, public?: true
@@ -36,25 +27,57 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
   relationships do
     belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :verification_check_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :evidence_item, OfficeGraph.WorkGraph.EvidenceItem do
       source_attribute :evidence_item_id
-      define_attribute? false
       allow_nil? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :target_graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :target_graph_item_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :actor_principal, OfficeGraph.Identity.Principal do
+      source_attribute :actor_principal_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :work_packet_version_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :work_run, OfficeGraph.Runs.Run do
+      source_attribute :work_run_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 

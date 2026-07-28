@@ -17,22 +17,16 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :external_installation_id, :integer, allow_nil?: false, public?: true
     attribute :app_slug, :string, allow_nil?: false, public?: true
     attribute :account_login, :string, allow_nil?: false, public?: true
     attribute :account_type, :string, allow_nil?: false, public?: true
-    attribute :service_principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :webhook_principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :current_permission_snapshot_id, :uuid, public?: true
 
     attribute :lifecycle_state, :string,
       allow_nil?: false,
       default: "active",
       public?: true
 
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -86,43 +80,43 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
       source_attribute :organization_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :governing_workspace, OfficeGraph.Tenancy.Workspace do
       source_attribute :workspace_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :service_principal, OfficeGraph.Identity.Principal do
       source_attribute :service_principal_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :webhook_principal, OfficeGraph.Identity.Principal do
       source_attribute :webhook_principal_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :current_permission_snapshot, OfficeGraph.GitHubIntegration.PermissionSnapshot do
       source_attribute :current_permission_snapshot_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_many :permission_snapshots, OfficeGraph.GitHubIntegration.PermissionSnapshot

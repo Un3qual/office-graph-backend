@@ -18,16 +18,6 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
-    attribute :artifact_id, :uuid, allow_nil?: true, public?: true
-    attribute :body_document_id, :uuid, allow_nil?: false, public?: true
-    attribute :candidate_id, :uuid, allow_nil?: true, public?: true
-    attribute :work_run_id, :uuid, allow_nil?: true, public?: true
-    attribute :accepted_by_principal_id, :uuid, allow_nil?: true, public?: true
-    attribute :acceptance_operation_id, :uuid, allow_nil?: true, public?: true
     attribute :acceptance_policy_basis, :string, allow_nil?: true, public?: true
     attribute :accepted_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :sensitivity, :string, allow_nil?: true, public?: true
@@ -43,35 +33,66 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
   relationships do
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :verification_check_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :artifact, OfficeGraph.WorkGraph.Artifact do
       source_attribute :artifact_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :body_document, OfficeGraph.Content.Document do
       source_attribute :body_document_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :candidate, OfficeGraph.WorkGraph.EvidenceCandidate do
       source_attribute :candidate_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :acceptance_operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :acceptance_operation_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :accepted_by_principal, OfficeGraph.Identity.Principal do
+      source_attribute :accepted_by_principal_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :work_run, OfficeGraph.Runs.Run do
+      source_attribute :work_run_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
+      source_attribute :id
+      destination_attribute :evidence_item_id
     end
   end
 

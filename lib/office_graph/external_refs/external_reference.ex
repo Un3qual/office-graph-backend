@@ -23,9 +23,6 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, public?: true
-    attribute :workspace_id, :uuid, public?: true
-    attribute :source_id, :uuid, allow_nil?: false, public?: true
     attribute :provider, :string, public?: true
     attribute :object_type, :string, public?: true
     attribute :external_id, :string, allow_nil?: false, public?: true
@@ -36,7 +33,6 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
       default: "synced",
       public?: true
 
-    attribute :operation_id, :uuid, public?: true
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
 
@@ -101,8 +97,32 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
     belongs_to :governing_workspace, OfficeGraph.Tenancy.Workspace do
       source_attribute :workspace_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :external_source, OfficeGraph.Integrations.ExternalSource do
+      source_attribute :source_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :context_entries, OfficeGraph.AgentRuntime.ContextEntry do
+      source_attribute :id
+      destination_attribute :external_reference_id
     end
   end
 end

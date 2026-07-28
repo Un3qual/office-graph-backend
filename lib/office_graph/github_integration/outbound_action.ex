@@ -15,11 +15,6 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :installation_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :action_kind, :string, allow_nil?: false, public?: true
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true
@@ -110,15 +105,35 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
     belongs_to :installation, OfficeGraph.GitHubIntegration.Installation do
       source_attribute :installation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :principal, OfficeGraph.Identity.Principal do
+      source_attribute :principal_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
     end
   end
 end

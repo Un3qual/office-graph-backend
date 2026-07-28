@@ -15,7 +15,6 @@ defmodule OfficeGraph.GitHubIntegration.PermissionEntry do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :permission_snapshot_id, :uuid, allow_nil?: false, public?: true
     attribute :name, :string, allow_nil?: false, public?: true
     attribute :access_level, :string, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
@@ -43,8 +42,8 @@ defmodule OfficeGraph.GitHubIntegration.PermissionEntry do
     belongs_to :permission_snapshot, OfficeGraph.GitHubIntegration.PermissionSnapshot do
       source_attribute :permission_snapshot_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 end

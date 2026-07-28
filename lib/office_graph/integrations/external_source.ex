@@ -24,6 +24,18 @@ defmodule OfficeGraph.Integrations.ExternalSource do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    has_many :raw_archives, OfficeGraph.Integrations.RawArchive do
+      source_attribute :id
+      destination_attribute :source_id
+    end
+
+    has_many :external_references, OfficeGraph.ExternalRefs.ExternalReference do
+      source_attribute :id
+      destination_attribute :source_id
+    end
+  end
+
   actions do
     read :read do
       primary? true

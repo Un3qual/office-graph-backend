@@ -15,8 +15,6 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :installation_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :object_type, :string, allow_nil?: false, public?: true
     attribute :object_id, :string, allow_nil?: false, public?: true
     attribute :delivery_id, :string, allow_nil?: false, public?: true
@@ -97,15 +95,15 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
     belongs_to :installation, OfficeGraph.GitHubIntegration.Installation do
       source_attribute :installation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 end

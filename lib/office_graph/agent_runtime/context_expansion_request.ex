@@ -18,14 +18,6 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :execution_id, :uuid, allow_nil?: false, public?: true
-    attribute :current_context_package_id, :uuid, allow_nil?: false, public?: true
-    attribute :authority_snapshot_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :resolution_operation_id, :uuid, public?: true
-    attribute :resolved_by_principal_id, :uuid, public?: true
     attribute :step_key, :string, allow_nil?: false, public?: true
 
     attribute :execution_state_version, :integer,
@@ -121,36 +113,50 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
   relationships do
     belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
       source_attribute :execution_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :current_context_package, OfficeGraph.AgentRuntime.ContextPackage do
       source_attribute :current_context_package_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :authority_snapshot, OfficeGraph.AgentRuntime.AuthoritySnapshot do
       source_attribute :authority_snapshot_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :resolution_operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :resolution_operation_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :resolved_by_principal, OfficeGraph.Identity.Principal do
       source_attribute :resolved_by_principal_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 end

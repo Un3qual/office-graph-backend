@@ -36,11 +36,6 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :principal_id, :uuid, public?: true
-    attribute :external_identity_link_id, :uuid, public?: true
-    attribute :session_id, :uuid, public?: true
-    attribute :organization_id, :uuid, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :event, :string, allow_nil?: false, public?: true
     attribute :result, :string, allow_nil?: false, public?: true
     attribute :reason, :string, allow_nil?: false, public?: true
@@ -50,6 +45,38 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :external_identity_link, OfficeGraph.Identity.ExternalIdentityLink do
+      source_attribute :external_identity_link_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :principal, OfficeGraph.Identity.Principal do
+      source_attribute :principal_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :session, OfficeGraph.Identity.Session do
+      source_attribute :session_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
+    end
   end
 
   actions do

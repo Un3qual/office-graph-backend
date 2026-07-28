@@ -19,10 +19,6 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
     attribute :operation_kind, :string, allow_nil?: false, default: "human", public?: true
-    attribute :principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :session_id, :uuid, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
     attribute :action, :string, allow_nil?: false, public?: true
     attribute :correlation_id, :string, allow_nil?: false, public?: true
     attribute :idempotency_key, :string, public?: true
@@ -37,6 +33,34 @@ defmodule OfficeGraph.Operations.OperationCorrelation do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :principal, OfficeGraph.Identity.Principal do
+      source_attribute :principal_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :session, OfficeGraph.Identity.Session do
+      source_attribute :session_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
+    end
   end
 
   actions do

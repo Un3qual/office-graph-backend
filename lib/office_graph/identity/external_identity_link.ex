@@ -14,7 +14,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :principal_id, :uuid, public?: true
     attribute :provider, :string, allow_nil?: false, public?: true
     attribute :provider_tenant, :string, allow_nil?: false, public?: true
     attribute :subject, :string, allow_nil?: false, public?: true
@@ -28,6 +27,24 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :principal, OfficeGraph.Identity.Principal do
+      source_attribute :principal_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    has_many :sessions, OfficeGraph.Identity.Session do
+      source_attribute :id
+      destination_attribute :external_identity_link_id
+    end
+
+    has_many :authentication_events, OfficeGraph.Identity.AuthenticationEvent do
+      source_attribute :id
+      destination_attribute :external_identity_link_id
+    end
   end
 
   actions do

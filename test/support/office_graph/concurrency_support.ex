@@ -684,11 +684,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         operation_id,
         content_hash,
         body,
-        metadata,
         inserted_at,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, '{}'::jsonb, $8, $8)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $8)
       """,
       [
         db_uuid(raw_archive_id),
@@ -776,11 +775,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         operation_id,
         content_hash,
         body,
-        metadata,
         inserted_at,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, '{}'::jsonb, $8, $8)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $8)
       """,
       [
         db_uuid(raw_archive_id),

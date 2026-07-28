@@ -19,13 +19,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :definition_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :agent_principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :bound_by_principal_id, :uuid, allow_nil?: false, public?: true
     attribute :lifecycle_state, :string, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :disabled_at, :utc_datetime_usec, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -83,44 +77,49 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
   relationships do
     belongs_to :definition, OfficeGraph.AgentRuntime.AgentDefinition do
       source_attribute :definition_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
       source_attribute :organization_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
       source_attribute :workspace_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :agent_principal, OfficeGraph.Identity.Principal do
       source_attribute :agent_principal_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :bound_by_principal, OfficeGraph.Identity.Principal do
       source_attribute :bound_by_principal_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
       public? true
+      attribute_public? true
+    end
+
+    has_many :executions, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :id
+      destination_attribute :organization_binding_id
     end
   end
 end

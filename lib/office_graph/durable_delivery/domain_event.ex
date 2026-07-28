@@ -17,10 +17,6 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
     attribute :operation_kind, :string, allow_nil?: false, default: "human", public?: true
     attribute :event_scope, :string, allow_nil?: false, default: "workspace", public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :causation_event_id, :uuid, public?: true
     attribute :event_key, :string, allow_nil?: false, public?: true
     attribute :event_kind, :string, allow_nil?: false, public?: true
     attribute :subject_kind, :string, public?: true
@@ -34,6 +30,34 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :causation_event, OfficeGraph.DurableDelivery.DomainEvent do
+      source_attribute :causation_event_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
+    end
   end
 
   actions do

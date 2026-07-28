@@ -18,11 +18,6 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :execution_id, :uuid, allow_nil?: false, public?: true
-    attribute :context_package_id, :uuid, allow_nil?: false, public?: true
-    attribute :authority_snapshot_id, :uuid, allow_nil?: false, public?: true
-    attribute :credential_id, :uuid, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :step_key, :string, allow_nil?: false, public?: true
     attribute :tool_key, :string, allow_nil?: false, public?: true
     attribute :adapter_version, :string, allow_nil?: false, public?: true
@@ -92,31 +87,31 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
   relationships do
     belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
       source_attribute :execution_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
       source_attribute :context_package_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :authority_snapshot, OfficeGraph.AgentRuntime.AuthoritySnapshot do
       source_attribute :authority_snapshot_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :credential, OfficeGraph.Integrations.IntegrationCredential do
       source_attribute :credential_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
   end
 end

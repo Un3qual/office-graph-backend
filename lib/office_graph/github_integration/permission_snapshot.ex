@@ -16,10 +16,8 @@ defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :installation_id, :uuid, allow_nil?: false, public?: true
     attribute :version, :integer, allow_nil?: false, public?: true
     attribute :captured_at, :utc_datetime_usec, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -44,15 +42,15 @@ defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
     belongs_to :installation, OfficeGraph.GitHubIntegration.Installation do
       source_attribute :installation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_many :entries, OfficeGraph.GitHubIntegration.PermissionEntry do

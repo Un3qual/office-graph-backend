@@ -15,10 +15,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :work_packet_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :version_number, :integer, allow_nil?: false, public?: true
     attribute :lifecycle_state, :string, allow_nil?: false, public?: true
     attribute :title, :string, allow_nil?: false, public?: true
@@ -35,14 +31,14 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   relationships do
     belongs_to :work_packet, OfficeGraph.WorkPackets.WorkPacket do
       source_attribute :work_packet_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     has_many :source_references, OfficeGraph.WorkPackets.WorkPacketSourceReference do
@@ -50,6 +46,30 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
     end
 
     has_many :required_checks, OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
+      destination_attribute :work_packet_version_id
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
+      source_attribute :id
+      destination_attribute :work_packet_version_id
+    end
+
+    has_many :runs, OfficeGraph.Runs.Run do
+      source_attribute :id
       destination_attribute :work_packet_version_id
     end
   end

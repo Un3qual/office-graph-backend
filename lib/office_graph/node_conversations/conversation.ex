@@ -15,12 +15,6 @@ defmodule OfficeGraph.NodeConversations.Conversation do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
-    attribute :run_id, :uuid, allow_nil?: false, public?: true
-    attribute :created_by_principal_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     attribute :purpose, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
@@ -84,30 +78,44 @@ defmodule OfficeGraph.NodeConversations.Conversation do
   relationships do
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :created_by_principal, OfficeGraph.Identity.Principal do
       source_attribute :created_by_principal_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     has_many :messages, OfficeGraph.NodeConversations.ConversationMessage do
       destination_attribute :conversation_id
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 end

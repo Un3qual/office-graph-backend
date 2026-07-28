@@ -19,12 +19,6 @@ defmodule OfficeGraph.Runs.Run do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: true, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: true, public?: true
-    attribute :work_packet_id, :uuid, allow_nil?: false, public?: true
-    attribute :work_packet_version_id, :uuid, allow_nil?: true, public?: true
-    attribute :operation_id, :uuid, allow_nil?: true, public?: true
-    attribute :initiator_principal_id, :uuid, allow_nil?: true, public?: true
     attribute :objective, :string, allow_nil?: true, public?: true
     attribute :authority_posture, :string, allow_nil?: true, public?: true
     attribute :source_surface, :string, allow_nil?: true, public?: true
@@ -43,23 +37,23 @@ defmodule OfficeGraph.Runs.Run do
   relationships do
     belongs_to :work_packet, OfficeGraph.WorkPackets.WorkPacket do
       source_attribute :work_packet_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
       source_attribute :work_packet_version_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :initiator_principal, OfficeGraph.Identity.Principal do
       source_attribute :initiator_principal_id
-      define_attribute? false
+      attribute_public? true
     end
 
     has_many :required_checks, OfficeGraph.Runs.RunRequiredCheck do
@@ -71,6 +65,43 @@ defmodule OfficeGraph.Runs.Run do
     end
 
     has_many :events, OfficeGraph.Runs.RunEvent do
+      destination_attribute :run_id
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
+      source_attribute :id
+      destination_attribute :work_run_id
+    end
+
+    has_many :evidence_items, OfficeGraph.WorkGraph.EvidenceItem do
+      source_attribute :id
+      destination_attribute :work_run_id
+    end
+
+    has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
+      source_attribute :id
+      destination_attribute :work_run_id
+    end
+
+    has_many :agent_executions, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :id
+      destination_attribute :run_id
+    end
+
+    has_many :conversations, OfficeGraph.NodeConversations.Conversation do
+      source_attribute :id
       destination_attribute :run_id
     end
   end

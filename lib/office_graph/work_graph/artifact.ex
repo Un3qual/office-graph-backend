@@ -15,9 +15,6 @@ defmodule OfficeGraph.WorkGraph.Artifact do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: false, public?: true
     attribute :title, :string, allow_nil?: false, public?: true
     attribute :uri, :string, allow_nil?: true, public?: true
 
@@ -28,8 +25,32 @@ defmodule OfficeGraph.WorkGraph.Artifact do
   relationships do
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
+      source_attribute :id
+      destination_attribute :artifact_id
+    end
+
+    has_many :evidence_items, OfficeGraph.WorkGraph.EvidenceItem do
+      source_attribute :id
+      destination_attribute :artifact_id
     end
   end
 

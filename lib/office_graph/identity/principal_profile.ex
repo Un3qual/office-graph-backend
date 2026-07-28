@@ -14,11 +14,19 @@ defmodule OfficeGraph.Identity.PrincipalProfile do
 
   attributes do
     attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :principal_id, :uuid, allow_nil?: false, public?: true
     attribute :display_name, :string, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :principal, OfficeGraph.Identity.Principal do
+      source_attribute :principal_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do

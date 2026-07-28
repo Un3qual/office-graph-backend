@@ -164,6 +164,174 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.WorkGraph.VerificationResult
   ]
 
+  @intentional_non_relationship_uuid_identifiers %{
+    {OfficeGraph.Operations.OperationCorrelation, :credential_id} => {:boundary_opaque, :action},
+    {OfficeGraph.Operations.OperationCorrelation, :subject_id} => {:polymorphic, :subject_kind},
+    {OfficeGraph.DurableDelivery.DomainEvent, :subject_id} => {:polymorphic, :subject_kind},
+    {OfficeGraph.Audit.AuditRecord, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.Revisions.Revision, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.Content.DocumentReference, :target_id} => {:polymorphic, :target_type},
+    {OfficeGraph.ExternalRefs.ExternalReference, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.GitHubIntegration.SyncOutcome, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.GitHubIntegration.OutboundAction, :target_id} =>
+      {:provider_polymorphic, :target_type},
+    {OfficeGraph.ProposedChanges.ProposedGraphChange, :applied_resource_id} =>
+      {:change_result, :change_type},
+    {OfficeGraph.WorkGraph.GraphItem, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.AgentRuntime.ContextEntry, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.AgentRuntime.ApprovalRequest, :scope_id} => {:polymorphic, :scope_type},
+    {OfficeGraph.AgentRuntime.ContextExpansionRequest, :target_resource_id} =>
+      {:polymorphic, :target_resource_type},
+    {OfficeGraph.AgentRuntime.ContextExpansionRequest, :target_scope_id} =>
+      {:polymorphic, :target_scope_type}
+  }
+
+  @stable_inverse_relationships %{
+    OfficeGraph.Tenancy.Organization => %{
+      workspaces: {:has_many, OfficeGraph.Tenancy.Workspace, :id, :organization_id}
+    },
+    OfficeGraph.Tenancy.Workspace => %{
+      initiatives: {:has_many, OfficeGraph.Tenancy.Initiative, :id, :workspace_id},
+      workstreams: {:has_many, OfficeGraph.Tenancy.Workstream, :id, :workspace_id}
+    },
+    OfficeGraph.Tenancy.Initiative => %{
+      workstreams: {:has_many, OfficeGraph.Tenancy.Workstream, :id, :initiative_id}
+    },
+    OfficeGraph.Identity.Principal => %{
+      profile: {:has_one, OfficeGraph.Identity.PrincipalProfile, :id, :principal_id},
+      credentials: {:has_many, OfficeGraph.Identity.Credential, :id, :principal_id},
+      external_identity_links:
+        {:has_many, OfficeGraph.Identity.ExternalIdentityLink, :id, :principal_id},
+      sessions: {:has_many, OfficeGraph.Identity.Session, :id, :principal_id},
+      authentication_events:
+        {:has_many, OfficeGraph.Identity.AuthenticationEvent, :id, :principal_id},
+      role_assignments: {:has_many, OfficeGraph.Authorization.RoleAssignment, :id, :principal_id}
+    },
+    OfficeGraph.Identity.ExternalIdentityLink => %{
+      sessions: {:has_many, OfficeGraph.Identity.Session, :id, :external_identity_link_id},
+      authentication_events:
+        {:has_many, OfficeGraph.Identity.AuthenticationEvent, :id, :external_identity_link_id}
+    },
+    OfficeGraph.Authorization.Role => %{
+      role_capabilities: {:has_many, OfficeGraph.Authorization.RoleCapability, :id, :role_id},
+      assignments: {:has_many, OfficeGraph.Authorization.RoleAssignment, :id, :role_id}
+    },
+    OfficeGraph.Authorization.Capability => %{
+      role_capabilities:
+        {:has_many, OfficeGraph.Authorization.RoleCapability, :id, :capability_id}
+    },
+    OfficeGraph.Content.Document => %{
+      blocks: {:has_many, OfficeGraph.Content.DocumentBlock, :id, :document_id},
+      references: {:has_many, OfficeGraph.Content.DocumentReference, :id, :document_id},
+      revisions: {:has_many, OfficeGraph.Content.DocumentRevision, :id, :document_id}
+    },
+    OfficeGraph.Content.DocumentBlock => %{
+      marks: {:has_many, OfficeGraph.Content.DocumentMark, :id, :block_id}
+    },
+    OfficeGraph.Integrations.ExternalSource => %{
+      raw_archives: {:has_many, OfficeGraph.Integrations.RawArchive, :id, :source_id},
+      external_references:
+        {:has_many, OfficeGraph.ExternalRefs.ExternalReference, :id, :source_id}
+    },
+    OfficeGraph.Integrations.RawArchive => %{
+      normalized_events:
+        {:has_many, OfficeGraph.Integrations.NormalizedIntakeEvent, :id, :raw_archive_id}
+    },
+    OfficeGraph.Integrations.NormalizedIntakeEvent => %{
+      duplicate_events:
+        {:has_many, OfficeGraph.Integrations.NormalizedIntakeEvent, :id, :duplicate_of_id},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :normalized_event_id}
+    },
+    OfficeGraph.ExternalRefs.ExternalReference => %{
+      context_entries:
+        {:has_many, OfficeGraph.AgentRuntime.ContextEntry, :id, :external_reference_id}
+    },
+    OfficeGraph.WorkGraph.GraphItem => %{
+      signal: {:has_one, OfficeGraph.WorkGraph.Signal, :id, :graph_item_id},
+      task: {:has_one, OfficeGraph.WorkGraph.Task, :id, :graph_item_id},
+      review_finding: {:has_one, OfficeGraph.WorkGraph.ReviewFinding, :id, :graph_item_id},
+      verification_check:
+        {:has_one, OfficeGraph.WorkGraph.VerificationCheck, :id, :graph_item_id},
+      artifact: {:has_one, OfficeGraph.WorkGraph.Artifact, :id, :graph_item_id},
+      evidence_item: {:has_one, OfficeGraph.WorkGraph.EvidenceItem, :id, :graph_item_id}
+    },
+    OfficeGraph.WorkGraph.Signal => %{
+      tasks: {:has_many, OfficeGraph.WorkGraph.Task, :id, :source_signal_id}
+    },
+    OfficeGraph.WorkGraph.Task => %{
+      review_findings: {:has_many, OfficeGraph.WorkGraph.ReviewFinding, :id, :task_id}
+    },
+    OfficeGraph.WorkGraph.ReviewFinding => %{
+      verification_checks:
+        {:has_many, OfficeGraph.WorkGraph.VerificationCheck, :id, :review_finding_id}
+    },
+    OfficeGraph.WorkGraph.VerificationCheck => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :verification_check_id},
+      evidence_items:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :verification_check_id},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :verification_check_id}
+    },
+    OfficeGraph.WorkGraph.Artifact => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :artifact_id},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :artifact_id}
+    },
+    OfficeGraph.WorkGraph.EvidenceCandidate => %{
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :candidate_id}
+    },
+    OfficeGraph.WorkGraph.EvidenceItem => %{
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :evidence_item_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      runs: {:has_many, OfficeGraph.Runs.Run, :id, :work_packet_version_id},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_packet_version_id}
+    },
+    OfficeGraph.Runs.Run => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :work_run_id},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :work_run_id},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_run_id},
+      agent_executions: {:has_many, OfficeGraph.AgentRuntime.AgentExecution, :id, :run_id},
+      conversations: {:has_many, OfficeGraph.NodeConversations.Conversation, :id, :run_id}
+    },
+    OfficeGraph.AgentRuntime.OrganizationBinding => %{
+      executions:
+        {:has_many, OfficeGraph.AgentRuntime.AgentExecution, :id, :organization_binding_id}
+    },
+    OfficeGraph.AgentRuntime.AgentExecution => %{
+      authority_snapshots:
+        {:has_many, OfficeGraph.AgentRuntime.AuthoritySnapshot, :id, :execution_id},
+      context_packages: {:has_many, OfficeGraph.AgentRuntime.ContextPackage, :id, :execution_id},
+      model_requests: {:has_many, OfficeGraph.AgentRuntime.ModelRequest, :id, :execution_id},
+      tool_requests: {:has_many, OfficeGraph.AgentRuntime.ToolRequest, :id, :execution_id},
+      approval_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ApprovalRequest, :id, :execution_id},
+      context_expansion_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ContextExpansionRequest, :id, :execution_id},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :execution_id}
+    },
+    OfficeGraph.AgentRuntime.ContextPackage => %{
+      model_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ModelRequest, :id, :context_package_id},
+      tool_requests: {:has_many, OfficeGraph.AgentRuntime.ToolRequest, :id, :context_package_id},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :context_package_id},
+      execution_observations:
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :context_package_id},
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :context_package_id},
+      conversation_messages:
+        {:has_many, OfficeGraph.NodeConversations.ConversationMessage, :id, :context_package_id}
+    }
+  }
+
   @planned_mvp_resources %{
     "requirements" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Requirement},
     "questions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Question},
@@ -758,6 +926,12 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       @stabilization_inventory unquote(@stabilization_inventory)
       @expected_resources unquote(Macro.escape(@expected_resources))
       @work_graph_resources unquote(Macro.escape(@work_graph_resources))
+      @intentional_non_relationship_uuid_identifiers unquote(
+                                                       Macro.escape(
+                                                         @intentional_non_relationship_uuid_identifiers
+                                                       )
+                                                     )
+      @stable_inverse_relationships unquote(Macro.escape(@stable_inverse_relationships))
       @planned_mvp_resources unquote(Macro.escape(@planned_mvp_resources))
 
       @accepted_software_proving_planned_tables unquote(
@@ -833,6 +1007,166 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     end)
     |> MapSet.to_list()
     |> Enum.sort()
+  end
+
+  def migration_foreign_key_relationship_errors(expected_resources) do
+    resources_by_table =
+      Map.new(expected_resources, fn {table, {_domain, resource}} -> {table, resource} end)
+
+    migration_foreign_keys()
+    |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
+      with source when not is_nil(source) <- Map.get(resources_by_table, source_table),
+           destination when not is_nil(destination) <-
+             Map.get(resources_by_table, destination_table),
+           source_attribute <- String.to_existing_atom(source_attribute),
+           destination_attribute <- String.to_existing_atom(destination_attribute),
+           nil <-
+             Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
+               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
+                 relationship.source_attribute == source_attribute and
+                 relationship.destination == destination and
+                 relationship.destination_attribute == destination_attribute
+             end) do
+        [
+          "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
+        ]
+      else
+        %Ash.Resource.Relationships.BelongsTo{} -> []
+        _table_without_resource -> []
+      end
+    end)
+    |> Enum.sort()
+  end
+
+  def unmodeled_uuid_identifier_fields(expected_resources) do
+    expected_resources
+    |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+      relationships = Ash.Resource.Info.relationships(resource)
+
+      resource
+      |> Ash.Resource.Info.attributes()
+      |> Enum.filter(fn attribute ->
+        attribute.type == Ash.Type.UUID and
+          String.ends_with?(Atom.to_string(attribute.name), "_id") and
+          is_nil(
+            Enum.find(relationships, fn relationship ->
+              match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
+                relationship.source_attribute == attribute.name
+            end)
+          )
+      end)
+      |> Enum.map(&{resource, &1.name})
+    end)
+    |> MapSet.new()
+  end
+
+  def stable_inverse_relationships, do: @stable_inverse_relationships
+
+  def migration_foreign_keys do
+    "priv/repo/migrations/*.exs"
+    |> Path.wildcard()
+    |> Enum.sort()
+    |> Enum.reduce(%{}, fn path, foreign_keys ->
+      path
+      |> File.read!()
+      |> migration_forward_ast()
+      |> migration_foreign_key_operations()
+      |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
+    end)
+    |> Map.values()
+    |> Enum.sort()
+  end
+
+  def migration_forward_ast(source) do
+    ast = Code.string_to_quoted!(source)
+
+    {_ast, functions} =
+      Macro.prewalk(ast, [], fn
+        {:def, _meta, [{name, _name_meta, _arguments}, [do: body]]} = node, functions
+        when name in [:up, :change] ->
+          {node, [{name, body} | functions]}
+
+        node, functions ->
+          {node, functions}
+      end)
+
+    case Enum.find(functions, &(elem(&1, 0) == :up)) ||
+           Enum.find(functions, &(elem(&1, 0) == :change)) do
+      {_name, body} -> body
+      nil -> {:__block__, [], []}
+    end
+  end
+
+  def migration_foreign_key_operations(ast) do
+    {_ast, operations} =
+      Macro.prewalk(ast, [], fn
+        {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} =
+            node,
+        operations
+        when operation in [:create, :alter] and is_atom(table) ->
+          table_operations = table_foreign_key_operations(table, block)
+          {node, operations ++ table_operations}
+
+        {:drop, _meta, [{:table, _table_meta, [table | _table_options]}]} = node, operations
+        when is_atom(table) ->
+          {node, operations ++ [{:drop_table, Atom.to_string(table)}]}
+
+        node, operations ->
+          {node, operations}
+      end)
+
+    operations
+  end
+
+  def table_foreign_key_operations(table, block) do
+    table = Atom.to_string(table)
+
+    {_block, operations} =
+      Macro.prewalk(block, [], fn
+        {operation, _meta,
+         [
+           column,
+           {:references, _references_meta, [destination | reference_options]}
+           | _column_options
+         ]} = node,
+        operations
+        when operation in [:add, :modify] and is_atom(column) and is_atom(destination) ->
+          destination_attribute =
+            reference_options
+            |> List.flatten()
+            |> Keyword.get(:column, :id)
+
+          foreign_key = {
+            table,
+            Atom.to_string(column),
+            Atom.to_string(destination),
+            Atom.to_string(destination_attribute)
+          }
+
+          {node, operations ++ [{:put, foreign_key}]}
+
+        {:remove, _meta, [column | _options]} = node, operations when is_atom(column) ->
+          {node, operations ++ [{:remove, table, Atom.to_string(column)}]}
+
+        node, operations ->
+          {node, operations}
+      end)
+
+    operations
+  end
+
+  def apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
+    {table, column, _destination_table, _destination_column} = foreign_key
+    Map.put(foreign_keys, {table, column}, foreign_key)
+  end
+
+  def apply_foreign_key_operation({:remove, table, column}, foreign_keys),
+    do: Map.delete(foreign_keys, {table, column})
+
+  def apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
+    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
+      source_table == table
+    end)
   end
 
   def migration_forward_source(source) do

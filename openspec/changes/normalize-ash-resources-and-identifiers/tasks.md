@@ -21,11 +21,11 @@
 
 ## 4. Complete Ash Relationships
 
-- [ ] 4.1 Inventory concrete migration foreign keys, polymorphic identifiers, and stable inverse relationships in architecture conformance data
-- [ ] 4.2 Add missing Tenancy, Identity, Authorization, Operations, Audit, Revision, Content, Integration, and ExternalRefs relationships
-- [ ] 4.3 Add missing SoftwareProving, GitHubIntegration, ProposedChanges, WorkGraph, WorkPackets, Runs, AgentRuntime, and NodeConversations relationships
-- [ ] 4.4 Let ordinary `belongs_to` declarations define their source attributes and retain only tested explicit-attribute exceptions
-- [ ] 4.5 Group every touched resource declaration by identity/scope, lifecycle, domain data, and timestamps
+- [x] 4.1 Inventory concrete migration foreign keys, polymorphic identifiers, and stable inverse relationships in architecture conformance data
+- [x] 4.2 Add missing Tenancy, Identity, Authorization, Operations, Audit, Revision, Content, Integration, and ExternalRefs relationships
+- [x] 4.3 Add missing SoftwareProving, GitHubIntegration, ProposedChanges, WorkGraph, WorkPackets, Runs, AgentRuntime, and NodeConversations relationships
+- [x] 4.4 Let ordinary `belongs_to` declarations define their source attributes and retain only tested explicit-attribute exceptions
+- [x] 4.5 Group every touched resource declaration by identity/scope, lifecycle, domain data, and timestamps
 
 ## 5. Adopt Database-Generated UUIDv7
 

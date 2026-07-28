@@ -28,14 +28,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :applied_operation_id, :uuid, public?: true
     attribute :applied_resource_id, :uuid, public?: true
-    attribute :normalized_event_id, :uuid, public?: true
-    attribute :execution_id, :uuid, public?: true
-    attribute :context_package_id, :uuid, public?: true
     attribute :step_key, :string, public?: true
     attribute :status, :string, allow_nil?: false, default: "pending", public?: true
     attribute :change_type, :string, allow_nil?: false, public?: true
@@ -46,6 +39,53 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :applied_operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :applied_operation_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
+      source_attribute :context_package_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :execution_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :normalized_event, OfficeGraph.Integrations.NormalizedIntakeEvent do
+      source_attribute :normalized_event_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do

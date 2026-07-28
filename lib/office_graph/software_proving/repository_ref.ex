@@ -7,12 +7,10 @@ defmodule OfficeGraph.SoftwareProving.RepositoryRef do
     validations: [ref_type: ~w(branch tag other)]
 
   attributes do
-    attribute :repository_id, :uuid, allow_nil?: false, public?: true
     attribute :name, :string, allow_nil?: false, public?: true
 
     attribute :ref_type, :string, allow_nil?: false, public?: true
 
-    attribute :target_commit_id, :uuid, public?: true
     attribute :is_default, :boolean, allow_nil?: false, default: false, public?: true
   end
 
@@ -20,15 +18,15 @@ defmodule OfficeGraph.SoftwareProving.RepositoryRef do
     belongs_to :repository, OfficeGraph.SoftwareProving.Repository do
       source_attribute :repository_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :target_commit, OfficeGraph.SoftwareProving.Commit do
       source_attribute :target_commit_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 

@@ -16,12 +16,20 @@ defmodule OfficeGraph.Content.DocumentReference do
 
   attributes do
     uuid_primary_key :id, writable?: true
-    attribute :document_id, :uuid, allow_nil?: false, public?: true
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :document, OfficeGraph.Content.Document do
+      source_attribute :document_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do

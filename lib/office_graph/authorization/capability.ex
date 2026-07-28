@@ -21,6 +21,13 @@ defmodule OfficeGraph.Authorization.Capability do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    has_many :role_capabilities, OfficeGraph.Authorization.RoleCapability do
+      source_attribute :id
+      destination_attribute :capability_id
+    end
+  end
+
   actions do
     defaults [:read]
 

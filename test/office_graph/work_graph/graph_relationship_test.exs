@@ -67,9 +67,8 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert relationships.superseded_relationship == GraphRelationship
     assert relationships.deletion_operation == OfficeGraph.Operations.OperationCorrelation
     assert relationships.deleted_by_principal == OfficeGraph.Identity.Principal
-
-    refute Map.has_key?(relationships, :related_run)
-    refute Map.has_key?(relationships, :integration_event)
+    assert relationships.run == OfficeGraph.Runs.Run
+    assert relationships.integration_event == OfficeGraph.Integrations.NormalizedIntakeEvent
   end
 
   test "tombstone and restore own in-table deletion metadata" do

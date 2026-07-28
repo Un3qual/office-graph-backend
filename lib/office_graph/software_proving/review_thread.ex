@@ -7,8 +7,6 @@ defmodule OfficeGraph.SoftwareProving.ReviewThread do
     validations: [state: ~w(open resolved outdated)]
 
   attributes do
-    attribute :pull_request_id, :uuid, allow_nil?: false, public?: true
-
     attribute :state, :string, allow_nil?: false, public?: true
 
     attribute :path, :string, public?: true
@@ -23,8 +21,8 @@ defmodule OfficeGraph.SoftwareProving.ReviewThread do
     belongs_to :pull_request, OfficeGraph.SoftwareProving.PullRequest do
       source_attribute :pull_request_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_many :comments, OfficeGraph.SoftwareProving.ReviewComment

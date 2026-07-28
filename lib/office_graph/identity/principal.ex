@@ -22,6 +22,38 @@ defmodule OfficeGraph.Identity.Principal do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    has_one :profile, OfficeGraph.Identity.PrincipalProfile do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+
+    has_many :credentials, OfficeGraph.Identity.Credential do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+
+    has_many :sessions, OfficeGraph.Identity.Session do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+
+    has_many :external_identity_links, OfficeGraph.Identity.ExternalIdentityLink do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+
+    has_many :authentication_events, OfficeGraph.Identity.AuthenticationEvent do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+
+    has_many :role_assignments, OfficeGraph.Authorization.RoleAssignment do
+      source_attribute :id
+      destination_attribute :principal_id
+    end
+  end
+
   actions do
     defaults [:read]
 
