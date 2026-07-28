@@ -145,19 +145,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
 
   defp current_diagnostics(current, recorded) do
     Enum.flat_map(current, fn occurrence ->
-      cond do
-        Enum.any?(recorded, &same_fingerprint?(&1, occurrence)) ->
+      case recorded_match(recorded, occurrence) do
+        :exact ->
           []
 
-        recorded_occurrence = Enum.find(recorded, &same_locator?(&1, occurrence)) ->
+        {:changed, recorded_occurrence} ->
           [
             occurrence
             |> diagnostic(:changed)
             |> Map.put(:recorded_fingerprint, recorded_occurrence["fingerprint"])
           ]
 
-        true ->
+        :new ->
           [diagnostic(occurrence, :new)]
+      end
+    end)
+  end
+
+  defp recorded_match(recorded, occurrence) do
+    Enum.reduce_while(recorded, :new, fn recorded_occurrence, match ->
+      cond do
+        same_fingerprint?(recorded_occurrence, occurrence) ->
+          {:halt, :exact}
+
+        same_locator?(recorded_occurrence, occurrence) ->
+          {:cont, {:changed, recorded_occurrence}}
+
+        true ->
+          {:cont, match}
       end
     end)
   end
