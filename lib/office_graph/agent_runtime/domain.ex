@@ -26,6 +26,32 @@ defmodule OfficeGraph.AgentRuntime.Domain do
            :read,
            relay?: true
     end
+
+    mutations do
+      action OfficeGraph.AgentRuntime.AgentExecution, :invoke_agent, :invoke_agent do
+        relay_id_translations(input: [graph_item_id: :graph_item, run_id: :work_run])
+      end
+
+      action OfficeGraph.AgentRuntime.AgentExecution,
+             :cancel_agent_execution,
+             :cancel_agent_execution do
+        relay_id_translations(input: [execution_id: :agent_execution])
+      end
+
+      action OfficeGraph.AgentRuntime.ApprovalRequest,
+             :resolve_agent_approval,
+             :resolve_agent_approval do
+        relay_id_translations(input: [approval_request_id: :agent_approval_request])
+      end
+
+      action OfficeGraph.AgentRuntime.ContextExpansionRequest,
+             :resolve_agent_context_expansion,
+             :resolve_agent_context_expansion do
+        relay_id_translations(
+          input: [context_expansion_request_id: :agent_context_expansion_request]
+        )
+      end
+    end
   end
 
   json_api do
@@ -52,6 +78,34 @@ defmodule OfficeGraph.AgentRuntime.Domain do
         index :read
         related(:execution, :read)
       end
+
+      route(
+        OfficeGraph.AgentRuntime.AgentExecution,
+        :post,
+        "/commands/invoke-agent",
+        :invoke_agent
+      )
+
+      route(
+        OfficeGraph.AgentRuntime.AgentExecution,
+        :post,
+        "/commands/cancel-agent-execution",
+        :cancel_agent_execution
+      )
+
+      route(
+        OfficeGraph.AgentRuntime.ApprovalRequest,
+        :post,
+        "/commands/resolve-agent-approval",
+        :resolve_agent_approval
+      )
+
+      route(
+        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        :post,
+        "/commands/resolve-agent-context-expansion",
+        :resolve_agent_context_expansion
+      )
     end
   end
 

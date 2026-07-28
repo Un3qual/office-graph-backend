@@ -63,16 +63,19 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
 
     cancelled =
       conn
+      |> generated_json_api()
       |> post(~p"/api/v1/commands/cancel-agent-execution", %{
-        idempotency_key: "json-cancel-agent-#{context.suffix}",
-        execution_id: raw_execution_id,
-        expected_state_version: payload["execution"]["stateVersion"]
+        data: %{
+          idempotency_key: "json-cancel-agent-#{context.suffix}",
+          execution_id: raw_execution_id,
+          expected_state_version: payload["execution"]["stateVersion"]
+        }
       })
-      |> json_response(200)
+      |> json_response(201)
 
     assert cancelled["command"] == "cancel_agent_execution"
-    assert cancelled["result"]["execution"]["state"] == "cancelled"
-    assert cancelled["result"]["execution"]["state_version"] == 2
+    assert cancelled["execution"]["state"] == "cancelled"
+    assert cancelled["execution"]["state_version"] == 2
   end
 
   test "GraphQL resolves the exact durable approval and returns its queued execution", %{
@@ -137,30 +140,38 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
 
     first =
       conn
-      |> post(~p"/api/v1/commands/resolve-agent-context-expansion", input)
-      |> json_response(200)
+      |> generated_json_api()
+      |> post(~p"/api/v1/commands/resolve-agent-context-expansion", %{data: input})
+      |> json_response(201)
 
     assert first["command"] == "resolve_agent_context_expansion"
-    assert first["result"]["request"]["state"] == "approved"
-    assert first["result"]["request"]["version"] == 2
-    assert first["result"]["execution"]["state"] == "queued"
-    assert is_binary(first["result"]["context_package_id"])
+    assert first["request"]["state"] == "approved"
+    assert first["request"]["version"] == 2
+    assert first["execution"]["state"] == "queued"
+    assert is_binary(first["context_package_id"])
 
     stale =
       conn
+      |> generated_json_api()
       |> post(
         ~p"/api/v1/commands/resolve-agent-context-expansion",
-        %{input | idempotency_key: "json-context-expansion-stale-#{fixture.context.suffix}"}
+        %{
+          data: %{
+            input
+            | idempotency_key: "json-context-expansion-stale-#{fixture.context.suffix}"
+          }
+        }
       )
 
     assert stale.status == 409
 
     assert %{
-             "command" => "resolve_agent_context_expansion",
-             "error" => %{
-               "code" => "stale_agent_context_expansion",
-               "current_version" => 2
-             }
+             "errors" => [
+               %{
+                 "code" => "stale_agent_context_expansion",
+                 "meta" => %{"current_version" => 2}
+               }
+             ]
            } = json_response(stale, 409)
   end
 
@@ -246,5 +257,11 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
         Ecto.UUID.dump!(context.bootstrap.workspace.id)
       ]
     )
+  end
+
+  defp generated_json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

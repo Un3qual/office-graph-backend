@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<f24cccdf2a5a8aaf09e04f5ddd2a6b18>>
+ * @generated SignedSource<<03f5da1892635d8edbca2dfbcc4d5cdd>>
  * @lightSyntaxTransform
  */
 
@@ -21,7 +21,7 @@ export type OperatorStartRunConversationMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly conversation: {
       readonly graphItemId: string;

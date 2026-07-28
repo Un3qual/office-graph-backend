@@ -66,30 +66,6 @@ defmodule OfficeGraphWeb.Router do
     get "/v1/github/installations/:installation_id/health",
         JsonApi.GitHubHealthController,
         :show
-
-    post "/v1/commands/resolve-agent-approval",
-         JsonApi.OperatorCommands.AgentsController,
-         :resolve_approval
-
-    post "/v1/commands/resolve-agent-context-expansion",
-         JsonApi.OperatorCommands.AgentsController,
-         :resolve_context_expansion
-
-    post "/v1/commands/invoke-agent",
-         JsonApi.OperatorCommands.AgentsController,
-         :invoke_agent
-
-    post "/v1/commands/cancel-agent-execution",
-         JsonApi.OperatorCommands.AgentsController,
-         :cancel_agent_execution
-
-    post "/v1/commands/start-run-conversation",
-         JsonApi.OperatorCommands.AgentsController,
-         :start_conversation
-
-    post "/v1/commands/append-conversation-message",
-         JsonApi.OperatorCommands.AgentsController,
-         :append_conversation_message
   end
 
   scope "/" do

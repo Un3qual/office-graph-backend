@@ -122,6 +122,40 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       validate one_of(:state, @lifecycle_states)
       change optimistic_lock(:state_version)
     end
+
+    action :invoke_agent, OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 255]
+
+      argument :binding_id, :uuid, allow_nil?: false
+      argument :graph_item_id, :uuid, allow_nil?: false
+      argument :run_id, :uuid, allow_nil?: false
+
+      argument :requested_outcome, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 2_000]
+
+      argument :requested_capabilities, {:array, :string}, allow_nil?: false
+
+      argument :autonomy_mode, :string, allow_nil?: false
+
+      validate argument_in(:autonomy_mode, ~w(human_supervised bounded_automatic))
+
+      run OfficeGraph.AgentRuntime.Actions.InvokeAgent
+    end
+
+    action :cancel_agent_execution,
+           OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :expected_state_version, :integer, allow_nil?: false, constraints: [min: 1]
+
+      run OfficeGraph.AgentRuntime.Actions.CancelAgentExecution
+    end
   end
 
   identities do
@@ -232,6 +266,14 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
   end
 
   policies do
+    policy action(:invoke_agent) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :agent_invoke}
+    end
+
+    policy action(:cancel_agent_execution) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :agent_cancel}
+    end
+
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end

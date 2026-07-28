@@ -84,6 +84,18 @@ defmodule OfficeGraph.NodeConversations.Conversation do
       validate one_of(:state, ~w(active closed archived))
       change optimistic_lock(:state_version)
     end
+
+    action :start_run_conversation,
+           OfficeGraph.NodeConversations.CommandResults.StartRunConversation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :run_id, :uuid, allow_nil?: false
+      argument :graph_item_id, :uuid, allow_nil?: false
+
+      run OfficeGraph.NodeConversations.Actions.StartRunConversation
+    end
   end
 
   identities do
@@ -151,6 +163,11 @@ defmodule OfficeGraph.NodeConversations.Conversation do
   end
 
   policies do
+    policy action(:start_run_conversation) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :conversation_write}
+    end
+
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end

@@ -104,6 +104,26 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
 
       validate one_of(:state, @states)
     end
+
+    action :resolve_agent_approval,
+           OfficeGraph.AgentRuntime.CommandResults.ApprovalResolution do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :approval_request_id, :uuid, allow_nil?: false
+      argument :expected_version, :integer, allow_nil?: false, constraints: [min: 1]
+
+      argument :decision, :string, allow_nil?: false
+
+      argument :resolution_reason, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 2_000]
+
+      validate argument_in(:decision, ~w(approved denied cancelled))
+
+      run OfficeGraph.AgentRuntime.Actions.ResolveAgentApproval
+    end
   end
 
   identities do
@@ -166,6 +186,11 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
   end
 
   policies do
+    policy action(:resolve_agent_approval) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :agent_approval_resolve}
+    end
+
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end

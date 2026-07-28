@@ -3,6 +3,45 @@ schema {
   query: RootQueryType
 }
 
+type AppendConversationMessagePayload {
+  operationId: ID!
+  message: ConversationMessage!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type StartRunConversationPayload {
+  operationId: ID!
+  conversation: Conversation!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type ResolveAgentContextExpansionPayload {
+  request: AgentContextExpansionRequest!
+  operationId: ID!
+  execution: AgentExecution!
+  contextPackageId: ID
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type ResolveAgentApprovalPayload {
+  request: AgentApprovalRequest!
+  operationId: ID!
+  execution: AgentExecution!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type AgentExecutionMutationPayload {
+  operationId: ID!
+  execution: AgentExecution!
+  contextPackageId: ID
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
 type ApplyProposedChangesPayload {
   verificationCheck: VerificationCheck!
   task: Task!
@@ -5321,6 +5360,14 @@ type ProposedGraphChange implements Node {
   workspaceId: ID!
 }
 
+input ResolveAgentContextExpansionInput {
+  idempotencyKey: String!
+  contextExpansionRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
+}
+
 enum AgentContextExpansionRequestSortField {
   ID
   STEP_KEY
@@ -5835,6 +5882,14 @@ type AgentContextExpansionRequest implements Node {
   execution: AgentExecution!
 }
 
+input ResolveAgentApprovalInput {
+  idempotencyKey: String!
+  approvalRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
+}
+
 enum AgentApprovalRequestSortField {
   ID
   STEP_KEY
@@ -6326,6 +6381,22 @@ type AgentApprovalRequest implements Node {
   organizationId: ID!
   workspaceId: ID!
   execution: AgentExecution!
+}
+
+input CancelAgentExecutionInput {
+  idempotencyKey: String!
+  executionId: ID!
+  expectedStateVersion: Int!
+}
+
+input InvokeAgentInput {
+  idempotencyKey: String!
+  bindingId: ID!
+  graphItemId: ID!
+  runId: ID!
+  requestedOutcome: String!
+  requestedCapabilities: [String!]!
+  autonomyMode: String!
 }
 
 enum AgentExecutionSortField {
@@ -6842,6 +6913,15 @@ type AgentExecution implements Node {
   ): AgentContextExpansionRequestConnection!
 }
 
+input AppendConversationMessageInput {
+  idempotencyKey: String!
+  conversationId: ID!
+  body: String!
+  contributionKind: String!
+  proposedGraphChangeId: ID
+  domainActionOperationId: ID
+}
+
 enum ConversationMessageSortField {
   ID
   STEP_KEY
@@ -7107,6 +7187,12 @@ type ConversationMessage implements Node {
   proposedGraphChangeId: ID
   conversation: Conversation!
   execution: AgentExecution
+}
+
+input StartRunConversationInput {
+  idempotencyKey: String!
+  runId: ID!
+  graphItemId: ID!
 }
 
 enum ConversationSortField {
@@ -7971,15 +8057,15 @@ type RootQueryType {
 }
 
 type RootMutationType {
-  invokeAgent(input: InvokeAgentInput!): InvokeAgentPayload!
-  cancelAgentExecution(input: CancelAgentExecutionInput!): CancelAgentExecutionPayload!
-  startRunConversation(input: StartRunConversationInput!): StartRunConversationPayload!
-  appendConversationMessage(input: AppendConversationMessageInput!): AppendConversationMessagePayload!
-  resolveAgentApproval(input: ResolveAgentApprovalInput!): ResolveAgentApprovalPayload!
-  resolveAgentContextExpansion(input: ResolveAgentContextExpansionInput!): ResolveAgentContextExpansionPayload!
   bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
   replyToGithubReview(input: ReplyToGithubReviewInput!): GithubOutboundActionPayload!
   updateGithubCheck(input: UpdateGithubCheckInput!): GithubOutboundActionPayload!
+  startRunConversation(input: StartRunConversationInput!): StartRunConversationPayload!
+  appendConversationMessage(input: AppendConversationMessageInput!): AppendConversationMessagePayload!
+  invokeAgent(input: InvokeAgentInput!): AgentExecutionMutationPayload!
+  cancelAgentExecution(input: CancelAgentExecutionInput!): AgentExecutionMutationPayload!
+  resolveAgentApproval(input: ResolveAgentApprovalInput!): ResolveAgentApprovalPayload!
+  resolveAgentContextExpansion(input: ResolveAgentContextExpansionInput!): ResolveAgentContextExpansionPayload!
   applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
   submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
   startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
@@ -7998,99 +8084,6 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
-
-input InvokeAgentInput {
-  idempotencyKey: String!
-  bindingId: ID!
-  graphItemId: ID!
-  runId: ID!
-  requestedOutcome: String!
-  requestedCapabilities: [String!]!
-  autonomyMode: String!
-}
-
-input CancelAgentExecutionInput {
-  idempotencyKey: String!
-  executionId: ID!
-  expectedStateVersion: Int!
-}
-
-input StartRunConversationInput {
-  idempotencyKey: String!
-  runId: ID!
-  graphItemId: ID!
-}
-
-input AppendConversationMessageInput {
-  idempotencyKey: String!
-  conversationId: ID!
-  body: String!
-  contributionKind: String!
-  proposedGraphChangeId: ID
-  domainActionOperationId: ID
-}
-
-type StartRunConversationPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  conversation: Conversation!
-}
-
-type AppendConversationMessagePayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  message: ConversationMessage!
-}
-
-input ResolveAgentApprovalInput {
-  idempotencyKey: String!
-  approvalRequestId: ID!
-  expectedVersion: Int!
-  decision: String!
-  resolutionReason: String!
-}
-
-input ResolveAgentContextExpansionInput {
-  idempotencyKey: String!
-  contextExpansionRequestId: ID!
-  expectedVersion: Int!
-  decision: String!
-  resolutionReason: String!
-}
-
-type InvokeAgentPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  execution: AgentExecution!
-  contextPackageId: ID!
-}
-
-type CancelAgentExecutionPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  execution: AgentExecution!
-}
-
-type ResolveAgentApprovalPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  request: AgentApprovalRequest!
-  execution: AgentExecution!
-}
-
-type ResolveAgentContextExpansionPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  request: AgentContextExpansionRequest!
-  execution: AgentExecution!
-  contextPackageId: ID
-}
 
 input GithubInstallationPermissionInput {
   name: String!

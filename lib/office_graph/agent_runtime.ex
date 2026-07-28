@@ -7,6 +7,7 @@ defmodule OfficeGraph.AgentRuntime do
     deps: [
       OfficeGraph.Audit,
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,

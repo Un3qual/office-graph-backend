@@ -252,9 +252,7 @@ owning Ash actions:
 
 - `lib/office_graph_web/graphql/operator_commands/mutations.ex`
 - `lib/office_graph_web/graphql/operator_commands/types.ex`
-- `lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex`
 - `lib/office_graph_web/graphql/operator_commands/resolvers/github.ex`
-- `lib/office_graph_web/json_api/operator_commands/agents_controller.ex`
 - `lib/office_graph_web/json_api/operator_commands/github_controller.ex`
 - `lib/office_graph_web/json_api/operator_commands/serializer.ex`
 - `lib/office_graph_web/operator_commands/input.ex`
@@ -280,6 +278,17 @@ The manual-intake and proposed-change command surfaces have moved to:
 - `lib/office_graph/verification/command_results/create_evidence_candidate.ex`
 - `lib/office_graph/verification/command_results/accept_evidence.ex`
 - `lib/office_graph/verification/command_results/waive_verification_check.ex`
+- `lib/office_graph/agent_runtime/actions/invoke_agent.ex`
+- `lib/office_graph/agent_runtime/actions/cancel_agent_execution.ex`
+- `lib/office_graph/agent_runtime/actions/resolve_agent_approval.ex`
+- `lib/office_graph/agent_runtime/actions/resolve_agent_context_expansion.ex`
+- `lib/office_graph/agent_runtime/command_results/execution_mutation.ex`
+- `lib/office_graph/agent_runtime/command_results/approval_resolution.ex`
+- `lib/office_graph/agent_runtime/command_results/context_expansion_resolution.ex`
+- `lib/office_graph/node_conversations/actions/start_run_conversation.ex`
+- `lib/office_graph/node_conversations/actions/append_conversation_message.ex`
+- `lib/office_graph/node_conversations/command_results/start_run_conversation.ex`
+- `lib/office_graph/node_conversations/command_results/append_conversation_message.ex`
 
 The following general-purpose web transport helpers remain only to serve
 accepted custom projections or provider callbacks. Generated AshGraphql and

@@ -38,7 +38,6 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            "#{@api_surface_classification} is missing:\n#{format_errors(missing_surface_ids)}"
 
     migration_helpers = [
-      "lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/github.ex",
       "lib/office_graph_web/operator_commands/input.ex"
     ]
@@ -399,7 +398,7 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       |> Path.wildcard()
       |> Enum.sort()
 
-    assert length(resolver_paths) == 2
+    assert length(resolver_paths) == 1
 
     for path <- resolver_paths do
       source = File.read!(path)

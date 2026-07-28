@@ -6,6 +6,7 @@ defmodule OfficeGraph.NodeConversations do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Identity,
       OfficeGraph.Operations,
       OfficeGraph.Projections,

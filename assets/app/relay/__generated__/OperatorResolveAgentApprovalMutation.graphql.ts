@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<a5aec43a86dfe768bfae75a6d5e78b3c>>
+ * @generated SignedSource<<042ac43ac6568cb8452930be93a4b8e3>>
  * @lightSyntaxTransform
  */
 
@@ -23,7 +23,7 @@ export type OperatorResolveAgentApprovalMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly execution: {
       readonly currentStepKey: string | null | undefined;

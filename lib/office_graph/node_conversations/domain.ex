@@ -23,6 +23,25 @@ defmodule OfficeGraph.NodeConversations.Domain do
            :read,
            relay?: true
     end
+
+    mutations do
+      action OfficeGraph.NodeConversations.Conversation,
+             :start_run_conversation,
+             :start_run_conversation do
+        relay_id_translations(input: [run_id: :work_run, graph_item_id: :graph_item])
+      end
+
+      action OfficeGraph.NodeConversations.ConversationMessage,
+             :append_conversation_message,
+             :append_conversation_message do
+        relay_id_translations(
+          input: [
+            conversation_id: :conversation,
+            proposed_graph_change_id: :proposed_graph_change
+          ]
+        )
+      end
+    end
   end
 
   json_api do
@@ -42,6 +61,20 @@ defmodule OfficeGraph.NodeConversations.Domain do
         related(:conversation, :read)
         related(:execution, :read)
       end
+
+      route(
+        OfficeGraph.NodeConversations.Conversation,
+        :post,
+        "/commands/start-run-conversation",
+        :start_run_conversation
+      )
+
+      route(
+        OfficeGraph.NodeConversations.ConversationMessage,
+        :post,
+        "/commands/append-conversation-message",
+        :append_conversation_message
+      )
     end
   end
 

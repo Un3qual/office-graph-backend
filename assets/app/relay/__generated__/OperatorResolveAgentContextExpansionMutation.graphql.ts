@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<79d62d587644ae394e6da138c63b7552>>
+ * @generated SignedSource<<a3192e6da3a18f1a7551df4fc714805e>>
  * @lightSyntaxTransform
  */
 
@@ -23,7 +23,7 @@ export type OperatorResolveAgentContextExpansionMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly contextPackageId: string | null | undefined;
     readonly execution: {

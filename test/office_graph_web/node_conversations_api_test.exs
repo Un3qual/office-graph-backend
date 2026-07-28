@@ -181,29 +181,35 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
 
     started =
       conn
+      |> generated_json_api()
       |> post(~p"/api/v1/commands/start-run-conversation", %{
-        idempotency_key: "json-conversation-#{context.suffix}",
-        run_id: context.run.id,
-        graph_item_id: context.graph_item_id
+        data: %{
+          idempotency_key: "json-conversation-#{context.suffix}",
+          run_id: context.run.id,
+          graph_item_id: context.graph_item_id
+        }
       })
-      |> json_response(200)
+      |> json_response(201)
 
-    conversation_id = started["result"]["conversation"]["id"]
+    conversation_id = started["conversation"]["id"]
 
     appended =
       conn
+      |> generated_json_api()
       |> post(~p"/api/v1/commands/append-conversation-message", %{
-        idempotency_key: "json-conversation-message-#{context.suffix}",
-        conversation_id: conversation_id,
-        body: "Link this message to the run-start command.",
-        contribution_kind: "domain_action",
-        domain_action_operation_id: context.run.operation_id
+        data: %{
+          idempotency_key: "json-conversation-message-#{context.suffix}",
+          conversation_id: conversation_id,
+          body: "Link this message to the run-start command.",
+          contribution_kind: "domain_action",
+          domain_action_operation_id: context.run.operation_id
+        }
       })
-      |> json_response(200)
+      |> json_response(201)
 
     assert appended["command"] == "append_conversation_message"
-    assert appended["result"]["message"]["source"] == "human"
-    assert appended["result"]["message"]["domain_action_operation_id"] == context.run.operation_id
+    assert appended["message"]["source"] == "human"
+    assert appended["message"]["domain_action_operation_id"] == context.run.operation_id
 
     read =
       conn
@@ -411,5 +417,11 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
 
   defp relay_id(type, id) do
     Absinthe.Relay.Node.to_global_id(Atom.to_string(type), id, OfficeGraphWeb.GraphQL.Schema)
+  end
+
+  defp generated_json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

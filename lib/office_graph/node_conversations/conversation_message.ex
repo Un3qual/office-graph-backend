@@ -67,6 +67,28 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
       validate absent(:execution_id), where: [attribute_equals(:source, "system")]
     end
+
+    action :append_conversation_message,
+           OfficeGraph.NodeConversations.CommandResults.AppendConversationMessage do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :conversation_id, :uuid, allow_nil?: false
+
+      argument :body, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, match: ~r/\S/, max_length: 32_768]
+
+      argument :contribution_kind, :string, allow_nil?: false
+
+      argument :proposed_graph_change_id, :uuid
+      argument :domain_action_operation_id, :uuid
+
+      validate argument_in(:contribution_kind, ~w(comment proposal domain_action))
+
+      run OfficeGraph.NodeConversations.Actions.AppendConversationMessage
+    end
   end
 
   identities do
@@ -118,6 +140,11 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
   end
 
   policies do
+    policy action(:append_conversation_message) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :conversation_write}
+    end
+
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end

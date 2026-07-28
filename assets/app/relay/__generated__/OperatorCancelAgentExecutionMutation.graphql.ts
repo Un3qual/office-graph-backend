@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<5d45b010b7bde9bb4c94dd1eed8da8ca>>
+ * @generated SignedSource<<04582b0651ead1dfedcbd876b1707ca5>>
  * @lightSyntaxTransform
  */
 
@@ -21,7 +21,7 @@ export type OperatorCancelAgentExecutionMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly execution: {
       readonly currentStepKey: string | null | undefined;
@@ -62,7 +62,7 @@ v2 = [
         "variableName": "input"
       }
     ],
-    "concreteType": "CancelAgentExecutionPayload",
+    "concreteType": "AgentExecutionMutationPayload",
     "kind": "LinkedField",
     "name": "cancelAgentExecution",
     "plural": false,
