@@ -1,4 +1,18 @@
 {
-  "version": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "approving_change": "normalize-ash-resources-and-identifiers",
+      "class": "raw_sql",
+      "construct": "fragment",
+      "fingerprint": "sha256:c6cddf36fbc8fbbe3c2cd64bc640f7b72e86bd3414f55f1fed5b02802301f8ea",
+      "function": "up/0",
+      "ordinal": 1,
+      "owner": "OfficeGraph.Repo.Migrations",
+      "path": "priv/repo/migrations/20260728130000_adopt_database_generated_uuid_v7.exs",
+      "reason": "Declare the project-owner-approved PostgreSQL 18 native UUIDv7 default on durable Ash primary keys.",
+      "retirement_condition": "Retire if PostgreSQL's native UUIDv7 default is replaced by an approved identifier strategy.",
+      "verification": "PostgreSQL 18 version gate, rollback and upgrade, empty-database migration, UUIDv7 create tests, and strict boundary Credo gate."
+    }
+  ],
+  "version": 1
 }

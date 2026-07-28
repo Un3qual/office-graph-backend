@@ -79,6 +79,17 @@ if [ "$skip_compose" != "1" ]; then
     compose ps postgres >&2
     exit 1
   fi
+
+  postgres_version=$(compose exec -T postgres postgres --version)
+
+  case "$postgres_version" in
+    *"PostgreSQL) 18."*)
+      ;;
+    *)
+      echo "Canonical verification requires PostgreSQL 18; the Compose server reported: $postgres_version" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 mix local.hex --force --if-missing

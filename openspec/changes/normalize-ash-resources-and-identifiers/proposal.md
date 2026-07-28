@@ -20,6 +20,8 @@ cleanup that follows.
   domain-specific related records only when richer deletion state is required.
 - Make PostgreSQL generate UUIDv7 primary keys by default while preserving
   supplied identifiers for deterministic tests, imports, and replay.
+- Upgrade the repository-managed development and verification database to
+  PostgreSQL 18 and use its native `uuidv7()` implementation.
 - Group resource attributes and related declarations by responsibility, move
   behavior next to the structs it owns, and split crowded context folders into
   navigable responsibility-based subfolders without changing public module
@@ -53,6 +55,7 @@ This change affects Ash resources and domains throughout `lib/office_graph`,
 their tests and architecture inventories, GraphQL/JSON projections that expose
 tombstone state, and the unreleased Postgres schema. It may add typed embedded
 resources or relational resources, removes the Tombstones context, and changes
-identifier defaults. It does not yet perform the subsequent Relay/API
+identifier defaults and the repository-managed PostgreSQL major version. It
+does not yet perform the subsequent Relay/API
 migration, database-access debt removal, final migration-chain rebaseline, or
 WorkOS integration.

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: office_graph
       POSTGRES_PASSWORD: office_graph
@@ -15,7 +15,7 @@ services:
       timeout: 5s
       retries: 12
     volumes:
-      - office_graph_postgres_data:/var/lib/postgresql/data
+      - office_graph_postgres_data:/var/lib/postgresql
 
 volumes:
   office_graph_postgres_data:

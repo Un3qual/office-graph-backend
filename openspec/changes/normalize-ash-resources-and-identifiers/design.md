@@ -1,11 +1,12 @@
 ## Context
 
-Office Graph currently has 72 UUID-primary-key Ash resources. Most use
+Office Graph started this change with 72 UUID-primary-key Ash resources. Most used
 `uuid_primary_key`, and many callers also inject `Ecto.UUID.generate/0`, so
 ordinary writes allocate UUIDv4 values in the application. The repository runs
 PostgreSQL 17, while the pinned Ash 3.29 and AshPostgres 2.10 stack supports
-`:uuid_v7` and installs the documented `uuid_generate_v7()` database function
-for PostgreSQL versions before 18.
+PostgreSQL 18's native `uuidv7()` default. The project owner approved upgrading
+the repository-managed development and verification database to PostgreSQL 18
+as part of this change.
 
 Relationship declarations are incomplete. Many resources declare concrete
 foreign-key attributes without the corresponding Ash relationship, and many
@@ -50,6 +51,8 @@ namespace migration.
 - Generate time-ordered UUIDv7 identifiers in PostgreSQL for ordinary writes
   while retaining explicit-ID support for deterministic replay, imports, and
   tests.
+- Run repository-managed development and verification databases on PostgreSQL
+  18 so UUIDv7 uses the native database function.
 - Make large contexts easier to navigate and keep value-object behavior with
   the value object that owns it.
 - Enforce the resulting conventions with structural and behavior tests.
@@ -127,18 +130,16 @@ relationship cannot own directly and retains an unnecessary context.
 
 Primary-key attributes will use UUID storage and be marked data-layer
 generated, while remaining writable for explicit deterministic identifiers.
-Ordinary create paths stop injecting `Ecto.UUID.generate/0`. The migration
-default is AshPostgres' documented `uuid_generate_v7()` function on PostgreSQL
-17, so inserts that omit an identifier receive a UUIDv7 from PostgreSQL and
-Ash returns it.
+Ordinary create paths stop injecting `Ecto.UUID.generate/0`. The repository
+minimum and Compose runtime move to PostgreSQL 18, and the migration default is
+the native `uuidv7()` function, so inserts that omit an identifier receive a
+UUIDv7 from PostgreSQL and Ash returns it.
 
-The exact new SQL-bearing default is the generated Ecto migration expression
-`fragment("uuid_generate_v7()")` for UUID primary-key columns, plus the pinned
-AshPostgres-generated function installation required by PostgreSQL 17. This is
-the narrowly scoped implementation of the user's approved database-generated
-UUIDv7 decision; no handwritten UUID function or MD5 construction is allowed.
-The later migration rebaseline may move to PostgreSQL 18's built-in
-`uuidv7()` after the local-volume upgrade path is designed.
+The exact SQL-bearing default is the generated Ecto migration expression
+`fragment("uuidv7()")` for UUID primary-key columns. This is the sole
+repository-authored database exception added by the UUID migration and was
+explicitly approved with the PostgreSQL 18 upgrade. No compatibility function,
+handwritten UUID function, or MD5 construction is allowed.
 
 UUIDv7 improves index locality and retains enough random bits for durable
 global identity, but it is not treated as a sharding key. Future sharding will
@@ -147,6 +148,11 @@ still choose an explicit organization or workspace distribution key.
 Alternative considered: Ash's `uuid_v7_primary_key` helper. Rejected because
 its default is `Ash.UUIDv7.generate/0`, which generates the value in the
 application and does not satisfy the database-generation requirement.
+
+Alternative considered: retain PostgreSQL 17 and install AshPostgres'
+compatibility `uuid_generate_v7()` function. Rejected after the PostgreSQL 18
+upgrade was approved because the native function removes project-owned
+procedural SQL and its retirement lifecycle.
 
 ### 5. Reorganize paths without renaming public modules
 
@@ -183,9 +189,10 @@ abstraction without domain responsibility.
 - [Moving many files can obscure semantic changes.] → Commit schema/behavior
   work separately from path-only moves and run the full gate after each
   checkpoint.
-- [Current PostgreSQL 17 needs Ash's generated UUIDv7 function.] → Use the
-  pinned generator unchanged and retire it only through the later PostgreSQL
-  18 migration design.
+- [Existing local PostgreSQL 17 volumes are not reusable by a PostgreSQL 18
+  container without a major-version upgrade.] → The repository is unreleased;
+  document a volume reset for local state and make canonical verification use
+  fresh isolated PostgreSQL 18 volumes.
 
 ## Migration Plan
 
@@ -201,9 +208,10 @@ abstraction without domain responsibility.
 5. Convert primary keys and ordinary create paths to database-generated
    UUIDv7, retaining explicit preallocation only where tests prove it is
    needed before insert.
-6. Generate a forward AshPostgres migration for the resource delta and verify
-   both upgrade and empty-database migration paths. The later rebaseline change
-   will consolidate, not edit this archived change's history.
+6. Generate a forward AshPostgres migration for the resource delta, using
+   PostgreSQL 18's native `uuidv7()`, and verify both upgrade and empty-database
+   migration paths. The later rebaseline change will consolidate, not edit
+   archived migration history.
 7. Move files into responsibility-based subfolders in path-only commits.
 8. Run focused resource/action/concurrency/API tests, strict architecture
    checks, strict OpenSpec validation, and the complete canonical gate.

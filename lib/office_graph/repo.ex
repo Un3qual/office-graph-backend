@@ -7,7 +7,7 @@ defmodule OfficeGraph.Repo do
     otp_app: :office_graph,
     warn_on_missing_ash_functions?: false
 
-  def min_pg_version, do: %Version{major: 17, minor: 0, patch: 0}
+  def min_pg_version, do: %Version{major: 18, minor: 0, patch: 0}
 
   def ash_create!(resource, attrs) do
     resource

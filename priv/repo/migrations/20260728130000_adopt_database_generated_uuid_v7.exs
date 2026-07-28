@@ -82,37 +82,9 @@ defmodule OfficeGraph.Repo.Migrations.AdoptDatabaseGeneratedUuidV7 do
   ]
 
   def up do
-    execute("""
-    CREATE OR REPLACE FUNCTION uuid_generate_v7()
-    RETURNS UUID
-    AS $$
-    DECLARE
-      timestamp    TIMESTAMPTZ;
-      microseconds INT;
-    BEGIN
-      timestamp    = clock_timestamp();
-      microseconds = (cast(extract(microseconds FROM timestamp)::INT - (floor(extract(milliseconds FROM timestamp))::INT * 1000) AS DOUBLE PRECISION) * 4.096)::INT;
-
-      RETURN encode(
-        set_byte(
-          set_byte(
-            overlay(uuid_send(gen_random_uuid()) placing substring(int8send(floor(extract(epoch FROM timestamp) * 1000)::BIGINT) FROM 3) FROM 1 FOR 6
-          ),
-          6, (b'0111' || (microseconds >> 8)::bit(4))::bit(8)::int
-        ),
-        7, microseconds::bit(8)::int
-      ),
-      'hex')::UUID;
-    END
-    $$
-    LANGUAGE PLPGSQL
-    SET search_path = ''
-    VOLATILE;
-    """)
-
     for {table_name, primary_key} <- @uuid_v7_primary_keys do
       alter table(table_name) do
-        modify primary_key, :uuid, default: fragment("uuid_generate_v7()")
+        modify primary_key, :uuid, default: fragment("uuidv7()")
       end
     end
   end
@@ -123,7 +95,5 @@ defmodule OfficeGraph.Repo.Migrations.AdoptDatabaseGeneratedUuidV7 do
         modify primary_key, :uuid, default: nil
       end
     end
-
-    execute("DROP FUNCTION IF EXISTS uuid_generate_v7()")
   end
 end

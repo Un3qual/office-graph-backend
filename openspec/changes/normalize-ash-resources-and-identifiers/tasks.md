@@ -32,7 +32,7 @@
 - [x] 5.1 Define the writable data-layer-generated UUID primary-key convention and add focused create tests against PostgreSQL
 - [x] 5.2 Convert all durable Ash resource primary keys to the convention and remove ordinary application UUID generation from create paths
 - [x] 5.3 Preserve and test only pre-insert identifier allocation required for replay, import, fixtures, or multi-record graph linkage
-- [ ] 5.4 Generate and review the AshPostgres UUIDv7 default/function migration and update the exact database-access inventory entries
+- [x] 5.4 Upgrade repository-managed PostgreSQL to 18, use the native AshPostgres UUIDv7 default without a compatibility function, and update the exact database-access inventory entry
 
 ## 6. Improve Physical Organization
 

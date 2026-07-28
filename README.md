@@ -27,6 +27,10 @@ docker compose up -d postgres
 docker compose ps postgres
 ```
 
+The repository-managed service runs PostgreSQL 18 so durable Ash resources can
+use PostgreSQL's native UUIDv7 generator. The PostgreSQL 18 container stores its
+versioned data directory below `/var/lib/postgresql`.
+
 The app connects to `localhost:55432` with:
 
 - username: `office_graph`
@@ -100,6 +104,12 @@ docker compose up -d postgres
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
 ```
 
+An existing repository-managed PostgreSQL 17 volume cannot be mounted directly
+by PostgreSQL 18. Because local Compose data is disposable, use the reset
+sequence above when upgrading this checkout. For a database whose data must be
+preserved, perform an explicit PostgreSQL major-version upgrade outside this
+Compose workflow instead of removing its volume.
+
 ## Setup And Verification
 
 Fetch dependencies:
@@ -124,8 +134,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/v
 `bin/verify` derives a stable Compose project name and test database partition
 from the worktree path, then asks Docker to allocate an available loopback host
 port so concurrent worktrees do not share database state or contend for a small
-fixed port range. `COMPOSE_PROJECT_NAME`, `OFFICE_GRAPH_POSTGRES_PORT`, and
-`MIX_TEST_PARTITION` override those defaults.
+fixed port range. It also confirms that the ready Compose server is PostgreSQL
+18 before running migrations and tests. `COMPOSE_PROJECT_NAME`,
+`OFFICE_GRAPH_POSTGRES_PORT`, and `MIX_TEST_PARTITION` override those defaults.
 
 When PostgreSQL is managed externally, skip Compose and provide explicit test
 connection settings:

@@ -21,3 +21,16 @@ identifier is required before insertion.
 #### Scenario: Sharding is introduced later
 - **WHEN** Office Graph partitions data across database shards
 - **THEN** UUIDv7 MUST remain an opaque durable identifier and the design MUST choose an explicit tenant or scope distribution key rather than assuming UUID ordering determines shard placement
+
+### Requirement: Repository-managed PostgreSQL supports native UUIDv7
+The repository-managed development and canonical verification databases SHALL
+run PostgreSQL 18 or newer and SHALL use the native `uuidv7()` function for
+durable identifier defaults.
+
+#### Scenario: Canonical verification starts PostgreSQL
+- **WHEN** `bin/verify` starts its isolated Compose database
+- **THEN** the ready container's PostgreSQL server binary MUST report major version 18 before migrations and tests run
+
+#### Scenario: Local PostgreSQL 17 state exists
+- **WHEN** a developer upgrades the repository-managed container from PostgreSQL 17
+- **THEN** setup documentation MUST require a volume reset or an explicit external major-version upgrade instead of starting PostgreSQL 18 against the PostgreSQL 17 data directory
