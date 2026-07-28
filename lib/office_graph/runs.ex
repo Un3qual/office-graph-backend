@@ -6,6 +6,7 @@ defmodule OfficeGraph.Runs do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.WorkGraph,

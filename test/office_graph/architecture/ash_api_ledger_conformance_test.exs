@@ -40,9 +40,6 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     migration_helpers = [
       "lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex",
       "lib/office_graph_web/graphql/operator_commands/resolvers/github.ex",
-      "lib/office_graph_web/graphql/operator_commands/resolvers/packets.ex",
-      "lib/office_graph_web/graphql/operator_commands/resolvers/runs.ex",
-      "lib/office_graph_web/graphql/operator_commands/resolvers/verification.ex",
       "lib/office_graph_web/operator_commands/input.ex"
     ]
 
@@ -220,10 +217,16 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     ]
 
     assert generated_resource_types == expected_resource_types
+    schema_types = Absinthe.Schema.types(OfficeGraphWeb.GraphQL.Schema)
 
     for type <- generated_resource_types do
       object =
-        Absinthe.Schema.lookup_type(OfficeGraphWeb.GraphQL.Schema, String.to_existing_atom(type))
+        Enum.find(schema_types, fn schema_type ->
+          schema_type
+          |> Map.get(:identifier)
+          |> to_string()
+          |> Kernel.==(type)
+        end)
 
       assert object != nil, "Expected generated GraphQL object #{type}"
 
@@ -396,7 +399,7 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       |> Path.wildcard()
       |> Enum.sort()
 
-    assert length(resolver_paths) == 5
+    assert length(resolver_paths) == 2
 
     for path <- resolver_paths do
       source = File.read!(path)

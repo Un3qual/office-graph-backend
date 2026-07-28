@@ -296,6 +296,9 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     version = command(conn, :create_work_packet_version, version_input)
     assert_payload(version, "create_work_packet_version", ["work_packet", "work_packet_version"])
 
+    packet_version_id =
+      relay_internal_id(version["packetVersion"]["id"], :work_packet_version)
+
     before_stale_version = command_record_snapshot()
 
     stale_version =
@@ -312,7 +315,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     run_input = %{
       idempotencyKey: unique_key("run"),
-      packetVersionId: version["packetVersion"]["id"],
+      packetVersionId: packet_version_id,
       sourceSurface: "operator_commands_graphql_test",
       reason: "Exercise each step-specific command.",
       authorityPosture: "human_supervised"
@@ -324,7 +327,10 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         :start_work_run,
         run_input
         |> Map.put(:idempotencyKey, unique_key("stale-run"))
-        |> Map.put(:packetVersionId, packet["packetVersion"]["id"])
+        |> Map.put(
+          :packetVersionId,
+          relay_internal_id(packet["packetVersion"]["id"], :work_packet_version)
+        )
       )
 
     assert_error_code(stale_run, "stale_packet_version")
@@ -414,7 +420,11 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
            ]
 
     accepted_required_check =
-      Ash.get!(RunRequiredCheck, first_required_check["id"], authorize?: false)
+      Ash.get!(
+        RunRequiredCheck,
+        relay_internal_id(first_required_check["id"], :run_required_check),
+        authorize?: false
+      )
 
     assert accepted_required_check.state == "satisfied"
 
@@ -525,7 +535,14 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert %{"type" => "task", "id" => review_finding.task_id} in accepted["affectedIds"]
 
     verification_result =
-      Ash.get!(VerificationResult, accepted["verificationResult"]["id"], authorize?: false)
+      Ash.get!(
+        VerificationResult,
+        relay_internal_id(
+          accepted["verificationResult"]["id"],
+          :work_graph_verification_result
+        ),
+        authorize?: false
+      )
 
     assert verification_result.reason == nil
     assert verification_result.policy_basis == "owner_acceptance"
@@ -584,7 +601,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         observationRationale: "Prove least-capability observation recording."
       })
 
-    assert observed["run"]["id"] == run_result.run.id
+    assert relay_internal_id(observed["run"]["id"], :work_run) == run_result.run.id
   end
 
   test "accept-only sessions can target candidates and report every changed check", %{conn: conn} do
@@ -733,7 +750,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       |> Ash.PlugHelpers.set_actor(version_only)
       |> command(:create_work_packet_version, input)
 
-    assert created["packet"]["id"] == packet_result.packet.id
+    assert relay_internal_id(created["packet"]["id"], :work_packet) == packet_result.packet.id
     assert created["packetVersion"]["versionNumber"] == 2
   end
 
@@ -990,9 +1007,12 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     version = command(conn, :create_work_packet_version, version_input)
 
+    packet_version_id =
+      relay_internal_id(version["packetVersion"]["id"], :work_packet_version)
+
     run_input = %{
       idempotencyKey: unique_key("guardrail-run"),
-      packetVersionId: version["packetVersion"]["id"],
+      packetVersionId: packet_version_id,
       sourceSurface: "operator_commands_graphql_test",
       reason: "Create guardrail run targets.",
       authorityPosture: "human_supervised"

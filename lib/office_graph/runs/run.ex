@@ -173,6 +173,20 @@ defmodule OfficeGraph.Runs.Run do
         :completed_at
       ]
     end
+
+    action :start_work_run,
+           OfficeGraph.Runs.CommandResults.StartWorkRun do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :packet_version_id, :uuid, allow_nil?: false
+      argument :source_surface, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :reason, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :authority_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      run OfficeGraph.Runs.Actions.StartWorkRun
+    end
   end
 
   identities do
@@ -202,6 +216,10 @@ defmodule OfficeGraph.Runs.Run do
     end
 
     policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
+    end
+
+    policy action(:start_work_run) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
     end
   end

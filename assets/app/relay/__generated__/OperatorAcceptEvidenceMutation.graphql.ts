@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<42718fac8a8ff27672621d4c661b6872>>
+ * @generated SignedSource<<89f84858c73e7fe853a90537d21e34a4>>
  * @lightSyntaxTransform
  */
 
@@ -24,7 +24,7 @@ export type OperatorAcceptEvidenceMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly evidenceCandidate: {
       readonly candidateState: string;
@@ -117,7 +117,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandEvidenceCandidate",
+        "concreteType": "EvidenceCandidate",
         "kind": "LinkedField",
         "name": "evidenceCandidate",
         "plural": false,
@@ -136,7 +136,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandEvidenceItem",
+        "concreteType": "EvidenceItem",
         "kind": "LinkedField",
         "name": "evidenceItem",
         "plural": false,
@@ -155,7 +155,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandVerificationResult",
+        "concreteType": "WorkGraphVerificationResult",
         "kind": "LinkedField",
         "name": "verificationResult",
         "plural": false,
@@ -174,7 +174,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkRun",
+        "concreteType": "WorkRun",
         "kind": "LinkedField",
         "name": "run",
         "plural": false,

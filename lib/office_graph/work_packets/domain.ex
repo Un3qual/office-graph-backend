@@ -33,6 +33,32 @@ defmodule OfficeGraph.WorkPackets.Domain do
            :read,
            relay?: true
     end
+
+    mutations do
+      action OfficeGraph.WorkPackets.WorkPacket,
+             :create_work_packet,
+             :create_work_packet do
+        relay_id_translations(
+          input: [
+            source_graph_item_ids: :graph_item,
+            verification_check_ids: :verification_check
+          ]
+        )
+      end
+
+      action OfficeGraph.WorkPackets.WorkPacket,
+             :create_work_packet_version,
+             :create_work_packet_version do
+        relay_id_translations(
+          input: [
+            packet_id: :work_packet,
+            expected_current_version_id: :work_packet_version,
+            source_graph_item_ids: :graph_item,
+            verification_check_ids: :verification_check
+          ]
+        )
+      end
+    end
   end
 
   json_api do
@@ -58,6 +84,20 @@ defmodule OfficeGraph.WorkPackets.Domain do
         get(:read, primary?: true)
         index :read
       end
+
+      route(
+        OfficeGraph.WorkPackets.WorkPacket,
+        :post,
+        "/commands/create-work-packet",
+        :create_work_packet
+      )
+
+      route(
+        OfficeGraph.WorkPackets.WorkPacket,
+        :post,
+        "/commands/create-work-packet-version",
+        :create_work_packet_version
+      )
     end
   end
 

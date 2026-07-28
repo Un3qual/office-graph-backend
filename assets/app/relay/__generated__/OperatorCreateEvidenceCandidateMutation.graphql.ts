@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<28825dd4288f418da63508fc194d02ea>>
+ * @generated SignedSource<<ae5e9e74f13d17c396db593f710175d1>>
  * @lightSyntaxTransform
  */
 
@@ -28,7 +28,7 @@ export type OperatorCreateEvidenceCandidateMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly evidenceCandidate: {
       readonly candidateState: string;
@@ -108,7 +108,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandEvidenceCandidate",
+        "concreteType": "EvidenceCandidate",
         "kind": "LinkedField",
         "name": "evidenceCandidate",
         "plural": false,

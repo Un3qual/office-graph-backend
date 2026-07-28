@@ -67,18 +67,6 @@ defmodule OfficeGraphWeb.Router do
         JsonApi.GitHubHealthController,
         :show
 
-    post "/v1/commands/create-work-packet",
-         JsonApi.OperatorCommands.PacketsController,
-         :create_work_packet
-
-    post "/v1/commands/create-work-packet-version",
-         JsonApi.OperatorCommands.PacketsController,
-         :create_work_packet_version
-
-    post "/v1/commands/start-work-run",
-         JsonApi.OperatorCommands.RunsController,
-         :start_work_run
-
     post "/v1/commands/resolve-agent-approval",
          JsonApi.OperatorCommands.AgentsController,
          :resolve_approval
@@ -102,22 +90,6 @@ defmodule OfficeGraphWeb.Router do
     post "/v1/commands/append-conversation-message",
          JsonApi.OperatorCommands.AgentsController,
          :append_conversation_message
-
-    post "/v1/commands/record-execution-observation",
-         JsonApi.OperatorCommands.RunsController,
-         :record_execution_observation
-
-    post "/v1/commands/create-evidence-candidate",
-         JsonApi.OperatorCommands.VerificationController,
-         :create_evidence_candidate
-
-    post "/v1/commands/accept-evidence",
-         JsonApi.OperatorCommands.VerificationController,
-         :accept_evidence
-
-    post "/v1/commands/waive-verification-check",
-         JsonApi.OperatorCommands.VerificationController,
-         :waive_verification_check
   end
 
   scope "/" do

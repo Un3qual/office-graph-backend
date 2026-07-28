@@ -163,33 +163,31 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       packet = command(conn, "create-work-packet", packet_input)
       assert packet["command"] == "create_work_packet"
 
-      assert packet["result"]["packet"]["current_version_id"] ==
-               packet["result"]["packet_version"]["id"]
+      assert packet["packet"]["current_version_id"] == packet["packet_version"]["id"]
 
-      assert packet["result"]["packet_version"]["version_number"] == 1
+      assert packet["packet_version"]["version_number"] == 1
       assert command(conn, "create-work-packet", packet_input) == packet
 
       version_input =
         packet_input
         |> Map.merge(%{
           idempotency_key: unique_key("packet-version"),
-          packet_id: packet["result"]["packet"]["id"],
-          expected_current_version_id: packet["result"]["packet_version"]["id"],
+          packet_id: packet["packet"]["id"],
+          expected_current_version_id: packet["packet_version"]["id"],
           title: "Versioned JSON command packet"
         })
 
       version = command(conn, "create-work-packet-version", version_input)
       assert version["command"] == "create_work_packet_version"
-      assert version["result"]["packet_version"]["version_number"] == 2
+      assert version["packet_version"]["version_number"] == 2
 
-      assert version["result"]["packet"]["current_version_id"] ==
-               version["result"]["packet_version"]["id"]
+      assert version["packet"]["current_version_id"] == version["packet_version"]["id"]
 
       assert command(conn, "create-work-packet-version", version_input) == version
 
       run_input = %{
         idempotency_key: unique_key("run"),
-        packet_version_id: version["result"]["packet_version"]["id"],
+        packet_version_id: version["packet_version"]["id"],
         source_surface: "operator_commands_json_test",
         reason: "Verify JSON packet-run command parity.",
         authority_posture: "human_supervised"
@@ -197,9 +195,9 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       started = command(conn, "start-work-run", run_input)
       assert started["command"] == "start_work_run"
-      assert started["result"]["run"]["work_packet_version_id"] == run_input.packet_version_id
+      assert started["run"]["work_packet_version_id"] == run_input.packet_version_id
 
-      assert [required_check] = started["result"]["required_checks"]
+      assert [required_check] = started["required_checks"]
       assert required_check["verification_check_id"] == check["id"]
       assert command(conn, "start-work-run", run_input) == started
 
@@ -228,8 +226,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       base_version_input = %{
         idempotency_key: unique_key("fresh-version"),
-        packet_id: packet["result"]["packet"]["id"],
-        expected_current_version_id: packet["result"]["packet_version"]["id"],
+        packet_id: packet["packet"]["id"],
+        expected_current_version_id: packet["packet_version"]["id"],
         title: "Fresh JSON packet version",
         objective: "Exercise stale packet version behavior.",
         context_summary: "The packet has an authoritative current version.",
@@ -252,14 +250,15 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       assert stale.status == 409
 
       assert %{
-               "command" => "create_work_packet_version",
-               "error" => %{
-                 "code" => "stale_packet_version",
-                 "current_version_id" => current_version_id
-               }
+               "errors" => [
+                 %{
+                   "code" => "stale_packet_version",
+                   "meta" => %{"current_version_id" => current_version_id}
+                 }
+               ]
              } = json_response(stale, 409)
 
-      assert current_version_id == fresh["result"]["packet_version"]["id"]
+      assert current_version_id == fresh["packet_version"]["id"]
     end
   end
 
@@ -276,7 +275,7 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       observation_input = %{
         idempotency_key: unique_key("observation-operation"),
-        run_id: started["result"]["run"]["id"],
+        run_id: started["run"]["id"],
         verification_check_id: first["id"],
         source_graph_item_id: first["graph_item_id"],
         observation_source_kind: "human",
@@ -291,14 +290,14 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       observed = command(conn, "record-execution-observation", observation_input)
       assert observed["command"] == "record_execution_observation"
-      assert observed["result"]["observation"]["normalized_status"] == "succeeded"
+      assert observed["observation"]["normalized_status"] == "succeeded"
       assert command(conn, "record-execution-observation", observation_input) == observed
 
       candidate_input = %{
         idempotency_key: unique_key("candidate"),
-        work_run_id: started["result"]["run"]["id"],
+        work_run_id: started["run"]["id"],
         verification_check_id: first["id"],
-        execution_observation_id: observed["result"]["observation"]["id"],
+        execution_observation_id: observed["observation"]["id"],
         claim: "The first JSON command check has passing evidence.",
         source_kind: "human",
         source_identity: "manual:json-evidence",
@@ -309,12 +308,12 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       candidate = command(conn, "create-evidence-candidate", candidate_input)
       assert candidate["command"] == "create_evidence_candidate"
-      assert candidate["result"]["evidence_candidate"]["candidate_state"] == "candidate"
+      assert candidate["evidence_candidate"]["candidate_state"] == "candidate"
       assert command(conn, "create-evidence-candidate", candidate_input) == candidate
 
       accept_input = %{
         idempotency_key: unique_key("accept"),
-        evidence_candidate_id: candidate["result"]["evidence_candidate"]["id"],
+        evidence_candidate_id: candidate["evidence_candidate"]["id"],
         title: "Accepted JSON command evidence",
         body: "The first required check passed.",
         result: "passed",
@@ -323,8 +322,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       accepted = command(conn, "accept-evidence", accept_input)
       assert accepted["command"] == "accept_evidence"
-      assert accepted["result"]["evidence_item"]["state"] == "accepted"
-      assert accepted["result"]["verification_result"]["result"] == "passed"
+      assert accepted["evidence_item"]["state"] == "accepted"
+      assert accepted["verification_result"]["result"] == "passed"
       assert command(conn, "accept-evidence", accept_input) == accepted
 
       assert MapSet.subset?(
@@ -343,16 +342,16 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       second_required_check =
         Enum.find(
-          started["result"]["required_checks"],
+          started["required_checks"],
           &(&1["verification_check_id"] == second["id"])
         )
 
       waiver_input = %{
         idempotency_key: unique_key("waive"),
-        run_id: accepted["result"]["run"]["id"],
+        run_id: accepted["run"]["id"],
         run_required_check_id: second_required_check["id"],
-        expected_execution_state: accepted["result"]["run"]["execution_state"],
-        expected_verification_state: accepted["result"]["run"]["verification_state"],
+        expected_execution_state: accepted["run"]["execution_state"],
+        expected_verification_state: accepted["run"]["verification_state"],
         reason: "The second check is governed by an approved exception.",
         policy_basis: "owner_exception"
       }
@@ -368,10 +367,8 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       assert stale.status == 409
 
-      assert %{
-               "command" => "waive_verification_check",
-               "error" => %{"code" => "stale_run_state"}
-             } = json_response(stale, 409)
+      assert %{"errors" => [%{"code" => "stale_run_state"}]} =
+               json_response(stale, 409)
 
       no_capabilities =
         create_session_with_capabilities!(bootstrap, [], prefix: "json-waive-forbidden")
@@ -386,16 +383,14 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       assert forbidden.status == 403
 
-      assert %{
-               "command" => "waive_verification_check",
-               "error" => %{"code" => "forbidden"}
-             } = json_response(forbidden, 403)
+      assert %{"errors" => [%{"code" => "forbidden"}]} =
+               json_response(forbidden, 403)
 
       waived = command(conn, "waive-verification-check", waiver_input)
       assert waived["command"] == "waive_verification_check"
-      assert waived["result"]["required_check"]["state"] == "waived"
-      assert waived["result"]["verification_result"]["result"] == "waived"
-      assert waived["result"]["run"]["verification_state"] == "verified"
+      assert waived["required_check"]["state"] == "waived"
+      assert waived["verification_result"]["result"] == "waived"
+      assert waived["run"]["verification_state"] == "verified"
       assert command(conn, "waive-verification-check", waiver_input) == waived
     end
   end
@@ -403,36 +398,17 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
   defp command(conn, command, input) do
     conn
     |> raw_command(command, input)
-    |> json_response(command_status(command))
+    |> json_response(201)
   end
 
   defp raw_command(conn, command, input) do
-    body =
-      if generated_command?(command) do
-        %{data: input}
-      else
-        input
-      end
-
     conn =
-      if generated_command?(command) do
-        conn
-        |> put_req_header("accept", "application/vnd.api+json")
-        |> put_req_header("content-type", "application/vnd.api+json")
-      else
-        conn
-      end
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
 
-    post(conn, "/api/v1/commands/#{command}", body)
+    post(conn, "/api/v1/commands/#{command}", %{data: input})
   end
-
-  defp command_status(command) when command in ["submit-manual-intake", "apply-proposed-changes"],
-    do: 201
-
-  defp command_status(_command), do: 200
-
-  defp generated_command?(command),
-    do: command in ["submit-manual-intake", "apply-proposed-changes"]
 
   defp create_applied_workflow(conn, label) do
     intake =
@@ -466,7 +442,7 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
     command(conn, "start-work-run", %{
       idempotency_key: unique_key("#{label}-run"),
-      packet_version_id: packet["result"]["packet_version"]["id"],
+      packet_version_id: packet["packet_version"]["id"],
       source_surface: "operator_commands_json_test",
       reason: "Exercise verification JSON commands.",
       authority_posture: "human_supervised"

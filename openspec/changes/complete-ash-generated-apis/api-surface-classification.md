@@ -254,14 +254,8 @@ owning Ash actions:
 - `lib/office_graph_web/graphql/operator_commands/types.ex`
 - `lib/office_graph_web/graphql/operator_commands/resolvers/agents.ex`
 - `lib/office_graph_web/graphql/operator_commands/resolvers/github.ex`
-- `lib/office_graph_web/graphql/operator_commands/resolvers/packets.ex`
-- `lib/office_graph_web/graphql/operator_commands/resolvers/runs.ex`
-- `lib/office_graph_web/graphql/operator_commands/resolvers/verification.ex`
 - `lib/office_graph_web/json_api/operator_commands/agents_controller.ex`
 - `lib/office_graph_web/json_api/operator_commands/github_controller.ex`
-- `lib/office_graph_web/json_api/operator_commands/packets_controller.ex`
-- `lib/office_graph_web/json_api/operator_commands/runs_controller.ex`
-- `lib/office_graph_web/json_api/operator_commands/verification_controller.ex`
 - `lib/office_graph_web/json_api/operator_commands/serializer.ex`
 - `lib/office_graph_web/operator_commands/input.ex`
 
@@ -273,6 +267,19 @@ The manual-intake and proposed-change command surfaces have moved to:
 - `lib/office_graph/proposed_changes/command_results/apply_proposed_changes.ex`
 - `lib/office_graph/command_support/command_error.ex`
 - `lib/office_graph/command_support/typed_id.ex`
+- `lib/office_graph/work_packets/actions/create_work_packet.ex`
+- `lib/office_graph/work_packets/actions/create_work_packet_version.ex`
+- `lib/office_graph/work_packets/command_results/packet_mutation.ex`
+- `lib/office_graph/runs/actions/start_work_run.ex`
+- `lib/office_graph/runs/actions/record_execution_observation.ex`
+- `lib/office_graph/runs/command_results/start_work_run.ex`
+- `lib/office_graph/runs/command_results/record_execution_observation.ex`
+- `lib/office_graph/verification/actions/create_evidence_candidate.ex`
+- `lib/office_graph/verification/actions/accept_evidence.ex`
+- `lib/office_graph/verification/actions/waive_verification_check.ex`
+- `lib/office_graph/verification/command_results/create_evidence_candidate.ex`
+- `lib/office_graph/verification/command_results/accept_evidence.ex`
+- `lib/office_graph/verification/command_results/waive_verification_check.ex`
 
 The following general-purpose web transport helpers remain only to serve
 accepted custom projections or provider callbacks. Generated AshGraphql and

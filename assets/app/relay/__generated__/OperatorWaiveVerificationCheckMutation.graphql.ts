@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<565928ad60371b65820c085c57565d51>>
+ * @generated SignedSource<<f426bea53f2d5812bc88a9b9c07786d3>>
  * @lightSyntaxTransform
  */
 
@@ -25,7 +25,7 @@ export type OperatorWaiveVerificationCheckMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly operationId: string;
     readonly requiredCheck: {
@@ -115,7 +115,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandVerificationResult",
+        "concreteType": "WorkGraphVerificationResult",
         "kind": "LinkedField",
         "name": "verificationResult",
         "plural": false,
@@ -134,7 +134,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandRunRequiredCheck",
+        "concreteType": "RunRequiredCheck",
         "kind": "LinkedField",
         "name": "requiredCheck",
         "plural": false,
@@ -160,7 +160,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkRun",
+        "concreteType": "WorkRun",
         "kind": "LinkedField",
         "name": "run",
         "plural": false,

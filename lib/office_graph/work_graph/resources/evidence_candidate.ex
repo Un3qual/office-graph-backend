@@ -150,6 +150,46 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       accept []
       change set_attribute(:candidate_state, "accepted")
     end
+
+    action :create_evidence_candidate,
+           OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :work_run_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid, allow_nil?: false
+      argument :execution_observation_id, :uuid, allow_nil?: false
+      argument :claim, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :source_kind, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :source_identity, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :freshness_state, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :trust_basis, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :sensitivity, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      run OfficeGraph.Verification.Actions.CreateEvidenceCandidate
+    end
+
+    action :accept_evidence, OfficeGraph.Verification.CommandResults.AcceptEvidence do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :evidence_candidate_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :body, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, match: ~r/\S/]
+
+      argument :result, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :acceptance_policy_basis, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      run OfficeGraph.Verification.Actions.AcceptEvidence
+    end
   end
 
   identities do
@@ -175,6 +215,15 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :evidence_candidate_create}
+    end
+
+    policy action(:create_evidence_candidate) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :evidence_candidate_create}
+    end
+
+    policy action(:accept_evidence) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :evidence_accept}
     end
   end
 

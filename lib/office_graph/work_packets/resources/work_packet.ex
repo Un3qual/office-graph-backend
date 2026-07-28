@@ -106,6 +106,48 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
 
       change OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion
     end
+
+    action :create_work_packet,
+           OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :title, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :objective, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :context_summary, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :requirements, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :success_criteria, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :autonomy_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false
+
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false
+
+      run OfficeGraph.WorkPackets.Actions.CreateWorkPacket
+    end
+
+    action :create_work_packet_version,
+           OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :packet_id, :uuid, allow_nil?: false
+      argument :expected_current_version_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :objective, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :context_summary, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :requirements, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :success_criteria, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :autonomy_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false
+
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false
+
+      run OfficeGraph.WorkPackets.Actions.CreateWorkPacketVersion
+    end
   end
 
   identities do
@@ -132,6 +174,16 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :work_packet_create}
+    end
+
+    policy action(:create_work_packet) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+
+    policy action(:create_work_packet_version) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_version_create}
     end
   end
 

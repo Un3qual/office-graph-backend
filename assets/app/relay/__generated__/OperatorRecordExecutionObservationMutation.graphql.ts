@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<c6c8fde9c50a1217d1f7975dba16e6af>>
+ * @generated SignedSource<<02b8c8e8eb06f82870b087c42411eb3f>>
  * @lightSyntaxTransform
  */
 
@@ -30,7 +30,7 @@ export type OperatorRecordExecutionObservationMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly observation: {
       readonly id: string;
@@ -115,7 +115,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandExecutionObservation",
+        "concreteType": "ExecutionObservation",
         "kind": "LinkedField",
         "name": "observation",
         "plural": false,
@@ -134,7 +134,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkRun",
+        "concreteType": "WorkRun",
         "kind": "LinkedField",
         "name": "run",
         "plural": false,

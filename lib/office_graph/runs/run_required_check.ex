@@ -104,6 +104,29 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
       accept []
       change set_attribute(:state, "waived")
     end
+
+    action :waive_verification_check,
+           OfficeGraph.Verification.CommandResults.WaiveVerificationCheck do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :run_id, :uuid, allow_nil?: false
+      argument :run_required_check_id, :uuid, allow_nil?: false
+
+      argument :expected_execution_state, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :expected_verification_state, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :reason, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :policy_basis, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      run OfficeGraph.Verification.Actions.WaiveVerificationCheck
+    end
   end
 
   identities do
@@ -133,6 +156,11 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
 
     policy action(:create) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
+    end
+
+    policy action(:waive_verification_check) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :verification_waive}
     end
   end
 

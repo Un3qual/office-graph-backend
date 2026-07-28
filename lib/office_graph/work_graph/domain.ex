@@ -36,6 +36,24 @@ defmodule OfficeGraph.WorkGraph.Domain do
       list OfficeGraph.WorkGraph.VerificationResult, :list_verification_results, :read,
         relay?: true
     end
+
+    mutations do
+      action OfficeGraph.WorkGraph.EvidenceCandidate,
+             :create_evidence_candidate,
+             :create_evidence_candidate do
+        relay_id_translations(
+          input: [
+            work_run_id: :work_run,
+            verification_check_id: :verification_check,
+            execution_observation_id: :execution_observation
+          ]
+        )
+      end
+
+      action OfficeGraph.WorkGraph.EvidenceCandidate, :accept_evidence, :accept_evidence do
+        relay_id_translations(input: [evidence_candidate_id: :evidence_candidate])
+      end
+    end
   end
 
   json_api do
@@ -105,6 +123,20 @@ defmodule OfficeGraph.WorkGraph.Domain do
         get(:read, primary?: true)
         index :read
       end
+
+      route(
+        OfficeGraph.WorkGraph.EvidenceCandidate,
+        :post,
+        "/commands/create-evidence-candidate",
+        :create_evidence_candidate
+      )
+
+      route(
+        OfficeGraph.WorkGraph.EvidenceCandidate,
+        :post,
+        "/commands/accept-evidence",
+        :accept_evidence
+      )
     end
   end
 

@@ -7,6 +7,7 @@ defmodule OfficeGraph.Verification do
     deps: [
       OfficeGraph.Audit,
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Content,
       OfficeGraph.Operations,
       OfficeGraph.Repo,

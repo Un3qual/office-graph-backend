@@ -13,15 +13,65 @@ type ApplyProposedChangesPayload {
   affectedIds: [OperatorTypedId]!
 }
 
+type SubmitManualIntakePayload {
+  proposedChanges: [ProposedGraphChange!]!
+  operationId: ID!
+  normalizedEvent: NormalizedIntakeEvent!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type RecordExecutionObservationPayload {
+  run: WorkRun!
+  operationId: ID!
+  observation: ExecutionObservation!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type WaiveVerificationCheckPayload {
+  verificationResult: WorkGraphVerificationResult!
+  run: WorkRun!
+  requiredCheck: RunRequiredCheck!
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type StartWorkRunPayload {
+  run: WorkRun!
+  requiredChecks: [RunRequiredCheck!]!
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type WorkPacketCommandPayload {
+  packetVersion: WorkPacketVersion!
+  packet: WorkPacket!
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type AcceptEvidencePayload {
+  verificationResult: WorkGraphVerificationResult!
+  run: WorkRun
+  operationId: ID!
+  evidenceItem: EvidenceItem!
+  evidenceCandidate: EvidenceCandidate!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
 type OperatorTypedId {
   type: String!
   id: ID!
 }
 
-type SubmitManualIntakePayload {
-  proposedChanges: [ProposedGraphChange!]!
+type CreateEvidenceCandidatePayload {
   operationId: ID!
-  normalizedEvent: NormalizedIntakeEvent!
+  evidenceCandidate: EvidenceCandidate!
   command: String!
   affectedIds: [OperatorTypedId]!
 }
@@ -715,6 +765,28 @@ type EvidenceItem implements Node {
   organizationId: ID!
   workRunId: ID
   workspaceId: ID!
+}
+
+input AcceptEvidenceInput {
+  idempotencyKey: String!
+  evidenceCandidateId: ID!
+  title: String!
+  body: String!
+  result: String!
+  acceptancePolicyBasis: String!
+}
+
+input CreateEvidenceCandidateInput {
+  idempotencyKey: String!
+  workRunId: ID!
+  verificationCheckId: ID!
+  executionObservationId: ID!
+  claim: String!
+  sourceKind: String!
+  sourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  sensitivity: String!
 }
 
 enum EvidenceCandidateSortField {
@@ -3265,6 +3337,32 @@ type WorkPacketVersion implements Node {
   ): [WorkPacketRequiredCheck!]!
 }
 
+input CreateWorkPacketVersionInput {
+  idempotencyKey: String!
+  packetId: ID!
+  expectedCurrentVersionId: ID!
+  title: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String!
+  autonomyPosture: String!
+  sourceGraphItemIds: [ID!]!
+  verificationCheckIds: [ID!]!
+}
+
+input CreateWorkPacketInput {
+  idempotencyKey: String!
+  title: String!
+  objective: String!
+  contextSummary: String!
+  requirements: String!
+  successCriteria: String!
+  autonomyPosture: String!
+  sourceGraphItemIds: [ID!]!
+  verificationCheckIds: [ID!]!
+}
+
 enum WorkPacketSortField {
   ID
   TITLE
@@ -3474,6 +3572,21 @@ type WorkPacket implements Node {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): WorkPacketVersionConnection!
+}
+
+input RecordExecutionObservationInput {
+  idempotencyKey: String!
+  runId: ID!
+  verificationCheckId: ID!
+  sourceGraphItemId: ID!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  observationIdempotencyKey: String!
+  observedStatus: String!
+  normalizedStatus: String!
+  freshnessState: String!
+  trustBasis: String!
+  observationRationale: String!
 }
 
 enum ExecutionObservationSortField {
@@ -3929,6 +4042,16 @@ type ExecutionObservation implements Node {
   workspaceId: ID!
 }
 
+input WaiveVerificationCheckInput {
+  idempotencyKey: String!
+  runId: ID!
+  runRequiredCheckId: ID!
+  expectedExecutionState: String!
+  expectedVerificationState: String!
+  reason: String!
+  policyBasis: String!
+}
+
 enum RunRequiredCheckSortField {
   ID
   POSITION
@@ -4113,6 +4236,14 @@ type RunRequiredCheck implements Node {
   organizationId: ID!
   workspaceId: ID!
   verificationCheck: VerificationCheck!
+}
+
+input StartWorkRunInput {
+  idempotencyKey: String!
+  packetVersionId: ID!
+  sourceSurface: String!
+  reason: String!
+  authorityPosture: String!
 }
 
 enum WorkRunSortField {
@@ -7849,15 +7980,15 @@ type RootMutationType {
   bindGithubInstallation(input: BindGithubInstallationInput!): BindGithubInstallationPayload!
   replyToGithubReview(input: ReplyToGithubReviewInput!): GithubOutboundActionPayload!
   updateGithubCheck(input: UpdateGithubCheckInput!): GithubOutboundActionPayload!
-  createWorkPacket(input: CreateWorkPacketInput!): CreateWorkPacketPayload!
-  createWorkPacketVersion(input: CreateWorkPacketVersionInput!): CreateWorkPacketVersionPayload!
-  startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
-  recordExecutionObservation(input: RecordExecutionObservationInput!): RecordExecutionObservationPayload!
-  createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
-  acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
-  waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
   applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
   submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
+  startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
+  waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
+  recordExecutionObservation(input: RecordExecutionObservationInput!): RecordExecutionObservationPayload!
+  createWorkPacket(input: CreateWorkPacketInput!): WorkPacketCommandPayload!
+  createWorkPacketVersion(input: CreateWorkPacketVersionInput!): WorkPacketCommandPayload!
+  createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
+  acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
 }
 
 """
@@ -8054,190 +8185,6 @@ type GithubOutboundActionPayload {
   operationId: ID!
   affectedIds: [OperatorTypedId!]!
   action: GithubOutboundActionCommandResult!
-}
-
-input CreateWorkPacketInput {
-  idempotencyKey: String!
-  title: String!
-  objective: String!
-  contextSummary: String!
-  requirements: String!
-  successCriteria: String!
-  autonomyPosture: String!
-  sourceGraphItemIds: [ID!]!
-  verificationCheckIds: [ID!]!
-}
-
-input CreateWorkPacketVersionInput {
-  idempotencyKey: String!
-  packetId: ID!
-  expectedCurrentVersionId: ID!
-  title: String!
-  objective: String!
-  contextSummary: String!
-  requirements: String!
-  successCriteria: String!
-  autonomyPosture: String!
-  sourceGraphItemIds: [ID!]!
-  verificationCheckIds: [ID!]!
-}
-
-input StartWorkRunInput {
-  idempotencyKey: String!
-  packetVersionId: ID!
-  sourceSurface: String!
-  reason: String!
-  authorityPosture: String!
-}
-
-input RecordExecutionObservationInput {
-  idempotencyKey: String!
-  runId: ID!
-  verificationCheckId: ID!
-  sourceGraphItemId: ID!
-  observationSourceKind: String!
-  observationSourceIdentity: String!
-  observationIdempotencyKey: String!
-  observedStatus: String!
-  normalizedStatus: String!
-  freshnessState: String!
-  trustBasis: String!
-  observationRationale: String!
-}
-
-input CreateEvidenceCandidateInput {
-  idempotencyKey: String!
-  workRunId: ID!
-  verificationCheckId: ID!
-  executionObservationId: ID!
-  claim: String!
-  sourceKind: String!
-  sourceIdentity: String!
-  freshnessState: String!
-  trustBasis: String!
-  sensitivity: String!
-}
-
-input AcceptEvidenceInput {
-  idempotencyKey: String!
-  evidenceCandidateId: ID!
-  title: String!
-  body: String!
-  result: String!
-  acceptancePolicyBasis: String!
-}
-
-input WaiveVerificationCheckInput {
-  idempotencyKey: String!
-  runId: ID!
-  runRequiredCheckId: ID!
-  expectedExecutionState: String!
-  expectedVerificationState: String!
-  reason: String!
-  policyBasis: String!
-}
-
-type OperatorCommandWorkPacket {
-  id: ID!
-  currentVersionId: ID!
-  title: String!
-  state: String!
-}
-
-type OperatorCommandWorkPacketVersion {
-  id: ID!
-  versionNumber: Int!
-  lifecycleState: String!
-}
-
-type OperatorCommandWorkRun {
-  id: ID!
-  executionState: String!
-  verificationState: String!
-}
-
-type OperatorCommandRunRequiredCheck {
-  id: ID!
-  verificationCheckId: ID!
-  state: String!
-}
-
-type OperatorCommandExecutionObservation {
-  id: ID!
-  normalizedStatus: String!
-}
-
-type OperatorCommandEvidenceCandidate {
-  id: ID!
-  candidateState: String!
-}
-
-type OperatorCommandEvidenceItem {
-  id: ID!
-  state: String!
-}
-
-type OperatorCommandVerificationResult {
-  id: ID!
-  result: String!
-}
-
-type CreateWorkPacketPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  packet: OperatorCommandWorkPacket!
-  packetVersion: OperatorCommandWorkPacketVersion!
-}
-
-type CreateWorkPacketVersionPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  packet: OperatorCommandWorkPacket!
-  packetVersion: OperatorCommandWorkPacketVersion!
-}
-
-type StartWorkRunPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  run: OperatorCommandWorkRun!
-  requiredChecks: [OperatorCommandRunRequiredCheck!]!
-}
-
-type RecordExecutionObservationPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  observation: OperatorCommandExecutionObservation!
-  run: OperatorCommandWorkRun!
-}
-
-type CreateEvidenceCandidatePayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  evidenceCandidate: OperatorCommandEvidenceCandidate!
-}
-
-type AcceptEvidencePayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  evidenceCandidate: OperatorCommandEvidenceCandidate!
-  evidenceItem: OperatorCommandEvidenceItem!
-  verificationResult: OperatorCommandVerificationResult!
-  run: OperatorCommandWorkRun
-}
-
-type WaiveVerificationCheckPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  verificationResult: OperatorCommandVerificationResult!
-  requiredCheck: OperatorCommandRunRequiredCheck!
-  run: OperatorCommandWorkRun!
 }
 
 type OperatorSource {

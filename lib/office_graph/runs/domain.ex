@@ -19,6 +19,35 @@ defmodule OfficeGraph.Runs.Domain do
       list OfficeGraph.Runs.ExecutionObservation, :list_execution_observations, :read,
         relay?: true
     end
+
+    mutations do
+      action OfficeGraph.Runs.Run, :start_work_run, :start_work_run do
+        relay_id_translations(input: [packet_version_id: :work_packet_version])
+      end
+
+      action OfficeGraph.Runs.ExecutionObservation,
+             :record_execution_observation,
+             :record_execution_observation do
+        relay_id_translations(
+          input: [
+            run_id: :work_run,
+            verification_check_id: :verification_check,
+            source_graph_item_id: :graph_item
+          ]
+        )
+      end
+
+      action OfficeGraph.Runs.RunRequiredCheck,
+             :waive_verification_check,
+             :waive_verification_check do
+        relay_id_translations(
+          input: [
+            run_id: :work_run,
+            run_required_check_id: :run_required_check
+          ]
+        )
+      end
+    end
   end
 
   json_api do
@@ -37,6 +66,27 @@ defmodule OfficeGraph.Runs.Domain do
         get(:read, primary?: true)
         index :read
       end
+
+      route(
+        OfficeGraph.Runs.Run,
+        :post,
+        "/commands/start-work-run",
+        :start_work_run
+      )
+
+      route(
+        OfficeGraph.Runs.ExecutionObservation,
+        :post,
+        "/commands/record-execution-observation",
+        :record_execution_observation
+      )
+
+      route(
+        OfficeGraph.Runs.RunRequiredCheck,
+        :post,
+        "/commands/waive-verification-check",
+        :waive_verification_check
+      )
     end
   end
 
