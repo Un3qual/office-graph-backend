@@ -20,8 +20,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   @spec compare([map()], [map()], [map()]) :: [map()]
   def compare(current, debt, approved_exceptions) do
     current = Enum.map(current, &normalize_entry/1)
-    debt = Enum.map(debt, &normalize_entry/1)
-    approved_exceptions = Enum.map(approved_exceptions, &normalize_entry/1)
+    debt = Enum.map(debt, &normalize_entry(&1, :debt))
+
+    approved_exceptions =
+      Enum.map(approved_exceptions, &normalize_entry(&1, :approved_exceptions))
+
     recorded = debt ++ approved_exceptions
 
     inventory_errors(:debt, debt, @debt_metadata_fields) ++
@@ -182,7 +185,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     |> Enum.reject(fn occurrence ->
       Enum.any?(current, &same_locator?(&1, occurrence))
     end)
-    |> Enum.map(&diagnostic(&1, :stale))
+    |> Enum.map(fn occurrence ->
+      occurrence
+      |> diagnostic(:stale)
+      |> Map.put(:inventory, occurrence["inventory"])
+    end)
   end
 
   defp inventory_errors(inventory, entries, required_metadata_fields) do
@@ -217,6 +224,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     entry
     |> Map.new(fn {key, value} -> {to_string(key), value} end)
     |> Map.update("class", nil, &to_string/1)
+  end
+
+  defp normalize_entry(entry, inventory) do
+    entry
+    |> normalize_entry()
+    |> Map.put("inventory", inventory)
   end
 
   defp same_fingerprint?(left, right),

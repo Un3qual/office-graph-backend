@@ -9,6 +9,21 @@
           ~r"/deps/"
         ]
       },
+      requires: [
+        Path.join(
+          __DIR__,
+          "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex"
+        ),
+        Path.join(
+          __DIR__,
+          "credo_checks/office_graph/project_boundaries/database_boundary_gate.ex"
+        ),
+        Path.join(
+          __DIR__,
+          "credo_checks/office_graph/project_boundaries/planning_boundary.ex"
+        ),
+        Path.join(__DIR__, "credo_checks/office_graph/project_boundaries/check.ex")
+      ],
       plugins: [
         {ExSlop, []},
         {ExDNA.Credo,
@@ -52,6 +67,7 @@
       ],
       checks: %{
         extra: [
+          {OfficeGraph.Credo.Check.ProjectBoundaries, []},
           {Credo.Check.Warning.ExpensiveEmptyEnumCheck, []},
           {Credo.Check.Refactor.AppendSingleItem, []},
           {Credo.Check.Refactor.DoubleBooleanNegation, []},

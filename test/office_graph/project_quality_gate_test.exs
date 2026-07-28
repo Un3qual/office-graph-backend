@@ -23,6 +23,17 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     refute Enum.any?(verify, &String.starts_with?(&1, "deps.unlock --unused"))
   end
 
+  test "canonical verification runs project boundaries exactly once through Credo" do
+    aliases = Mix.Project.config()[:aliases]
+    expanded_verify = Enum.flat_map(aliases[:verify], &expand_alias(&1, aliases))
+
+    assert Enum.count(expanded_verify, &(&1 == "credo --strict")) == 1
+    refute "office_graph.planning_boundaries" in expanded_verify
+    refute "office_graph.database_boundaries" in expanded_verify
+    refute Keyword.has_key?(aliases, :"office_graph.planning_boundaries")
+    refute Keyword.has_key?(aliases, :"office_graph.database_boundaries")
+  end
+
   test "verification environment is stable and honors explicit isolation overrides" do
     {first_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
