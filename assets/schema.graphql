@@ -3,6 +3,1113 @@ schema {
   query: RootQueryType
 }
 
+enum WorkGraphVerificationResultSortField {
+  ID
+  POLICY_BASIS
+  REASON
+  RECORDED_AT
+  RESULT
+  INSERTED_AT
+  UPDATED_AT
+  VERIFICATION_CHECK_ID
+  EVIDENCE_ITEM_ID
+  OPERATION_ID
+  TARGET_GRAPH_ITEM_ID
+  ACTOR_PRINCIPAL_ID
+  ORGANIZATION_ID
+  WORK_PACKET_VERSION_ID
+  WORK_RUN_ID
+  WORKSPACE_ID
+}
+
+":work_graph_verification_result connection"
+type WorkGraphVerificationResultConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":work_graph_verification_result edges"
+  edges: [WorkGraphVerificationResultEdge!]
+}
+
+":work_graph_verification_result edge"
+type WorkGraphVerificationResultEdge {
+  "Cursor"
+  cursor: String!
+
+  ":work_graph_verification_result node"
+  node: WorkGraphVerificationResult!
+}
+
+input WorkGraphVerificationResultFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterWorkRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterWorkPacketVersionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterActorPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterTargetGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterEvidenceItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterVerificationCheckId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkGraphVerificationResultFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkGraphVerificationResultFilterResult {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkGraphVerificationResultFilterRecordedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkGraphVerificationResultFilterReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkGraphVerificationResultFilterPolicyBasis {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkGraphVerificationResultFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkGraphVerificationResultFilterInput {
+  and: [WorkGraphVerificationResultFilterInput!]
+  or: [WorkGraphVerificationResultFilterInput!]
+  not: [WorkGraphVerificationResultFilterInput!]
+  id: WorkGraphVerificationResultFilterId
+  policyBasis: WorkGraphVerificationResultFilterPolicyBasis
+  reason: WorkGraphVerificationResultFilterReason
+  recordedAt: WorkGraphVerificationResultFilterRecordedAt
+  result: WorkGraphVerificationResultFilterResult
+  insertedAt: WorkGraphVerificationResultFilterInsertedAt
+  updatedAt: WorkGraphVerificationResultFilterUpdatedAt
+  verificationCheckId: WorkGraphVerificationResultFilterVerificationCheckId
+  evidenceItemId: WorkGraphVerificationResultFilterEvidenceItemId
+  operationId: WorkGraphVerificationResultFilterOperationId
+  targetGraphItemId: WorkGraphVerificationResultFilterTargetGraphItemId
+  actorPrincipalId: WorkGraphVerificationResultFilterActorPrincipalId
+  organizationId: WorkGraphVerificationResultFilterOrganizationId
+  workPacketVersionId: WorkGraphVerificationResultFilterWorkPacketVersionId
+  workRunId: WorkGraphVerificationResultFilterWorkRunId
+  workspaceId: WorkGraphVerificationResultFilterWorkspaceId
+}
+
+input WorkGraphVerificationResultSortInput {
+  order: SortOrder
+  field: WorkGraphVerificationResultSortField!
+}
+
+type WorkGraphVerificationResult implements Node {
+  id: ID!
+  policyBasis: String
+  reason: String
+  recordedAt: DateTime
+  result: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  verificationCheckId: ID!
+  evidenceItemId: ID
+  operationId: ID!
+  targetGraphItemId: ID
+  actorPrincipalId: ID
+  organizationId: ID!
+  workPacketVersionId: ID
+  workRunId: ID
+  workspaceId: ID!
+}
+
+enum EvidenceItemSortField {
+  ID
+  ACCEPTANCE_POLICY_BASIS
+  ACCEPTED_AT
+  SENSITIVITY
+  FRESHNESS_STATE
+  TRUST_BASIS
+  TITLE
+  STATE
+  INSERTED_AT
+  UPDATED_AT
+  GRAPH_ITEM_ID
+  VERIFICATION_CHECK_ID
+  ARTIFACT_ID
+  BODY_DOCUMENT_ID
+  CANDIDATE_ID
+  ACCEPTANCE_OPERATION_ID
+  ACCEPTED_BY_PRINCIPAL_ID
+  ORGANIZATION_ID
+  WORK_RUN_ID
+  WORKSPACE_ID
+}
+
+":evidence_item connection"
+type EvidenceItemConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":evidence_item edges"
+  edges: [EvidenceItemEdge!]
+}
+
+":evidence_item edge"
+type EvidenceItemEdge {
+  "Cursor"
+  cursor: String!
+
+  ":evidence_item node"
+  node: EvidenceItem!
+}
+
+input EvidenceItemFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterWorkRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterAcceptedByPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterAcceptanceOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterCandidateId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterBodyDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterArtifactId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterVerificationCheckId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EvidenceItemFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EvidenceItemFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterTrustBasis {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterFreshnessState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterSensitivity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterAcceptedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EvidenceItemFilterAcceptancePolicyBasis {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceItemFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceItemFilterInput {
+  and: [EvidenceItemFilterInput!]
+  or: [EvidenceItemFilterInput!]
+  not: [EvidenceItemFilterInput!]
+  id: EvidenceItemFilterId
+  acceptancePolicyBasis: EvidenceItemFilterAcceptancePolicyBasis
+  acceptedAt: EvidenceItemFilterAcceptedAt
+  sensitivity: EvidenceItemFilterSensitivity
+  freshnessState: EvidenceItemFilterFreshnessState
+  trustBasis: EvidenceItemFilterTrustBasis
+  title: EvidenceItemFilterTitle
+  state: EvidenceItemFilterState
+  insertedAt: EvidenceItemFilterInsertedAt
+  updatedAt: EvidenceItemFilterUpdatedAt
+  graphItemId: EvidenceItemFilterGraphItemId
+  verificationCheckId: EvidenceItemFilterVerificationCheckId
+  artifactId: EvidenceItemFilterArtifactId
+  bodyDocumentId: EvidenceItemFilterBodyDocumentId
+  candidateId: EvidenceItemFilterCandidateId
+  acceptanceOperationId: EvidenceItemFilterAcceptanceOperationId
+  acceptedByPrincipalId: EvidenceItemFilterAcceptedByPrincipalId
+  organizationId: EvidenceItemFilterOrganizationId
+  workRunId: EvidenceItemFilterWorkRunId
+  workspaceId: EvidenceItemFilterWorkspaceId
+}
+
+input EvidenceItemSortInput {
+  order: SortOrder
+  field: EvidenceItemSortField!
+}
+
+type EvidenceItem implements Node {
+  id: ID!
+  acceptancePolicyBasis: String
+  acceptedAt: DateTime
+  sensitivity: String
+  freshnessState: String
+  trustBasis: String
+  title: String!
+  state: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  graphItemId: ID!
+  verificationCheckId: ID!
+  artifactId: ID
+  bodyDocumentId: ID!
+  candidateId: ID
+  acceptanceOperationId: ID
+  acceptedByPrincipalId: ID
+  organizationId: ID!
+  workRunId: ID
+  workspaceId: ID!
+}
+
+enum EvidenceCandidateSortField {
+  ID
+  STEP_KEY
+  CLAIM
+  SOURCE_KIND
+  SOURCE_IDENTITY
+  FRESHNESS_STATE
+  TRUST_BASIS
+  SENSITIVITY
+  CANDIDATE_STATE
+  REJECTION_REASON
+  INSERTED_AT
+  UPDATED_AT
+  VERIFICATION_CHECK_ID
+  ARTIFACT_ID
+  OPERATION_ID
+  CONTEXT_PACKAGE_ID
+  EXECUTION_ID
+  EXECUTION_OBSERVATION_ID
+  ORGANIZATION_ID
+  WORK_RUN_ID
+  WORKSPACE_ID
+}
+
+":evidence_candidate connection"
+type EvidenceCandidateConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":evidence_candidate edges"
+  edges: [EvidenceCandidateEdge!]
+}
+
+":evidence_candidate edge"
+type EvidenceCandidateEdge {
+  "Cursor"
+  cursor: String!
+
+  ":evidence_candidate node"
+  node: EvidenceCandidate!
+}
+
+input EvidenceCandidateFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterWorkRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterExecutionObservationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterContextPackageId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterArtifactId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterVerificationCheckId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EvidenceCandidateFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EvidenceCandidateFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterCandidateState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterSensitivity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterTrustBasis {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterFreshnessState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterSourceIdentity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterSourceKind {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterClaim {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EvidenceCandidateFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EvidenceCandidateFilterInput {
+  and: [EvidenceCandidateFilterInput!]
+  or: [EvidenceCandidateFilterInput!]
+  not: [EvidenceCandidateFilterInput!]
+  id: EvidenceCandidateFilterId
+  stepKey: EvidenceCandidateFilterStepKey
+  claim: EvidenceCandidateFilterClaim
+  sourceKind: EvidenceCandidateFilterSourceKind
+  sourceIdentity: EvidenceCandidateFilterSourceIdentity
+  freshnessState: EvidenceCandidateFilterFreshnessState
+  trustBasis: EvidenceCandidateFilterTrustBasis
+  sensitivity: EvidenceCandidateFilterSensitivity
+  candidateState: EvidenceCandidateFilterCandidateState
+  rejectionReason: EvidenceCandidateFilterRejectionReason
+  insertedAt: EvidenceCandidateFilterInsertedAt
+  updatedAt: EvidenceCandidateFilterUpdatedAt
+  verificationCheckId: EvidenceCandidateFilterVerificationCheckId
+  artifactId: EvidenceCandidateFilterArtifactId
+  operationId: EvidenceCandidateFilterOperationId
+  contextPackageId: EvidenceCandidateFilterContextPackageId
+  executionId: EvidenceCandidateFilterExecutionId
+  executionObservationId: EvidenceCandidateFilterExecutionObservationId
+  organizationId: EvidenceCandidateFilterOrganizationId
+  workRunId: EvidenceCandidateFilterWorkRunId
+  workspaceId: EvidenceCandidateFilterWorkspaceId
+}
+
+input EvidenceCandidateSortInput {
+  order: SortOrder
+  field: EvidenceCandidateSortField!
+}
+
+type EvidenceCandidate implements Node {
+  id: ID!
+  stepKey: String
+  claim: String!
+  sourceKind: String!
+  sourceIdentity: String!
+  freshnessState: String!
+  trustBasis: String!
+  sensitivity: String!
+  candidateState: String!
+  rejectionReason: String
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  verificationCheckId: ID!
+  artifactId: ID
+  operationId: ID!
+  contextPackageId: ID
+  executionId: ID
+  executionObservationId: ID
+  organizationId: ID!
+  workRunId: ID
+  workspaceId: ID!
+}
+
 enum SignalSortField {
   ID
   TITLE
@@ -1208,6 +2315,643 @@ type WorkPacket implements Node {
   ): WorkPacketVersionConnection!
 }
 
+enum ExecutionObservationSortField {
+  ID
+  STEP_KEY
+  SOURCE_KIND
+  SOURCE_IDENTITY
+  IDEMPOTENCY_KEY
+  OBSERVED_STATUS
+  NORMALIZED_STATUS
+  SOURCE_RECORDED_AT
+  INGESTED_AT
+  FRESHNESS_STATE
+  TRUST_BASIS
+  RATIONALE
+  CLASSIFICATION
+  INSERTED_AT
+  UPDATED_AT
+  WORK_RUN_ID
+  OPERATION_ID
+  VERIFICATION_CHECK_ID
+  GRAPH_ITEM_ID
+  CONTEXT_PACKAGE_ID
+  EXECUTION_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":execution_observation connection"
+type ExecutionObservationConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":execution_observation edges"
+  edges: [ExecutionObservationEdge!]
+}
+
+":execution_observation edge"
+type ExecutionObservationEdge {
+  "Cursor"
+  cursor: String!
+
+  ":execution_observation node"
+  node: ExecutionObservation!
+}
+
+input ExecutionObservationFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterExecutionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterContextPackageId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterVerificationCheckId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterWorkRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ExecutionObservationFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ExecutionObservationFilterClassification {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterRationale {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterTrustBasis {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterFreshnessState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterIngestedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ExecutionObservationFilterSourceRecordedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input ExecutionObservationFilterNormalizedStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterObservedStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterIdempotencyKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterSourceIdentity {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterSourceKind {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterStepKey {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input ExecutionObservationFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input ExecutionObservationFilterInput {
+  and: [ExecutionObservationFilterInput!]
+  or: [ExecutionObservationFilterInput!]
+  not: [ExecutionObservationFilterInput!]
+  id: ExecutionObservationFilterId
+  stepKey: ExecutionObservationFilterStepKey
+  sourceKind: ExecutionObservationFilterSourceKind
+  sourceIdentity: ExecutionObservationFilterSourceIdentity
+  idempotencyKey: ExecutionObservationFilterIdempotencyKey
+  observedStatus: ExecutionObservationFilterObservedStatus
+  normalizedStatus: ExecutionObservationFilterNormalizedStatus
+  sourceRecordedAt: ExecutionObservationFilterSourceRecordedAt
+  ingestedAt: ExecutionObservationFilterIngestedAt
+  freshnessState: ExecutionObservationFilterFreshnessState
+  trustBasis: ExecutionObservationFilterTrustBasis
+  rationale: ExecutionObservationFilterRationale
+  classification: ExecutionObservationFilterClassification
+  insertedAt: ExecutionObservationFilterInsertedAt
+  updatedAt: ExecutionObservationFilterUpdatedAt
+  workRunId: ExecutionObservationFilterWorkRunId
+  operationId: ExecutionObservationFilterOperationId
+  verificationCheckId: ExecutionObservationFilterVerificationCheckId
+  graphItemId: ExecutionObservationFilterGraphItemId
+  contextPackageId: ExecutionObservationFilterContextPackageId
+  executionId: ExecutionObservationFilterExecutionId
+  organizationId: ExecutionObservationFilterOrganizationId
+  workspaceId: ExecutionObservationFilterWorkspaceId
+}
+
+input ExecutionObservationSortInput {
+  order: SortOrder
+  field: ExecutionObservationSortField!
+}
+
+type ExecutionObservation implements Node {
+  id: ID!
+  stepKey: String
+  sourceKind: String!
+  sourceIdentity: String!
+  idempotencyKey: String
+  observedStatus: String!
+  normalizedStatus: String!
+  sourceRecordedAt: DateTime
+  ingestedAt: DateTime!
+  freshnessState: String!
+  trustBasis: String!
+  rationale: String
+  classification: String
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  workRunId: ID!
+  operationId: ID!
+  verificationCheckId: ID
+  graphItemId: ID
+  contextPackageId: ID
+  executionId: ID
+  organizationId: ID!
+  workspaceId: ID!
+}
+
+enum RunRequiredCheckSortField {
+  ID
+  POSITION
+  STATE
+  INSERTED_AT
+  UPDATED_AT
+  RUN_ID
+  VERIFICATION_CHECK_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
+}
+
+":run_required_check connection"
+type RunRequiredCheckConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":run_required_check edges"
+  edges: [RunRequiredCheckEdge!]
+}
+
+":run_required_check edge"
+type RunRequiredCheckEdge {
+  "Cursor"
+  cursor: String!
+
+  ":run_required_check node"
+  node: RunRequiredCheck!
+}
+
+input RunRequiredCheckFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input RunRequiredCheckFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input RunRequiredCheckFilterVerificationCheckId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input RunRequiredCheckFilterRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input RunRequiredCheckFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input RunRequiredCheckFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input RunRequiredCheckFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input RunRequiredCheckFilterPosition {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input RunRequiredCheckFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input RunRequiredCheckFilterInput {
+  and: [RunRequiredCheckFilterInput!]
+  or: [RunRequiredCheckFilterInput!]
+  not: [RunRequiredCheckFilterInput!]
+  id: RunRequiredCheckFilterId
+  position: RunRequiredCheckFilterPosition
+  state: RunRequiredCheckFilterState
+  insertedAt: RunRequiredCheckFilterInsertedAt
+  updatedAt: RunRequiredCheckFilterUpdatedAt
+  runId: RunRequiredCheckFilterRunId
+  verificationCheckId: RunRequiredCheckFilterVerificationCheckId
+  organizationId: RunRequiredCheckFilterOrganizationId
+  workspaceId: RunRequiredCheckFilterWorkspaceId
+}
+
+input RunRequiredCheckSortInput {
+  order: SortOrder
+  field: RunRequiredCheckSortField!
+}
+
+type RunRequiredCheck implements Node {
+  id: ID!
+  position: Int!
+  state: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  runId: ID!
+  verificationCheckId: ID!
+  organizationId: ID!
+  workspaceId: ID!
+}
+
 enum WorkRunSortField {
   ID
   OBJECTIVE
@@ -1559,6 +3303,12 @@ input WorkRunFilterInput {
   organizationId: WorkRunFilterOrganizationId
   workspaceId: WorkRunFilterWorkspaceId
   workPacket: WorkPacketFilterInput
+  workPacketVersion: WorkPacketVersionFilterInput
+  requiredChecks: RunRequiredCheckFilterInput
+  executionObservations: ExecutionObservationFilterInput
+  evidenceCandidates: EvidenceCandidateFilterInput
+  evidenceItems: EvidenceItemFilterInput
+  verificationResults: WorkGraphVerificationResultFilterInput
 }
 
 input WorkRunSortInput {
@@ -1587,6 +3337,102 @@ type WorkRun implements Node {
   organizationId: ID
   workspaceId: ID
   workPacket: WorkPacket!
+  workPacketVersion: WorkPacketVersion
+  requiredChecks(
+    "How to sort the records in the response"
+    sort: [RunRequiredCheckSortInput]
+
+    "A filter to limit the results"
+    filter: RunRequiredCheckFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): RunRequiredCheckConnection!
+  executionObservations(
+    "How to sort the records in the response"
+    sort: [ExecutionObservationSortInput]
+
+    "A filter to limit the results"
+    filter: ExecutionObservationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ExecutionObservationConnection!
+  evidenceCandidates(
+    "How to sort the records in the response"
+    sort: [EvidenceCandidateSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceCandidateFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceCandidateConnection!
+  evidenceItems(
+    "How to sort the records in the response"
+    sort: [EvidenceItemSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceItemFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceItemConnection!
+  verificationResults(
+    "How to sort the records in the response"
+    sort: [WorkGraphVerificationResultSortInput]
+
+    "A filter to limit the results"
+    filter: WorkGraphVerificationResultFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): WorkGraphVerificationResultConnection!
 }
 
 interface Node {
@@ -1609,10 +3455,7 @@ type RootQueryType {
   operatorRunState(id: ID!): OperatorRunState!
   operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
   operatorVerificationOutcome(id: ID!): OperatorVerificationOutcome!
-  node(
-    "The ID of an object."
-    id: ID!
-  ): Node
+  node(id: ID!): Node
   getWorkRun(
     "The id of the record"
     id: ID!
@@ -1636,6 +3479,52 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): WorkRunConnection
+  getRunRequiredCheck(
+    "The id of the record"
+    id: ID!
+  ): RunRequiredCheck
+  listRunRequiredChecks(
+    "How to sort the records in the response"
+    sort: [RunRequiredCheckSortInput]
+
+    "A filter to limit the results"
+    filter: RunRequiredCheckFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): RunRequiredCheckConnection
+  getExecutionObservation(
+    "The id of the record"
+    id: ID!
+  ): ExecutionObservation
+  listExecutionObservations(
+    "How to sort the records in the response"
+    sort: [ExecutionObservationSortInput]
+
+    "A filter to limit the results"
+    filter: ExecutionObservationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): ExecutionObservationConnection
   getWorkPacket(
     "The id of the record"
     id: ID!
@@ -1751,6 +3640,75 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): SignalConnection
+  getEvidenceCandidate(
+    "The id of the record"
+    id: ID!
+  ): EvidenceCandidate
+  listEvidenceCandidates(
+    "How to sort the records in the response"
+    sort: [EvidenceCandidateSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceCandidateFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceCandidateConnection
+  getEvidenceItem(
+    "The id of the record"
+    id: ID!
+  ): EvidenceItem
+  listEvidenceItems(
+    "How to sort the records in the response"
+    sort: [EvidenceItemSortInput]
+
+    "A filter to limit the results"
+    filter: EvidenceItemFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): EvidenceItemConnection
+  getVerificationResult(
+    "The id of the record"
+    id: ID!
+  ): WorkGraphVerificationResult
+  listVerificationResults(
+    "How to sort the records in the response"
+    sort: [WorkGraphVerificationResultSortInput]
+
+    "A filter to limit the results"
+    filter: WorkGraphVerificationResultFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): WorkGraphVerificationResultConnection
 }
 
 type RootMutationType {

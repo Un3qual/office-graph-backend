@@ -103,7 +103,10 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     create :create do
       public? false

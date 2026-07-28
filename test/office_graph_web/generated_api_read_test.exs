@@ -167,6 +167,45 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       )
     end
 
+    test "run packet versions and required checks use generated relationships and node refetch",
+         %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+      run_id = relay_id(:work_run, fixtures.local.run.id)
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_run_relationships_query(),
+          variables: %{runId: run_id}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      run = response["data"]["getWorkRun"]
+      assert run["id"] == run_id
+
+      assert run["workPacketVersion"]["id"] ==
+               relay_id(:work_packet_version, fixtures.local.version.id)
+
+      assert [required_check_edge] = run["requiredChecks"]["edges"]
+
+      Enum.each(
+        [run["workPacketVersion"]["id"], required_check_edge["node"]["id"]],
+        fn node_id ->
+          node =
+            conn
+            |> post(~p"/graphql", %{
+              query: generated_node_query(),
+              variables: %{id: node_id}
+            })
+            |> json_response(200)
+
+          assert node["errors"] in [nil, []]
+          assert node["data"]["node"]["id"] == node_id
+        end
+      )
+    end
+
     test "packet deep-link lookup isolates malformed and unavailable Relay IDs from the list",
          %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
@@ -374,6 +413,31 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert work_run["id"] == fixtures.local.run.id
       assert work_run["attributes"]["work_packet_id"] == fixtures.local.packet.id
 
+      assert [run_required_check] =
+               conn
+               |> json_api_get(~p"/api/v1/run-required-checks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert run_required_check["type"] == "run_required_check"
+      assert run_required_check["id"] == fixtures.local.required_check.id
+      assert run_required_check["attributes"]["run_id"] == fixtures.local.run.id
+
+      Enum.each(
+        [
+          ~p"/api/v1/execution-observations",
+          ~p"/api/v1/evidence-candidates",
+          ~p"/api/v1/evidence-items",
+          ~p"/api/v1/verification-results"
+        ],
+        fn path ->
+          assert conn
+                 |> json_api_get(path)
+                 |> json_response(200)
+                 |> Map.fetch!("data") == []
+        end
+      )
+
       refute signal["id"] == fixtures.foreign.signal.id
       refute work_packet["id"] == fixtures.foreign.packet.id
       refute work_run["id"] == fixtures.foreign.run.id
@@ -540,6 +604,29 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
             node {
               id
               versionNumber
+            }
+          }
+        }
+      }
+    }
+    """
+  end
+
+  defp generated_run_relationships_query do
+    """
+    query GeneratedRunRelationships($runId: ID!) {
+      getWorkRun(id: $runId) {
+        id
+        workPacketVersion {
+          id
+          versionNumber
+        }
+        requiredChecks(first: 10, sort: [{ field: POSITION, order: ASC }]) {
+          edges {
+            node {
+              id
+              verificationCheckId
+              state
             }
           }
         }
@@ -739,7 +826,8 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       signal: signal,
       packet: packet_result.packet,
       version: packet_result.version,
-      run: run_result.run
+      run: run_result.run,
+      required_check: hd(run_result.required_checks)
     }
   end
 end

@@ -57,7 +57,10 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_waive_command do
       public? false

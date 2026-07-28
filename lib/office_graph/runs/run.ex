@@ -51,6 +51,7 @@ defmodule OfficeGraph.Runs.Run do
     belongs_to :work_packet_version, OfficeGraph.WorkPackets.WorkPacketVersion do
       source_attribute :work_packet_version_id
       attribute_public? true
+      public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
@@ -65,10 +66,12 @@ defmodule OfficeGraph.Runs.Run do
 
     has_many :required_checks, OfficeGraph.Runs.RunRequiredCheck do
       destination_attribute :run_id
+      public? true
     end
 
     has_many :execution_observations, OfficeGraph.Runs.ExecutionObservation do
       destination_attribute :work_run_id
+      public? true
     end
 
     has_many :events, OfficeGraph.Runs.RunEvent do
@@ -90,16 +93,19 @@ defmodule OfficeGraph.Runs.Run do
     has_many :evidence_candidates, OfficeGraph.WorkGraph.EvidenceCandidate do
       source_attribute :id
       destination_attribute :work_run_id
+      public? true
     end
 
     has_many :evidence_items, OfficeGraph.WorkGraph.EvidenceItem do
       source_attribute :id
       destination_attribute :work_run_id
+      public? true
     end
 
     has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
       source_attribute :id
       destination_attribute :work_run_id
+      public? true
     end
 
     has_many :agent_executions, OfficeGraph.AgentRuntime.AgentExecution do
@@ -202,6 +208,14 @@ defmodule OfficeGraph.Runs.Run do
 
   graphql do
     type :work_run
+
+    paginate_relationship_with(
+      required_checks: :relay,
+      execution_observations: :relay,
+      evidence_candidates: :relay,
+      evidence_items: :relay,
+      verification_results: :relay
+    )
   end
 
   json_api do
