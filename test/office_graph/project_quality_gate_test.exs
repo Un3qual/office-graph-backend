@@ -142,6 +142,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
   end
 
   defp expand_alias("test", _aliases), do: ["test"]
+  defp expand_alias(task, _aliases) when is_function(task), do: []
 
   defp expand_alias(task, aliases) do
     case aliases[String.to_existing_atom(task)] do
