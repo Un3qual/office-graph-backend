@@ -229,7 +229,7 @@ defmodule OfficeGraph.Identity do
              id: transaction_id,
              expires_at: expires_at
            })
-           |> Ash.create(authorize?: false) do
+           |> Ash.create() do
       :ok
     else
       :error -> {:error, :invalid_login_transaction}
