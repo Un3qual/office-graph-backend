@@ -7,7 +7,7 @@ defmodule OfficeGraph.ProjectQuality.QualityBoundaryMixTasksTest do
     Mix.Task.reenable("office_graph.database_boundaries")
 
     assert capture_io(fn ->
-             Mix.Tasks.OfficeGraph.DatabaseBoundaries.run([])
+             Mix.Task.run("office_graph.database_boundaries")
            end) =~ "database boundaries: ok"
   end
 
@@ -42,7 +42,7 @@ defmodule OfficeGraph.ProjectQuality.QualityBoundaryMixTasksTest do
       Mix.Task.reenable("office_graph.database_boundaries")
 
       assert_raise Mix.Error, ~r/new.*lib\/example\.ex.*Repo\.query!/s, fn ->
-        Mix.Tasks.OfficeGraph.DatabaseBoundaries.run(["--root", root])
+        Mix.Task.run("office_graph.database_boundaries", ["--root", root])
       end
     end)
   end
@@ -55,7 +55,7 @@ defmodule OfficeGraph.ProjectQuality.QualityBoundaryMixTasksTest do
       Mix.Task.reenable("office_graph.planning_boundaries")
 
       assert_raise Mix.Error, ~r/docs\/superpowers\/plans\/feature\.md/, fn ->
-        Mix.Tasks.OfficeGraph.PlanningBoundaries.run(["--root", root])
+        Mix.Task.run("office_graph.planning_boundaries", ["--root", root])
       end
     end)
   end

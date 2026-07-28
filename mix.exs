@@ -95,6 +95,8 @@ defmodule OfficeGraph.MixProject do
       setup: ["deps.get", "assets.setup", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "office_graph.database_boundaries": ["compile", &database_boundaries/1],
+      "office_graph.planning_boundaries": ["compile", &planning_boundaries/1],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
@@ -162,5 +164,59 @@ defmodule OfficeGraph.MixProject do
       "lib/office_graph/work_packets/changes/*.ex",
       "lib/office_graph/work_packets/readiness.ex"
     ]
+  end
+
+  defp database_boundaries(args) do
+    root = quality_boundary_root!(args, "office_graph.database_boundaries")
+
+    case OfficeGraph.ProjectQuality.DatabaseBoundaryGate.check_repository(root) do
+      [] ->
+        Mix.shell().info("database boundaries: ok")
+
+      diagnostics ->
+        Mix.raise("""
+        database boundaries failed:
+        #{Enum.map_join(diagnostics, "\n", &format_database_boundary_diagnostic/1)}
+        """)
+    end
+  end
+
+  defp planning_boundaries(args) do
+    root = quality_boundary_root!(args, "office_graph.planning_boundaries")
+
+    case OfficeGraph.ProjectQuality.PlanningBoundary.check_repository(root) do
+      [] ->
+        Mix.shell().info("planning boundaries: ok")
+
+      diagnostics ->
+        paths = Enum.map_join(diagnostics, "\n", &"parallel_planning #{&1.path}")
+        Mix.raise("planning boundaries failed:\n#{paths}")
+    end
+  end
+
+  defp quality_boundary_root!(args, command) do
+    case OptionParser.parse(args, strict: [root: :string]) do
+      {[root: root], [], []} -> Path.expand(root)
+      {[], [], []} -> File.cwd!()
+      _invalid -> Mix.raise("usage: mix #{command} [--root PATH]")
+    end
+  end
+
+  defp format_database_boundary_diagnostic(%{kind: :invalid_inventory} = diagnostic) do
+    "invalid_inventory #{diagnostic.inventory} entry #{diagnostic.entry}: missing #{Enum.join(diagnostic.missing_fields, ", ")}"
+  end
+
+  defp format_database_boundary_diagnostic(%{kind: :changed} = diagnostic) do
+    "changed #{database_boundary_location(diagnostic)} #{diagnostic.construct}: #{diagnostic.fingerprint} replaced #{diagnostic.recorded_fingerprint}"
+  end
+
+  defp format_database_boundary_diagnostic(%{kind: kind} = diagnostic)
+       when kind in [:new, :stale] do
+    "#{kind} #{database_boundary_location(diagnostic)} #{diagnostic.construct}: #{diagnostic.fingerprint}"
+  end
+
+  defp database_boundary_location(diagnostic) do
+    function = diagnostic.function || "<module>"
+    "#{diagnostic.path}:#{diagnostic.line || 1} #{function}"
   end
 end

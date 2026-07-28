@@ -24,8 +24,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         tracked_files
         |> String.split("\0", trim: true)
         |> Enum.filter(&eligible_path?/1)
-        |> Enum.map(fn path ->
-          %{path: path, source: File.read!(Path.join(root, path))}
+        |> Enum.flat_map(fn path ->
+          full_path = Path.join(root, path)
+
+          case File.read(full_path) do
+            {:ok, source} ->
+              [%{path: path, source: source}]
+
+            {:error, :enoent} ->
+              []
+
+            {:error, reason} ->
+              raise File.Error, reason: reason, action: "read file", path: full_path
+          end
         end)
         |> scan_sources()
 

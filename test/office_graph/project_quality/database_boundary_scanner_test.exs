@@ -210,6 +210,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "repository scans ignore tracked files deleted from the working tree" do
+    with_git_repository(fn root ->
+      tracked_path = Path.join(root, "lib/deleted.ex")
+      File.mkdir_p!(Path.dirname(tracked_path))
+      File.write!(tracked_path, "OfficeGraph.Repo.query!(\"SELECT 1\", [])")
+      {_output, 0} = System.cmd("git", ["add", "lib/deleted.ex"], cd: root)
+      File.rm!(tracked_path)
+
+      assert DatabaseBoundaryScanner.scan_repository(root) == []
+    end)
+  end
+
   test "repository scans leave tracked files and Git state unchanged" do
     with_git_repository(fn root ->
       tracked_path = Path.join(root, "lib/tracked.ex")

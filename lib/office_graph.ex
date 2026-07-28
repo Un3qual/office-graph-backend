@@ -11,8 +11,6 @@ defmodule OfficeGraph do
       Integrations,
       NodeConversations,
       Operations,
-      ProjectQuality.DatabaseBoundaryGate,
-      ProjectQuality.PlanningBoundary,
       Projections,
       ProposedChanges,
       Runs,
