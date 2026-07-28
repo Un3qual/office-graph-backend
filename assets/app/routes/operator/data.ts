@@ -160,6 +160,7 @@ export const OperatorRunStateFragment = graphql`
     activityFirst: { type: "Int!", defaultValue: 5 }
     activityAfter: { type: "String" }
   ) {
+    id
     type
     status
     allowedNextActions
@@ -418,6 +419,7 @@ export const OperatorRunStateQuery = graphql`
 export const OperatorRunConversationQuery = graphql`
   query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) @throwOnFieldError {
     operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
+      id
       type
       sourceWatermark
       allowedNextActions

@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<a2754c1c9b32f505dabcbda5fd9a2e17>>
+ * @generated SignedSource<<86d5c713c5519b5d295ff9322a3413ae>>
  * @lightSyntaxTransform
  */
 
@@ -122,24 +122,52 @@ v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "blockerReasons",
+  "name": "sourceWatermark",
   "storageKey": null
 },
 v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "state",
+  "name": "ready",
   "storageKey": null
 },
 v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
+  "name": "status",
+  "storageKey": null
+},
+v7 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "blockerReasons",
+  "storageKey": null
+},
+v8 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "allowedNextActions",
+  "storageKey": null
+},
+v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "state",
+  "storageKey": null
+},
+v10 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
   "name": "id",
   "storageKey": null
 },
-v7 = [
+v11 = [
   {
     "alias": null,
     "args": null,
@@ -147,229 +175,189 @@ v7 = [
     "name": "type",
     "storageKey": null
   },
-  (v6/*:: as any*/)
+  (v10/*:: as any*/)
 ],
-v8 = {
+v12 = {
   "alias": null,
-  "args": (v3/*:: as any*/),
-  "concreteType": "OperatorPacketWorkspace",
+  "args": null,
+  "concreteType": "OperatorCommandAffordance",
   "kind": "LinkedField",
-  "name": "operatorPacketWorkspace",
-  "plural": false,
+  "name": "commandAffordances",
+  "plural": true,
   "selections": [
     {
       "alias": null,
       "args": null,
       "kind": "ScalarField",
-      "name": "sourceWatermark",
+      "name": "identity",
+      "storageKey": null
+    },
+    (v9/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "reasonCodes",
+      "storageKey": null
+    },
+    (v7/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "safeExplanation",
       "storageKey": null
     },
     {
       "alias": null,
       "args": null,
       "kind": "ScalarField",
-      "name": "ready",
+      "name": "requiredFields",
       "storageKey": null
     },
     {
       "alias": null,
       "args": null,
-      "kind": "ScalarField",
-      "name": "status",
-      "storageKey": null
-    },
-    (v4/*:: as any*/),
-    {
-      "alias": null,
-      "args": null,
-      "kind": "ScalarField",
-      "name": "allowedNextActions",
-      "storageKey": null
-    },
-    {
-      "alias": null,
-      "args": null,
-      "concreteType": "OperatorCommandAffordance",
+      "concreteType": "OperatorCommandInputDefault",
       "kind": "LinkedField",
-      "name": "commandAffordances",
+      "name": "inputDefaults",
       "plural": true,
       "selections": [
         {
           "alias": null,
           "args": null,
           "kind": "ScalarField",
-          "name": "identity",
-          "storageKey": null
-        },
-        (v5/*:: as any*/),
-        {
-          "alias": null,
-          "args": null,
-          "kind": "ScalarField",
-          "name": "reasonCodes",
-          "storageKey": null
-        },
-        (v4/*:: as any*/),
-        {
-          "alias": null,
-          "args": null,
-          "kind": "ScalarField",
-          "name": "safeExplanation",
+          "name": "field",
           "storageKey": null
         },
         {
           "alias": null,
           "args": null,
           "kind": "ScalarField",
-          "name": "requiredFields",
+          "name": "value",
           "storageKey": null
         },
         {
           "alias": null,
           "args": null,
-          "concreteType": "OperatorCommandInputDefault",
-          "kind": "LinkedField",
-          "name": "inputDefaults",
-          "plural": true,
-          "selections": [
-            {
-              "alias": null,
-              "args": null,
-              "kind": "ScalarField",
-              "name": "field",
-              "storageKey": null
-            },
-            {
-              "alias": null,
-              "args": null,
-              "kind": "ScalarField",
-              "name": "value",
-              "storageKey": null
-            },
-            {
-              "alias": null,
-              "args": null,
-              "kind": "ScalarField",
-              "name": "values",
-              "storageKey": null
-            }
-          ],
-          "storageKey": null
-        },
-        {
-          "alias": null,
-          "args": null,
-          "concreteType": "OperatorTypedId",
-          "kind": "LinkedField",
-          "name": "targetIds",
-          "plural": true,
-          "selections": (v7/*:: as any*/),
-          "storageKey": null
-        },
-        {
-          "alias": null,
-          "args": null,
-          "concreteType": "OperatorTypedId",
-          "kind": "LinkedField",
-          "name": "traceLinks",
-          "plural": true,
-          "selections": (v7/*:: as any*/),
-          "storageKey": null
-        },
-        {
-          "alias": null,
-          "args": null,
-          "concreteType": "OperatorTypedId",
-          "kind": "LinkedField",
-          "name": "decisionLinks",
-          "plural": true,
-          "selections": (v7/*:: as any*/),
+          "kind": "ScalarField",
+          "name": "values",
           "storageKey": null
         }
       ],
       "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorTypedId",
+      "kind": "LinkedField",
+      "name": "targetIds",
+      "plural": true,
+      "selections": (v11/*:: as any*/),
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorTypedId",
+      "kind": "LinkedField",
+      "name": "traceLinks",
+      "plural": true,
+      "selections": (v11/*:: as any*/),
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "OperatorTypedId",
+      "kind": "LinkedField",
+      "name": "decisionLinks",
+      "plural": true,
+      "selections": (v11/*:: as any*/),
+      "storageKey": null
     }
   ],
-  "storageKey": null
-},
-v9 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "title",
-  "storageKey": null
-},
-v10 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "currentVersionId",
-  "storageKey": null
-},
-v11 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "operationId",
-  "storageKey": null
-},
-v12 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "versionNumber",
   "storageKey": null
 },
 v13 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "lifecycleState",
+  "name": "title",
   "storageKey": null
 },
 v14 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "objective",
+  "name": "currentVersionId",
   "storageKey": null
 },
 v15 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "contextSummary",
+  "name": "operationId",
   "storageKey": null
 },
 v16 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "requirements",
+  "name": "versionNumber",
   "storageKey": null
 },
 v17 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "successCriteria",
+  "name": "lifecycleState",
   "storageKey": null
 },
 v18 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "autonomyPosture",
+  "name": "objective",
   "storageKey": null
 },
 v19 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
+  "name": "contextSummary",
+  "storageKey": null
+},
+v20 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "requirements",
+  "storageKey": null
+},
+v21 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "successCriteria",
+  "storageKey": null
+},
+v22 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "autonomyPosture",
+  "storageKey": null
+},
+v23 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
   "name": "insertedAt",
   "storageKey": null
 },
-v20 = [
+v24 = [
   {
     "kind": "Literal",
     "name": "sort",
@@ -381,21 +369,21 @@ v20 = [
     ]
   }
 ],
-v21 = {
+v25 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "graphItemId",
   "storageKey": null
 },
-v22 = {
+v26 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "verificationCheckId",
   "storageKey": null
 },
-v23 = {
+v27 = {
   "alias": null,
   "args": [
     {
@@ -447,10 +435,10 @@ v23 = {
           "name": "node",
           "plural": false,
           "selections": [
-            (v6/*:: as any*/),
-            (v12/*:: as any*/),
-            (v13/*:: as any*/),
-            (v9/*:: as any*/)
+            (v10/*:: as any*/),
+            (v16/*:: as any*/),
+            (v17/*:: as any*/),
+            (v13/*:: as any*/)
           ],
           "storageKey": null
         }
@@ -512,7 +500,23 @@ return {
     },
     "name": "PacketsWorkspaceDetailQuery",
     "selections": [
-      (v8/*:: as any*/),
+      {
+        "alias": null,
+        "args": (v3/*:: as any*/),
+        "concreteType": "OperatorPacketWorkspace",
+        "kind": "LinkedField",
+        "name": "operatorPacketWorkspace",
+        "plural": false,
+        "selections": [
+          (v4/*:: as any*/),
+          (v5/*:: as any*/),
+          (v6/*:: as any*/),
+          (v7/*:: as any*/),
+          (v8/*:: as any*/),
+          (v12/*:: as any*/)
+        ],
+        "storageKey": null
+      },
       {
         "alias": "packet",
         "args": (v3/*:: as any*/),
@@ -521,11 +525,11 @@ return {
         "name": "getWorkPacket",
         "plural": false,
         "selections": [
-          (v6/*:: as any*/),
-          (v9/*:: as any*/),
-          (v5/*:: as any*/),
           (v10/*:: as any*/),
-          (v11/*:: as any*/),
+          (v13/*:: as any*/),
+          (v9/*:: as any*/),
+          (v14/*:: as any*/),
+          (v15/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -534,45 +538,45 @@ return {
             "name": "currentVersion",
             "plural": false,
             "selections": [
-              (v6/*:: as any*/),
-              (v12/*:: as any*/),
-              (v13/*:: as any*/),
-              (v9/*:: as any*/),
-              (v14/*:: as any*/),
-              (v15/*:: as any*/),
+              (v10/*:: as any*/),
               (v16/*:: as any*/),
               (v17/*:: as any*/),
+              (v13/*:: as any*/),
               (v18/*:: as any*/),
-              (v11/*:: as any*/),
               (v19/*:: as any*/),
+              (v20/*:: as any*/),
+              (v21/*:: as any*/),
+              (v22/*:: as any*/),
+              (v15/*:: as any*/),
+              (v23/*:: as any*/),
               {
                 "alias": null,
-                "args": (v20/*:: as any*/),
+                "args": (v24/*:: as any*/),
                 "concreteType": "WorkPacketSourceReference",
                 "kind": "LinkedField",
                 "name": "sourceReferences",
                 "plural": true,
                 "selections": [
-                  (v21/*:: as any*/)
+                  (v25/*:: as any*/)
                 ],
                 "storageKey": "sourceReferences(sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
               },
               {
                 "alias": null,
-                "args": (v20/*:: as any*/),
+                "args": (v24/*:: as any*/),
                 "concreteType": "WorkPacketRequiredCheck",
                 "kind": "LinkedField",
                 "name": "requiredChecks",
                 "plural": true,
                 "selections": [
-                  (v22/*:: as any*/)
+                  (v26/*:: as any*/)
                 ],
                 "storageKey": "requiredChecks(sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
               }
             ],
             "storageKey": null
           },
-          (v23/*:: as any*/)
+          (v27/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -590,7 +594,24 @@ return {
     "kind": "Operation",
     "name": "PacketsWorkspaceDetailQuery",
     "selections": [
-      (v8/*:: as any*/),
+      {
+        "alias": null,
+        "args": (v3/*:: as any*/),
+        "concreteType": "OperatorPacketWorkspace",
+        "kind": "LinkedField",
+        "name": "operatorPacketWorkspace",
+        "plural": false,
+        "selections": [
+          (v4/*:: as any*/),
+          (v5/*:: as any*/),
+          (v6/*:: as any*/),
+          (v7/*:: as any*/),
+          (v8/*:: as any*/),
+          (v12/*:: as any*/),
+          (v10/*:: as any*/)
+        ],
+        "storageKey": null
+      },
       {
         "alias": "packet",
         "args": (v3/*:: as any*/),
@@ -599,11 +620,11 @@ return {
         "name": "getWorkPacket",
         "plural": false,
         "selections": [
-          (v6/*:: as any*/),
-          (v9/*:: as any*/),
-          (v5/*:: as any*/),
           (v10/*:: as any*/),
-          (v11/*:: as any*/),
+          (v13/*:: as any*/),
+          (v9/*:: as any*/),
+          (v14/*:: as any*/),
+          (v15/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -612,59 +633,59 @@ return {
             "name": "currentVersion",
             "plural": false,
             "selections": [
-              (v6/*:: as any*/),
-              (v12/*:: as any*/),
-              (v13/*:: as any*/),
-              (v9/*:: as any*/),
-              (v14/*:: as any*/),
-              (v15/*:: as any*/),
+              (v10/*:: as any*/),
               (v16/*:: as any*/),
               (v17/*:: as any*/),
+              (v13/*:: as any*/),
               (v18/*:: as any*/),
-              (v11/*:: as any*/),
               (v19/*:: as any*/),
+              (v20/*:: as any*/),
+              (v21/*:: as any*/),
+              (v22/*:: as any*/),
+              (v15/*:: as any*/),
+              (v23/*:: as any*/),
               {
                 "alias": null,
-                "args": (v20/*:: as any*/),
+                "args": (v24/*:: as any*/),
                 "concreteType": "WorkPacketSourceReference",
                 "kind": "LinkedField",
                 "name": "sourceReferences",
                 "plural": true,
                 "selections": [
-                  (v21/*:: as any*/),
-                  (v6/*:: as any*/)
+                  (v25/*:: as any*/),
+                  (v10/*:: as any*/)
                 ],
                 "storageKey": "sourceReferences(sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
               },
               {
                 "alias": null,
-                "args": (v20/*:: as any*/),
+                "args": (v24/*:: as any*/),
                 "concreteType": "WorkPacketRequiredCheck",
                 "kind": "LinkedField",
                 "name": "requiredChecks",
                 "plural": true,
                 "selections": [
-                  (v22/*:: as any*/),
-                  (v6/*:: as any*/)
+                  (v26/*:: as any*/),
+                  (v10/*:: as any*/)
                 ],
                 "storageKey": "requiredChecks(sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
               }
             ],
             "storageKey": null
           },
-          (v23/*:: as any*/)
+          (v27/*:: as any*/)
         ],
         "storageKey": null
       }
     ]
   },
   "params": {
-    "cacheID": "3db73a84aa1a44d5337a18dc1cb85e0d",
+    "cacheID": "ca1ea5eedd8f59a33b87f3adf472c794",
     "id": null,
     "metadata": {},
     "name": "PacketsWorkspaceDetailQuery",
     "operationKind": "query",
-    "text": "query PacketsWorkspaceDetailQuery(\n  $id: ID!\n  $versionFirst: Int!\n  $versionAfter: String\n) {\n  operatorPacketWorkspace(id: $id) {\n    sourceWatermark\n    ready\n    status\n    blockerReasons\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n      traceLinks {\n        type\n        id\n      }\n      decisionLinks {\n        type\n        id\n      }\n    }\n  }\n  packet: getWorkPacket(id: $id) {\n    id\n    title\n    state\n    currentVersionId\n    operationId\n    currentVersion {\n      id\n      versionNumber\n      lifecycleState\n      title\n      objective\n      contextSummary\n      requirements\n      successCriteria\n      autonomyPosture\n      operationId\n      insertedAt\n      sourceReferences(sort: [{field: POSITION, order: ASC}]) {\n        graphItemId\n        id\n      }\n      requiredChecks(sort: [{field: POSITION, order: ASC}]) {\n        verificationCheckId\n        id\n      }\n    }\n    versions(first: $versionFirst, after: $versionAfter, sort: [{field: VERSION_NUMBER, order: DESC}]) {\n      edges {\n        cursor\n        node {\n          id\n          versionNumber\n          lifecycleState\n          title\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n  }\n}\n"
+    "text": "query PacketsWorkspaceDetailQuery(\n  $id: ID!\n  $versionFirst: Int!\n  $versionAfter: String\n) {\n  operatorPacketWorkspace(id: $id) {\n    sourceWatermark\n    ready\n    status\n    blockerReasons\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n      traceLinks {\n        type\n        id\n      }\n      decisionLinks {\n        type\n        id\n      }\n    }\n    id\n  }\n  packet: getWorkPacket(id: $id) {\n    id\n    title\n    state\n    currentVersionId\n    operationId\n    currentVersion {\n      id\n      versionNumber\n      lifecycleState\n      title\n      objective\n      contextSummary\n      requirements\n      successCriteria\n      autonomyPosture\n      operationId\n      insertedAt\n      sourceReferences(sort: [{field: POSITION, order: ASC}]) {\n        graphItemId\n        id\n      }\n      requiredChecks(sort: [{field: POSITION, order: ASC}]) {\n        verificationCheckId\n        id\n      }\n    }\n    versions(first: $versionFirst, after: $versionAfter, sort: [{field: VERSION_NUMBER, order: DESC}]) {\n      edges {\n        cursor\n        node {\n          id\n          versionNumber\n          lifecycleState\n          title\n        }\n      }\n      pageInfo {\n        hasNextPage\n        hasPreviousPage\n        startCursor\n        endCursor\n      }\n    }\n  }\n}\n"
   }
 };
 })();

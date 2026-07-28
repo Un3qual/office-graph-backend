@@ -190,7 +190,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_watermark, :id
   end
 
-  object :operator_packet_workspace do
+  node object(:operator_packet_workspace,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_packet_workspace_id/2
+       ) do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
 
@@ -244,7 +246,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :referenced_context, :operator_run_conversation_referenced_context
   end
 
-  object :operator_run_conversation do
+  node object(:operator_run_conversation,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_run_conversation_id/2
+       ) do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
@@ -350,7 +354,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :waiver, non_null(:integer)
   end
 
-  object :operator_run_state do
+  node object(:operator_run_state,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_run_state_id/2
+       ) do
     field :type, non_null(:string)
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
@@ -411,7 +417,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :occurred_at, non_null(:datetime)
   end
 
-  object :github_integration_health do
+  node object(:github_integration_health,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.github_integration_health_id/2
+       ) do
     field :installation_id, non_null(:id)
     field :lifecycle, non_null(:string)
     field :account_login, non_null(:string)
@@ -445,6 +453,23 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   def graph_relationship_view_id(%{id: id}, _resolution), do: id
   def graph_relationship_view_id(_relationship, _resolution), do: nil
+
+  def operator_packet_workspace_id(%{packet_id: id}, _resolution), do: id
+  def operator_packet_workspace_id(_workspace, _resolution), do: nil
+
+  def operator_run_state_id(%{run_id: id}, _resolution), do: id
+  def operator_run_state_id(_run_state, _resolution), do: nil
+
+  def github_integration_health_id(%{installation_id: id}, _resolution), do: id
+  def github_integration_health_id(_health, _resolution), do: nil
+
+  def operator_run_conversation_id(
+        %{run_id: run_id, graph_item_id: graph_item_id},
+        _resolution
+      ),
+      do: "#{run_id}:#{graph_item_id}"
+
+  def operator_run_conversation_id(_conversation, _resolution), do: nil
 
   defp relay_id(type, id) do
     schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])

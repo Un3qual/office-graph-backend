@@ -35,7 +35,8 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
   } do
     query = """
     query GitHubHealth($installationId: ID!) {
-      githubIntegrationHealth(installationId: $installationId, limit: 50) {
+      githubIntegrationHealth(installationId: $installationId) {
+        id
         installationId
         lifecycle
         accountLogin
@@ -66,6 +67,31 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     assert graphql["credentialPosture"] == "active"
     assert graphql["retryableCount"] == 0
     assert graphql["terminalCount"] == 0
+
+    node =
+      graphql(
+        conn,
+        """
+        query GitHubHealthNode($id: ID!) {
+          node(id: $id) {
+            id
+            __typename
+            ... on GithubIntegrationHealth {
+              installationId
+              lifecycle
+              permissionPosture
+            }
+          }
+        }
+        """,
+        %{id: graphql["id"]}
+      )
+
+    assert node["id"] == graphql["id"]
+    assert node["__typename"] == "GithubIntegrationHealth"
+    assert node["installationId"] == installation.id
+    assert node["lifecycle"] == graphql["lifecycle"]
+    assert node["permissionPosture"] == graphql["permissionPosture"]
 
     assert json["installation_id"] == graphql["installationId"]
     assert json["lifecycle"] == graphql["lifecycle"]

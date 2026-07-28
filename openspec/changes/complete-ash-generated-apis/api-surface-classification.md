@@ -189,6 +189,20 @@ Relay connections:
 - `graphql.type.github_integration_health`
 - `graphql.type.operator_packet_readiness_input`
 
+The terminal projection identity classification is:
+
+- `OperatorWorkflowItem` and `GraphRelationshipView` retain their existing
+  Relay Node contracts;
+- `OperatorPacketWorkspace`, `OperatorRunState`,
+  `OperatorRunConversation`, and `GithubIntegrationHealth` are stable,
+  authorized projections with canonical inputs and therefore implement Relay
+  Node with authorized refetch;
+- packet readiness is input-dependent and has no stable refetch identity;
+- relationship detail rows, run activity rows, command options, command
+  affordances, summaries, health child values, and message-context facts exist
+  only inside their parent projection and remain ordinary typed objects rather
+  than receiving invented Node identities.
+
 ## Manual JSON Routes
 
 The provider-owned webhook is the sole provider-callback exception:

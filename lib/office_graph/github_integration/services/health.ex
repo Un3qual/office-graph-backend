@@ -186,6 +186,7 @@ defmodule OfficeGraph.GitHubIntegration.Health do
     failures = failure_summaries(outcomes, actions, limit)
 
     %{
+      type: "github_integration_health",
       installation_id: installation.id,
       lifecycle: installation.lifecycle_state,
       account_login: installation.account_login,

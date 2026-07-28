@@ -384,6 +384,7 @@ function agentNetwork({
             },
           ],
         }),
+        id: `operator_run_state:${variables.id}`,
         run: {
           id: variables.id,
           aggregateState: "running",
@@ -510,6 +511,7 @@ type AgentSurface = Omit<ReturnType<typeof agentSurface>, "conversation"> & {
 function agentQueryResponse(surface: AgentSurface) {
   return {
     operatorRunConversation: {
+      id: surface.id,
       type: surface.type,
       sourceWatermark: surface.sourceWatermark,
       allowedNextActions: surface.allowedNextActions,
@@ -599,6 +601,7 @@ function variablesFor(network: ReturnType<typeof agentNetwork>, requestName: str
 
 function agentSurface({ graphItemId, runId }: { graphItemId: string; runId: string }) {
   return {
+    id: `operator_run_conversation:${runId}:${graphItemId}`,
     type: "operator_run_conversation",
     sourceWatermark: `${runId}:${graphItemId}:1`,
     allowedNextActions: [

@@ -194,6 +194,7 @@ defmodule OfficeGraph.Projections.PacketWorkspace do
 
     workspace = %{
       type: "operator_packet_workspace",
+      packet_id: packet.id,
       ready?: ready?,
       status: if(ready?, do: "ready_for_run", else: "blocked"),
       blocker_reasons: blockers,

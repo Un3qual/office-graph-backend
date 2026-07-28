@@ -6465,7 +6465,7 @@ interface Node {
 type RootQueryType {
   health: String!
   operatorRunConversation(runId: ID!, graphItemId: ID!): OperatorRunConversation!
-  githubIntegrationHealth(installationId: ID!, limit: Int): GithubIntegrationHealth!
+  githubIntegrationHealth(installationId: ID!): GithubIntegrationHealth!
   graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!
@@ -7607,13 +7607,22 @@ type OperatorPacketReadiness {
   sourceWatermark: ID
 }
 
-type OperatorPacketWorkspace {
+type OperatorPacketWorkspace implements Node {
+  "The ID of an object"
+  id: ID!
+
   type: String!
+
   sourceWatermark: ID!
+
   ready: Boolean!
+
   status: String!
+
   blockerReasons: [String!]!
+
   allowedNextActions: [String!]!
+
   commandAffordances: [OperatorCommandAffordance!]!
 }
 
@@ -7651,11 +7660,18 @@ type OperatorRunConversationMessageContext {
   referencedContext: OperatorRunConversationReferencedContext
 }
 
-type OperatorRunConversation {
+type OperatorRunConversation implements Node {
+  "The ID of an object"
+  id: ID!
+
   type: String!
+
   sourceWatermark: ID!
+
   allowedNextActions: [String!]!
+
   commandAffordances: [OperatorCommandAffordance!]!
+
   messageContexts: [OperatorRunConversationMessageContext!]!
 }
 
@@ -7750,17 +7766,30 @@ type OperatorRunCommandOptionSummary {
   waiver: Int!
 }
 
-type OperatorRunState {
+type OperatorRunState implements Node {
+  "The ID of an object"
+  id: ID!
+
   type: String!
+
   status: String!
+
   allowedNextActions: [String!]!
+
   commandAffordances: [OperatorCommandAffordance!]!
+
   commandOptions: OperatorRunCommandOptions!
+
   commandOptionsOverflow: Boolean!
+
   commandOptionSummary: OperatorRunCommandOptionSummary!
+
   childSummary: OperatorRunChildSummary!
+
   activity(after: String, first: Int!): OperatorRunActivityConnection
+
   sourceWatermark: ID
+
   missingEvidence: [OperatorMissingEvidence!]!
 }
 
@@ -7781,18 +7810,32 @@ type GithubIntegrationFailureHealth {
   occurredAt: DateTime!
 }
 
-type GithubIntegrationHealth {
+type GithubIntegrationHealth implements Node {
+  "The ID of an object"
+  id: ID!
+
   installationId: ID!
+
   lifecycle: String!
+
   accountLogin: String!
+
   permissionPosture: String!
+
   permissions: [GithubIntegrationPermissionHealth!]!
+
   credentialPosture: String!
+
   credentials: [GithubIntegrationCredentialHealth!]!
+
   lastSuccessAt: DateTime
+
   retryableCount: Int!
+
   terminalCount: Int!
+
   remediationCode: String
+
   recentFailures: [GithubIntegrationFailureHealth!]!
 }
 

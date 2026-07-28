@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<4344d7cc71fc1fb6d40042ccb66ba530>>
+ * @generated SignedSource<<2951195c60952acd237919f77457d0c9>>
  * @lightSyntaxTransform
  */
 
@@ -136,28 +136,28 @@ v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "type",
+  "name": "id",
   "storageKey": null
 },
 v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "status",
+  "name": "type",
   "storageKey": null
 },
 v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "state",
+  "name": "status",
   "storageKey": null
 },
 v7 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "id",
+  "name": "state",
   "storageKey": null
 },
 v8 = {
@@ -261,6 +261,7 @@ v21 = {
 v22 = [
   (v4/*:: as any*/),
   (v5/*:: as any*/),
+  (v6/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -283,7 +284,7 @@ v22 = [
         "name": "identity",
         "storageKey": null
       },
-      (v6/*:: as any*/),
+      (v7/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -352,8 +353,8 @@ v22 = [
         "name": "targetIds",
         "plural": true,
         "selections": [
-          (v4/*:: as any*/),
-          (v7/*:: as any*/)
+          (v5/*:: as any*/),
+          (v4/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -691,7 +692,7 @@ v22 = [
                 "storageKey": null
               },
               (v21/*:: as any*/),
-              (v5/*:: as any*/)
+              (v6/*:: as any*/)
             ],
             "storageKey": null
           }
@@ -800,7 +801,7 @@ v26 = {
   "name": "getWorkRun",
   "plural": false,
   "selections": [
-    (v7/*:: as any*/),
+    (v4/*:: as any*/),
     {
       "alias": null,
       "args": null,
@@ -830,9 +831,9 @@ v26 = {
       "name": "workPacket",
       "plural": false,
       "selections": [
-        (v7/*:: as any*/),
+        (v4/*:: as any*/),
         (v21/*:: as any*/),
-        (v6/*:: as any*/)
+        (v7/*:: as any*/)
       ],
       "storageKey": null
     },
@@ -844,7 +845,7 @@ v26 = {
       "name": "workPacketVersion",
       "plural": false,
       "selections": [
-        (v7/*:: as any*/),
+        (v4/*:: as any*/),
         {
           "alias": null,
           "args": null,
@@ -905,9 +906,9 @@ v26 = {
               "name": "node",
               "plural": false,
               "selections": [
-                (v7/*:: as any*/),
+                (v4/*:: as any*/),
                 (v11/*:: as any*/),
-                (v6/*:: as any*/),
+                (v7/*:: as any*/),
                 {
                   "alias": null,
                   "args": null,
@@ -916,7 +917,7 @@ v26 = {
                   "name": "verificationCheck",
                   "plural": false,
                   "selections": [
-                    (v7/*:: as any*/),
+                    (v4/*:: as any*/),
                     (v24/*:: as any*/)
                   ],
                   "storageKey": null
@@ -954,7 +955,7 @@ v26 = {
               "name": "node",
               "plural": false,
               "selections": [
-                (v7/*:: as any*/),
+                (v4/*:: as any*/),
                 (v11/*:: as any*/),
                 (v24/*:: as any*/),
                 (v14/*:: as any*/),
@@ -995,7 +996,7 @@ v26 = {
               "name": "node",
               "plural": false,
               "selections": [
-                (v7/*:: as any*/),
+                (v4/*:: as any*/),
                 (v11/*:: as any*/),
                 (v16/*:: as any*/),
                 {
@@ -1049,8 +1050,8 @@ v26 = {
               "name": "node",
               "plural": false,
               "selections": [
+                (v4/*:: as any*/),
                 (v7/*:: as any*/),
-                (v6/*:: as any*/),
                 {
                   "alias": null,
                   "args": null,
@@ -1092,7 +1093,7 @@ v26 = {
               "name": "node",
               "plural": false,
               "selections": [
-                (v7/*:: as any*/),
+                (v4/*:: as any*/),
                 (v19/*:: as any*/),
                 (v11/*:: as any*/),
                 {
@@ -1222,12 +1223,12 @@ return {
     ]
   },
   "params": {
-    "cacheID": "6fe769e761f786402714d100a0f16183",
+    "cacheID": "a46b8e348e58be4781b4b9d181bd6713",
     "id": null,
     "metadata": {},
     "name": "OperatorRunStateQuery",
     "operationKind": "query",
-    "text": "query OperatorRunStateQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment_2q9Scy\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n      state\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n          verificationCheck {\n            id\n            graphItemId\n          }\n        }\n      }\n    }\n    executionObservations(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          graphItemId\n          normalizedStatus\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          executionObservationId\n          claim\n          candidateState\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n          candidateId\n          workRunId\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          evidenceItemId\n          operationId\n          actorPrincipalId\n          policyBasis\n          targetGraphItemId\n          workRunId\n          workPacketVersionId\n        }\n      }\n    }\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
+    "text": "query OperatorRunStateQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment_2q9Scy\n    id\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n      state\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n          verificationCheck {\n            id\n            graphItemId\n          }\n        }\n      }\n    }\n    executionObservations(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          graphItemId\n          normalizedStatus\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          executionObservationId\n          claim\n          candidateState\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n          candidateId\n          workRunId\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          evidenceItemId\n          operationId\n          actorPrincipalId\n          policyBasis\n          targetGraphItemId\n          workRunId\n          workPacketVersionId\n        }\n      }\n    }\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  id\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
   }
 };
 })();

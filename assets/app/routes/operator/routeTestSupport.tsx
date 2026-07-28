@@ -74,6 +74,7 @@ function withOperatorTestResponses(network: FetchFunction): FetchFunction {
       return {
         data: {
           operatorRunConversation: {
+            id: `operator_run_conversation:${variables.runId}:${variables.graphItemId}`,
             type: "operator_run_conversation",
             sourceWatermark: `${variables.runId}:${variables.graphItemId}:empty`,
             allowedNextActions: [],
@@ -329,6 +330,7 @@ export function operatorPacketReadiness(overrides: Partial<OperatorPacketReadine
 
 export function operatorRunState(overrides: Partial<OperatorRunStatePayload> = {}) {
   const state = {
+    id: "operator_run_state:run_1",
     type: "operator_run_state",
     status: "awaiting_evidence_acceptance",
     allowedNextActions: ["accept_evidence"],
@@ -565,6 +567,7 @@ function normalizeOperatorRunStateResponse(
 
 function operatorRunProjectionResponse(state: ReturnType<typeof operatorRunState>) {
   return {
+    id: state.id,
     type: state.type,
     status: state.status,
     allowedNextActions: state.allowedNextActions,

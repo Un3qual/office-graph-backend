@@ -117,6 +117,8 @@ defmodule OfficeGraph.NodeConversations do
        ])
        |> Map.merge(%{
          type: "operator_run_conversation",
+         run_id: run_id,
+         graph_item_id: graph_item_id,
          allowed_next_actions: CommandAffordance.enabled_identities(command_affordances),
          command_affordances: command_affordances,
          message_contexts: Enum.map(messages, &project_message_context(&1, referenced_context))

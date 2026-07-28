@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<20f07516c1f8aba7107307c2849b9dc5>>
+ * @generated SignedSource<<eb84fcee0740e4e2457ee6e26f788ce8>>
  * @lightSyntaxTransform
  */
 
@@ -122,6 +122,7 @@ export type OperatorRunConversationQuery$data = {
         readonly type: string;
       }>;
     }>;
+    readonly id: string;
     readonly messageContexts: ReadonlyArray<{
       readonly messageId: string;
       readonly referencedContext: {
@@ -170,21 +171,21 @@ v3 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "type",
+  "name": "id",
   "storageKey": null
 },
 v4 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "state",
+  "name": "type",
   "storageKey": null
 },
 v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "id",
+  "name": "state",
   "storageKey": null
 },
 v6 = {
@@ -195,7 +196,7 @@ v6 = {
   "storageKey": null
 },
 v7 = [
-  (v5/*:: as any*/)
+  (v3/*:: as any*/)
 ],
 v8 = {
   "alias": null,
@@ -290,6 +291,7 @@ v18 = [
     "plural": false,
     "selections": [
       (v3/*:: as any*/),
+      (v4/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -319,7 +321,7 @@ v18 = [
             "name": "identity",
             "storageKey": null
           },
-          (v4/*:: as any*/),
+          (v5/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -388,8 +390,8 @@ v18 = [
             "name": "targetIds",
             "plural": true,
             "selections": [
-              (v3/*:: as any*/),
-              (v5/*:: as any*/)
+              (v4/*:: as any*/),
+              (v3/*:: as any*/)
             ],
             "storageKey": null
           }
@@ -476,7 +478,7 @@ v18 = [
     "name": "conversationForRunGraphItem",
     "plural": false,
     "selections": [
-      (v5/*:: as any*/),
+      (v3/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -497,7 +499,7 @@ v18 = [
         "selections": (v7/*:: as any*/),
         "storageKey": null
       },
-      (v4/*:: as any*/),
+      (v5/*:: as any*/),
       (v8/*:: as any*/),
       {
         "alias": null,
@@ -523,7 +525,7 @@ v18 = [
                 "name": "node",
                 "plural": false,
                 "selections": [
-                  (v5/*:: as any*/),
+                  (v3/*:: as any*/),
                   {
                     "alias": null,
                     "args": null,
@@ -573,8 +575,8 @@ v18 = [
                 "name": "node",
                 "plural": false,
                 "selections": [
+                  (v3/*:: as any*/),
                   (v5/*:: as any*/),
-                  (v4/*:: as any*/),
                   (v8/*:: as any*/),
                   {
                     "alias": null,
@@ -657,7 +659,7 @@ v18 = [
                             "name": "node",
                             "plural": false,
                             "selections": [
-                              (v5/*:: as any*/),
+                              (v3/*:: as any*/),
                               (v11/*:: as any*/),
                               (v12/*:: as any*/),
                               {
@@ -691,7 +693,7 @@ v18 = [
                                 "name": "externalWrite",
                                 "storageKey": null
                               },
-                              (v4/*:: as any*/),
+                              (v5/*:: as any*/),
                               (v6/*:: as any*/),
                               (v16/*:: as any*/),
                               (v17/*:: as any*/),
@@ -729,7 +731,7 @@ v18 = [
                             "name": "node",
                             "plural": false,
                             "selections": [
-                              (v5/*:: as any*/),
+                              (v3/*:: as any*/),
                               (v11/*:: as any*/),
                               (v12/*:: as any*/),
                               {
@@ -777,7 +779,7 @@ v18 = [
                                 "name": "expectedDurationSeconds",
                                 "storageKey": null
                               },
-                              (v4/*:: as any*/),
+                              (v5/*:: as any*/),
                               (v6/*:: as any*/),
                               (v16/*:: as any*/),
                               (v17/*:: as any*/),
@@ -830,16 +832,16 @@ return {
     "selections": (v18/*:: as any*/)
   },
   "params": {
-    "cacheID": "21ef484436d507215d6222d54e8b6ee1",
+    "cacheID": "98941a1454572857a03390053b1af216",
     "id": null,
     "metadata": {},
     "name": "OperatorRunConversationQuery",
     "operationKind": "query",
-    "text": "query OperatorRunConversationQuery(\n  $runId: ID!\n  $graphItemId: ID!\n) {\n  operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {\n    type\n    sourceWatermark\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n    }\n    messageContexts {\n      messageId\n      referencedContext {\n        visibility\n        packageId\n        version\n        entries {\n          posture\n          rationaleCode\n        }\n      }\n    }\n  }\n  conversation: conversationForRunGraphItem(runId: $runId, graphItemId: $graphItemId) {\n    id\n    run {\n      id\n    }\n    graphItem {\n      id\n    }\n    state\n    stateVersion\n    messages(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n      edges {\n        node {\n          id\n          source\n          body\n          insertedAt\n          execution {\n            id\n          }\n        }\n      }\n    }\n    agentExecutions(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n      edges {\n        node {\n          id\n          state\n          stateVersion\n          currentStepKey\n          attemptCount\n          failureCode\n          requestedOutcome\n          invocationMode\n          origin\n          autonomyMode\n          insertedAt\n          updatedAt\n          approvalRequests(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n            edges {\n              node {\n                id\n                execution {\n                  id\n                }\n                stepKey\n                requestedAction\n                reason\n                scopeType\n                scopeId\n                capabilityKey\n                sensitivity\n                externalWrite\n                state\n                version\n                expiresAt\n                resolutionReason\n                insertedAt\n              }\n            }\n          }\n          contextExpansionRequests(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n            edges {\n              node {\n                id\n                execution {\n                  id\n                }\n                stepKey\n                targetResourceType\n                targetResourceId\n                targetScopeType\n                targetScopeId\n                accessMode\n                capabilityKey\n                reason\n                sensitivity\n                expectedDurationSeconds\n                state\n                version\n                expiresAt\n                resolutionReason\n                insertedAt\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n"
+    "text": "query OperatorRunConversationQuery(\n  $runId: ID!\n  $graphItemId: ID!\n) {\n  operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {\n    id\n    type\n    sourceWatermark\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n    }\n    messageContexts {\n      messageId\n      referencedContext {\n        visibility\n        packageId\n        version\n        entries {\n          posture\n          rationaleCode\n        }\n      }\n    }\n  }\n  conversation: conversationForRunGraphItem(runId: $runId, graphItemId: $graphItemId) {\n    id\n    run {\n      id\n    }\n    graphItem {\n      id\n    }\n    state\n    stateVersion\n    messages(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n      edges {\n        node {\n          id\n          source\n          body\n          insertedAt\n          execution {\n            id\n          }\n        }\n      }\n    }\n    agentExecutions(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n      edges {\n        node {\n          id\n          state\n          stateVersion\n          currentStepKey\n          attemptCount\n          failureCode\n          requestedOutcome\n          invocationMode\n          origin\n          autonomyMode\n          insertedAt\n          updatedAt\n          approvalRequests(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n            edges {\n              node {\n                id\n                execution {\n                  id\n                }\n                stepKey\n                requestedAction\n                reason\n                scopeType\n                scopeId\n                capabilityKey\n                sensitivity\n                externalWrite\n                state\n                version\n                expiresAt\n                resolutionReason\n                insertedAt\n              }\n            }\n          }\n          contextExpansionRequests(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n            edges {\n              node {\n                id\n                execution {\n                  id\n                }\n                stepKey\n                targetResourceType\n                targetResourceId\n                targetScopeType\n                targetScopeId\n                accessMode\n                capabilityKey\n                reason\n                sensitivity\n                expectedDurationSeconds\n                state\n                version\n                expiresAt\n                resolutionReason\n                insertedAt\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "2b6a2efa40e28dbea52e4767553789eb";
+(node as any).hash = "1bf1ea4fe53da2882ae75eac39e1cbfd";
 
 export default node;
