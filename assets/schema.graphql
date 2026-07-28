@@ -5,14 +5,14 @@ schema {
 
 enum SignalSortField {
   ID
-  ORGANIZATION_ID
-  WORKSPACE_ID
-  GRAPH_ITEM_ID
-  BODY_DOCUMENT_ID
   TITLE
   STATE
   INSERTED_AT
   UPDATED_AT
+  GRAPH_ITEM_ID
+  BODY_DOCUMENT_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
 }
 
 ":signal connection"
@@ -31,6 +31,58 @@ type SignalEdge {
 
   ":signal node"
   node: Signal!
+}
+
+input SignalFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterBodyDocumentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SignalFilterGraphItemId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
 }
 
 input SignalFilterUpdatedAt {
@@ -95,58 +147,6 @@ input SignalFilterTitle {
   ilike: String
 }
 
-input SignalFilterBodyDocumentId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input SignalFilterGraphItemId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input SignalFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input SignalFilterOrganizationId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
 input SignalFilterId {
   isNil: Boolean
   eq: ID
@@ -165,14 +165,14 @@ input SignalFilterInput {
   or: [SignalFilterInput!]
   not: [SignalFilterInput!]
   id: SignalFilterId
-  organizationId: SignalFilterOrganizationId
-  workspaceId: SignalFilterWorkspaceId
-  graphItemId: SignalFilterGraphItemId
-  bodyDocumentId: SignalFilterBodyDocumentId
   title: SignalFilterTitle
   state: SignalFilterState
   insertedAt: SignalFilterInsertedAt
   updatedAt: SignalFilterUpdatedAt
+  graphItemId: SignalFilterGraphItemId
+  bodyDocumentId: SignalFilterBodyDocumentId
+  organizationId: SignalFilterOrganizationId
+  workspaceId: SignalFilterWorkspaceId
 }
 
 input SignalSortInput {
@@ -182,14 +182,14 @@ input SignalSortInput {
 
 type Signal implements Node {
   id: ID!
-  organizationId: ID!
-  workspaceId: ID!
-  graphItemId: ID!
-  bodyDocumentId: ID!
   title: String!
   state: String!
   insertedAt: DateTime!
   updatedAt: DateTime!
+  graphItemId: ID!
+  bodyDocumentId: ID!
+  organizationId: ID!
+  workspaceId: ID!
 }
 
 enum SortOrder {
@@ -203,14 +203,14 @@ enum SortOrder {
 
 enum WorkPacketSortField {
   ID
-  ORGANIZATION_ID
-  WORKSPACE_ID
-  OPERATION_ID
-  CURRENT_VERSION_ID
   TITLE
   STATE
   INSERTED_AT
   UPDATED_AT
+  OPERATION_ID
+  CURRENT_VERSION_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
 }
 
 ":work_packet connection"
@@ -229,6 +229,58 @@ type WorkPacketEdge {
 
   ":work_packet node"
   node: WorkPacket!
+}
+
+input WorkPacketFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterCurrentVersionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkPacketFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
 }
 
 input WorkPacketFilterUpdatedAt {
@@ -293,58 +345,6 @@ input WorkPacketFilterTitle {
   ilike: String
 }
 
-input WorkPacketFilterCurrentVersionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkPacketFilterOperationId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkPacketFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkPacketFilterOrganizationId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
 input WorkPacketFilterId {
   isNil: Boolean
   eq: ID
@@ -363,14 +363,14 @@ input WorkPacketFilterInput {
   or: [WorkPacketFilterInput!]
   not: [WorkPacketFilterInput!]
   id: WorkPacketFilterId
-  organizationId: WorkPacketFilterOrganizationId
-  workspaceId: WorkPacketFilterWorkspaceId
-  operationId: WorkPacketFilterOperationId
-  currentVersionId: WorkPacketFilterCurrentVersionId
   title: WorkPacketFilterTitle
   state: WorkPacketFilterState
   insertedAt: WorkPacketFilterInsertedAt
   updatedAt: WorkPacketFilterUpdatedAt
+  operationId: WorkPacketFilterOperationId
+  currentVersionId: WorkPacketFilterCurrentVersionId
+  organizationId: WorkPacketFilterOrganizationId
+  workspaceId: WorkPacketFilterWorkspaceId
 }
 
 input WorkPacketSortInput {
@@ -380,24 +380,18 @@ input WorkPacketSortInput {
 
 type WorkPacket implements Node {
   id: ID!
-  organizationId: ID!
-  workspaceId: ID!
-  operationId: ID
-  currentVersionId: ID
   title: String!
   state: String!
   insertedAt: DateTime!
   updatedAt: DateTime!
+  operationId: ID
+  currentVersionId: ID
+  organizationId: ID!
+  workspaceId: ID!
 }
 
 enum WorkRunSortField {
   ID
-  ORGANIZATION_ID
-  WORKSPACE_ID
-  WORK_PACKET_ID
-  WORK_PACKET_VERSION_ID
-  OPERATION_ID
-  INITIATOR_PRINCIPAL_ID
   OBJECTIVE
   AUTHORITY_POSTURE
   SOURCE_SURFACE
@@ -410,6 +404,12 @@ enum WorkRunSortField {
   STATE
   INSERTED_AT
   UPDATED_AT
+  WORK_PACKET_ID
+  WORK_PACKET_VERSION_ID
+  OPERATION_ID
+  INITIATOR_PRINCIPAL_ID
+  ORGANIZATION_ID
+  WORKSPACE_ID
 }
 
 ":work_run connection"
@@ -428,6 +428,84 @@ type WorkRunEdge {
 
   ":work_run node"
   node: WorkRun!
+}
+
+input WorkRunFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterInitiatorPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterWorkPacketVersionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkRunFilterWorkPacketId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
 }
 
 input WorkRunFilterUpdatedAt {
@@ -626,84 +704,6 @@ input WorkRunFilterObjective {
   ilike: String
 }
 
-input WorkRunFilterInitiatorPrincipalId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkRunFilterOperationId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkRunFilterWorkPacketVersionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkRunFilterWorkPacketId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkRunFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input WorkRunFilterOrganizationId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
 input WorkRunFilterId {
   isNil: Boolean
   eq: ID
@@ -722,12 +722,6 @@ input WorkRunFilterInput {
   or: [WorkRunFilterInput!]
   not: [WorkRunFilterInput!]
   id: WorkRunFilterId
-  organizationId: WorkRunFilterOrganizationId
-  workspaceId: WorkRunFilterWorkspaceId
-  workPacketId: WorkRunFilterWorkPacketId
-  workPacketVersionId: WorkRunFilterWorkPacketVersionId
-  operationId: WorkRunFilterOperationId
-  initiatorPrincipalId: WorkRunFilterInitiatorPrincipalId
   objective: WorkRunFilterObjective
   authorityPosture: WorkRunFilterAuthorityPosture
   sourceSurface: WorkRunFilterSourceSurface
@@ -740,6 +734,12 @@ input WorkRunFilterInput {
   state: WorkRunFilterState
   insertedAt: WorkRunFilterInsertedAt
   updatedAt: WorkRunFilterUpdatedAt
+  workPacketId: WorkRunFilterWorkPacketId
+  workPacketVersionId: WorkRunFilterWorkPacketVersionId
+  operationId: WorkRunFilterOperationId
+  initiatorPrincipalId: WorkRunFilterInitiatorPrincipalId
+  organizationId: WorkRunFilterOrganizationId
+  workspaceId: WorkRunFilterWorkspaceId
 }
 
 input WorkRunSortInput {
@@ -749,12 +749,6 @@ input WorkRunSortInput {
 
 type WorkRun implements Node {
   id: ID!
-  organizationId: ID
-  workspaceId: ID
-  workPacketId: ID!
-  workPacketVersionId: ID
-  operationId: ID
-  initiatorPrincipalId: ID
   objective: String
   authorityPosture: String
   sourceSurface: String
@@ -767,6 +761,12 @@ type WorkRun implements Node {
   state: String!
   insertedAt: DateTime!
   updatedAt: DateTime!
+  workPacketId: ID!
+  workPacketVersionId: ID
+  operationId: ID
+  initiatorPrincipalId: ID
+  organizationId: ID
+  workspaceId: ID
 }
 
 interface Node {
@@ -1401,7 +1401,13 @@ type GraphRelationshipView implements Node {
 
   supersedesRelationshipId: ID
 
-  tombstoneId: ID
+  deletionOperationId: ID
+
+  deletedByPrincipalId: ID
+
+  deletedAt: DateTime
+
+  deletionReason: String
 
   source: GraphRelationshipEndpoint!
 

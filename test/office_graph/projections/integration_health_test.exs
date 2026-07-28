@@ -347,8 +347,9 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
       action_kind: "review_reply",
       target_type: "review_comment",
       target_id: Ecto.UUID.generate(),
+      target_node_id: "PRRC_health_#{label}",
       expected_provider_version: "v1",
-      input: %{}
+      reply_body: "Health action #{label}"
     })
     |> Ash.Changeset.for_update(:record_result, %{
       state: state,

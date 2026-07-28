@@ -45,5 +45,5 @@
 
 - [x] 7.1 Generate the forward resource migration, verify upgrade behavior, and verify all migrations from an empty database without editing archived migrations
 - [x] 7.2 Run formatter, focused architecture/resource/action/concurrency/API tests, compilation with warnings as errors, and strict OpenSpec validation
-- [ ] 7.3 Run the complete canonical `bin/verify` gate and confirm the worktree and database-access inventories are stable
-- [ ] 7.4 Review the final diff for hidden JSON wrappers, false polymorphic relationships, application UUID defaults, generic tombstones, namespace churn, empty abstractions, and unrelated behavior changes
+- [x] 7.3 Run the complete canonical `bin/verify` gate and confirm the worktree and database-access inventories are stable
+- [x] 7.4 Review the final diff for hidden JSON wrappers, false polymorphic relationships, application UUID defaults, generic tombstones, namespace churn, empty abstractions, and unrelated behavior changes

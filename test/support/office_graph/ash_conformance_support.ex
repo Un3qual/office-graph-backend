@@ -1114,17 +1114,17 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         operations
         when operation in [:create, :alter] and is_atom(table) ->
           table_operations = table_foreign_key_operations(table, block)
-          {node, operations ++ table_operations}
+          {node, Enum.reverse(table_operations, operations)}
 
         {:drop, _meta, [{:table, _table_meta, [table | _table_options]}]} = node, operations
         when is_atom(table) ->
-          {node, operations ++ [{:drop_table, Atom.to_string(table)}]}
+          {node, [{:drop_table, Atom.to_string(table)} | operations]}
 
         node, operations ->
           {node, operations}
       end)
 
-    operations
+    Enum.reverse(operations)
   end
 
   def table_foreign_key_operations(table, block) do
@@ -1152,16 +1152,16 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
             Atom.to_string(destination_attribute)
           }
 
-          {node, operations ++ [{:put, foreign_key}]}
+          {node, [{:put, foreign_key} | operations]}
 
         {:remove, _meta, [column | _options]} = node, operations when is_atom(column) ->
-          {node, operations ++ [{:remove, table, Atom.to_string(column)}]}
+          {node, [{:remove, table, Atom.to_string(column)} | operations]}
 
         node, operations ->
           {node, operations}
       end)
 
-    operations
+    Enum.reverse(operations)
   end
 
   def apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do

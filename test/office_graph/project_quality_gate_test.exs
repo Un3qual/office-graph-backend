@@ -46,12 +46,20 @@ defmodule OfficeGraph.ProjectQualityGateTest do
   test "verification environment is stable and honors explicit isolation overrides" do
     {first_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
-        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+        env: [
+          {"COMPOSE_PROJECT_NAME", ""},
+          {"MIX_TEST_PARTITION", ""},
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+        ]
       )
 
     {second_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
-        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+        env: [
+          {"COMPOSE_PROJECT_NAME", ""},
+          {"MIX_TEST_PARTITION", ""},
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+        ]
       )
 
     assert first_output == second_output
