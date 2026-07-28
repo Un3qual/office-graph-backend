@@ -80,11 +80,11 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   defp reconcile_locked(identity, config) do
     case external_identity_link(config, identity.subject) do
       nil -> reconcile_new_identity(identity, config)
-      link -> reconcile_existing_identity(link, identity, config)
+      link -> reconcile_existing_identity(link, identity)
     end
   end
 
-  defp reconcile_existing_identity(link, identity, config) do
+  defp reconcile_existing_identity(link, identity) do
     case link do
       %ExternalIdentityLink{status: "review_required"} ->
         rejected_with_evidence(:identity_review_required, link)
@@ -102,7 +102,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
                not_found_error?: false
              ) do
           {:ok, %Principal{kind: "human", status: "active"} = principal} ->
-            if verified_identifier_compatible?(link, identity, config) do
+            if verified_identifier_compatible?(link, identity) do
               authenticated_link =
                 link
                 |> Ash.Changeset.for_update(:record_authentication, %{
@@ -135,13 +135,12 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
 
   defp verified_identifier_compatible?(
          %ExternalIdentityLink{verified_email: verified_email},
-         %{verified_email: verified_email},
-         _config
+         %{verified_email: verified_email}
        ),
        do: true
 
-  defp verified_identifier_compatible?(link, identity, config) do
-    external_links_for_email(config, identity.verified_email) == [] and
+  defp verified_identifier_compatible?(link, identity) do
+    external_links_for_email(identity.verified_email) == [] and
       case principals_for_email(identity.verified_email) do
         [] -> true
         [%Principal{id: principal_id}] -> principal_id == link.principal_id
@@ -155,7 +154,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
            account_linking_policy: :verified_email_existing_principal
          } = config
        ) do
-    case external_links_for_email(config, identity.verified_email) do
+    case external_links_for_email(identity.verified_email) do
       [] ->
         link_verified_principal(identity, config)
 
@@ -227,12 +226,9 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp external_links_for_email(config, verified_email) do
+  defp external_links_for_email(verified_email) do
     ExternalIdentityLink
-    |> Ash.Query.filter(
-      provider == ^config.provider and provider_tenant == ^config.provider_tenant and
-        verified_email == ^verified_email
-    )
+    |> Ash.Query.filter(verified_email == ^verified_email)
     |> Ash.read!(authorize?: false)
   end
 
@@ -245,7 +241,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   defp lock_reconciliation!(identity, config) do
     [
       "external-identity-subject:#{config.provider}:#{config.provider_tenant}:#{identity.subject}",
-      "external-identity-email:#{config.provider}:#{config.provider_tenant}:#{identity.verified_email}"
+      "external-identity-email:#{identity.verified_email}"
     ]
     |> Enum.sort()
     |> Enum.each(fn key ->

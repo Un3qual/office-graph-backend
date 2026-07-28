@@ -126,6 +126,27 @@ defmodule OfficeGraph.AuthenticationTest do
   end
 
   describe "OIDC adapter failures" do
+    test "keeps email verification attached to the claim set that supplied the email" do
+      id_claims = %{
+        "sub" => "subject",
+        "email" => "id-token@example.test",
+        "email_verified" => true
+      }
+
+      assert %{
+               "email" => "id-token@example.test",
+               "email_verified" => true,
+               "name" => "UserInfo Name"
+             } =
+               Oidcc.merge_validated_claims(id_claims, %{"name" => "UserInfo Name"})
+
+      merged_claims =
+        Oidcc.merge_validated_claims(id_claims, %{"email" => "userinfo@example.test"})
+
+      assert merged_claims["email"] == "userinfo@example.test"
+      refute Map.has_key?(merged_claims, "email_verified")
+    end
+
     test "does not disguise an invalid internal request as provider downtime" do
       # Keep this fixture runtime-dynamic so Elixir does not reject the deliberately
       # incomplete map before the adapter boundary can exercise it.

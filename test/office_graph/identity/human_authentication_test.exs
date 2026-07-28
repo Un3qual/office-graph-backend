@@ -321,6 +321,38 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert reauthenticated.external_identity_link.id == linked.external_identity_link.id
     end
 
+    test "requires review when another provider already has the verified identifier", %{
+      bootstrap: bootstrap
+    } do
+      Ash.create!(
+        ExternalIdentityLink,
+        %{
+          id: Ecto.UUID.generate(),
+          provider: "legacy-idp",
+          provider_tenant: "https://legacy-idp.example.test/",
+          subject: "legacy-subject",
+          verified_email: bootstrap.principal.email,
+          status: "review_required",
+          linking_state: "review_required",
+          review_reason: "unlinked_verified_identifier"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :identity_review_required} =
+               Identity.reconcile_oidc_identity(
+                 claims(bootstrap.principal.email, "current-provider-subject"),
+                 reconciliation_opts()
+               )
+
+      assert %ExternalIdentityLink{
+               principal_id: nil,
+               status: "review_required",
+               review_reason: "verified_identifier_conflict"
+             } = link_for_subject("current-provider-subject")
+    end
+
     test "rejects disabled links and principals", %{bootstrap: bootstrap} do
       assert {:ok, linked} =
                Identity.reconcile_oidc_identity(

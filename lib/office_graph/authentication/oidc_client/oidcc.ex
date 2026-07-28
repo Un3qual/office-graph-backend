@@ -60,10 +60,23 @@ defmodule OfficeGraph.Authentication.OidcClient.Oidcc do
              config.client_secret,
              %{}
            ) do
-      {:ok, Map.merge(id_claims, userinfo)}
+      {:ok, merge_validated_claims(id_claims, userinfo)}
     else
       _provider_error -> {:error, :provider_unavailable}
     end
+  end
+
+  @doc false
+  def merge_validated_claims(id_claims, userinfo)
+      when is_map(id_claims) and is_map(userinfo) do
+    id_claims =
+      if Map.has_key?(userinfo, "email") do
+        Map.delete(id_claims, "email_verified")
+      else
+        id_claims
+      end
+
+    Map.merge(id_claims, userinfo)
   end
 
   @impl true
