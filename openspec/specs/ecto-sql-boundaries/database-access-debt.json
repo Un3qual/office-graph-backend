@@ -2684,34 +2684,6 @@
     {
       "occurrences": [
         [
-          "sha256:5d6c536d75683ca5f10ef220df58dd762f8b390c86da73c7f8ad70bfb3e73244",
-          "raw_sql",
-          "Repo.query!",
-          "revoke_session!/1",
-          1
-        ],
-        [
-          "sha256:4909f8f54ebd81276cfcefb6bd901e64be1ae7e16ba858c4c1f282b90f386aca",
-          "raw_sql",
-          "Repo.query!",
-          "deactivate_principal!/1",
-          1
-        ],
-        [
-          "sha256:192ca2f6a2f5b1d7f94fa2ac28a3ea4a2f004eb6264a982046f0520439947ba4",
-          "raw_sql",
-          "Repo.query!",
-          "delete_role_assignment!/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Foundation",
-      "path": "test/office_graph/foundation/bootstrap_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:cf592b4e618dc616f09901d6db33aa9128a2995575004e74b7d8acf8c53bacdc",
           "direct_ecto",
           "Repo.aggregate",
