@@ -53,11 +53,9 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
         authorize?: false
       )
 
-    context.definition
-    |> Ash.Changeset.for_update(:set_model_credential, %{
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
       model_credential_id: credential.id
     })
-    |> Ash.update!(authorize?: false)
 
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)

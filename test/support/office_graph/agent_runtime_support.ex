@@ -3,7 +3,10 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
 
   alias OfficeGraph.{AgentRuntime, Foundation, Operations}
   alias OfficeGraph.AgentRuntime.{ExecutionWorker, GateExpiryWorker, InvocationRequest}
+  alias OfficeGraph.Authorization.{Capability, RoleAssignment, RoleCapability}
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
+
+  require Ash.Query
 
   def invocation_fixture(opts \\ []) do
     suffix = System.unique_integer([:positive])
@@ -124,6 +127,41 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       worker: GateExpiryWorker,
       args: %{request_kind: request_kind, request_id: request_id}
     )
+  end
+
+  def configure_definition!(definition, attrs) do
+    definition
+    |> Ash.Changeset.for_update(:configure_authority, attrs)
+    |> Ash.update!(authorize?: false)
+  end
+
+  def grant_capabilities!(context, capability_keys) do
+    assignment =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id == ^context.agent_principal.id and
+          organization_id == ^context.bootstrap.organization.id and
+          workspace_id == ^context.bootstrap.workspace.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    capabilities =
+      Capability
+      |> Ash.Query.filter(key in ^capability_keys)
+      |> Ash.read!(authorize?: false)
+
+    if Enum.sort(Enum.map(capabilities, & &1.key)) != Enum.sort(capability_keys) do
+      raise ArgumentError, "unknown AgentRuntime fixture capability"
+    end
+
+    Enum.each(capabilities, fn capability ->
+      Ash.create!(
+        RoleCapability,
+        %{role_id: assignment.role_id, capability_id: capability.id},
+        action: :ensure,
+        authorize?: false
+      )
+    end)
   end
 
   defp base_request(context) do

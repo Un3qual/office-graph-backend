@@ -60,6 +60,10 @@ defmodule OfficeGraph.Authorization.RoleCapability do
       upsert_fields []
       return_skipped_upsert? true
     end
+
+    destroy :revoke do
+      public? false
+    end
   end
 
   identities do

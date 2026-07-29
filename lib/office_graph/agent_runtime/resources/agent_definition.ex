@@ -79,14 +79,9 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
       validate one_of(:lifecycle_state, ~w(active disabled retired))
     end
 
-    update :set_model_credential do
+    update :configure_authority do
       public? false
-      accept [:model_credential_id]
-    end
-
-    update :set_requested_capabilities do
-      public? false
-      accept [:requested_capabilities]
+      accept [:model_credential_id, :requested_capabilities, :tool_allowlist]
     end
   end
 

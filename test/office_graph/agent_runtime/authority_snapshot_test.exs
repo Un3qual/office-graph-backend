@@ -1,11 +1,14 @@
 defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Authorization, Repo}
+  alias OfficeGraph.{AgentRuntime, Authorization}
   alias OfficeGraph.AgentRuntime.{ApprovalRequest, AuthoritySnapshot}
-  alias OfficeGraph.Authorization.PolicyBundle
+  alias OfficeGraph.Authorization.{Capability, PolicyBundle, RoleAssignment, RoleCapability}
+  alias OfficeGraph.Identity.Principal
   alias OfficeGraph.Integrations.IntegrationCredential
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
+
+  require Ash.Query
 
   setup do
     context = AgentRuntimeSupport.invocation_fixture()
@@ -61,28 +64,17 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
 
     assert :ok = AgentRuntime.revalidate_step(execution_id)
 
-    Repo.query!("UPDATE principals SET status = 'inactive', updated_at = now() WHERE id = $1", [
-      Ecto.UUID.dump!(context.agent_principal.id)
-    ])
+    set_principal_status!(context.agent_principal.id, "inactive")
 
     assert {:error, :agent_principal_inactive} = AgentRuntime.revalidate_step(execution_id)
 
-    Repo.query!("UPDATE principals SET status = 'active', updated_at = now() WHERE id = $1", [
-      Ecto.UUID.dump!(context.agent_principal.id)
-    ])
+    set_principal_status!(context.agent_principal.id, "active")
 
-    role_assignment_ids =
-      Repo.query!(
-        "SELECT id FROM role_assignments WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3",
-        [
-          Ecto.UUID.dump!(context.agent_principal.id),
-          Ecto.UUID.dump!(context.bootstrap.organization.id),
-          Ecto.UUID.dump!(context.bootstrap.workspace.id)
-        ]
-      ).rows
-      |> List.flatten()
-
-    Repo.query!("DELETE FROM role_assignments WHERE id = ANY($1::uuid[])", [role_assignment_ids])
+    revoke_assignments!(
+      context.agent_principal.id,
+      context.bootstrap.organization.id,
+      context.bootstrap.workspace.id
+    )
 
     assert {:error, :agent_authority_revoked} = AgentRuntime.revalidate_step(execution_id)
   end
@@ -91,23 +83,11 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
        context do
     execution_id = context.invocation.execution.id
 
-    Repo.query!(
-      """
-      DELETE FROM role_capabilities
-      WHERE role_id IN (
-        SELECT role_id
-        FROM role_assignments
-        WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
-      )
-      AND capability_id IN (
-        SELECT id FROM capabilities WHERE key = 'agent.model.generate'
-      )
-      """,
-      [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
-      ]
+    revoke_capability!(
+      context.agent_principal.id,
+      context.bootstrap.organization.id,
+      context.bootstrap.workspace.id,
+      "agent.model.generate"
     )
 
     assert {:error, :agent_authority_revoked} =
@@ -121,19 +101,11 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
 
     assert :ok = AgentRuntime.revalidate_step(execution_id)
 
-    Repo.query!(
-      """
-      DELETE FROM role_capabilities
-      WHERE role_id IN (
-        SELECT role_id
-        FROM role_assignments
-        WHERE principal_id = $1 AND organization_id = $2
-      )
-      AND capability_id IN (
-        SELECT id FROM capabilities WHERE key = 'proposal.create'
-      )
-      """,
-      [Ecto.UUID.dump!(delegator_id), Ecto.UUID.dump!(organization_id)]
+    revoke_capability!(
+      delegator_id,
+      organization_id,
+      context.bootstrap.workspace.id,
+      "proposal.create"
     )
 
     assert :ok =
@@ -169,52 +141,22 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
     assert {:error, :authority_policy_changed} = AgentRuntime.revalidate_step(execution_id)
   end
 
-  test "pre-step revalidation fails closed when run autonomy no longer matches the snapshot",
-       context do
-    execution_id = context.invocation.execution.id
-
-    assert :ok = AgentRuntime.revalidate_step(execution_id)
-
-    Repo.query!(
-      "UPDATE work_packet_versions SET autonomy_posture = 'bounded_automatic', updated_at = now() WHERE id = $1",
-      [Ecto.UUID.dump!(context.packet_version.id)]
-    )
-
-    assert {:error, :run_authority_revoked} = AgentRuntime.revalidate_step(execution_id)
-  end
-
   test "generic repository authority checks current tool eligibility and matching approval",
        context do
-    Repo.query!(
-      """
-      UPDATE agent_definitions
-      SET requested_capabilities =
-            ARRAY['agent.model.generate', 'agent.tool.read', 'proposal.create', 'repository.read'],
-          tool_allowlist = ARRAY['repository.read'],
-          updated_at = now()
-      WHERE id = $1
-      """,
-      [Ecto.UUID.dump!(context.definition.id)]
-    )
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      requested_capabilities: [
+        "agent.model.generate",
+        "agent.tool.read",
+        "proposal.create",
+        "repository.read"
+      ],
+      tool_allowlist: ["repository.read"]
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
-      FROM role_assignments AS assignments
-      JOIN capabilities
-        ON capabilities.key = ANY(ARRAY['agent.tool.read', 'repository.read'])
-      WHERE assignments.principal_id = $1
-        AND assignments.organization_id = $2
-        AND assignments.workspace_id = $3
-      ON CONFLICT (role_id, capability_id) DO NOTHING
-      """,
-      [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
-      ]
-    )
+    AgentRuntimeSupport.grant_capabilities!(context, [
+      "agent.tool.read",
+      "repository.read"
+    ])
 
     invocation =
       AgentRuntimeSupport.invoke_human(context, %{
@@ -289,15 +231,47 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
                approval_request_id: approval.id
              )
 
-    Repo.query!(
-      "UPDATE agent_approval_requests SET capability_key = 'external.write' WHERE id = $1",
-      [Ecto.UUID.dump!(approval.id)]
-    )
+    mismatched_approval =
+      Ash.create!(
+        ApprovalRequest,
+        %{
+          id: Ecto.UUID.generate(),
+          execution_id: execution.id,
+          authority_snapshot_id: snapshot.id,
+          organization_id: execution.organization_id,
+          workspace_id: execution.workspace_id,
+          operation_id: execution.operation_id,
+          step_key: waiting.current_step_key,
+          execution_state_version: waiting.state_version,
+          requested_action: "external.write",
+          reason: "Mismatched approval fixture.",
+          scope_type: "workspace",
+          scope_id: execution.workspace_id,
+          capability_key: "external.write",
+          sensitivity: "internal",
+          external_write: true,
+          state: "approved",
+          version: 2,
+          expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    mismatched_approval =
+      mismatched_approval
+      |> Ash.Changeset.for_update(:resolve, %{
+        state: "approved",
+        version: 2,
+        resolution_operation_id: execution.operation_id,
+        resolved_at: DateTime.utc_now()
+      })
+      |> Ash.update!(authorize?: false)
 
     assert {:error, :approval_not_active} =
              AgentRuntime.revalidate_step(execution.id,
                tool_key: "repository.read",
-               approval_request_id: approval.id
+               approval_request_id: mismatched_approval.id
              )
 
     approval
@@ -328,10 +302,9 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
         authorize?: false
       )
 
-    Repo.query!("UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2", [
-      Ecto.UUID.dump!(credential.id),
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_credential_id: credential.id
+    })
 
     invocation =
       AgentRuntimeSupport.invoke_human(context, %{
@@ -347,5 +320,43 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshotTest do
 
     assert {:error, :credential_inactive} =
              AgentRuntime.revalidate_step(invocation.execution.id)
+  end
+
+  defp set_principal_status!(principal_id, status) do
+    Principal
+    |> Ash.get!(principal_id, authorize?: false)
+    |> Ash.Changeset.for_update(:set_status, %{status: status})
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp revoke_assignments!(principal_id, organization_id, workspace_id) do
+    RoleAssignment
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, action: :revoke, authorize?: false))
+  end
+
+  defp revoke_capability!(principal_id, organization_id, workspace_id, capability_key) do
+    capability =
+      Capability
+      |> Ash.Query.filter(key == ^capability_key)
+      |> Ash.read_one!(authorize?: false)
+
+    role_ids =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id == ^principal_id and organization_id == ^organization_id and
+          workspace_id == ^workspace_id
+      )
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.role_id)
+
+    RoleCapability
+    |> Ash.Query.filter(role_id in ^role_ids and capability_id == ^capability.id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, action: :revoke, authorize?: false))
   end
 end

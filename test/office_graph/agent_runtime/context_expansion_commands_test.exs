@@ -15,7 +15,6 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
   }
 
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
-  alias OfficeGraph.Authorization.{Capability, RoleAssignment, RoleCapability}
 
   import OfficeGraph.TestSupport.AgentRuntimeSupport,
     only: [approval_resume_jobs: 1, execution_jobs: 1]
@@ -395,32 +394,11 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Enum.uniq()
       |> Enum.sort()
 
-    context.definition
-    |> Ash.Changeset.for_update(:set_requested_capabilities, %{
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
       requested_capabilities: requested_capabilities
     })
-    |> Ash.update!(authorize?: false)
 
-    capability =
-      Capability
-      |> Ash.Query.filter(key == "agent.tool.read")
-      |> Ash.read_one!(authorize?: false)
-
-    assignment =
-      RoleAssignment
-      |> Ash.Query.filter(
-        principal_id == ^context.agent_principal.id and
-          organization_id == ^context.bootstrap.organization.id and
-          workspace_id == ^context.bootstrap.workspace.id
-      )
-      |> Ash.read_one!(authorize?: false)
-
-    Ash.create!(
-      RoleCapability,
-      %{role_id: assignment.role_id, capability_id: capability.id},
-      action: :ensure,
-      authorize?: false
-    )
+    AgentRuntimeSupport.grant_capabilities!(context, ["agent.tool.read"])
 
     requested_capabilities -- ["agent.invoke"]
   end
