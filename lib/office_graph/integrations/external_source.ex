@@ -51,6 +51,15 @@ defmodule OfficeGraph.Integrations.ExternalSource do
     create :create do
       accept [:id, :key, :name, :kind]
     end
+
+    create :ensure do
+      public? false
+      accept [:key, :name, :kind]
+      upsert? true
+      upsert_identity :unique_kind_key
+      upsert_fields []
+      return_skipped_upsert? true
+    end
   end
 
   identities do

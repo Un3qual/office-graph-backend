@@ -57,6 +57,9 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
                       raw_archive_id: "normalized_intake_events_raw_archive_id_fkey",
                       operation_id: "normalized_intake_events_operation_id_fkey",
                       duplicate_of_id: "normalized_intake_events_duplicate_of_id_fkey"
+
+    identity_index_names accepted_replay_key:
+                           "normalized_intake_events_accepted_replay_identity_index"
   end
 
   attributes do
@@ -139,6 +142,26 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
         :outcome,
         :duplicate_of_id
       ]
+    end
+
+    action :persist_manual_intake, OfficeGraph.Integrations.ManualIntakeActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Integrations.ExternalSource,
+        OfficeGraph.Integrations.RawArchive,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.ProposedChanges.ProposedGraphChange
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :source_identity, :string, allow_nil?: false
+      argument :replay_identity, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+
+      run OfficeGraph.Integrations.Actions.PersistManualIntake
     end
 
     action :submit_manual_intake,

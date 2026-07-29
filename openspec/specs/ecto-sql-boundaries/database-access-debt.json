@@ -346,41 +346,6 @@
     {
       "occurrences": [
         [
-          "sha256:592ac931aeb4a3ed42152dbec69ce52bb07f34c37fb16a35436b710907a1fb4a",
-          "raw_sql",
-          "unsafe_fragment",
-          null,
-          1
-        ],
-        [
-          "sha256:9fbb6933243fc26b614cfd4930eacd184171a607800abfdb269f643de089d013",
-          "direct_ecto",
-          "Repo.transaction",
-          "submit_or_replay_manual_intake_command/3",
-          1
-        ],
-        [
-          "sha256:f3f5cd19fc2325ea3bc375ebfddd7b1fe70ae2048795d394e27d405d8a787c8d",
-          "direct_ecto",
-          "Repo.transaction",
-          "insert_manual_intake/4",
-          1
-        ],
-        [
-          "sha256:003a4ce307e3b17ac53cf3c5291c7a250e6d5b47f5ed097f5fbe051b93f9b2e3",
-          "direct_ecto",
-          "Repo.insert_all",
-          "insert_source_then_refetch/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Integrations",
-      "path": "lib/office_graph/integrations.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:5781d4a5c6532ccb977caf227c202da773f079de76db2e2bda4d1a42bf11565f",
           "direct_ecto",
           "Repo.transaction",

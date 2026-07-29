@@ -44,7 +44,8 @@ defmodule OfficeGraph.Identity do
           workspace_id: tenant.workspace.id,
           purpose: "local_owner"
         })
-        |> Ash.create(authorize?: false)
+        |> Ash.create(authorize?: false, return_notifications?: true)
+        |> consume_notifications()
       end)
 
     case result do
@@ -160,7 +161,8 @@ defmodule OfficeGraph.Identity do
           kind: kind,
           status: "active"
         })
-        |> Ash.create(authorize?: false)
+        |> Ash.create(authorize?: false, return_notifications?: true)
+        |> consume_notifications()
       end)
 
     case result do
@@ -275,4 +277,7 @@ defmodule OfficeGraph.Identity do
 
   defp normalize_identity_write({:error, _storage_error}),
     do: {:error, :identity_storage_unavailable}
+
+  defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}
+  defp consume_notifications({:error, error}), do: {:error, error}
 end

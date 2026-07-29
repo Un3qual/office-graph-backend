@@ -9,31 +9,33 @@ defmodule OfficeGraph.Integrations do
       OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.Operations,
-      OfficeGraph.ProposedChanges,
-      OfficeGraph.Repo
+      OfficeGraph.ProposedChanges
     ],
     exports: [IntegrationCredential]
 
   require Ash.Query
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.DurableDelivery
-  alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
+
+  alias OfficeGraph.Integrations.{
+    ExternalSource,
+    ManualIntakeActionResult,
+    NormalizedIntakeEvent,
+    ProviderArchiveResult,
+    RawArchive
+  }
+
   alias OfficeGraph.Operations
-  alias OfficeGraph.ProposedChanges
-  alias OfficeGraph.Repo
 
   @manual_intake_action "manual_intake.submit"
+  @external_source_constraint "external_sources_kind_key_index"
+  @provider_archive_constraint "raw_archives_provider_delivery_index"
+  @accepted_replay_constraint "normalized_intake_events_accepted_replay_identity_index"
 
   def ensure_provider_source(key, name)
       when is_binary(key) and byte_size(key) in 1..255 and is_binary(name) and
              byte_size(name) in 1..255 do
-    case Repo.get_or_insert(
-           ExternalSource,
-           [kind: "provider", key: key],
-           %{key: key, name: name, kind: "provider"},
-           &provider_source_insert_contract/2
-         ) do
+    case ensure_source("provider", key, name) do
       {:ok, source} ->
         if source.kind == "provider",
           do: {:ok, source},
@@ -51,11 +53,9 @@ defmodule OfficeGraph.Integrations do
     with :ok <- validate_system_archive_scope(operation, source),
          :ok <- validate_required_string(attrs, :external_delivery_id),
          :ok <- validate_required_string(attrs, :body) do
-      archive_id = Ecto.UUID.generate()
       body = Map.fetch!(attrs, :body)
 
       archive_attrs = %{
-        id: archive_id,
         organization_id: operation.organization_id,
         workspace_id: operation.workspace_id,
         source_id: source.id,
@@ -68,22 +68,13 @@ defmodule OfficeGraph.Integrations do
         body: body
       }
 
-      case Repo.get_or_insert(
-             RawArchive,
-             [
-               source_id: source.id,
-               external_delivery_id: archive_attrs.external_delivery_id
-             ],
-             archive_attrs,
-             &provider_archive_insert_contract/2,
-             &fetch_provider_archive/2
-           ) do
-        {:ok, archive} ->
+      case archive_provider_delivery(archive_attrs) do
+        {:ok, %ProviderArchiveResult{archive: archive, status: status}} ->
           if archive.content_hash == archive_attrs.content_hash and
                archive.operation_id == operation.id and
                archive.organization_id == operation.organization_id and
                archive.workspace_id == operation.workspace_id do
-            {:ok, archive, if(archive.id == archive_id, do: :created, else: :replayed)}
+            {:ok, archive, String.to_existing_atom(status)}
           else
             {:error, :delivery_identity_conflict}
           end
@@ -162,196 +153,40 @@ defmodule OfficeGraph.Integrations do
   end
 
   defp submit_or_replay_manual_intake(session_context, operation, attrs) do
-    if command_operation?(operation) do
-      submit_or_replay_manual_intake_command(session_context, operation, attrs)
-    else
-      record_manual_intake(session_context, operation, attrs)
-    end
-  end
+    with :ok <- validate_command_replay(operation, attrs) do
+      run = fn ->
+        NormalizedIntakeEvent
+        |> Ash.ActionInput.for_action(:persist_manual_intake, %{
+          operation_id: operation.id,
+          source_identity: attrs.source_identity,
+          replay_identity: attrs.replay_identity,
+          body: attrs.body
+        })
+        |> Ash.run_action(actor: session_context, authorize?: false)
+      end
 
-  defp submit_or_replay_manual_intake_command(session_context, operation, attrs) do
-    with :ok <- Operations.validate_command_replay(operation, attrs) do
-      Repo.transaction(fn ->
-        case Operations.lock_operation(operation.id) do
-          {:ok, _locked_operation} ->
-            case existing_intake_for_operation(session_context, operation) do
-              {:ok, nil} ->
-                case record_manual_intake(session_context, operation, attrs) do
-                  {:ok, intake} -> intake
-                  {:error, error} -> Repo.rollback(error)
-                end
-
-              {:ok, intake} ->
-                intake
-
-              {:error, error} ->
-                Repo.rollback(error)
-            end
-
-          {:error, error} ->
-            Repo.rollback(error)
-        end
-      end)
+      run
+      |> with_identity_retry([
+        @external_source_constraint,
+        @accepted_replay_constraint
+      ])
       |> case do
-        {:ok, intake} -> {:ok, intake}
-        {:error, error} -> {:error, error}
+        {:ok, %ManualIntakeActionResult{} = result} ->
+          ManualIntakeActionResult.to_public_result(result)
+
+        {:error, error} ->
+          {:error, error}
       end
     end
   end
 
-  defp command_operation?(operation) do
-    is_binary(Map.get(operation, :command_input_digest))
-  end
-
-  defp existing_intake_for_operation(session_context, operation) do
-    NormalizedIntakeEvent
-    |> Ash.Query.filter(
-      organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and operation_id == ^operation.id
-    )
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} ->
-        {:ok, nil}
-
-      {:ok, normalized_event} ->
-        with {:ok, raw_archive} <-
-               Ash.get(RawArchive, normalized_event.raw_archive_id, authorize?: false),
-             proposed_changes <-
-               ProposedChanges.for_normalized_event(session_context, normalized_event.id) do
-          {:ok,
-           %{
-             raw_archive: raw_archive,
-             normalized_event: normalized_event,
-             duplicate?: normalized_event.outcome == "duplicate",
-             proposed_changes: proposed_changes
-           }}
-        end
-
-      {:error, error} ->
-        {:error, error}
+  defp validate_command_replay(operation, attrs) do
+    if is_binary(Map.get(operation, :command_input_digest)) do
+      Operations.validate_command_replay(operation, attrs)
+    else
+      :ok
     end
   end
-
-  defp record_manual_intake(session_context, operation, attrs) do
-    case insert_manual_intake(session_context, operation, attrs) do
-      {:ok, intake} ->
-        {:ok, intake}
-
-      {:error, error} ->
-        record_duplicate_after_replay_conflict(session_context, operation, attrs, error)
-    end
-  end
-
-  defp insert_manual_intake(session_context, operation, attrs, opts \\ []) do
-    Repo.transaction(fn ->
-      with {:ok, source} <- get_or_create_source(attrs.source_identity),
-           {:ok, duplicate_of} <- accepted_duplicate(session_context, attrs),
-           duplicate_of <- required_duplicate(opts[:duplicate_retry?], duplicate_of),
-           outcome = if(duplicate_of, do: "duplicate", else: "accepted"),
-           {:ok, raw_archive} <-
-             ash_create(RawArchive, %{
-               organization_id: session_context.organization_id,
-               workspace_id: session_context.workspace_id,
-               source_id: source.id,
-               operation_id: operation.id,
-               content_hash: content_hash(attrs.body),
-               body: attrs.body
-             }),
-           {:ok, normalized_event} <-
-             ash_create(NormalizedIntakeEvent, %{
-               organization_id: session_context.organization_id,
-               workspace_id: session_context.workspace_id,
-               raw_archive_id: raw_archive.id,
-               operation_id: operation.id,
-               source_identity: attrs.source_identity,
-               replay_identity: attrs.replay_identity,
-               outcome: outcome,
-               duplicate_of_id: duplicate_of && duplicate_of.id
-             }),
-           {:ok, intake} <-
-             record_manual_intake_proposed_changes(
-               session_context,
-               operation,
-               attrs,
-               raw_archive,
-               normalized_event,
-               outcome
-             ) do
-        intake
-      else
-        {:error, error} -> Repo.rollback(error)
-      end
-    end)
-  end
-
-  defp record_manual_intake_proposed_changes(
-         _session_context,
-         _operation,
-         _attrs,
-         raw_archive,
-         normalized_event,
-         "duplicate"
-       ) do
-    {:ok,
-     %{
-       raw_archive: raw_archive,
-       normalized_event: normalized_event,
-       duplicate?: true,
-       proposed_changes: []
-     }}
-  end
-
-  defp record_manual_intake_proposed_changes(
-         session_context,
-         operation,
-         attrs,
-         raw_archive,
-         normalized_event,
-         "accepted"
-       ) do
-    with {:ok, proposed_changes} <-
-           ProposedChanges.create_for_manual_intake(
-             session_context,
-             operation,
-             normalized_event,
-             attrs
-           ),
-         {:ok, _event} <-
-           DurableDelivery.record_and_enqueue(session_context, operation, %{
-             event_key: "manual-intake:#{normalized_event.id}:accepted",
-             event_kind: "manual_intake.accepted",
-             subject_kind: "normalized_intake_event",
-             subject_id: normalized_event.id
-           }) do
-      {:ok,
-       %{
-         raw_archive: raw_archive,
-         normalized_event: normalized_event,
-         duplicate?: false,
-         proposed_changes: proposed_changes
-       }}
-    end
-  end
-
-  defp record_duplicate_after_replay_conflict(session_context, operation, attrs, original_error) do
-    case accepted_duplicate(session_context, attrs) do
-      {:ok, nil} ->
-        {:error, original_error}
-
-      {:ok, _duplicate_of} ->
-        insert_manual_intake(session_context, operation, attrs, duplicate_retry?: true)
-
-      {:error, {:manual_intake_replay_conflict, _accepted_id} = conflict} ->
-        {:error, conflict}
-
-      {:error, _error} ->
-        {:error, original_error}
-    end
-  end
-
-  defp required_duplicate(true, nil), do: Repo.rollback(:accepted_replay_not_found)
-  defp required_duplicate(_duplicate_retry?, duplicate_of), do: duplicate_of
 
   defp content_hash(body) do
     :crypto.hash(:sha256, body)
@@ -367,120 +202,51 @@ defmodule OfficeGraph.Integrations do
     if valid?, do: :ok, else: {:error, :forbidden}
   end
 
-  defp provider_source_insert_contract(ExternalSource, _attrs) do
-    {"external_sources", [:kind, :key], [:id]}
+  defp archive_provider_delivery(attrs) do
+    run = fn ->
+      RawArchive
+      |> Ash.ActionInput.for_action(:archive_provider_delivery, attrs)
+      |> Ash.run_action(authorize?: false)
+    end
+
+    with_identity_retry(run, @provider_archive_constraint)
   end
 
-  defp provider_archive_insert_contract(RawArchive, _attrs) do
-    {"raw_archives",
-     {:unsafe_fragment,
-      "(source_id, external_delivery_id) WHERE external_delivery_id IS NOT NULL"},
-     [:id, :organization_id, :workspace_id, :source_id, :operation_id]}
+  defp ensure_source(kind, key, name) do
+    run = fn ->
+      ExternalSource
+      |> Ash.Changeset.for_create(:ensure, %{kind: kind, key: key, name: name})
+      |> Ash.create(authorize?: false, return_notifications?: true)
+      |> case do
+        {:ok, source, _notifications} -> {:ok, source}
+        {:error, error} -> {:error, error}
+      end
+    end
+
+    with_identity_retry(run, @external_source_constraint)
   end
 
-  defp fetch_provider_archive(RawArchive, lookup) do
-    lookup = Map.new(lookup)
+  defp with_identity_retry(run, constraint) do
+    case run.() do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if identity_conflict?(error, constraint), do: run.(), else: {:error, error}
 
-    RawArchive
-    |> Ash.Query.filter(
-      source_id == ^lookup.source_id and external_delivery_id == ^lookup.external_delivery_id
-    )
-    |> Ash.read_one(authorize?: false)
-  end
-
-  defp get_or_create_source(source_identity) do
-    case Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
-           authorize?: false,
-           not_found_error?: false
-         ) do
-      {:ok, nil} ->
-        insert_source_then_refetch(source_identity)
-
-      {:ok, source} ->
-        {:ok, source}
-
-      {:error, error} ->
-        {:error, error}
+      result ->
+        result
     end
   end
 
-  defp insert_source_then_refetch(source_identity) do
-    now = DateTime.utc_now()
+  defp identity_conflict?(%Ash.Error.Invalid{errors: errors}, constraints) do
+    constraints = List.wrap(constraints)
 
-    Repo.insert_all(
-      "external_sources",
-      [
-        %{
-          key: source_identity,
-          name: "Manual Intake",
-          kind: "manual",
-          inserted_at: now,
-          updated_at: now
-        }
-      ],
-      on_conflict: :nothing,
-      conflict_target: [:kind, :key]
-    )
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) in constraints
 
-    case fetch_source(source_identity) do
-      {:ok, nil} -> {:error, :source_not_found_after_create}
-      result -> result
-    end
-  end
-
-  defp fetch_source(source_identity) do
-    Ash.get(ExternalSource, %{kind: "manual", key: source_identity},
-      authorize?: false,
-      not_found_error?: false
-    )
-  end
-
-  defp accepted_duplicate(session_context, attrs) do
-    NormalizedIntakeEvent
-    |> Ash.Query.filter(
-      organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and
-        source_identity == ^attrs.source_identity and
-        replay_identity == ^attrs.replay_identity and
-        outcome == "accepted"
-    )
-    |> Ash.read_one(authorize?: false)
-    |> then(&verify_duplicate_content(&1, attrs))
-  end
-
-  defp verify_duplicate_content({:ok, nil}, _attrs), do: {:ok, nil}
-
-  defp verify_duplicate_content({:ok, duplicate}, attrs) do
-    case Ash.get(RawArchive, duplicate.raw_archive_id, authorize?: false) do
-      {:ok, %{content_hash: hash}} ->
-        if hash == content_hash(attrs.body) do
-          {:ok, duplicate}
-        else
-          {:error, {:manual_intake_replay_conflict, duplicate.id}}
-        end
-
-      {:error, error} ->
-        {:error, error}
-    end
-  end
-
-  defp verify_duplicate_content({:error, error}, _attrs) do
-    {:error, error}
-  end
-
-  defp ash_create(resource, attrs) do
-    Ash.create(
-      resource,
-      attrs,
-      action: :create,
-      authorize?: false,
-      return_notifications?: true
-    )
-    |> case do
-      {:ok, record, _notifications} -> {:ok, record}
-      {:ok, record} -> {:ok, record}
-      {:error, error} -> {:error, error}
-    end
+      _other ->
+        false
+    end)
   end
 
   defp validate_manual_intake_attrs(attrs) do

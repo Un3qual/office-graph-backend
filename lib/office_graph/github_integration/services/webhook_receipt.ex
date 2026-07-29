@@ -306,6 +306,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
   defp normalize_receipt_error(:integration_storage_unavailable),
     do: :receipt_unavailable
 
+  defp normalize_receipt_error(%Ash.Changeset{}), do: :receipt_unavailable
+  defp normalize_receipt_error(%Ash.ActionInput{}), do: :receipt_unavailable
+
   defp normalize_receipt_error(reason)
        when reason in [
               :delivery_identity_conflict,
