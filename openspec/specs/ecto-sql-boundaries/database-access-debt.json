@@ -493,27 +493,6 @@
     {
       "occurrences": [
         [
-          "sha256:fc1067b3214b6eb167effde73073a754aff8314820ff25027f595eca7191ee5b",
-          "raw_sql",
-          "Repo.query!",
-          "validate_operation_context/4",
-          1
-        ],
-        [
-          "sha256:60fc17bd22fa3ef456190739ee2674b2a5d94d20c308076e7f6aca04d5bc5627",
-          "raw_sql",
-          "Repo.query!",
-          "row_exists?/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.WorkGraph",
-      "path": "lib/office_graph/work_graph/changes/validate_evidence_candidate_references.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:71e3d5152524759c6bb3fa00f4a9670dad65a2a144b825e58334ab72250b7f5a",
           "direct_ecto",
           "Repo.transaction",

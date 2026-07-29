@@ -148,6 +148,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           "lib/office_graph/tenancy.ex",
           "lib/office_graph/verification.ex",
           "lib/office_graph/verification/waiver.ex",
+          "lib/office_graph/work_graph/changes/validate_evidence_candidate_references.ex",
           "lib/office_graph/work_packets.ex"
         ],
         fn path ->

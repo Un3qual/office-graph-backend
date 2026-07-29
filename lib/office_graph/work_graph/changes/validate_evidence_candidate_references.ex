@@ -3,7 +3,11 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
 
   use Ash.Resource.Change
 
-  alias OfficeGraph.Repo
+  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Runs.{ExecutionObservation, RunRequiredCheck}
+  alias OfficeGraph.WorkGraph.VerificationCheck
+
+  require Ash.Query
 
   @evidence_candidate_create_action "evidence_candidate.create"
   @agent_runtime_action "agent.runtime.execute"
@@ -49,36 +53,41 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
   defp validate_operation_context(_operation_id, _organization_id, nil, _actor), do: :ok
 
   defp validate_operation_context(operation_id, organization_id, workspace_id, actor) do
-    """
-    SELECT action, principal_id, session_id
-    FROM operation_correlations
-    WHERE id = $1::uuid
-      AND organization_id = $2::uuid
-      AND workspace_id = $3::uuid
-    LIMIT 1
-    """
-    |> Repo.query!([db_uuid(operation_id), db_uuid(organization_id), db_uuid(workspace_id)])
+    OperationCorrelation
+    |> Ash.Query.filter(
+      id == ^operation_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
     |> case do
-      %{rows: [[@evidence_candidate_create_action, principal_id, session_id]]} ->
+      {:ok,
+       %{
+         action: @evidence_candidate_create_action,
+         principal_id: principal_id,
+         session_id: session_id
+       }} ->
         validate_actor_operation_context(actor, principal_id, session_id)
 
-      %{rows: [[@agent_runtime_action, _principal_id, nil]]} when is_nil(actor) ->
+      {:ok, %{action: @agent_runtime_action, session_id: nil}} when is_nil(actor) ->
         :ok
 
-      %{rows: [_other]} ->
+      {:ok, nil} ->
+        {:error, :operation_id, "operation_id must reference an operation in the target scope"}
+
+      {:ok, _other} ->
         {:error, :operation_id,
          "operation_id must reference an evidence candidate create operation"}
 
-      %{rows: []} ->
-        {:error, :operation_id, "operation_id must reference an operation in the target scope"}
+      {:error, _error} ->
+        {:error, :operation_id, "operation_id could not be validated"}
     end
   end
 
   defp validate_actor_operation_context(nil, _principal_id, _session_id), do: :ok
 
   defp validate_actor_operation_context(actor, principal_id, session_id) do
-    if Map.get(actor, :principal_id) == normalize_uuid(principal_id) and
-         Map.get(actor, :session_id) == normalize_uuid(session_id) do
+    if Map.get(actor, :principal_id) == principal_id and
+         Map.get(actor, :session_id) == session_id do
       :ok
     else
       {:error, :operation_id,
@@ -109,27 +118,22 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
          organization_id,
          workspace_id
        ) do
-    if row_exists?(
-         """
-         SELECT 1
-         FROM run_required_checks
-         WHERE run_id = $1::uuid
-           AND verification_check_id = $2::uuid
-           AND organization_id = $3::uuid
-           AND workspace_id = $4::uuid
-         LIMIT 1
-         """,
-         [
-           db_uuid(work_run_id),
-           db_uuid(verification_check_id),
-           db_uuid(organization_id),
-           db_uuid(workspace_id)
-         ]
-       ) do
-      :ok
-    else
-      {:error, :verification_check_id,
-       "verification_check_id must reference a required check for the run"}
+    RunRequiredCheck
+    |> Ash.Query.filter(
+      run_id == ^work_run_id and verification_check_id == ^verification_check_id and
+        organization_id == ^organization_id and workspace_id == ^workspace_id
+    )
+    |> Ash.exists(authorize?: false)
+    |> case do
+      {:ok, true} ->
+        :ok
+
+      {:ok, false} ->
+        {:error, :verification_check_id,
+         "verification_check_id must reference a required check for the run"}
+
+      {:error, _error} ->
+        {:error, :verification_check_id, "verification_check_id could not be validated"}
     end
   end
 
@@ -154,61 +158,60 @@ defmodule OfficeGraph.WorkGraph.Changes.ValidateEvidenceCandidateReferences do
          observation_id,
          work_run_id,
          verification_check_id,
-         org_id,
-         ws_id
+         organization_id,
+         workspace_id
        ) do
-    if row_exists?(
-         """
-         SELECT 1
-         FROM execution_observations AS observation
-         JOIN verification_checks AS verification_check
-           ON verification_check.id = $3::uuid
-          AND verification_check.organization_id = $4::uuid
-          AND verification_check.workspace_id = $5::uuid
-         WHERE observation.id = $1::uuid
-           AND observation.work_run_id = $2::uuid
-           AND observation.organization_id = $4::uuid
-           AND observation.workspace_id = $5::uuid
-           AND (
-             observation.verification_check_id = verification_check.id
-             OR (
-               observation.verification_check_id IS NULL
-               AND observation.graph_item_id = verification_check.graph_item_id
-             )
-           )
-         LIMIT 1
-         """,
-         [
-           db_uuid(observation_id),
-           db_uuid(work_run_id),
-           db_uuid(verification_check_id),
-           db_uuid(org_id),
-           db_uuid(ws_id)
-         ]
-       ) do
+    with {:ok, %VerificationCheck{} = verification_check} <-
+           scoped_verification_check(
+             verification_check_id,
+             organization_id,
+             workspace_id
+           ),
+         {:ok, true} <-
+           matching_observation?(
+             observation_id,
+             work_run_id,
+             verification_check,
+             organization_id,
+             workspace_id
+           ) do
       :ok
     else
-      {:error, :execution_observation_id,
-       "execution_observation_id must belong to the candidate run and verification check"}
+      {:ok, _missing_or_mismatched} ->
+        {:error, :execution_observation_id,
+         "execution_observation_id must belong to the candidate run and verification check"}
+
+      {:error, _error} ->
+        {:error, :execution_observation_id, "execution_observation_id could not be validated"}
     end
   end
 
-  defp row_exists?(sql, params) do
-    %{num_rows: count} = Repo.query!(sql, params)
-    count > 0
+  defp scoped_verification_check(verification_check_id, organization_id, workspace_id) do
+    VerificationCheck
+    |> Ash.Query.filter(
+      id == ^verification_check_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp db_uuid(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, uuid} -> uuid
-      :error -> value
-    end
-  end
+  defp matching_observation?(
+         observation_id,
+         work_run_id,
+         verification_check,
+         organization_id,
+         workspace_id
+       ) do
+    verification_check_id = verification_check.id
+    graph_item_id = verification_check.graph_item_id
 
-  defp normalize_uuid(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> uuid
-      :error -> value
-    end
+    ExecutionObservation
+    |> Ash.Query.filter(
+      id == ^observation_id and work_run_id == ^work_run_id and
+        organization_id == ^organization_id and workspace_id == ^workspace_id and
+        (verification_check_id == ^verification_check_id or
+           (is_nil(verification_check_id) and graph_item_id == ^graph_item_id))
+    )
+    |> Ash.exists(authorize?: false)
   end
 end

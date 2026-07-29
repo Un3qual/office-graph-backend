@@ -22,7 +22,7 @@
 
 ## 4. Replace Work Graph Escapes
 
-- [ ] 4.1 Replace evidence-reference SQL validation with Ash relationships, scoped reads, and typed validation errors inside the owning action
+- [x] 4.1 Replace evidence-reference SQL validation with Ash relationships, scoped reads, and typed validation errors inside the owning action
 - [ ] 4.2 Replace generic command transaction helpers with action-owned transactions and remove the reusable direct-Ecto escape hatch
 - [ ] 4.3 Replace relationship-cycle advisory lock and recursive SQL with Ash query locking and typed graph traversal while preserving endpoint authorization
 - [ ] 4.4 Add concurrent relationship creation and evidence validation tests proving cycle, scope, operation, and loser-conflict behavior
