@@ -10,6 +10,8 @@ defmodule OfficeGraph.Authorization.Capability do
     table "capabilities"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names key: "capabilities_key_index"
   end
 
   attributes do
@@ -39,6 +41,15 @@ defmodule OfficeGraph.Authorization.Capability do
 
     create :create do
       accept [:id, :key, :description]
+    end
+
+    create :ensure do
+      public? false
+      accept [:key, :description]
+      upsert? true
+      upsert_identity :key
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

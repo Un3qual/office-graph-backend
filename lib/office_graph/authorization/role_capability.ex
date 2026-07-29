@@ -10,6 +10,8 @@ defmodule OfficeGraph.Authorization.RoleCapability do
     table "role_capabilities"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_role_capability: "role_capabilities_role_id_capability_id_index"
   end
 
   attributes do
@@ -48,6 +50,15 @@ defmodule OfficeGraph.Authorization.RoleCapability do
 
     create :create do
       accept [:id, :role_id, :capability_id]
+    end
+
+    create :ensure do
+      public? false
+      accept [:role_id, :capability_id]
+      upsert? true
+      upsert_identity :unique_role_capability
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

@@ -2,6 +2,9 @@ defmodule OfficeGraph.Authorization.SystemRoleTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Authorization, Foundation, Identity, Repo}
+  alias OfficeGraph.Authorization.RoleAssignment
+
+  require Ash.Query
 
   test "system capabilities stay attached to the exact assignment scope" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -28,6 +31,25 @@ defmodule OfficeGraph.Authorization.SystemRoleTest do
                },
                [:integration_reconcile]
              )
+
+    assert :ok =
+             Authorization.ensure_system_role(
+               principal,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id
+               },
+               [:integration_reconcile]
+             )
+
+    assert 1 ==
+             RoleAssignment
+             |> Ash.Query.filter(
+               principal_id == ^principal.id and
+                 organization_id == ^bootstrap.organization.id and
+                 workspace_id == ^bootstrap.workspace.id
+             )
+             |> Ash.count!(authorize?: false)
 
     assert :ok =
              Authorization.authorize_system_principal(

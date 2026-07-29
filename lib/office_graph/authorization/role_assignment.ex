@@ -10,6 +10,12 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
     table "role_assignments"
     repo OfficeGraph.Repo
     migrate? false
+
+    unique_index_names [
+      {[:principal_id, :role_id, :organization_id], "role_assignments_org_wide_unique_index"},
+      {[:principal_id, :role_id, :organization_id, :workspace_id],
+       "role_assignments_workspace_unique_index"}
+    ]
   end
 
   attributes do
@@ -58,6 +64,15 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
 
     create :create do
       accept [:id, :principal_id, :role_id, :organization_id, :workspace_id]
+    end
+
+    create :ensure do
+      public? false
+      accept [:principal_id, :role_id, :organization_id, :workspace_id]
+      upsert? true
+      upsert_identity :unique_assignment
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

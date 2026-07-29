@@ -3,7 +3,7 @@ defmodule OfficeGraph.Authorization do
   Public boundary for authorization decisions and capability checks.
   """
 
-  use Boundary, deps: [OfficeGraph.Identity, OfficeGraph.Repo], exports: []
+  use Boundary, deps: [OfficeGraph.Identity], exports: []
 
   alias OfficeGraph.Authorization.{
     AuthorizationDecision,
@@ -15,9 +15,17 @@ defmodule OfficeGraph.Authorization do
   }
 
   alias OfficeGraph.Identity
-  alias OfficeGraph.Repo
 
   require Ash.Query
+
+  @identity_constraints ~w[
+    capabilities_key_index
+    roles_organization_id_key_index
+    role_capabilities_role_id_capability_id_index
+    role_assignments_org_wide_unique_index
+    role_assignments_workspace_unique_index
+    policy_bundles_organization_id_version_index
+  ]
 
   @owner_capabilities %{
     skeleton_read: "skeleton.read",
@@ -73,72 +81,18 @@ defmodule OfficeGraph.Authorization do
                        )
 
   def ensure_owner_role(principal, tenant) do
-    Repo.transaction(fn ->
-      capabilities_by_key =
-        @recognized_capabilities
-        |> Map.values()
-        |> Map.new(fn key -> {key, ensure_capability!(key)} end)
+    input = %{
+      principal_id: principal.id,
+      organization_id: tenant.organization.id,
+      workspace_id: tenant.workspace.id,
+      recognized_capability_keys: @recognized_capabilities |> Map.values() |> Enum.sort(),
+      owner_capability_keys: @owner_capabilities |> Map.values() |> Enum.sort()
+    }
 
-      capabilities =
-        @owner_capabilities
-        |> Enum.map(fn {_action, key} -> Map.fetch!(capabilities_by_key, key) end)
-
-      role =
-        get_or_create!(
-          Role,
-          [organization_id: tenant.organization.id, key: "owner"],
-          %{
-            organization_id: tenant.organization.id,
-            key: "owner",
-            name: "Owner"
-          }
-        )
-
-      Enum.each(capabilities, fn capability ->
-        get_or_create!(
-          RoleCapability,
-          [role_id: role.id, capability_id: capability.id],
-          %{
-            role_id: role.id,
-            capability_id: capability.id
-          }
-        )
-      end)
-
-      role_assignment =
-        get_or_create!(
-          RoleAssignment,
-          [
-            principal_id: principal.id,
-            role_id: role.id,
-            organization_id: tenant.organization.id,
-            workspace_id: tenant.workspace.id
-          ],
-          %{
-            principal_id: principal.id,
-            role_id: role.id,
-            organization_id: tenant.organization.id,
-            workspace_id: tenant.workspace.id
-          }
-        )
-
-      policy_bundle =
-        get_or_create!(
-          PolicyBundle,
-          [organization_id: tenant.organization.id, version: 1],
-          %{
-            organization_id: tenant.organization.id,
-            version: 1,
-            status: "active"
-          }
-        )
-
-      %{
-        role_assignment: role_assignment,
-        policy_bundle: policy_bundle,
-        capabilities: Enum.map(capabilities, & &1.key)
-      }
-    end)
+    case run_role_action_with_identity_retry(:ensure_owner_role, input) do
+      {:ok, role_setup} -> {:ok, role_setup}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
   end
 
   def authorize(session_context, action, opts \\ [])
@@ -283,52 +237,18 @@ defmodule OfficeGraph.Authorization do
   def ensure_system_role(_principal, _scope, _actions), do: {:error, :forbidden}
 
   defp persist_system_role(principal_id, organization_id, workspace_id, capability_keys) do
-    Repo.transaction(fn ->
-      role_key = system_role_key(principal_id, workspace_id)
+    input = %{
+      principal_id: principal_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      role_key: system_role_key(principal_id, workspace_id),
+      role_name: system_role_name(principal_id, workspace_id),
+      capability_keys: Enum.sort(capability_keys)
+    }
 
-      role =
-        get_or_create!(
-          Role,
-          [organization_id: organization_id, key: role_key],
-          %{
-            organization_id: organization_id,
-            key: role_key,
-            name: system_role_name(principal_id, workspace_id)
-          }
-        )
-
-      Enum.each(capability_keys, fn capability_key ->
-        capability = ensure_capability!(capability_key)
-
-        get_or_create!(
-          RoleCapability,
-          [role_id: role.id, capability_id: capability.id],
-          %{role_id: role.id, capability_id: capability.id}
-        )
-      end)
-
-      get_or_create!(
-        RoleAssignment,
-        [
-          principal_id: principal_id,
-          role_id: role.id,
-          organization_id: organization_id,
-          workspace_id: workspace_id
-        ],
-        %{
-          principal_id: principal_id,
-          role_id: role.id,
-          organization_id: organization_id,
-          workspace_id: workspace_id
-        }
-      )
-
-      :ok
-    end)
-    |> case do
-      {:ok, :ok} -> :ok
-      {:error, :integration_storage_unavailable} -> {:error, :integration_storage_unavailable}
-      {:error, _reason} -> {:error, :forbidden}
+    case run_role_action_with_identity_retry(:ensure_system_role, input) do
+      :ok -> :ok
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -630,14 +550,6 @@ defmodule OfficeGraph.Authorization do
   defp select_login_scope(_scopes, _preferred_scope),
     do: {:error, :scope_selection_required}
 
-  defp ensure_capability!(key) do
-    get_or_create!(
-      Capability,
-      [key: key],
-      %{key: key, description: key}
-    )
-  end
-
   defp system_capability_keys(actions) do
     actions
     |> Enum.reduce_while({:ok, []}, fn action, {:ok, keys} ->
@@ -648,37 +560,34 @@ defmodule OfficeGraph.Authorization do
     end)
   end
 
-  defp get_or_create!(resource, lookup, attrs) do
-    case Repo.get_or_insert(resource, lookup, attrs, &insert_contract!/2) do
-      {:ok, record} -> record
-      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+  defp run_role_action_with_identity_retry(action, input) do
+    case run_role_action(action, input) do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if authorization_identity_conflict?(error) do
+          run_role_action(action, input)
+        else
+          {:error, error}
+        end
+
+      result ->
+        result
     end
   end
 
-  defp insert_contract!(Capability, _attrs), do: {"capabilities", [:key], [:id]}
-
-  defp insert_contract!(Role, _attrs) do
-    {"roles", [:organization_id, :key], [:id, :organization_id]}
+  defp run_role_action(action, input) do
+    Role
+    |> Ash.ActionInput.for_action(action, input)
+    |> Ash.run_action(authorize?: false)
   end
 
-  defp insert_contract!(RoleCapability, _attrs) do
-    {"role_capabilities", [:role_id, :capability_id], [:id, :role_id, :capability_id]}
-  end
+  defp authorization_identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) in @identity_constraints
 
-  defp insert_contract!(RoleAssignment, %{workspace_id: nil}) do
-    {"role_assignments",
-     {:unsafe_fragment, "(principal_id, role_id, organization_id) WHERE workspace_id IS NULL"},
-     [:id, :principal_id, :role_id, :organization_id]}
-  end
-
-  defp insert_contract!(RoleAssignment, _attrs) do
-    {"role_assignments",
-     {:unsafe_fragment,
-      "(principal_id, role_id, organization_id, workspace_id) WHERE workspace_id IS NOT NULL"},
-     [:id, :principal_id, :role_id, :organization_id, :workspace_id]}
-  end
-
-  defp insert_contract!(PolicyBundle, _attrs) do
-    {"policy_bundles", [:organization_id, :version], [:id, :organization_id]}
+      _other ->
+        false
+    end)
   end
 end
