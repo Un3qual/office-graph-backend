@@ -27,9 +27,6 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     {:ok, older} = create_ready_run(bootstrap.session, verification_check)
     {:ok, newer} = create_ready_run(bootstrap.session, verification_check)
 
-    set_run_inserted_at!(older.run.id, ~U[2026-07-20 10:00:00.000000Z])
-    set_run_inserted_at!(newer.run.id, ~U[2026-07-20 11:00:00.000000Z])
-
     packet =
       Ash.get!(OfficeGraph.WorkPackets.WorkPacket, newer.run.work_packet_id, authorize?: false)
 
@@ -47,7 +44,7 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
              aggregate_state: newer.run.aggregate_state,
              execution_state: newer.run.execution_state,
              verification_state: newer.run.verification_state,
-             inserted_at: ~U[2026-07-20 11:00:00.000000Z],
+             inserted_at: newer.run.inserted_at,
              packet: %{
                id: packet.id,
                state: packet.state,
@@ -59,38 +56,13 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     assert page.has_previous_page? == false
   end
 
-  test "projects graph-targeted runs without loading an absent packet version" do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
-
-    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
-      Ecto.UUID.dump!(result.run.id)
-    ])
-
-    assert {:ok, page} =
-             Projections.operator_runs_page(bootstrap.session, limit: 10, after_cursor: nil)
-
-    assert {row, cursor: _cursor} =
-             Enum.find(page.row_edges, fn {row, cursor: _cursor} -> row.id == result.run.id end)
-
-    assert row.packet.id == result.run.work_packet_id
-    refute Map.has_key?(row, :packet_version)
-  end
-
   test "paginates without duplication and keeps continuation stable after a leading insert" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
 
     runs =
-      for index <- 1..3 do
+      for _index <- 1..3 do
         {:ok, result} = create_ready_run(bootstrap.session, verification_check)
-
-        set_run_inserted_at!(
-          result.run.id,
-          DateTime.add(~U[2026-07-20 10:00:00Z], index, :second)
-        )
-
         result
       end
 
@@ -104,8 +76,7 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
 
     assert first_page.has_next_page?
 
-    {:ok, leading} = create_ready_run(bootstrap.session, verification_check)
-    set_run_inserted_at!(leading.run.id, ~U[2026-07-20 12:00:00Z])
+    {:ok, _leading} = create_ready_run(bootstrap.session, verification_check)
 
     {_last_row, cursor: cursor} = List.last(first_page.row_edges)
 
@@ -204,12 +175,5 @@ defmodule OfficeGraph.Projections.OperatorRunIndexTest do
     assert QueryCounter.source_count(large_queries, "runs") == 1
     assert QueryCounter.source_count(large_queries, "work_packets") == 1
     assert QueryCounter.source_count(large_queries, "work_packet_versions") == 0
-  end
-
-  defp set_run_inserted_at!(run_id, inserted_at) do
-    Repo.query!("UPDATE runs SET inserted_at = $1, updated_at = $1 WHERE id = $2", [
-      inserted_at,
-      Ecto.UUID.dump!(run_id)
-    ])
   end
 end

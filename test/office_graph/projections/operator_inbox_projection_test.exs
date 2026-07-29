@@ -415,10 +415,7 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     runs =
       Enum.reduce(2..21, [first_run.run], fn index, [current | _] = runs ->
-        OfficeGraph.Repo.query!(
-          "UPDATE runs SET state = 'failed', aggregate_state = 'failed', execution_state = 'failed', verification_state = 'failed' WHERE id = $1",
-          [Ecto.UUID.dump!(current.id)]
-        )
+        mark_run_failed!(current)
 
         {:ok, next_run} =
           start_run_for_packet_version(
@@ -451,24 +448,18 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
     {:ok, relationship_operation} =
       Operations.start_operation(bootstrap.session, :graph_relationship_create)
 
-    Repo.query!(
-      """
-      INSERT INTO graph_relationships
-        (id, definition_id, organization_id, workspace_id, source_item_id, target_item_id,
-         lifecycle, asserting_principal_id, operation_id, valid_from, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, now(), now(), now())
-      """,
-      [
-        Ecto.UUID.dump!(cross_tenant_relationship_id),
-        Ecto.UUID.dump!(relationship_definition.id),
-        Ecto.UUID.dump!(bootstrap.organization.id),
-        Ecto.UUID.dump!(bootstrap.workspace.id),
-        Ecto.UUID.dump!(applied.signal.graph_item_id),
-        Ecto.UUID.dump!(other_check.graph_item_id),
-        Ecto.UUID.dump!(bootstrap.principal.id),
-        Ecto.UUID.dump!(relationship_operation.id)
-      ]
-    )
+    Ash.Seed.seed!(OfficeGraph.WorkGraph.GraphRelationship, %{
+      id: cross_tenant_relationship_id,
+      definition_id: relationship_definition.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      source_item_id: applied.signal.graph_item_id,
+      target_item_id: other_check.graph_item_id,
+      lifecycle: "active",
+      asserting_principal_id: bootstrap.principal.id,
+      operation_id: relationship_operation.id,
+      valid_from: DateTime.utc_now()
+    })
 
     assert {:ok, detail} =
              Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
@@ -587,10 +578,9 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     Enum.each(version_runs, fn {_version, run} -> mark_run_failed!(run) end)
 
-    Repo.query!(
-      "UPDATE runs SET inserted_at = now() - interval '2 hours' WHERE id = $1",
-      [Ecto.UUID.dump!(uuid_first_run.id)]
-    )
+    Ash.Seed.update!(uuid_first_run, %{
+      inserted_at: DateTime.add(DateTime.utc_now(), -2, :hour)
+    })
 
     restore_running_run!(recent_run)
 

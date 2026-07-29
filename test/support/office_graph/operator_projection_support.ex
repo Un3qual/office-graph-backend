@@ -8,7 +8,6 @@ defmodule OfficeGraph.TestSupport.OperatorProjectionSupport do
   alias OfficeGraph.Operations
   alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.Projections
-  alias OfficeGraph.Repo
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.Runs
   alias OfficeGraph.SessionCaseHelpers
@@ -28,7 +27,6 @@ defmodule OfficeGraph.TestSupport.OperatorProjectionSupport do
       alias OfficeGraph.OperatorCommandFixtures
       alias OfficeGraph.Projections
       alias OfficeGraph.QueryCounter
-      alias OfficeGraph.Repo
       alias OfficeGraph.ProposedChanges
       alias OfficeGraph.Runs
       alias OfficeGraph.SessionCaseHelpers
@@ -200,23 +198,27 @@ defmodule OfficeGraph.TestSupport.OperatorProjectionSupport do
   end
 
   def mark_run_failed!(run) do
-    Repo.query!(
-      "UPDATE runs SET state = 'failed', aggregate_state = 'failed', execution_state = 'failed', verification_state = 'failed', inserted_at = now() - interval '1 day' WHERE id = $1",
-      [Ecto.UUID.dump!(run.id)]
-    )
+    persisted_run = Ash.get!(OfficeGraph.Runs.Run, run.id, authorize?: false)
+
+    Ash.Seed.update!(persisted_run, %{
+      state: "failed",
+      aggregate_state: "failed",
+      execution_state: "failed",
+      verification_state: "failed",
+      inserted_at: DateTime.add(DateTime.utc_now(), -1, :day)
+    })
   end
 
   def restore_running_run!(run) do
-    Repo.query!(
-      "UPDATE runs SET state = $1, aggregate_state = $2, execution_state = $3, verification_state = $4, inserted_at = now() WHERE id = $5",
-      [
-        run.state,
-        run.aggregate_state,
-        run.execution_state,
-        run.verification_state,
-        Ecto.UUID.dump!(run.id)
-      ]
-    )
+    persisted_run = Ash.get!(OfficeGraph.Runs.Run, run.id, authorize?: false)
+
+    Ash.Seed.update!(persisted_run, %{
+      state: run.state,
+      aggregate_state: run.aggregate_state,
+      execution_state: run.execution_state,
+      verification_state: run.verification_state,
+      inserted_at: DateTime.add(DateTime.utc_now(), 1, :hour)
+    })
   end
 
   def assert_terminal_linked_run_status(expected_status) do

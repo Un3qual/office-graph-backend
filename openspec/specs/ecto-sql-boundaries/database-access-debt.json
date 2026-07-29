@@ -1823,97 +1823,6 @@
     {
       "occurrences": [
         [
-          "sha256:15e72eceecb1049f4dd09d05ee6c0804197e0c3c2f6cf59dd3484755fe4e965e",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:d3f2e5d8625702fe22c2dcda4437b4b1c9c90598be7ba9114325533317f3856e",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ],
-        [
-          "sha256:683fabf08143e357df44e697906772218b7855ba1dee466465da9712fec39d9e",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          3
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "test/office_graph/projections/operator_inbox_projection_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:ca265b3fd73b0ef3ad23f46b84b8f06713e5ef049199d61a753fb8d8e9100171",
-          "direct_ecto",
-          "Repo.delete_all",
-          null,
-          1
-        ],
-        [
-          "sha256:252cfa626080fee93c40e8aef8ac2b7a50ea273ffe16b00945f49bccab21b352",
-          "direct_ecto",
-          "Repo.update_all",
-          null,
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "test/office_graph/projections/operator_packet_projection_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:ff94b19c4a3b600f7084a4cc19e2f89d2321e7396b5d885ca42f357f7936a885",
-          "direct_ecto",
-          "Repo.transaction",
-          null,
-          1
-        ],
-        [
-          "sha256:6efd84064bc0322df7238a8858f4adefc93b9c2ff536525f94d69c78d32837e3",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "test/office_graph/projections/operator_run_agent_activity_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:abc03327caf80c41298ba95b55efb4062257d7857254221866ac96db0a9f9f2b",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:95266dea92536a6216b5d58af95f6d75ae928fd6eef6149dbb1712adc2adce4d",
-          "raw_sql",
-          "Repo.query!",
-          "set_run_inserted_at!/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "test/office_graph/projections/operator_run_index_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:95d02db6e858559d930c73866cff8784136db17cad076cc9134fa150566963ae",
           "raw_sql",
           "Repo.query!",
@@ -3680,27 +3589,6 @@
       ],
       "owner": "OfficeGraph.TestSupport",
       "path": "test/support/office_graph/concurrency_support.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:28af25fbc43670f8ab80229a70247dd48d242f1432f457120712b8cc0424b8c7",
-          "raw_sql",
-          "Repo.query!",
-          "mark_run_failed!/1",
-          1
-        ],
-        [
-          "sha256:7709b50c1ae835934643cdf546e90e4a2ba4c9f1c890f5ab0f311dc62835c6c3",
-          "raw_sql",
-          "Repo.query!",
-          "restore_running_run!/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.TestSupport",
-      "path": "test/support/office_graph/operator_projection_support.ex",
       "remediation_change": "remove-direct-database-access"
     },
     {

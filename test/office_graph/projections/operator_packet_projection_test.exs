@@ -351,18 +351,17 @@ defmodule OfficeGraph.Projections.OperatorPacketProjectionTest do
         }
       )
 
-    Repo.delete_all(
-      from(check in OfficeGraph.WorkGraph.VerificationCheck,
-        where: check.id == ^unrelated_check.id
-      )
-    )
+    placeholder_item =
+      Ash.Seed.seed!(OfficeGraph.WorkGraph.GraphItem, %{
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        resource_type: "verification_check",
+        resource_id: Ecto.UUID.generate(),
+        title: "Mismatch fixture placeholder"
+      })
 
-    Repo.update_all(
-      from(check in OfficeGraph.WorkGraph.VerificationCheck,
-        where: check.id == ^verification_check.id
-      ),
-      set: [graph_item_id: unrelated_check.graph_item_id]
-    )
+    Ash.Seed.update!(unrelated_check, %{graph_item_id: placeholder_item.id})
+    Ash.Seed.update!(verification_check, %{graph_item_id: unrelated_check.graph_item_id})
 
     assert {:ok, workspace} =
              Projections.packet_workspace(bootstrap.session, packet_result.packet.id)

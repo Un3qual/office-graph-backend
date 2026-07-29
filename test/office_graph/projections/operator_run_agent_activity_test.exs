@@ -1,8 +1,8 @@
 defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Operations, Projections, Repo}
-  alias OfficeGraph.AgentRuntime.{ModelOutput, OutputRouter}
+  alias OfficeGraph.{Operations, Projections}
+  alias OfficeGraph.AgentRuntime.{AgentExecution, ModelOutput, OutputRouter}
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   test "run activity includes bounded agent execution and conversation summaries" do
@@ -17,19 +17,17 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
     {:ok, step_operation} = Operations.read_operation(job.args["operation_id"])
 
     assert {:ok, message} =
-             Repo.transaction(fn ->
-               OutputRouter.route!(
-                 step_operation,
-                 invoked.execution,
-                 invoked.context_package,
-                 "model:review",
-                 %ModelOutput{
-                   classification: :message,
-                   safe_summary: "Safe activity summary",
-                   structured_content: %{"message" => %{"body" => "Safe activity summary"}}
-                 }
-               )
-             end)
+             OutputRouter.route(
+               step_operation,
+               invoked.execution,
+               invoked.context_package,
+               "model:review",
+               %ModelOutput{
+                 classification: :message,
+                 safe_summary: "Safe activity summary",
+                 structured_content: %{"message" => %{"body" => "Safe activity summary"}}
+               }
+             )
 
     assert {:ok, page} =
              Projections.operator_run_activity_page(context.session, context.run.id,
@@ -78,10 +76,11 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
         edge.node.kind == "agent_execution" and edge.node.stable_id == invoked.execution.id
       end)
 
-    Repo.query!(
-      "UPDATE agent_executions SET updated_at = now() + interval '1 hour' WHERE id = $1",
-      [Ecto.UUID.dump!(invoked.execution.id)]
-    )
+    invoked.execution
+    |> Ash.Changeset.for_update(:transition, %{state: "running"})
+    |> Ash.update!(authorize?: false)
+
+    assert Ash.get!(AgentExecution, invoked.execution.id, authorize?: false).state == "running"
 
     assert {:ok, next_page} =
              Projections.operator_run_activity_page(context.session, context.run.id,
