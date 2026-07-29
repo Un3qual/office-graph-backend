@@ -165,6 +165,39 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       public? false
     end
 
+    action :persist_outbound_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.GitHubIntegration.Installation,
+        OfficeGraph.GitHubIntegration.PermissionEntry,
+        OfficeGraph.GitHubIntegration.SyncOutcome,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.SoftwareProving.CheckRun,
+        OfficeGraph.SoftwareProving.GitHub.CheckRunExtension,
+        OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension,
+        OfficeGraph.SoftwareProving.ReviewComment
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :installation_id, :uuid, allow_nil?: false
+      argument :action_kind, :string, allow_nil?: false
+      argument :review_comment_id, :uuid
+      argument :check_run_id, :uuid
+      argument :body, :string, constraints: [trim?: false]
+      argument :status, :string
+      argument :conclusion, :string
+      argument :details_url, :string
+      argument :expected_provider_version, :string, allow_nil?: false
+
+      validate argument_in(:action_kind, ~w(review_reply check_update))
+      run {OfficeGraph.GitHubIntegration.OutboundCommands, mode: :persist}
+    end
+
     action :reply_to_github_review,
            OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
       argument :idempotency_key, :string,
