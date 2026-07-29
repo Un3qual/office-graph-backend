@@ -137,6 +137,11 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       validate one_of(:state, @states)
     end
 
+    update :set_expiry do
+      public? false
+      accept [:expires_at]
+    end
+
     action :persist_resolution_contract,
            OfficeGraph.AgentRuntime.ContextExpansionResolutionResult do
       public? false

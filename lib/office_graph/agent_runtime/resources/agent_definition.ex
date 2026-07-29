@@ -83,6 +83,11 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
       public? false
       accept [:model_credential_id]
     end
+
+    update :set_requested_capabilities do
+      public? false
+      accept [:requested_capabilities]
+    end
   end
 
   identities do

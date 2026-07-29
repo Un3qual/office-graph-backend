@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Audit, Operations, Repo, Revisions}
+  alias OfficeGraph.{AgentRuntime, Audit, Operations, Revisions}
 
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
@@ -15,6 +15,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
   }
 
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
+  alias OfficeGraph.Authorization.{Capability, RoleAssignment, RoleCapability}
 
   import OfficeGraph.TestSupport.AgentRuntimeSupport,
     only: [approval_resume_jobs: 1, execution_jobs: 1]
@@ -92,7 +93,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
              )
 
     assert replayed.context_package.id == resolved.context_package.id
-    assert Repo.aggregate(ContextPackage, :count) == 2
+    assert Ash.count!(ContextPackage, authorize?: false) == 2
     assert [_same_job] = expansion_resume_jobs(request.id)
     assert Audit.count_for_operation(operation.id) == 1
     assert Revisions.count_for_operation(operation.id) == 1
@@ -153,16 +154,13 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     second = approve_expansion(fixture, second_request, "Approve the second bounded reference.")
     [second_resume] = expansion_resume_jobs(second_request.id)
 
-    Repo.query!(
-      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(first_request.id)]
-    )
+    expire_request!(first_request)
 
     assert {:cancel, "agent_authority_revoked"} =
              ExecutionWorker.perform(%{second_resume | attempt: 1, max_attempts: 3})
 
     assert second.context_package.previous_package_id == first.context_package.id
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert Ash.count!(ModelRequest, authorize?: false) == 0
 
     failed = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
     assert failed.state == "failed"
@@ -210,10 +208,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Ash.Query.filter(execution_id == ^fixture.execution.id and state == "pending")
       |> Ash.read_one!(authorize?: false)
 
-    Repo.query!(
-      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(fixture.request.id)]
-    )
+    expire_request!(fixture.request)
 
     approval_attrs = %{
       approval_request_id: approval.id,
@@ -247,7 +242,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     assert approval.context_expansion_request_id == fixture.request.id
     assert approval_resume.args["context_expansion_request_id"] == fixture.request.id
     assert expansion.context_package.expansion_request_id == fixture.request.id
-    assert Repo.aggregate(ModelRequest, :count) == 0
+    assert Ash.count!(ModelRequest, authorize?: false) == 0
 
     failed = Ash.get!(AgentExecution, fixture.execution.id, authorize?: false)
     assert failed.state == "failed"
@@ -277,10 +272,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     fixture = waiting_context_fixture()
     assert [expiry_job] = gate_expiry_jobs(fixture.request.id)
 
-    Repo.query!(
-      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(fixture.request.id)]
-    )
+    expire_request!(fixture.request)
 
     assert :ok = GateExpiryWorker.perform(%{expiry_job | attempt: 1, max_attempts: 3})
 
@@ -325,10 +317,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
 
     expired = waiting_context_fixture()
 
-    Repo.query!(
-      "UPDATE agent_context_expansion_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(expired.request.id)]
-    )
+    expire_request!(expired.request)
 
     expired_attrs = %{
       context_expansion_request_id: expired.request.id,
@@ -374,10 +363,11 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Enum.sort_by(& &1.ordinal)
       |> Enum.take(expansion_count)
 
-    Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = ANY($1::uuid[])",
-      [Enum.map(targets, &Ecto.UUID.dump!(&1.id))]
-    )
+    Enum.each(targets, fn target ->
+      target
+      |> Ash.Changeset.for_update(:set_posture, %{posture: "expansion_required"})
+      |> Ash.update!(authorize?: false)
+    end)
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
@@ -405,31 +395,31 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Enum.uniq()
       |> Enum.sort()
 
-    Repo.query!(
-      """
-      UPDATE agent_definitions
-      SET requested_capabilities = $1, updated_at = now()
-      WHERE id = $2
-      """,
-      [requested_capabilities, Ecto.UUID.dump!(context.definition.id)]
-    )
+    context.definition
+    |> Ash.Changeset.for_update(:set_requested_capabilities, %{
+      requested_capabilities: requested_capabilities
+    })
+    |> Ash.update!(authorize?: false)
 
-    Repo.query!(
-      """
-      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
-      FROM role_assignments AS assignments
-      JOIN capabilities ON capabilities.key = 'agent.tool.read'
-      WHERE assignments.principal_id = $1
-        AND assignments.organization_id = $2
-        AND assignments.workspace_id = $3
-      ON CONFLICT (role_id, capability_id) DO NOTHING
-      """,
-      [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
-      ]
+    capability =
+      Capability
+      |> Ash.Query.filter(key == "agent.tool.read")
+      |> Ash.read_one!(authorize?: false)
+
+    assignment =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id == ^context.agent_principal.id and
+          organization_id == ^context.bootstrap.organization.id and
+          workspace_id == ^context.bootstrap.workspace.id
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.create!(
+      RoleCapability,
+      %{role_id: assignment.role_id, capability_id: capability.id},
+      action: :ensure,
+      authorize?: false
     )
 
     requested_capabilities -- ["agent.invoke"]
@@ -464,16 +454,22 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
   end
 
   defp expansion_resume_jobs(request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'context_expansion_request_id'", job.args) == ^request_id
+    Oban.Testing.all_enqueued(
+      repo: OfficeGraph.Repo,
+      worker: ExecutionWorker,
+      args: %{context_expansion_request_id: request_id}
     )
-    |> Repo.all()
   end
 
   defp gate_expiry_jobs(request_id) do
     AgentRuntimeSupport.gate_expiry_jobs("context_expansion", request_id)
+  end
+
+  defp expire_request!(request) do
+    request
+    |> Ash.Changeset.for_update(:set_expiry, %{
+      expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+    })
+    |> Ash.update!(authorize?: false)
   end
 end

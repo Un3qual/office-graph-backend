@@ -60,6 +60,12 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
 
       validate one_of(:posture, ~w(included redacted omitted restricted expansion_required))
     end
+
+    update :set_posture do
+      public? false
+      accept [:posture]
+      validate one_of(:posture, ~w(included redacted omitted restricted expansion_required))
+    end
   end
 
   identities do
