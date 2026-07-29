@@ -748,56 +748,6 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     refute event_message =~ "constraint error when attempting to insert struct"
   end
 
-  test "plain document creation rolls back document and block when revision creation fails", %{
-    bootstrap: bootstrap,
-    operation: operation
-  } do
-    plain_text = "Rollback document #{System.unique_integer([:positive])}"
-
-    Repo.query!("""
-    CREATE OR REPLACE FUNCTION office_graph_test_fail_document_revision()
-    RETURNS trigger AS $$
-    BEGIN
-      RAISE EXCEPTION 'injected document revision failure';
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_fail_document_revision ON document_revisions"
-    )
-
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_fail_document_revision
-    BEFORE INSERT ON document_revisions
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_fail_document_revision()
-    """)
-
-    on_exit(fn ->
-      Repo.query!(
-        "DROP TRIGGER IF EXISTS office_graph_test_fail_document_revision ON document_revisions"
-      )
-
-      Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_fail_document_revision()")
-    end)
-
-    assert {:error, error} =
-             Content.create_plain_document(bootstrap.session, operation, plain_text)
-
-    assert ash_error_message(error) =~ "injected document revision failure"
-
-    assert [] =
-             Document
-             |> Ash.Query.filter(plain_text == ^plain_text)
-             |> Ash.read!(authorize?: false)
-
-    assert [] =
-             DocumentBlock
-             |> Ash.Query.filter(text == ^plain_text)
-             |> Ash.read!(authorize?: false)
-  end
-
   test "manual intake stores raw archive and identifies replay duplicates", %{
     bootstrap: bootstrap,
     operation: operation

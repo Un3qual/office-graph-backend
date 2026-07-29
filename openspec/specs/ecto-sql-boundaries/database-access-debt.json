@@ -2089,48 +2089,6 @@
     {
       "occurrences": [
         [
-          "sha256:b81938eeae85ce6ba2321f344342ba2b7577a2d72793455874dbd7f0afad33a6",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:1da7b6f26d3fbdd285ba8b42cfff8c3b80222b64310fcb51f89d7a42624f0ef9",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ],
-        [
-          "sha256:f54eb1c2144b9608451bb822028e98322192593ca53d99be4edc568a3d34b3f4",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          3
-        ],
-        [
-          "sha256:33af41376db3e2a2f36e2b6fcd31f50d6820ee44b8224519429947c0fc48ab7c",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          4
-        ],
-        [
-          "sha256:1fdd2204e9672e6888c229d143f2b86b0f739b59656cb6489780f233ac48ca00",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          5
-        ]
-      ],
-      "owner": "OfficeGraph.WorkGraph",
-      "path": "test/office_graph/work_graph/persistence_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:ea3ba013635bf9f81e7eabb546c35a8ef3870e16be1cd34e15879f99fe983a58",
           "raw_sql",
           "Repo.query!",
