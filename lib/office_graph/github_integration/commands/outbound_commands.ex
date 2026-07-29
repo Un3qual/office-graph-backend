@@ -9,6 +9,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
     ActionSupport,
     Installation,
     OutboundAction,
+    OutboundPersistence,
     OutboundWorker,
     PermissionEntry,
     RecordLoader,
@@ -27,8 +28,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommands do
 
   @impl true
   def run(input, [mode: :persist], %{actor: session_context}) when is_map(session_context) do
-    case persist_records(session_context, input.arguments) do
-      {:ok, action} -> {:ok, action}
+    with :ok <- OutboundPersistence.before_write(:command_persistence),
+         {:ok, action} <- persist_records(session_context, input.arguments) do
+      {:ok, action}
+    else
       {:error, error} -> ActionSupport.rollback(OutboundAction, error)
     end
   end

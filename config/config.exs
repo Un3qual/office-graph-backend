@@ -70,6 +70,10 @@ config :office_graph,
        :integration_signal_persistence,
        OfficeGraph.WorkGraph.IntegrationSignalPersistence.Default
 
+config :office_graph,
+       :github_outbound_persistence,
+       OfficeGraph.GitHubIntegration.OutboundPersistence.Default
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

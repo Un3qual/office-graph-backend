@@ -18,6 +18,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     Installation,
     InstallationCredential,
     OutboundAction,
+    OutboundPersistence,
     RecordLoader,
     SecretStore,
     StorageResult
@@ -885,11 +886,13 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp update_installation_lifecycle(installation, lifecycle_state) do
-    installation
-    |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: lifecycle_state})
-    |> Ash.update!(authorize?: false)
+    with :ok <- OutboundPersistence.before_write(:installation_revocation) do
+      installation
+      |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: lifecycle_state})
+      |> Ash.update!(authorize?: false)
 
-    :ok
+      :ok
+    end
   end
 
   defp finish_terminal_job(%Oban.Job{} = job, failure_code, result) do
@@ -904,11 +907,13 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp stage_job_metadata(job, metadata) do
-    meta = Map.merge(job.meta || %{}, metadata)
+    with :ok <- OutboundPersistence.before_write(:job_metadata) do
+      meta = Map.merge(job.meta || %{}, metadata)
 
-    case Oban.update_job(job, %{meta: meta}) do
-      {:ok, _updated_job} -> :ok
-      {:error, error} -> {:error, error}
+      case Oban.update_job(job, %{meta: meta}) do
+        {:ok, _updated_job} -> :ok
+        {:error, error} -> {:error, error}
+      end
     end
   rescue
     error in [
@@ -923,12 +928,16 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp update_action(action, attrs) do
-    action
-    |> Ash.Changeset.for_update(:record_result, attrs)
-    |> Ash.update(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, updated, _notifications} -> {:ok, updated}
-      {:ok, updated} -> {:ok, updated}
+    with :ok <- OutboundPersistence.before_write(action_write_stage(attrs)) do
+      action
+      |> Ash.Changeset.for_update(:record_result, attrs)
+      |> Ash.update(authorize?: false, return_notifications?: true)
+      |> case do
+        {:ok, updated, _notifications} -> {:ok, updated}
+        {:ok, updated} -> {:ok, updated}
+        {:error, _error} -> {:error, :integration_storage_unavailable}
+      end
+    else
       {:error, _error} -> {:error, :integration_storage_unavailable}
     end
   rescue
@@ -970,7 +979,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp ensure_trace_action(attrs) do
     with {:ok, operation} <- Operations.lock_operation(attrs.operation_id),
          {:ok, action} <- locked_action(attrs),
-         :ok <- validate_trace_state(action, attrs.state) do
+         :ok <- validate_trace_state(action, attrs.state),
+         :ok <- OutboundPersistence.before_write(:trace) do
       event = "github.#{action.action_kind}.#{attrs.state}"
 
       _audit =
@@ -990,6 +1000,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp validate_trace_state(_action, _state), do: {:error, :forbidden}
 
   defp retry_completed_trace, do: {:snooze, @terminal_retry_delay_seconds}
+
+  defp action_write_stage(%{state: "succeeded"}), do: :successful_action
+  defp action_write_stage(%{state: "terminal"}), do: :terminal_action
+  defp action_write_stage(%{state: "retryable"}), do: :retryable_action
+  defp action_write_stage(%{attempted_at: _attempted_at}), do: :provider_attempt
+  defp action_write_stage(_attrs), do: :action
 
   defp terminal_metadata(action_id, failure_class, failure_code, result_code) do
     %{
