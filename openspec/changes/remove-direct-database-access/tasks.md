@@ -52,7 +52,7 @@
 
 - [x] 8.1 Replace foundation, authorization, authentication, identity, integrations, and durable-delivery test SQL/direct Ecto with public behavior and typed fixtures
 - [x] 8.2 Replace agent-runtime test SQL/direct Ecto with public actions and test adapter seams
-- [ ] 8.3 Replace GitHub integration test SQL/direct Ecto with public actions, provider adapters, and typed ordering controls
+- [x] 8.3 Replace GitHub integration test SQL/direct Ecto with public actions, provider adapters, and typed ordering controls
 - [ ] 8.4 Replace work-graph, work-packet, run, projection, and web API test SQL/direct Ecto with public actions and behavior assertions
 - [ ] 8.5 Replace concurrency-support triggers, functions, advisory locks, row mutation, and catalog helpers with typed action/adapter barriers and independent sandbox owners
 - [ ] 8.6 Remove obsolete migration-specific tests that are superseded by the unreleased-migration rebaseline, without editing migration history in this change

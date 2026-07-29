@@ -1718,20 +1718,6 @@
     {
       "occurrences": [
         [
-          "sha256:f18ead06961432ff1d834d5ebfbb777192b2a91f97a971983ae82815edf0533d",
-          "direct_ecto",
-          "Repo.aggregate",
-          "update_check/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.GithubIntegration",
-      "path": "test/office_graph/github_integration/reconciliation_concurrency_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:bb202e99260352432e963eb143864474b86f859b080545290b11a256c4c659e8",
           "raw_sql",
           "Repo.query!",
