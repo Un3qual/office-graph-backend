@@ -88,7 +88,7 @@ defmodule OfficeGraph.Architecture.AshBoundaryHeuristicsTest do
   test "verification completion centralizes parent-before-child lock acquisition" do
     source = File.read!("lib/office_graph/work_graph/commands/verification_commands.ex")
 
-    assert source =~ "lock_completion_graph!(session_context, verification_check.id)"
+    assert source =~ "lock_completion_graph!(session_context, verification_check_id)"
     assert source =~ "lock_review_findings_for_task!("
     assert source =~ "lock_verification_checks_for_findings!("
   end
