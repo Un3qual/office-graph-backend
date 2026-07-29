@@ -2446,27 +2446,6 @@
     {
       "occurrences": [
         [
-          "sha256:8fa25e8545f587e0ed7323011ebde607d47a6427f0b401157c611dd845d5053e",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:0963159b160ef38dfe01e9f8d6cda61d7d704c4d9efb14ac4503a4452d496f09",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ]
-      ],
-      "owner": "OfficeGraph.Authorization",
-      "path": "test/office_graph/authorization/system_role_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:fcc570cecd644d831b257463396e950b449fe1e8ec1d53223f3b9b94a58d5249",
           "direct_ecto",
           "Repo.aggregate",
