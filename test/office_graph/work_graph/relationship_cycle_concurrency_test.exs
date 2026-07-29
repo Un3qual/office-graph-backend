@@ -153,8 +153,9 @@ defmodule OfficeGraph.WorkGraph.RelationshipCycleConcurrencyTest do
   end
 
   defp insert_graph_item!(bootstrap, title) do
-    Repo.ash_create!(
-      GraphItem,
+    GraphItem
+    |> Ash.Changeset.for_create(
+      :create,
       %{
         id: Ecto.UUID.generate(),
         organization_id: bootstrap.organization.id,
@@ -164,5 +165,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipCycleConcurrencyTest do
         title: title
       }
     )
+    |> Ash.create!(authorize?: false)
   end
 end
