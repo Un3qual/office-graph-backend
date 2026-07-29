@@ -10,7 +10,9 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionResolutionResult do
 
     field :execution, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, AgentExecution])
+      ]
 
     field :context_package, :struct,
       constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
@@ -148,7 +150,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.AgentExecution,
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
         OfficeGraph.AgentRuntime.AuthoritySnapshot,
         OfficeGraph.AgentRuntime.ContextEntry,
         OfficeGraph.AgentRuntime.ContextPackage,
@@ -169,22 +171,25 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
 
       validate argument_in(:decision, ~w(approved denied cancelled))
 
-      run {OfficeGraph.AgentRuntime.ContextExpansionCommands, mode: :persist_resolution}
+      run {Module.concat([OfficeGraph, AgentRuntime, ContextExpansionCommands]),
+           mode: :persist_resolution}
     end
 
-    action :expire_gate_contract, OfficeGraph.AgentRuntime.GateExpiryResult do
+    action :expire_gate_contract,
+           Module.concat([OfficeGraph, AgentRuntime, GateExpiryResult]) do
       public? false
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.AgentExecution,
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
         OfficeGraph.DurableDelivery.DomainEvent,
         OfficeGraph.Operations.OperationCorrelation
       ]
 
       argument :request_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.AgentRuntime.GateExpiryWorker, request_kind: "context_expansion"}
+      run {Module.concat([OfficeGraph, AgentRuntime, GateExpiryWorker]),
+           request_kind: "context_expansion"}
     end
   end
 
@@ -193,7 +198,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
   end
 
   relationships do
-    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+    belongs_to :execution, Module.concat([OfficeGraph, AgentRuntime, AgentExecution]) do
       source_attribute :execution_id
       allow_nil? false
       attribute_public? true

@@ -10,19 +10,21 @@ defmodule OfficeGraph.ProposedChanges.CommandResults.ApplyProposedChanges do
 
     field :signal, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkGraph.Signal]
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, Signal])]
 
     field :task, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkGraph.Task]
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, Task])]
 
     field :review_finding, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkGraph.ReviewFinding]
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, ReviewFinding])]
 
     field :verification_check, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationCheck]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkGraph, VerificationCheck])
+      ]
   end
 
   use AshGraphql.Type

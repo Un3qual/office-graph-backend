@@ -8,22 +8,40 @@ defmodule OfficeGraph.WorkPackets.PacketResult do
   typed_struct do
     field :packet, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkPackets.WorkPacket]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkPackets, WorkPacket])
+      ]
 
     field :version, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkPackets.WorkPacketVersion]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkPackets, WorkPacketVersion])
+      ]
 
     field :source_references, {:array, :struct},
       allow_nil?: false,
       constraints: [
-        items: [instance_of: OfficeGraph.WorkPackets.WorkPacketSourceReference]
+        items: [
+          instance_of:
+            Module.concat([
+              OfficeGraph,
+              WorkPackets,
+              WorkPacketSourceReference
+            ])
+        ]
       ]
 
     field :required_checks, {:array, :struct},
       allow_nil?: false,
       constraints: [
-        items: [instance_of: OfficeGraph.WorkPackets.WorkPacketRequiredCheck]
+        items: [
+          instance_of:
+            Module.concat([
+              OfficeGraph,
+              WorkPackets,
+              WorkPacketRequiredCheck
+            ])
+        ]
       ]
   end
 

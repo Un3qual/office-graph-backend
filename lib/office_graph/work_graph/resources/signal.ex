@@ -56,7 +56,7 @@ defmodule OfficeGraph.WorkGraph.Signal do
       attribute_public? true
     end
 
-    has_many :tasks, OfficeGraph.WorkGraph.Task do
+    has_many :tasks, Module.concat([OfficeGraph, WorkGraph, Task]) do
       source_attribute :id
       destination_attribute :source_signal_id
       public? true
@@ -111,7 +111,7 @@ defmodule OfficeGraph.WorkGraph.Signal do
       argument :title, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, default: ""
 
-      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_signal}
+      run {Module.concat([OfficeGraph, WorkGraph, ProposalCommands]), mode: :create_signal}
     end
 
     action :persist_integration_signal_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -126,7 +126,7 @@ defmodule OfficeGraph.WorkGraph.Signal do
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -137,7 +137,8 @@ defmodule OfficeGraph.WorkGraph.Signal do
       argument :body, :string
       argument :actionable, :boolean, allow_nil?: false
 
-      run {OfficeGraph.WorkGraph.SystemCommands, mode: :sync_integration_signal}
+      run {Module.concat([OfficeGraph, WorkGraph, SystemCommands]),
+           mode: :sync_integration_signal}
     end
 
     update :set_state do

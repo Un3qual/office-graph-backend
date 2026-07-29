@@ -205,12 +205,14 @@ defmodule OfficeGraph.Verification.CandidateActionResult do
     field :evidence_item, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceItem]
 
     field :verification_result, :struct,
-      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkGraph, VerificationResult])
+      ]
 
     field :evidence_graph_item, :struct,
       constraints: [instance_of: OfficeGraph.WorkGraph.GraphItem]
 
-    field :work_run, :struct, constraints: [instance_of: OfficeGraph.Runs.Run]
+    field :work_run, :struct, constraints: [instance_of: Module.concat([OfficeGraph, Runs, Run])]
   end
 
   def candidate(candidate), do: new(status: "candidate", candidate: candidate)
@@ -292,7 +294,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   end
 
   relationships do
-    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+    belongs_to :verification_check,
+               Module.concat([OfficeGraph, WorkGraph, VerificationCheck]) do
       source_attribute :verification_check_id
       allow_nil? false
       attribute_public? true
@@ -334,7 +337,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       attribute_public? true
     end
 
-    belongs_to :work_run, OfficeGraph.Runs.Run do
+    belongs_to :work_run, Module.concat([OfficeGraph, Runs, Run]) do
       source_attribute :work_run_id
       destination_attribute :id
       attribute_public? true
@@ -391,7 +394,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                verification_check_id: Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
                 artifact_id: OfficeGraph.WorkGraph.Artifact,
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
@@ -412,10 +415,10 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       touches_resources [
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Runs.ExecutionObservation,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.Runs.RunRequiredCheck,
         OfficeGraph.WorkGraph.Artifact,
-        OfficeGraph.WorkGraph.VerificationCheck
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -430,7 +433,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       argument :trust_basis, :string, allow_nil?: false
       argument :sensitivity, :string, allow_nil?: false
 
-      run {OfficeGraph.Verification, mode: :create_candidate}
+      run {Module.concat([OfficeGraph, Verification]), mode: :create_candidate}
     end
 
     action :accept_candidate_contract, OfficeGraph.Verification.CandidateActionResult do
@@ -445,18 +448,18 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.Runs.ExecutionObservation,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.Runs.RunRequiredCheck,
         OfficeGraph.WorkGraph.Artifact,
         OfficeGraph.WorkGraph.EvidenceItem,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship,
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship]),
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule,
-        OfficeGraph.WorkGraph.ReviewFinding,
-        OfficeGraph.WorkGraph.Task,
-        OfficeGraph.WorkGraph.VerificationCheck,
-        OfficeGraph.WorkGraph.VerificationResult
+        Module.concat([OfficeGraph, WorkGraph, ReviewFinding]),
+        Module.concat([OfficeGraph, WorkGraph, Task]),
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
+        Module.concat([OfficeGraph, WorkGraph, VerificationResult])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -467,7 +470,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       argument :acceptance_policy_basis, :string
       argument :reason, :string
 
-      run {OfficeGraph.Verification, mode: :accept_candidate}
+      run {Module.concat([OfficeGraph, Verification]), mode: :accept_candidate}
     end
 
     action :create_evidence_candidate,

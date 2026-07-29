@@ -30,19 +30,27 @@ defmodule OfficeGraph.GitHubIntegration.BindingResult do
   typed_struct do
     field :operation, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.Operations.OperationCorrelation]
+      constraints: [instance_of: Module.concat([OfficeGraph, Operations, OperationCorrelation])]
 
     field :installation, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.GitHubIntegration.Installation]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, GitHubIntegration, Installation])
+      ]
 
     field :permission_snapshot, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.GitHubIntegration.PermissionSnapshot]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, GitHubIntegration, PermissionSnapshot])
+      ]
 
     field :permissions, {:array, :struct},
       allow_nil?: false,
-      constraints: [items: [instance_of: OfficeGraph.GitHubIntegration.PermissionEntry]]
+      constraints: [
+        items: [
+          instance_of: Module.concat([OfficeGraph, GitHubIntegration, PermissionEntry])
+        ]
+      ]
 
     field :credentials, {:array, OfficeGraph.GitHubIntegration.BindingCredential},
       allow_nil?: false

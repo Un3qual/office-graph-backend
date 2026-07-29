@@ -94,13 +94,14 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       attribute_public? true
     end
 
-    belongs_to :integration_event, OfficeGraph.Integrations.NormalizedIntakeEvent do
+    belongs_to :integration_event,
+               Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]) do
       source_attribute :integration_event_id
       destination_attribute :id
       attribute_public? true
     end
 
-    belongs_to :run, OfficeGraph.Runs.Run do
+    belongs_to :run, Module.concat([OfficeGraph, Runs, Run]) do
       source_attribute :run_id
       destination_attribute :id
       attribute_public? true
@@ -142,10 +143,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.WorkGraph.GraphItem,
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule
@@ -160,7 +161,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       argument :run_id, :uuid
       argument :integration_event_id, :uuid
 
-      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :create}
+      run {Module.concat([OfficeGraph, WorkGraph, RelationshipCommands]), mode: :create}
     end
 
     action :persist_system_create_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -169,10 +170,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.WorkGraph.GraphItem,
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule
@@ -187,7 +188,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       argument :run_id, :uuid
       argument :integration_event_id, :uuid
 
-      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :create_system}
+      run {Module.concat([OfficeGraph, WorkGraph, RelationshipCommands]), mode: :create_system}
     end
 
     action :persist_supersede_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -196,10 +197,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.WorkGraph.GraphItem,
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule
@@ -215,7 +216,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       argument :run_id, :uuid
       argument :integration_event_id, :uuid
 
-      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :supersede}
+      run {Module.concat([OfficeGraph, WorkGraph, RelationshipCommands]), mode: :supersede}
     end
 
     action :persist_archive_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -234,7 +235,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       argument :operation_id, :uuid, allow_nil?: false
       argument :relationship_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :archive}
+      run {Module.concat([OfficeGraph, WorkGraph, RelationshipCommands]), mode: :archive}
     end
 
     action :persist_restore_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -243,10 +244,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.WorkGraph.GraphItem,
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule
@@ -256,7 +257,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       argument :relationship_id, :uuid, allow_nil?: false
       argument :valid_from, :utc_datetime_usec
 
-      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :restore}
+      run {Module.concat([OfficeGraph, WorkGraph, RelationshipCommands]), mode: :restore}
     end
 
     update :mark_superseded do

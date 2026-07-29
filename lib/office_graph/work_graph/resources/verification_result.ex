@@ -58,7 +58,9 @@ defmodule OfficeGraph.Verification.CommandResults.WaiveVerificationCheck do
 
     field :verification_result, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkGraph, VerificationResult])
+      ]
   end
 
   use AshGraphql.Type
@@ -108,11 +110,13 @@ defmodule OfficeGraph.Verification.WaiverActionResult do
     field :reason, :term
 
     field :verification_result, :struct,
-      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkGraph, VerificationResult])
+      ]
 
     field :required_check, :struct, constraints: [instance_of: OfficeGraph.Runs.RunRequiredCheck]
 
-    field :run, :struct, constraints: [instance_of: OfficeGraph.Runs.Run]
+    field :run, :struct, constraints: [instance_of: Module.concat([OfficeGraph, Runs, Run])]
   end
 
   def waived(result) do
@@ -172,7 +176,8 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
   end
 
   relationships do
-    belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
+    belongs_to :verification_check,
+               Module.concat([OfficeGraph, WorkGraph, VerificationCheck]) do
       source_attribute :verification_check_id
       allow_nil? false
       attribute_public? true
@@ -214,7 +219,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
       attribute_public? true
     end
 
-    belongs_to :work_run, OfficeGraph.Runs.Run do
+    belongs_to :work_run, Module.concat([OfficeGraph, Runs, Run]) do
       source_attribute :work_run_id
       destination_attribute :id
       attribute_public? true
@@ -256,7 +261,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
               references: [
-                verification_check_id: OfficeGraph.WorkGraph.VerificationCheck,
+                verification_check_id: Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
                 evidence_item_id: OfficeGraph.WorkGraph.EvidenceItem,
                 operation_id: OfficeGraph.Operations.OperationCorrelation
               ]}
@@ -272,9 +277,9 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
         OfficeGraph.Audit.AuditRecord,
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.Runs.Run,
+        Module.concat([OfficeGraph, Runs, Run]),
         OfficeGraph.Runs.RunRequiredCheck,
-        OfficeGraph.WorkGraph.VerificationCheck
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -285,7 +290,7 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
       argument :reason, :string, allow_nil?: false
       argument :policy_basis, :string, allow_nil?: false
 
-      run {OfficeGraph.Verification.Waiver, mode: :persist_waiver}
+      run {Module.concat([OfficeGraph, Verification, Waiver]), mode: :persist_waiver}
     end
 
     action :waive_verification_check,

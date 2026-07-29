@@ -3,9 +3,9 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding do
 
   use Ash.Resource.Change
 
-  alias OfficeGraph.WorkGraph.ReviewFinding
-
   require Ash.Query
+
+  @review_finding_resource Module.concat([OfficeGraph, WorkGraph, ReviewFinding])
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -21,7 +21,7 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding do
   end
 
   defp validate_open_review_finding(changeset, review_finding_id) do
-    ReviewFinding
+    @review_finding_resource
     |> Ash.Query.filter(id == ^review_finding_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
@@ -82,7 +82,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       public? true
     end
 
-    belongs_to :review_finding, OfficeGraph.WorkGraph.ReviewFinding do
+    belongs_to :review_finding,
+               Module.concat([OfficeGraph, WorkGraph, ReviewFinding]) do
       source_attribute :review_finding_id
       allow_nil? false
       attribute_public? true
@@ -121,7 +122,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       public? true
     end
 
-    has_many :verification_results, OfficeGraph.WorkGraph.VerificationResult do
+    has_many :verification_results,
+             Module.concat([OfficeGraph, WorkGraph, VerificationResult]) do
       source_attribute :id
       destination_attribute :verification_check_id
       public? true
@@ -156,7 +158,7 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
                 graph_item_id:
                   {OfficeGraph.WorkGraph.GraphItem,
                    resource_type: "verification_check", resource_id: :id},
-                review_finding_id: OfficeGraph.WorkGraph.ReviewFinding,
+                review_finding_id: Module.concat([OfficeGraph, WorkGraph, ReviewFinding]),
                 description_document_id: OfficeGraph.Content.Document
               ]}
 
@@ -175,10 +177,10 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship,
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship]),
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule,
-        OfficeGraph.WorkGraph.ReviewFinding
+        Module.concat([OfficeGraph, WorkGraph, ReviewFinding])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -186,7 +188,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       argument :title, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, default: ""
 
-      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_verification_check}
+      run {Module.concat([OfficeGraph, WorkGraph, ProposalCommands]),
+           mode: :create_verification_check}
     end
 
     action :persist_completion_contract, OfficeGraph.WorkGraph.CommandActionResult do
@@ -203,12 +206,12 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
         OfficeGraph.WorkGraph.Artifact,
         OfficeGraph.WorkGraph.EvidenceItem,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship,
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship]),
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule,
-        OfficeGraph.WorkGraph.ReviewFinding,
-        OfficeGraph.WorkGraph.Task,
-        OfficeGraph.WorkGraph.VerificationResult
+        Module.concat([OfficeGraph, WorkGraph, ReviewFinding]),
+        Module.concat([OfficeGraph, WorkGraph, Task]),
+        Module.concat([OfficeGraph, WorkGraph, VerificationResult])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -219,7 +222,8 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       argument :policy_basis, :string
       argument :reason, :string
 
-      run {OfficeGraph.WorkGraph.VerificationCommands, mode: :complete_verification}
+      run {Module.concat([OfficeGraph, WorkGraph, VerificationCommands]),
+           mode: :complete_verification}
     end
 
     action :persist_evidence_satisfaction_contract,
@@ -231,14 +235,15 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
         OfficeGraph.Audit.AuditRecord,
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
-        OfficeGraph.WorkGraph.ReviewFinding,
-        OfficeGraph.WorkGraph.Task
+        Module.concat([OfficeGraph, WorkGraph, ReviewFinding]),
+        Module.concat([OfficeGraph, WorkGraph, Task])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
       argument :verification_check_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.WorkGraph.VerificationCommands, mode: :satisfy_from_evidence}
+      run {Module.concat([OfficeGraph, WorkGraph, VerificationCommands]),
+           mode: :satisfy_from_evidence}
     end
 
     update :mark_satisfied do

@@ -122,10 +122,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
       constraints: [instance_of: OfficeGraph.AgentRuntime.ModelRequest]
 
     field :approval_request, :struct,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.ApprovalRequest]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, ApprovalRequest])
+      ]
 
     field :context_expansion_request, :struct,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.ContextExpansionRequest]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest])
+      ]
 
     field :input, :struct, constraints: [instance_of: OfficeGraph.AgentRuntime.ModelInput]
   end
@@ -171,7 +175,9 @@ defmodule OfficeGraph.AgentRuntime.CommandResults.ApprovalResolution do
 
     field :request, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.ApprovalRequest]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, ApprovalRequest])
+      ]
 
     field :execution, :struct,
       allow_nil?: false,
@@ -237,7 +243,9 @@ defmodule OfficeGraph.AgentRuntime.CommandResults.ContextExpansionResolution do
 
     field :request, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.ContextExpansionRequest]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest])
+      ]
 
     field :execution, :struct,
       allow_nil?: false,
@@ -406,7 +414,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
         OfficeGraph.AgentRuntime.AuthoritySnapshot,
         OfficeGraph.AgentRuntime.ContextEntry,
         OfficeGraph.AgentRuntime.ContextPackage,
-        OfficeGraph.AgentRuntime.OrganizationBinding,
+        Module.concat([OfficeGraph, AgentRuntime, OrganizationBinding]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Runs.Run,
         OfficeGraph.WorkGraph.GraphItem
@@ -429,7 +437,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :autonomy_mode, :string, allow_nil?: false
       argument :delegator_principal_id, :uuid
 
-      run {OfficeGraph.AgentRuntime.InvocationCommands, mode: :persist}
+      run {Module.concat([OfficeGraph, AgentRuntime, InvocationCommands]), mode: :persist}
     end
 
     action :persist_cancellation_contract, OfficeGraph.AgentRuntime.CancellationResult do
@@ -437,8 +445,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.ApprovalRequest,
-        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        Module.concat([OfficeGraph, AgentRuntime, ApprovalRequest]),
+        Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest]),
         OfficeGraph.AgentRuntime.ModelRequest,
         OfficeGraph.DurableDelivery.DomainEvent,
         OfficeGraph.Operations.OperationCorrelation
@@ -448,7 +456,8 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :execution_id, :uuid, allow_nil?: false
       argument :expected_state_version, :integer, allow_nil?: false, constraints: [min: 1]
 
-      run {OfficeGraph.AgentRuntime.CancellationCommands, mode: :persist_cancel}
+      run {Module.concat([OfficeGraph, AgentRuntime, CancellationCommands]),
+           mode: :persist_cancel}
     end
 
     action :route_output_contract, :struct do
@@ -457,7 +466,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.NodeConversations.ConversationMessage,
+        Module.concat([OfficeGraph, NodeConversations, ConversationMessage]),
         OfficeGraph.ProposedChanges.ProposedGraphChange,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.Runs.ExecutionObservation,
@@ -479,7 +488,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :step_key, :string, allow_nil?: false
       argument :output, :struct, allow_nil?: false
 
-      run {OfficeGraph.AgentRuntime.OutputRouter, mode: :route}
+      run {Module.concat([OfficeGraph, AgentRuntime, OutputRouter]), mode: :route}
     end
 
     action :claim_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
@@ -487,9 +496,9 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.ApprovalRequest,
+        Module.concat([OfficeGraph, AgentRuntime, ApprovalRequest]),
         OfficeGraph.AgentRuntime.ContextEntry,
-        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest]),
         OfficeGraph.AgentRuntime.ModelRequest,
         OfficeGraph.DurableDelivery.DomainEvent,
         OfficeGraph.Operations.OperationCorrelation
@@ -520,7 +529,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :approval_request_id, :uuid
       argument :context_expansion_request_id, :uuid
 
-      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :claim}
+      run {Module.concat([OfficeGraph, AgentRuntime, ExecutionWorker]), mode: :claim}
     end
 
     action :complete_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
@@ -531,7 +540,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
         OfficeGraph.AgentRuntime.ModelRequest,
         OfficeGraph.Audit.AuditRecord,
         OfficeGraph.DurableDelivery.DomainEvent,
-        OfficeGraph.NodeConversations.ConversationMessage,
+        Module.concat([OfficeGraph, NodeConversations, ConversationMessage]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.ProposedChanges.ProposedGraphChange,
         OfficeGraph.Revisions.Revision,
@@ -552,7 +561,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
         allow_nil?: false,
         constraints: [instance_of: OfficeGraph.AgentRuntime.ModelOutput]
 
-      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :complete}
+      run {Module.concat([OfficeGraph, AgentRuntime, ExecutionWorker]), mode: :complete}
     end
 
     action :fail_unclaimed_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
@@ -568,7 +577,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :execution_id, :uuid, allow_nil?: false
       argument :failure_code, :string, allow_nil?: false
 
-      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :fail_unclaimed}
+      run {Module.concat([OfficeGraph, AgentRuntime, ExecutionWorker]), mode: :fail_unclaimed}
     end
 
     action :finalize_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
@@ -592,7 +601,7 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       validate argument_in(:request_state, ~w(retry_scheduled failed cancelled))
       validate argument_in(:execution_state, ~w(retry_scheduled failed cancelled))
 
-      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :finalize}
+      run {Module.concat([OfficeGraph, AgentRuntime, ExecutionWorker]), mode: :finalize}
     end
 
     update :transition do
@@ -791,13 +800,14 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       destination_attribute :execution_id
     end
 
-    has_many :approval_requests, OfficeGraph.AgentRuntime.ApprovalRequest do
+    has_many :approval_requests, Module.concat([OfficeGraph, AgentRuntime, ApprovalRequest]) do
       source_attribute :id
       destination_attribute :execution_id
       public? true
     end
 
-    has_many :context_expansion_requests, OfficeGraph.AgentRuntime.ContextExpansionRequest do
+    has_many :context_expansion_requests,
+             Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest]) do
       source_attribute :id
       destination_attribute :execution_id
       public? true

@@ -178,7 +178,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       touches_resources [
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.VerificationCheck,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
         OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
         OfficeGraph.WorkPackets.WorkPacketSourceReference,
         OfficeGraph.WorkPackets.WorkPacketVersion
@@ -194,7 +194,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
       argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
 
-      run {OfficeGraph.WorkPackets, mode: :create_packet}
+      run {Module.concat([OfficeGraph, WorkPackets]), mode: :create_packet}
     end
 
     action :persist_packet_version_contract, OfficeGraph.WorkPackets.PacketActionResult do
@@ -204,7 +204,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       touches_resources [
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.VerificationCheck,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
         OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
         OfficeGraph.WorkPackets.WorkPacketSourceReference,
         OfficeGraph.WorkPackets.WorkPacketVersion
@@ -222,7 +222,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
       argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
 
-      run {OfficeGraph.WorkPackets, mode: :create_version}
+      run {Module.concat([OfficeGraph, WorkPackets]), mode: :create_version}
     end
 
     action :create_work_packet,

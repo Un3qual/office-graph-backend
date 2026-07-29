@@ -104,7 +104,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
 
       argument :operation_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.AgentRuntime, mode: :bind_run_review}
+      run {Module.concat([OfficeGraph, AgentRuntime]), mode: :bind_run_review}
     end
 
     update :set_lifecycle_state do

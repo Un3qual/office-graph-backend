@@ -172,9 +172,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
 
       touches_resources [
         OfficeGraph.Audit.AuditRecord,
-        OfficeGraph.GitHubIntegration.Installation,
+        Module.concat([OfficeGraph, GitHubIntegration, Installation]),
         OfficeGraph.GitHubIntegration.PermissionEntry,
-        OfficeGraph.GitHubIntegration.SyncOutcome,
+        Module.concat([OfficeGraph, GitHubIntegration, SyncOutcome]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.SoftwareProving.CheckRun,
@@ -195,7 +195,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       argument :expected_provider_version, :string, allow_nil?: false
 
       validate argument_in(:action_kind, ~w(review_reply check_update))
-      run {OfficeGraph.GitHubIntegration.OutboundCommands, mode: :persist}
+      run {Module.concat([OfficeGraph, GitHubIntegration, OutboundCommands]), mode: :persist}
     end
 
     action :persist_revoked_outcome, :struct do
@@ -204,7 +204,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       constraints instance_of: __MODULE__
 
       touches_resources [
-        OfficeGraph.GitHubIntegration.Installation,
+        Module.concat([OfficeGraph, GitHubIntegration, Installation]),
         OfficeGraph.Operations.OperationCorrelation
       ]
 
@@ -218,7 +218,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       argument :attempted_at, :utc_datetime_usec
       argument :completed_at, :utc_datetime_usec
 
-      run {OfficeGraph.GitHubIntegration.OutboundWorker, mode: :revoked_outcome}
+      run {Module.concat([OfficeGraph, GitHubIntegration, OutboundWorker]),
+           mode: :revoked_outcome}
     end
 
     action :ensure_outbound_trace, :boolean do
@@ -238,7 +239,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       argument :state, :string, allow_nil?: false
 
       validate argument_in(:state, ~w(succeeded terminal))
-      run {OfficeGraph.GitHubIntegration.OutboundWorker, mode: :trace}
+      run {Module.concat([OfficeGraph, GitHubIntegration, OutboundWorker]), mode: :trace}
     end
 
     action :reply_to_github_review,

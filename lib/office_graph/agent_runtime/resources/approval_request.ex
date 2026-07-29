@@ -10,7 +10,9 @@ defmodule OfficeGraph.AgentRuntime.ApprovalResolutionResult do
 
     field :execution, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, AgentRuntime, AgentExecution])
+      ]
   end
 
   def build!(request, execution), do: new!(request: request, execution: execution)
@@ -133,7 +135,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.AgentExecution,
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
         OfficeGraph.AgentRuntime.ModelRequest,
         OfficeGraph.Audit.AuditRecord,
         OfficeGraph.DurableDelivery.DomainEvent,
@@ -152,22 +154,24 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
 
       validate argument_in(:decision, ~w(approved denied cancelled))
 
-      run {OfficeGraph.AgentRuntime.ApprovalCommands, mode: :persist_resolution}
+      run {Module.concat([OfficeGraph, AgentRuntime, ApprovalCommands]),
+           mode: :persist_resolution}
     end
 
-    action :expire_gate_contract, OfficeGraph.AgentRuntime.GateExpiryResult do
+    action :expire_gate_contract,
+           Module.concat([OfficeGraph, AgentRuntime, GateExpiryResult]) do
       public? false
       transaction? true
 
       touches_resources [
-        OfficeGraph.AgentRuntime.AgentExecution,
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
         OfficeGraph.DurableDelivery.DomainEvent,
         OfficeGraph.Operations.OperationCorrelation
       ]
 
       argument :request_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.AgentRuntime.GateExpiryWorker, request_kind: "approval"}
+      run {Module.concat([OfficeGraph, AgentRuntime, GateExpiryWorker]), request_kind: "approval"}
     end
   end
 
@@ -176,7 +180,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
   end
 
   relationships do
-    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+    belongs_to :execution, Module.concat([OfficeGraph, AgentRuntime, AgentExecution]) do
       source_attribute :execution_id
       allow_nil? false
       attribute_public? true
@@ -210,7 +214,8 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
       attribute_public? true
     end
 
-    belongs_to :context_expansion_request, OfficeGraph.AgentRuntime.ContextExpansionRequest do
+    belongs_to :context_expansion_request,
+               Module.concat([OfficeGraph, AgentRuntime, ContextExpansionRequest]) do
       source_attribute :context_expansion_request_id
       attribute_public? true
     end

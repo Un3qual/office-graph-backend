@@ -10,11 +10,17 @@ defmodule OfficeGraph.Integrations.CommandResults.SubmitManualIntake do
 
     field :normalized_event, :struct,
       allow_nil?: false,
-      constraints: [instance_of: OfficeGraph.Integrations.NormalizedIntakeEvent]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
+      ]
 
     field :proposed_changes, {:array, :struct},
       allow_nil?: false,
-      constraints: [items: [instance_of: OfficeGraph.ProposedChanges.ProposedGraphChange]]
+      constraints: [
+        items: [
+          instance_of: Module.concat([OfficeGraph, ProposedChanges, ProposedGraphChange])
+        ]
+      ]
   end
 
   use AshGraphql.Type
@@ -117,7 +123,8 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
       destination_attribute :duplicate_of_id
     end
 
-    has_many :proposed_changes, OfficeGraph.ProposedChanges.ProposedGraphChange do
+    has_many :proposed_changes,
+             Module.concat([OfficeGraph, ProposedChanges, ProposedGraphChange]) do
       source_attribute :id
       destination_attribute :normalized_event_id
       public? true
@@ -144,7 +151,8 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
       ]
     end
 
-    action :persist_manual_intake, OfficeGraph.Integrations.ManualIntakeActionResult do
+    action :persist_manual_intake,
+           Module.concat([OfficeGraph, Integrations, ManualIntakeActionResult]) do
       public? false
       transaction? true
 
@@ -153,7 +161,7 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
         OfficeGraph.Integrations.ExternalSource,
         OfficeGraph.Integrations.RawArchive,
         OfficeGraph.Operations.OperationCorrelation,
-        OfficeGraph.ProposedChanges.ProposedGraphChange
+        Module.concat([OfficeGraph, ProposedChanges, ProposedGraphChange])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -161,7 +169,7 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
       argument :replay_identity, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, constraints: [trim?: false]
 
-      run OfficeGraph.Integrations.Actions.PersistManualIntake
+      run {Module.concat([OfficeGraph, Integrations, Actions, PersistManualIntake]), []}
     end
 
     action :submit_manual_intake,
@@ -174,9 +182,7 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
         allow_nil?: false,
         constraints: [trim?: false, match: ~r/\S/]
 
-      run fn input, context ->
-        OfficeGraph.Integrations.Actions.SubmitManualIntake.run(input, [], context)
-      end
+      run {Module.concat([OfficeGraph, Integrations, Actions, SubmitManualIntake]), []}
     end
   end
 

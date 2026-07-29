@@ -542,8 +542,8 @@ defmodule OfficeGraph.Runs.Run do
       touches_resources [
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.VerificationCheck,
-        OfficeGraph.WorkPackets.WorkPacket,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
+        Module.concat([OfficeGraph, WorkPackets, WorkPacket]),
         OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
         OfficeGraph.WorkPackets.WorkPacketSourceReference,
         OfficeGraph.WorkPackets.WorkPacketVersion,
@@ -556,7 +556,7 @@ defmodule OfficeGraph.Runs.Run do
       argument :source_surface, :string
       argument :reason, :string
 
-      run {OfficeGraph.Runs, mode: :start_run}
+      run {Module.concat([OfficeGraph, Runs]), mode: :start_run}
     end
 
     action :persist_observation_contract, OfficeGraph.Runs.RunMutationResult do
@@ -566,7 +566,7 @@ defmodule OfficeGraph.Runs.Run do
       touches_resources [
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.VerificationCheck,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
         OfficeGraph.Runs.ExecutionObservation
       ]
 
@@ -585,7 +585,7 @@ defmodule OfficeGraph.Runs.Run do
       argument :rationale, :string
       argument :classification, :string
 
-      run {OfficeGraph.Runs, mode: :record_observation}
+      run {Module.concat([OfficeGraph, Runs]), mode: :record_observation}
     end
 
     action :apply_verification_result, OfficeGraph.Runs.RunMutationResult do
@@ -597,7 +597,7 @@ defmodule OfficeGraph.Runs.Run do
       argument :result, :string, allow_nil?: false
       argument :verification_check_id, :uuid
 
-      run {OfficeGraph.Runs, mode: :apply_verification}
+      run {Module.concat([OfficeGraph, Runs]), mode: :apply_verification}
     end
 
     action :start_work_run,

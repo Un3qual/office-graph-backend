@@ -101,7 +101,7 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
         OfficeGraph.Audit.AuditRecord,
         OfficeGraph.DurableDelivery.DomainEvent,
         OfficeGraph.ExternalRefs.ExternalReference,
-        OfficeGraph.GitHubIntegration.Installation,
+        Module.concat([OfficeGraph, GitHubIntegration, Installation]),
         OfficeGraph.Integrations.ExternalSource,
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
@@ -134,7 +134,7 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
           instance_of: OfficeGraph.GitHubIntegration.Adapter.ReconciliationSnapshot
         ]
 
-      run {OfficeGraph.GitHubIntegration.Reconciler, mode: :snapshot}
+      run {Module.concat([OfficeGraph, GitHubIntegration, Reconciler]), mode: :snapshot}
     end
 
     action :persist_reconciliation_outcome, :struct do
@@ -143,7 +143,7 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
       constraints instance_of: __MODULE__
 
       touches_resources [
-        OfficeGraph.GitHubIntegration.Installation,
+        Module.concat([OfficeGraph, GitHubIntegration, Installation]),
         OfficeGraph.Operations.OperationCorrelation
       ]
 
@@ -164,7 +164,7 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
                  ~w(record_failure record_storage_failure finalize_failure pre_operation)
                )
 
-      run {OfficeGraph.GitHubIntegration.Reconciler, mode: :outcome}
+      run {Module.concat([OfficeGraph, GitHubIntegration, Reconciler]), mode: :outcome}
     end
   end
 

@@ -200,7 +200,8 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       public? false
     end
 
-    action :persist_binding_contract, OfficeGraph.GitHubIntegration.BindingResult do
+    action :persist_binding_contract,
+           Module.concat([OfficeGraph, GitHubIntegration, BindingResult]) do
       public? false
       transaction? true
 
@@ -238,11 +239,12 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
                allow_nil?: false
 
       validate argument_in(:account_type, ~w(organization user))
-      run {OfficeGraph.GitHubIntegration.InstallationCommands, mode: :bind}
+
+      run {Module.concat([OfficeGraph, GitHubIntegration, InstallationCommands]), mode: :bind}
     end
 
     action :record_webhook_receipt,
-           OfficeGraph.GitHubIntegration.WebhookReceiptResult do
+           Module.concat([OfficeGraph, GitHubIntegration, WebhookReceiptResult]) do
       public? false
       transaction? true
 
@@ -263,7 +265,7 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       argument :raw_body, :string, allow_nil?: false, constraints: [trim?: false]
       argument :pull_request_ids, {:array, :string}, allow_nil?: false
 
-      run {OfficeGraph.GitHubIntegration.WebhookReceiptCommands, mode: :record}
+      run {Module.concat([OfficeGraph, GitHubIntegration, WebhookReceiptCommands]), mode: :record}
     end
 
     action :bind_github_installation,
@@ -304,9 +306,7 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
 
       validate argument_in(:account_type, ~w(organization user))
 
-      run fn input, context ->
-        OfficeGraph.GitHubIntegration.Actions.BindInstallation.run(input, [], context)
-      end
+      run {Module.concat([OfficeGraph, GitHubIntegration, Actions, BindInstallation]), []}
     end
   end
 
@@ -363,9 +363,10 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
     end
 
     has_many :credential_bindings, OfficeGraph.GitHubIntegration.InstallationCredential
-    has_many :sync_outcomes, OfficeGraph.GitHubIntegration.SyncOutcome
+    has_many :sync_outcomes, Module.concat([OfficeGraph, GitHubIntegration, SyncOutcome])
 
-    has_many :outbound_actions, OfficeGraph.GitHubIntegration.OutboundAction do
+    has_many :outbound_actions,
+             Module.concat([OfficeGraph, GitHubIntegration, OutboundAction]) do
       public? true
     end
   end

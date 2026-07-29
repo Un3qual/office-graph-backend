@@ -11,11 +11,17 @@ defmodule OfficeGraph.Integrations.ManualIntakeActionResult do
     field :raw_archive, :struct, constraints: [instance_of: OfficeGraph.Integrations.RawArchive]
 
     field :normalized_event, :struct,
-      constraints: [instance_of: OfficeGraph.Integrations.NormalizedIntakeEvent]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
+      ]
 
     field :proposed_changes, {:array, :struct},
       allow_nil?: false,
-      constraints: [items: [instance_of: OfficeGraph.ProposedChanges.ProposedGraphChange]]
+      constraints: [
+        items: [
+          instance_of: Module.concat([OfficeGraph, ProposedChanges, ProposedGraphChange])
+        ]
+      ]
   end
 
   def persisted(raw_archive, normalized_event, duplicate, proposed_changes) do

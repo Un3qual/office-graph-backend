@@ -161,7 +161,7 @@ defmodule OfficeGraph.NodeConversations.Conversation do
       argument :run_id, :uuid, allow_nil?: false
       argument :graph_item_id, :uuid, allow_nil?: false
 
-      run {OfficeGraph.NodeConversations.ConversationCommands, mode: :start}
+      run {Module.concat([OfficeGraph, NodeConversations, ConversationCommands]), mode: :start}
     end
 
     action :start_run_conversation,

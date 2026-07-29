@@ -140,7 +140,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
       touches_resources [
         OfficeGraph.Authorization.AuthorizationDecision,
-        OfficeGraph.NodeConversations.Conversation,
+        Module.concat([OfficeGraph, NodeConversations, Conversation]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.ProposedChanges.ProposedGraphChange
       ]
@@ -153,7 +153,8 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       argument :domain_action_operation_id, :uuid
 
       validate argument_in(:contribution_kind, ~w(comment proposal domain_action))
-      run {OfficeGraph.NodeConversations.MessageCommands, mode: :human}
+
+      run {Module.concat([OfficeGraph, NodeConversations, MessageCommands]), mode: :human}
     end
 
     action :persist_agent_message_contract, :struct do
@@ -162,9 +163,9 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       constraints instance_of: __MODULE__
 
       touches_resources [
-        OfficeGraph.AgentRuntime.AgentExecution,
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
         OfficeGraph.AgentRuntime.ContextPackage,
-        OfficeGraph.NodeConversations.Conversation,
+        Module.concat([OfficeGraph, NodeConversations, Conversation]),
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Runs.Run,
         OfficeGraph.WorkPackets.WorkPacketSourceReference
@@ -174,7 +175,9 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
       argument :execution, :struct,
         allow_nil?: false,
-        constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+        constraints: [
+          instance_of: Module.concat([OfficeGraph, AgentRuntime, AgentExecution])
+        ]
 
       argument :context_package, :struct,
         allow_nil?: false,
@@ -183,7 +186,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       argument :step_key, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, constraints: [trim?: false]
 
-      run {OfficeGraph.NodeConversations.MessageCommands, mode: :agent}
+      run {Module.concat([OfficeGraph, NodeConversations, MessageCommands]), mode: :agent}
     end
 
     action :append_conversation_message,

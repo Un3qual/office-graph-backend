@@ -36,7 +36,7 @@ defmodule OfficeGraph.WorkGraph.Task do
       public? true
     end
 
-    belongs_to :source_signal, OfficeGraph.WorkGraph.Signal do
+    belongs_to :source_signal, Module.concat([OfficeGraph, WorkGraph, Signal]) do
       source_attribute :source_signal_id
       attribute_public? true
       public? true
@@ -62,7 +62,7 @@ defmodule OfficeGraph.WorkGraph.Task do
       attribute_public? true
     end
 
-    has_many :review_findings, OfficeGraph.WorkGraph.ReviewFinding do
+    has_many :review_findings, Module.concat([OfficeGraph, WorkGraph, ReviewFinding]) do
       source_attribute :id
       destination_attribute :task_id
       public? true
@@ -96,7 +96,7 @@ defmodule OfficeGraph.WorkGraph.Task do
               references: [
                 graph_item_id:
                   {OfficeGraph.WorkGraph.GraphItem, resource_type: "task", resource_id: :id},
-                source_signal_id: OfficeGraph.WorkGraph.Signal,
+                source_signal_id: Module.concat([OfficeGraph, WorkGraph, Signal]),
                 body_document_id: OfficeGraph.Content.Document
               ]}
     end
@@ -113,10 +113,10 @@ defmodule OfficeGraph.WorkGraph.Task do
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship,
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship]),
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule,
-        OfficeGraph.WorkGraph.Signal
+        Module.concat([OfficeGraph, WorkGraph, Signal])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -124,7 +124,7 @@ defmodule OfficeGraph.WorkGraph.Task do
       argument :title, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, default: ""
 
-      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_task}
+      run {Module.concat([OfficeGraph, WorkGraph, ProposalCommands]), mode: :create_task}
     end
 
     update :mark_verified_complete do

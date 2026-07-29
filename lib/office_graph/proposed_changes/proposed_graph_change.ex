@@ -9,7 +9,11 @@ defmodule OfficeGraph.ProposedChanges.CreationResult do
 
     field :proposed_changes, {:array, :struct},
       allow_nil?: false,
-      constraints: [items: [instance_of: OfficeGraph.ProposedChanges.ProposedGraphChange]]
+      constraints: [
+        items: [
+          instance_of: Module.concat([OfficeGraph, ProposedChanges, ProposedGraphChange])
+        ]
+      ]
   end
 
   def created(proposed_changes),
@@ -34,15 +38,19 @@ defmodule OfficeGraph.ProposedChanges.AppliedChangeSet do
     field :status, :string, allow_nil?: false
     field :reason, :term
 
-    field :signal, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.Signal]
+    field :signal, :struct,
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, Signal])]
 
-    field :task, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.Task]
+    field :task, :struct,
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, Task])]
 
     field :review_finding, :struct,
-      constraints: [instance_of: OfficeGraph.WorkGraph.ReviewFinding]
+      constraints: [instance_of: Module.concat([OfficeGraph, WorkGraph, ReviewFinding])]
 
     field :verification_check, :struct,
-      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationCheck]
+      constraints: [
+        instance_of: Module.concat([OfficeGraph, WorkGraph, VerificationCheck])
+      ]
   end
 
   def applied(result) do
@@ -146,7 +154,8 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       attribute_public? true
     end
 
-    belongs_to :normalized_event, OfficeGraph.Integrations.NormalizedIntakeEvent do
+    belongs_to :normalized_event,
+               Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent]) do
       source_attribute :normalized_event_id
       destination_attribute :id
       attribute_public? true
@@ -226,13 +235,16 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
     action :create_manual_intake_changes, OfficeGraph.ProposedChanges.CreationResult do
       public? false
       transaction? true
-      touches_resources [OfficeGraph.Integrations.NormalizedIntakeEvent]
+
+      touches_resources [
+        Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
+      ]
 
       argument :operation_id, :uuid, allow_nil?: false
       argument :normalized_event_id, :uuid, allow_nil?: false
       argument :body, :string, allow_nil?: false, constraints: [trim?: false]
 
-      run {OfficeGraph.ProposedChanges, mode: :create_manual_intake}
+      run {Module.concat([OfficeGraph, ProposedChanges]), mode: :create_manual_intake}
     end
 
     action :apply_change_set, OfficeGraph.ProposedChanges.AppliedChangeSet do
@@ -241,28 +253,26 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
 
       touches_resources [
         OfficeGraph.Authorization.AuthorizationDecision,
-        OfficeGraph.WorkGraph.ReviewFinding,
-        OfficeGraph.WorkGraph.Signal,
-        OfficeGraph.WorkGraph.Task,
-        OfficeGraph.WorkGraph.VerificationCheck
+        Module.concat([OfficeGraph, WorkGraph, ReviewFinding]),
+        Module.concat([OfficeGraph, WorkGraph, Signal]),
+        Module.concat([OfficeGraph, WorkGraph, Task]),
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
       argument :normalized_event_id, :uuid
       argument :proposed_change_ids, {:array, :uuid}, allow_nil?: false
 
-      run {OfficeGraph.ProposedChanges, mode: :apply}
+      run {Module.concat([OfficeGraph, ProposedChanges]), mode: :apply}
     end
 
     action :apply_proposed_changes,
-           OfficeGraph.ProposedChanges.CommandResults.ApplyProposedChanges do
+           Module.concat([OfficeGraph, ProposedChanges, CommandResults, ApplyProposedChanges]) do
       argument :idempotency_key, :string, allow_nil?: false
       argument :normalized_event_id, :uuid, allow_nil?: false
       argument :proposed_change_ids, {:array, :uuid}, allow_nil?: false
 
-      run fn input, context ->
-        OfficeGraph.ProposedChanges.Actions.ApplyProposedChanges.run(input, [], context)
-      end
+      run {Module.concat([OfficeGraph, ProposedChanges, Actions, ApplyProposedChanges]), []}
     end
   end
 

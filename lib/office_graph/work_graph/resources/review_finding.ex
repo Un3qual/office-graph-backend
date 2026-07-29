@@ -3,9 +3,9 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask do
 
   use Ash.Resource.Change
 
-  alias OfficeGraph.WorkGraph.Task
-
   require Ash.Query
+
+  @task_resource Module.concat([OfficeGraph, WorkGraph, Task])
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -21,7 +21,7 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask do
   end
 
   defp validate_open_task(changeset, task_id) do
-    Task
+    @task_resource
     |> Ash.Query.filter(id == ^task_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
@@ -83,7 +83,7 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
       public? true
     end
 
-    belongs_to :task, OfficeGraph.WorkGraph.Task do
+    belongs_to :task, Module.concat([OfficeGraph, WorkGraph, Task]) do
       source_attribute :task_id
       allow_nil? false
       attribute_public? true
@@ -110,7 +110,8 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
       attribute_public? true
     end
 
-    has_many :verification_checks, OfficeGraph.WorkGraph.VerificationCheck do
+    has_many :verification_checks,
+             Module.concat([OfficeGraph, WorkGraph, VerificationCheck]) do
       source_attribute :id
       destination_attribute :review_finding_id
       public? true
@@ -145,7 +146,7 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
                 graph_item_id:
                   {OfficeGraph.WorkGraph.GraphItem,
                    resource_type: "review_finding", resource_id: :id},
-                task_id: OfficeGraph.WorkGraph.Task,
+                task_id: Module.concat([OfficeGraph, WorkGraph, Task]),
                 body_document_id: OfficeGraph.Content.Document
               ]}
 
@@ -164,10 +165,10 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
         OfficeGraph.Operations.OperationCorrelation,
         OfficeGraph.Revisions.Revision,
         OfficeGraph.WorkGraph.GraphItem,
-        OfficeGraph.WorkGraph.GraphRelationship,
+        Module.concat([OfficeGraph, WorkGraph, GraphRelationship]),
         OfficeGraph.WorkGraph.RelationshipDefinition,
         OfficeGraph.WorkGraph.RelationshipEndpointRule,
-        OfficeGraph.WorkGraph.Task
+        Module.concat([OfficeGraph, WorkGraph, Task])
       ]
 
       argument :operation_id, :uuid, allow_nil?: false
@@ -175,7 +176,8 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
       argument :title, :string, allow_nil?: false
       argument :body, :string, allow_nil?: false, default: ""
 
-      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_review_finding}
+      run {Module.concat([OfficeGraph, WorkGraph, ProposalCommands]),
+           mode: :create_review_finding}
     end
 
     update :mark_verified_complete do

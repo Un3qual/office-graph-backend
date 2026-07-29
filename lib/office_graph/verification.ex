@@ -210,7 +210,7 @@ defmodule OfficeGraph.Verification do
         Map.put(attrs, :operation_id, operation.id)
       )
       |> Ash.run_action(actor: session_context, authorize?: false)
-      |> CommandSupport.normalize_action_result()
+      |> normalize_candidate_action_result()
       |> case do
         {:ok, %CandidateActionResult{} = result} ->
           CandidateActionResult.to_candidate_result(result)
@@ -239,7 +239,7 @@ defmodule OfficeGraph.Verification do
         |> Map.put(:candidate_id, candidate.id)
       )
       |> Ash.run_action(actor: session_context, authorize?: false)
-      |> CommandSupport.normalize_action_result()
+      |> normalize_candidate_action_result()
       |> case do
         {:ok, %CandidateActionResult{} = result} ->
           CandidateActionResult.to_acceptance_result(result)
@@ -339,6 +339,13 @@ defmodule OfficeGraph.Verification do
   end
 
   defp attach_acceptance_affected_refs(error, _affected_refs), do: error
+
+  defp normalize_candidate_action_result(result) do
+    case CommandSupport.normalize_action_result(result) do
+      {:error, {:work_graph_action_error, error}} -> {:error, error}
+      result -> result
+    end
+  end
 
   defp create_evidence_candidate_contract(session_context, operation, attrs) do
     case existing_candidate_for_operation(session_context, operation) do
