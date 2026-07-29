@@ -2089,27 +2089,6 @@
     {
       "occurrences": [
         [
-          "sha256:b4a65fd0f0cdfe0e43013f6f1eb8fbc18d0db2be422438c05fa461513a32d869",
-          "direct_ecto",
-          "Repo.transaction",
-          null,
-          1
-        ],
-        [
-          "sha256:ab3f47d78aecadfb2dfa5792f10ffbba1f21359c356518864ff76ab1586370a7",
-          "direct_ecto",
-          "Repo.transaction",
-          null,
-          2
-        ]
-      ],
-      "owner": "OfficeGraph.WorkGraph",
-      "path": "test/office_graph/work_graph/ash_scope_authorization_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:b81938eeae85ce6ba2321f344342ba2b7577a2d72793455874dbd7f0afad33a6",
           "raw_sql",
           "Repo.query!",
@@ -2217,27 +2196,6 @@
       ],
       "owner": "OfficeGraph.WorkGraph",
       "path": "test/office_graph/work_graph/relationship_registry_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:46a761989401f47af2e4bd7bb4ed15caec232582fcc8038b65affcdce06469fa",
-          "direct_ecto",
-          "Repo.transaction",
-          null,
-          1
-        ],
-        [
-          "sha256:05d7aa3af21c1a093e27b01bb4198b807c1a308865f5564ee4c35019b44cb951",
-          "direct_ecto",
-          "Repo.transaction",
-          null,
-          2
-        ]
-      ],
-      "owner": "OfficeGraph.WorkPackets",
-      "path": "test/office_graph/work_packets/work_packet_contracts_test.exs",
       "remediation_change": "remove-direct-database-access"
     },
     {

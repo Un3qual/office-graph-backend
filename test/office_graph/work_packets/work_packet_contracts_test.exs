@@ -527,10 +527,19 @@ defmodule OfficeGraph.WorkPackets.WorkPacketContractsTest do
         end
       )
 
-    assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transaction(fn ->
-               Repo.ash_bulk_create!(WorkPacketSourceReference, inputs)
-             end)
+    assert %Ash.BulkResult{
+             status: :error,
+             errors: [%Ash.Error.Invalid{}],
+             records: []
+           } =
+             Ash.bulk_create(inputs, WorkPacketSourceReference, :create,
+               authorize?: false,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: true,
+               transaction: :all
+             )
 
     input_ids = Enum.map(inputs, & &1.id)
 
@@ -596,8 +605,19 @@ defmodule OfficeGraph.WorkPackets.WorkPacketContractsTest do
         }
       end)
 
-    assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transaction(fn -> Repo.ash_bulk_create!(RunRequiredCheck, inputs) end)
+    assert %Ash.BulkResult{
+             status: :error,
+             errors: [%Ash.Error.Invalid{}],
+             records: []
+           } =
+             Ash.bulk_create(inputs, RunRequiredCheck, :create,
+               authorize?: false,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: true,
+               transaction: :all
+             )
 
     input_ids = Enum.map(inputs, & &1.id)
 

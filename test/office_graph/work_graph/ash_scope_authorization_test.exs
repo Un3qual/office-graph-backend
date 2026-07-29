@@ -415,11 +415,20 @@ defmodule OfficeGraph.WorkGraph.AshScopeAuthorizationTest do
     assert message =~ "not-a-uuid"
   end
 
-  test "repo Ash bulk create returns ordered records and skips empty inserts" do
-    {empty_records, empty_queries} =
-      QueryCounter.count(fn -> Repo.ash_bulk_create!(SignalResource, []) end)
+  test "Ash bulk create returns ordered records and skips empty inserts" do
+    {empty_result, empty_queries} =
+      QueryCounter.count(fn ->
+        Ash.bulk_create([], SignalResource, :create,
+          authorize?: false,
+          return_errors?: true,
+          return_records?: true,
+          sorted?: true,
+          stop_on_error?: true,
+          transaction: :all
+        )
+      end)
 
-    assert empty_records == []
+    assert %Ash.BulkResult{status: :success, records: []} = empty_result
     assert empty_queries == []
 
     {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-order")
@@ -444,13 +453,20 @@ defmodule OfficeGraph.WorkGraph.AshScopeAuthorizationTest do
         )
       end)
 
-    assert {:ok, records} =
-             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+    assert %Ash.BulkResult{status: :success, records: records} =
+             Ash.bulk_create(inputs, SignalResource, :create,
+               authorize?: false,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: true,
+               transaction: :all
+             )
 
     assert Enum.map(records, & &1.id) == Enum.map(inputs, & &1.id)
   end
 
-  test "repo Ash bulk create rolls back an invalid middle record" do
+  test "Ash bulk create rolls back an invalid middle record" do
     {:ok, bootstrap} = bootstrap_scope("repo-bulk-create-rollback")
 
     valid_inputs =
@@ -483,8 +499,19 @@ defmodule OfficeGraph.WorkGraph.AshScopeAuthorizationTest do
 
     inputs = [List.first(valid_inputs), invalid_input, List.last(valid_inputs)]
 
-    assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transaction(fn -> Repo.ash_bulk_create!(SignalResource, inputs) end)
+    assert %Ash.BulkResult{
+             status: :error,
+             errors: [%Ash.Error.Invalid{}],
+             records: []
+           } =
+             Ash.bulk_create(inputs, SignalResource, :create,
+               authorize?: false,
+               return_errors?: true,
+               return_records?: true,
+               sorted?: true,
+               stop_on_error?: true,
+               transaction: :all
+             )
 
     input_ids = Enum.map(inputs, & &1.id)
 
