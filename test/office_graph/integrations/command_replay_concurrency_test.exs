@@ -28,22 +28,18 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
           session_id,
           suffix
         )
-
-        install_operation_insert_barrier!()
       end)
 
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Operations.start_operation(session_context, :manual_intake_submit,
-                idempotency_key: idempotency_key
-              )
-            end)
-          end)
+          fn ->
+            Operations.start_operation(session_context, :manual_intake_submit,
+              idempotency_key: idempotency_key
+            )
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.id == second.id
@@ -54,7 +50,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_operation_insert_barrier!()
         cleanup_committed_scope!(organization_id, principal_id, [])
       end)
     end
@@ -154,8 +149,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
               idempotency_key: "work-packet-create-race-#{suffix}"
             )
 
-          install_work_packet_insert_barrier!(packet_operation.id)
-
           attrs = %{
             title: "Concurrent packet #{suffix}",
             objective: "Create one packet for one operation.",
@@ -173,13 +166,9 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              WorkPackets.create_packet(bootstrap.session, packet_operation, attrs)
-            end)
-          end)
+          fn -> WorkPackets.create_packet(bootstrap.session, packet_operation, attrs) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.packet.id == second.packet.id
@@ -191,7 +180,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_work_packet_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -228,8 +216,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
               idempotency_key: "work-run-create-race-#{suffix}"
             )
 
-          install_work_run_insert_barrier!(run_operation.id)
-
           {bootstrap, packet_result.version, run_operation}
         end)
 
@@ -242,13 +228,9 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Runs.start_run(bootstrap.session, run_operation, packet_version, attrs)
-            end)
-          end)
+          fn -> Runs.start_run(bootstrap.session, run_operation, packet_version, attrs) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.run.id == second.run.id
@@ -259,7 +241,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_work_run_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -318,24 +299,15 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
               operation
             end
 
-          install_conversation_insert_barrier!(
-            run_result.run.id,
-            verification_check.graph_item_id
-          )
-
           {bootstrap, run_result.run, verification_check.graph_item_id, operations, attrs}
         end)
 
       results =
         operations
         |> Enum.map(fn operation ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              NodeConversations.start(bootstrap.session, operation, attrs)
-            end)
-          end)
+          fn -> NodeConversations.start(bootstrap.session, operation, attrs) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.id == second.id
@@ -346,7 +318,6 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_conversation_insert_barrier!()
         cleanup_conversation_scope!(organization_slug)
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
