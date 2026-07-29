@@ -4,6 +4,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
   alias OfficeGraph.Identity.{
     AuthenticationEvent,
     ExternalIdentityLink,
+    HumanSessionPersistence,
     Principal,
     Session,
     SessionContext
@@ -57,7 +58,8 @@ defmodule OfficeGraph.Identity.HumanSessions do
   def resolve(session_id), do: resolve(session_id, [])
 
   def resolve(session_id, opts) when is_binary(session_id) and is_list(opts) do
-    with {:ok, %Session{} = session} <-
+    with :ok <- HumanSessionPersistence.before_access(:resolve),
+         {:ok, %Session{} = session} <-
            Ash.get(Session, session_id, authorize?: false, not_found_error?: false),
          :ok <- validate_session_record(session),
          :ok <-
@@ -113,13 +115,15 @@ defmodule OfficeGraph.Identity.HumanSessions do
       case Ash.Type.UUID.cast_input(session_id, []) do
         {:ok, session_id} ->
           with_storage_boundary(fn ->
-            Session
-            |> Ash.ActionInput.for_action(:revoke_human_session, %{
-              session_id: session_id,
-              trace_id: trace_id
-            })
-            |> Ash.run_action(authorize?: false)
-            |> normalize_revoke_result()
+            with :ok <- HumanSessionPersistence.before_access(:revoke) do
+              Session
+              |> Ash.ActionInput.for_action(:revoke_human_session, %{
+                session_id: session_id,
+                trace_id: trace_id
+              })
+              |> Ash.run_action(authorize?: false)
+              |> normalize_revoke_result()
+            end
           end)
 
         :error ->
@@ -133,12 +137,16 @@ defmodule OfficeGraph.Identity.HumanSessions do
   def revoke(_session_id, _opts), do: {:error, :invalid_session}
 
   def record_event(attrs) when is_map(attrs) do
-    AuthenticationEvent
-    |> Ash.Changeset.for_create(:create, event_attrs(attrs))
-    |> Ash.create(authorize?: false)
-    |> case do
-      {:ok, event} -> {:ok, event}
-      {:error, %Ash.Error.Invalid{}} -> {:error, :invalid_authentication_event}
+    with :ok <- HumanSessionPersistence.before_access(:event) do
+      AuthenticationEvent
+      |> Ash.Changeset.for_create(:create, event_attrs(attrs))
+      |> Ash.create(authorize?: false)
+      |> case do
+        {:ok, event} -> {:ok, event}
+        {:error, %Ash.Error.Invalid{}} -> {:error, :invalid_authentication_event}
+        {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+      end
+    else
       {:error, _storage_error} -> {:error, :identity_storage_unavailable}
     end
   end

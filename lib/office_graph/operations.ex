@@ -8,7 +8,7 @@ defmodule OfficeGraph.Operations do
   require Ash.Query
 
   alias OfficeGraph.Identity
-  alias OfficeGraph.Operations.{OperationCorrelation, SystemOperationRequest}
+  alias OfficeGraph.Operations.{OperationCorrelation, Persistence, SystemOperationRequest}
 
   @storage_exceptions [
     Ash.Error.Forbidden,
@@ -302,19 +302,21 @@ defmodule OfficeGraph.Operations do
       command_input_digest: nil
     }
 
-    OperationCorrelation
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(
-      authorize?: false,
-      return_notifications?: true,
-      upsert?: true,
-      upsert_identity: :unique_system_idempotency,
-      upsert_fields: []
-    )
-    |> case do
-      {:ok, operation, _notifications} -> {:ok, operation}
-      {:ok, operation} -> {:ok, operation}
-      {:error, error} -> refetch_system_operation_after_conflict(request, error)
+    with :ok <- Persistence.before_write(:system_operation) do
+      OperationCorrelation
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> Ash.create(
+        authorize?: false,
+        return_notifications?: true,
+        upsert?: true,
+        upsert_identity: :unique_system_idempotency,
+        upsert_fields: []
+      )
+      |> case do
+        {:ok, operation, _notifications} -> {:ok, operation}
+        {:ok, operation} -> {:ok, operation}
+        {:error, error} -> refetch_system_operation_after_conflict(request, error)
+      end
     end
   end
 
@@ -379,29 +381,31 @@ defmodule OfficeGraph.Operations do
       command_input_digest: attrs[:command_input_digest]
     }
 
-    OperationCorrelation
-    |> Ash.Changeset.for_create(:create, operation_attrs)
-    |> Ash.create(
-      authorize?: false,
-      return_notifications?: true,
-      upsert?: not is_nil(idempotency_key),
-      upsert_identity: :unique_idempotency_key,
-      upsert_fields: []
-    )
-    |> case do
-      {:ok, operation, _notifications} ->
-        {:ok, operation}
+    with :ok <- Persistence.before_write(:human_operation) do
+      OperationCorrelation
+      |> Ash.Changeset.for_create(:create, operation_attrs)
+      |> Ash.create(
+        authorize?: false,
+        return_notifications?: true,
+        upsert?: not is_nil(idempotency_key),
+        upsert_identity: :unique_idempotency_key,
+        upsert_fields: []
+      )
+      |> case do
+        {:ok, operation, _notifications} ->
+          {:ok, operation}
 
-      {:ok, operation} ->
-        {:ok, operation}
+        {:ok, operation} ->
+          {:ok, operation}
 
-      {:error, error} ->
-        refetch_existing_operation_after_conflict(
-          session_context,
-          action_name,
-          idempotency_key,
-          error
-        )
+        {:error, error} ->
+          refetch_existing_operation_after_conflict(
+            session_context,
+            action_name,
+            idempotency_key,
+            error
+          )
+      end
     end
   end
 

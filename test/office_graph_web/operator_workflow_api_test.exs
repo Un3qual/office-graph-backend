@@ -1017,10 +1017,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
 
-    OfficeGraph.Repo.query!(
-      "UPDATE verification_checks SET title = '  [REDACTED]  ' WHERE id = $1",
-      [Ecto.UUID.dump!(verification_check.id)]
-    )
+    Ash.Seed.update!(verification_check, %{title: "  [REDACTED]  "})
 
     state =
       graphql(
@@ -1194,10 +1191,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     checks
     |> Enum.take(24)
     |> Enum.each(fn check ->
-      OfficeGraph.Repo.query!(
-        "UPDATE verification_checks SET title = '  [REDACTED]  ' WHERE id = $1",
-        [Ecto.UUID.dump!(check.id)]
-      )
+      Ash.Seed.update!(check, %{title: "  [REDACTED]  "})
     end)
 
     compact_invalid =
@@ -1283,10 +1277,8 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert valid_waiver_id
     assert valid_waiver["pageInfo"]["hasNextPage"] == false
 
-    OfficeGraph.Repo.query!(
-      "UPDATE runs SET execution_state = '  [REDACTED]  ' WHERE id = $1",
-      [Ecto.UUID.dump!(run_result.run.id)]
-    )
+    invalid_run =
+      Ash.Seed.update!(run_result.run, %{execution_state: "  [REDACTED]  "})
 
     invalid_state_waiver =
       graphql(
@@ -1306,10 +1298,7 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
     assert invalid_state_waiver["edges"] == []
     assert invalid_state_waiver["pageInfo"]["hasNextPage"] == false
 
-    OfficeGraph.Repo.query!(
-      "UPDATE runs SET execution_state = $1 WHERE id = $2",
-      [run_result.run.execution_state, Ecto.UUID.dump!(run_result.run.id)]
-    )
+    Ash.Seed.update!(invalid_run, %{execution_state: run_result.run.execution_state})
 
     checks
     |> Enum.with_index(1)
@@ -1912,12 +1901,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp rename_profile!(profile_id, display_name) do
-    now = DateTime.utc_now()
-
-    OfficeGraph.Repo.query!(
-      "UPDATE principal_profiles SET display_name = $1, updated_at = $2 WHERE id = $3",
-      [display_name, now, Ecto.UUID.dump!(profile_id)]
-    )
+    OfficeGraph.Identity.PrincipalProfile
+    |> Ash.get!(profile_id, authorize?: false)
+    |> Ash.Seed.update!(%{display_name: display_name})
   end
 
   defp create_session_with_capabilities!(bootstrap, capability_keys) do
@@ -1927,10 +1913,9 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
   end
 
   defp force_intake_inserted_at!(normalized_event_id, inserted_at) do
-    OfficeGraph.Repo.query!(
-      "UPDATE normalized_intake_events SET inserted_at = $1, updated_at = $1 WHERE id = $2",
-      [inserted_at, Ecto.UUID.dump!(normalized_event_id)]
-    )
+    OfficeGraph.Integrations.NormalizedIntakeEvent
+    |> Ash.get!(normalized_event_id, authorize?: false)
+    |> Ash.Seed.update!(%{inserted_at: inserted_at})
   end
 
   defp create_required_verification_check(session) do

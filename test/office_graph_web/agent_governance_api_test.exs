@@ -8,7 +8,6 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     ExecutionWorker
   }
 
-  alias OfficeGraph.Repo
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
@@ -207,10 +206,7 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     target = Enum.min_by(invoked.context_entries, & &1.ordinal)
 
-    Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = $1",
-      [Ecto.UUID.dump!(target.id)]
-    )
+    Ash.Seed.update!(target, %{posture: "expansion_required"})
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
@@ -224,37 +220,21 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   end
 
   defp allow_generic_context_expansion!(context) do
-    Repo.query!(
-      """
-      UPDATE agent_definitions
-      SET requested_capabilities = ARRAY[
-            'agent.model.generate',
-            'agent.tool.read',
-            'evidence.suggest',
-            'proposal.create'
-          ]::text[],
-          updated_at = now()
-      WHERE id = $1
-      """,
-      [Ecto.UUID.dump!(context.definition.id)]
-    )
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      requested_capabilities: [
+        "agent.model.generate",
+        "agent.tool.read",
+        "evidence.suggest",
+        "proposal.create"
+      ]
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
-      FROM role_assignments AS assignments
-      JOIN capabilities ON capabilities.key = 'agent.tool.read'
-      WHERE assignments.principal_id IN ($1, $2)
-        AND assignments.organization_id = $3
-        AND assignments.workspace_id = $4
-      ON CONFLICT (role_id, capability_id) DO NOTHING
-      """,
+    AgentRuntimeSupport.grant_capabilities!(
+      context,
+      ["agent.tool.read"],
       [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+        context.agent_principal.id,
+        context.bootstrap.principal.id
       ]
     )
   end

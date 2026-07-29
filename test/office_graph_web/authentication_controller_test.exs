@@ -2,8 +2,10 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Authentication.OidcClient.TestAdapter
-  alias OfficeGraph.{Foundation, Identity, Repo}
+  alias OfficeGraph.{Foundation, Identity}
+  alias OfficeGraph.Authorization.{PersistenceTestAdapter, RoleAssignment}
   alias OfficeGraph.Identity.{AuthenticationEvent, Principal}
+  alias OfficeGraph.Identity.HumanSessionPersistenceTestAdapter
   alias OfficeGraph.Tenancy.Organization
 
   require Ash.Query
@@ -256,7 +258,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
       exchange: {:ok, claims(principal.email, "callback-evidence-storage-subject")}
     })
 
-    Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
+    HumanSessionPersistenceTestAdapter.configure!(event: {:error, :database_unavailable})
 
     callback_conn =
       build_conn()
@@ -293,7 +295,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
 
   test "logout preserves the session cookie when durable revocation is unavailable", %{conn: conn} do
     issued = issue_session("logout-storage")
-    OfficeGraph.Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+    HumanSessionPersistenceTestAdapter.configure!(revoke: {:error, :database_unavailable})
 
     conn =
       conn
@@ -357,7 +359,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn: conn
   } do
     issued = issue_session("unavailable-product")
-    OfficeGraph.Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
+    HumanSessionPersistenceTestAdapter.configure!(resolve: {:error, :database_unavailable})
 
     conn =
       conn
@@ -371,17 +373,14 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
   test "product pages reject sessions whose workspace role assignment was removed", %{conn: conn} do
     issued = issue_session("removed-role-assignment")
 
-    Repo.query!(
-      """
-      DELETE FROM role_assignments
-      WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
-      """,
-      [
-        Ecto.UUID.dump!(issued.session.principal_id),
-        Ecto.UUID.dump!(issued.session.organization_id),
-        Ecto.UUID.dump!(issued.session.workspace_id)
-      ]
+    RoleAssignment
+    |> Ash.Query.filter(
+      principal_id == ^issued.session.principal_id and
+        organization_id == ^issued.session.organization_id and
+        workspace_id == ^issued.session.workspace_id
     )
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, action: :revoke, authorize?: false))
 
     conn =
       conn
@@ -408,7 +407,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn: conn
   } do
     issued = issue_session("authorization-storage")
-    Repo.query!("ALTER TABLE role_assignments RENAME TO unavailable_role_assignments")
+    PersistenceTestAdapter.configure!(login_scope: {:error, :database_unavailable})
 
     conn =
       conn

@@ -1,8 +1,9 @@
 defmodule OfficeGraphWeb.GitHubActionsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration}
   alias OfficeGraph.GitHubIntegration.OutboundAction
+  alias OfficeGraph.Operations.PersistenceTestAdapter
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -157,32 +158,21 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
   test "JSON command start storage outages return only the safe availability response", %{
     conn: conn
   } do
-    Repo.query!("""
-    ALTER TABLE operation_correlations
-    ADD CONSTRAINT test_github_command_start_storage
-    CHECK (action <> 'github.review.reply')
-    """)
+    PersistenceTestAdapter.configure!(human_operation: {:error, :database_unavailable})
 
     response =
-      try do
-        recycle_human_session(conn)
-        |> generated_json_api()
-        |> post("/api/v1/commands/reply-to-github-review", %{
-          data: %{
-            idempotency_key: "reply-api-operation-storage",
-            installation_id: Ecto.UUID.generate(),
-            review_comment_id: Ecto.UUID.generate(),
-            body: "Retry after operation storage recovers.",
-            expected_provider_version: "v1"
-          }
-        })
-        |> json_response(503)
-      after
-        Repo.query!("""
-        ALTER TABLE operation_correlations
-        DROP CONSTRAINT test_github_command_start_storage
-        """)
-      end
+      recycle_human_session(conn)
+      |> generated_json_api()
+      |> post("/api/v1/commands/reply-to-github-review", %{
+        data: %{
+          idempotency_key: "reply-api-operation-storage",
+          installation_id: Ecto.UUID.generate(),
+          review_comment_id: Ecto.UUID.generate(),
+          body: "Retry after operation storage recovers.",
+          expected_provider_version: "v1"
+        }
+      })
+      |> json_response(503)
 
     assert %{"errors" => [%{"code" => "integration_storage_unavailable"}]} = response
     refute inspect(response) =~ "Ash.Error"

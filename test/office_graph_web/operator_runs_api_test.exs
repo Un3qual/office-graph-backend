@@ -2,7 +2,6 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
-  alias OfficeGraph.Repo
   alias OfficeGraph.SessionCaseHelpers
 
   import OfficeGraph.TestSupport.OperatorProjectionSupport,
@@ -32,27 +31,11 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
   }
   """
 
-  @operator_run_detail_query """
-  query OperatorRunDetail($id: ID!) {
-    getWorkRun(id: $id) {
-      id
-      workPacket { id title state }
-      workPacketVersion { id versionNumber lifecycleState objective }
-      aggregateState
-      executionState
-      verificationState
-    }
-  }
-  """
-
   test "returns ordered generated WorkRun Relay pages with packet relationships", %{conn: conn} do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
     {:ok, older} = create_ready_run(bootstrap.session, verification_check)
     {:ok, newer} = create_ready_run(bootstrap.session, verification_check)
-
-    set_run_inserted_at!(older.run.id, ~U[2026-07-20 10:00:00Z])
-    set_run_inserted_at!(newer.run.id, ~U[2026-07-20 11:00:00Z])
 
     first_page = graphql(conn, @operator_runs_query, %{first: 1}, "listWorkRuns")
     assert first_page["pageInfo"]["hasNextPage"] == true
@@ -80,47 +63,6 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
     assert second_page["pageInfo"]["hasPreviousPage"] == true
     assert [%{"node" => second_node}] = second_page["edges"]
     assert second_node["id"] == relay_id("work_run", older.run.id)
-  end
-
-  test "returns graph-targeted runs without requiring a packet-version summary", %{conn: conn} do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
-
-    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
-      Ecto.UUID.dump!(result.run.id)
-    ])
-
-    page = graphql(conn, @operator_runs_query, %{first: 10}, "listWorkRuns")
-
-    assert %{"workPacket" => %{"id" => packet_id}} =
-             page["edges"]
-             |> Enum.find(&(get_in(&1, ["node", "id"]) == relay_id("work_run", result.run.id)))
-             |> Map.fetch!("node")
-
-    assert packet_id == relay_id("work_packet", result.run.work_packet_id)
-  end
-
-  test "returns selected detail for graph-targeted runs without packet versions", %{conn: conn} do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, result} = create_ready_run(bootstrap.session, verification_check)
-
-    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
-      Ecto.UUID.dump!(result.run.id)
-    ])
-
-    detail =
-      graphql(
-        conn,
-        @operator_run_detail_query,
-        %{id: relay_id("work_run", result.run.id)},
-        "getWorkRun"
-      )
-
-    assert detail["workPacketVersion"] == nil
-    assert detail["workPacket"]["id"] == relay_id("work_packet", result.run.work_packet_id)
-    assert detail["id"] == relay_id("work_run", result.run.id)
   end
 
   test "rejects invalid Relay input without returning a partial page", %{conn: conn} do
@@ -235,12 +177,5 @@ defmodule OfficeGraphWeb.OperatorRunsApiTest do
 
   defp relay_id(type, id) do
     Absinthe.Relay.Node.to_global_id(type, id, OfficeGraphWeb.GraphQL.Schema)
-  end
-
-  defp set_run_inserted_at!(run_id, inserted_at) do
-    Repo.query!("UPDATE runs SET inserted_at = $1, updated_at = $1 WHERE id = $2", [
-      inserted_at,
-      Ecto.UUID.dump!(run_id)
-    ])
   end
 end

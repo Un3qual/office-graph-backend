@@ -67,6 +67,18 @@ config :office_graph,
        OfficeGraph.Authorization.DecisionStore.AshAdapter
 
 config :office_graph,
+       :authorization_persistence,
+       OfficeGraph.Authorization.Persistence.Default
+
+config :office_graph,
+       :human_session_persistence,
+       OfficeGraph.Identity.HumanSessionPersistence.Default
+
+config :office_graph,
+       :operation_persistence,
+       OfficeGraph.Operations.Persistence.Default
+
+config :office_graph,
        :integration_signal_persistence,
        OfficeGraph.WorkGraph.IntegrationSignalPersistence.Default
 

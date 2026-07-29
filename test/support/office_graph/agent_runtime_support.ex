@@ -213,15 +213,17 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
     }
   end
 
-  def grant_capabilities!(context, capability_keys) do
-    assignment =
+  def grant_capabilities!(context, capability_keys, principal_ids \\ nil) do
+    principal_ids = principal_ids || [context.agent_principal.id]
+
+    assignments =
       RoleAssignment
       |> Ash.Query.filter(
-        principal_id == ^context.agent_principal.id and
+        principal_id in ^principal_ids and
           organization_id == ^context.bootstrap.organization.id and
           workspace_id == ^context.bootstrap.workspace.id
       )
-      |> Ash.read_one!(authorize?: false)
+      |> Ash.read!(authorize?: false)
 
     capabilities =
       Capability
@@ -232,13 +234,15 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
       raise ArgumentError, "unknown AgentRuntime fixture capability"
     end
 
-    Enum.each(capabilities, fn capability ->
-      Ash.create!(
-        RoleCapability,
-        %{role_id: assignment.role_id, capability_id: capability.id},
-        action: :ensure,
-        authorize?: false
-      )
+    Enum.each(assignments, fn assignment ->
+      Enum.each(capabilities, fn capability ->
+        Ash.create!(
+          RoleCapability,
+          %{role_id: assignment.role_id, capability_id: capability.id},
+          action: :ensure,
+          authorize?: false
+        )
+      end)
     end)
   end
 

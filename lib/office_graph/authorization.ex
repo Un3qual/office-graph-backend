@@ -8,6 +8,7 @@ defmodule OfficeGraph.Authorization do
   alias OfficeGraph.Authorization.{
     Capability,
     DecisionStore,
+    Persistence,
     PolicyBundle,
     Role,
     RoleAssignment,
@@ -151,17 +152,21 @@ defmodule OfficeGraph.Authorization do
   def resolve_login_scope(principal_id, preferred_scope \\ nil)
 
   def resolve_login_scope(principal_id, preferred_scope) when is_binary(principal_id) do
-    case RoleAssignment
-         |> Ash.Query.filter(principal_id == ^principal_id and not is_nil(workspace_id))
-         |> Ash.read(authorize?: false) do
-      {:ok, assignments} ->
-        assignments
-        |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
-        |> Enum.uniq()
-        |> select_login_scope(preferred_scope)
+    with :ok <- Persistence.before_read(:login_scope) do
+      case RoleAssignment
+           |> Ash.Query.filter(principal_id == ^principal_id and not is_nil(workspace_id))
+           |> Ash.read(authorize?: false) do
+        {:ok, assignments} ->
+          assignments
+          |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
+          |> Enum.uniq()
+          |> select_login_scope(preferred_scope)
 
-      {:error, _storage_error} ->
-        {:error, :authorization_storage_unavailable}
+        {:error, _storage_error} ->
+          {:error, :authorization_storage_unavailable}
+      end
+    else
+      {:error, _storage_error} -> {:error, :authorization_storage_unavailable}
     end
   end
 
