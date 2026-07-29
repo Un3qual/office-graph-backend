@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.ContextPackageTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Foundation, Operations, Repo, SessionCaseHelpers, WorkGraph}
+  alias OfficeGraph.{AgentRuntime, Foundation, Operations, SessionCaseHelpers, WorkGraph}
   alias OfficeGraph.AgentRuntime.{ContextEntry, ContextPackage}
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
   alias OfficeGraph.WorkGraph.{GraphItem, RelationshipRequest}
@@ -47,8 +47,8 @@ defmodule OfficeGraph.AgentRuntime.ContextPackageTest do
                match?(%DateTime{}, entry.source_version)
            end)
 
-    assert Repo.aggregate(ContextPackage, :count) == 1
-    assert Repo.aggregate(ContextEntry, :count) == length(entries)
+    assert Ash.count!(ContextPackage, authorize?: false) == 1
+    assert Ash.count!(ContextEntry, authorize?: false) == length(entries)
   end
 
   test "cross-workspace neighbors become restricted placeholders without target leakage",
@@ -158,7 +158,7 @@ defmodule OfficeGraph.AgentRuntime.ContextPackageTest do
 
     assert {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, request)
-    assert Repo.aggregate(ContextPackage, :count) == 0
-    assert Repo.aggregate(ContextEntry, :count) == 0
+    assert Ash.count!(ContextPackage, authorize?: false) == 0
+    assert Ash.count!(ContextEntry, authorize?: false) == 0
   end
 end
