@@ -15,7 +15,7 @@ services:
       timeout: 5s
       retries: 12
     volumes:
-      - office_graph_postgres_data:/var/lib/postgresql
+      - office_graph_postgres_18_data:/var/lib/postgresql
 
 volumes:
-  office_graph_postgres_data:
+  office_graph_postgres_18_data:

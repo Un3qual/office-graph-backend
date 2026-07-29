@@ -26,9 +26,11 @@ defmodule OfficeGraph.ProjectQualityGateTest do
   test "repository-managed database uses the PostgreSQL 18 data layout" do
     config = compose_config("")
     postgres = get_in(config, ["services", "postgres"])
+    data_volume = Enum.find(postgres["volumes"], &(&1["target"] == "/var/lib/postgresql"))
 
     assert postgres["image"] == "postgres:18-alpine"
-    assert Enum.any?(postgres["volumes"], &(&1["target"] == "/var/lib/postgresql"))
+    assert data_volume
+    assert data_volume["source"] == "office_graph_postgres_18_data"
     assert OfficeGraph.Repo.min_pg_version() == Version.parse!("18.0.0")
   end
 
