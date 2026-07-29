@@ -1,7 +1,6 @@
 defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   @moduledoc false
 
-  import ExUnit.Assertions
   require Ash.Query
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -30,12 +29,8 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   alias OfficeGraph.WorkPackets
 
   @test_trigger_specs %{
-    proposed_change_failure:
-      {:before_insert, "office_graph_test_proposed_change_failure", "proposed_graph_changes"},
     proposed_change_insert_barrier:
       {:before_insert, "office_graph_test_proposed_change_race_barrier", "proposed_graph_changes"},
-    raw_archive_body_wait:
-      {:before_insert, "office_graph_test_raw_archive_body_wait", "raw_archives"},
     work_packet_insert_barrier:
       {:before_insert, "office_graph_test_work_packet_insert_barrier", "work_packets"},
     work_run_insert_barrier:
@@ -58,11 +53,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
        "execution_observations"},
     verification_result_insert_barrier:
       {:before_insert, "office_graph_test_verification_result_insert_barrier",
-       "verification_results"},
-    identity_insert_barrier:
-      {:before_insert, "office_graph_test_identity_race_barrier", "principals"},
-    authorization_insert_barrier:
-      {:before_insert, "office_graph_test_authorization_race_barrier", "roles"}
+       "verification_results"}
   }
 
   defmacro __using__(_opts) do
@@ -624,37 +615,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     |> Base.encode16(case: :lower)
   end
 
-  def install_proposed_change_failure_trigger!(body) do
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_failure ON proposed_graph_changes"
-    )
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_failure()")
-
-    Repo.query!("""
-    CREATE FUNCTION office_graph_test_proposed_change_failure()
-    RETURNS trigger AS $$
-    BEGIN
-      IF NEW.body = TG_ARGV[0] THEN
-        RAISE EXCEPTION 'forced proposed graph change failure for manual intake atomicity';
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    create_test_trigger!(:proposed_change_failure, [body])
-  end
-
-  def drop_proposed_change_failure_trigger! do
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_failure ON proposed_graph_changes"
-    )
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_failure()")
-  end
-
   def install_proposed_change_insert_barrier!(normalized_event_id) do
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_proposed_change_race_barrier ON proposed_graph_changes"
@@ -703,67 +663,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     )
 
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_proposed_change_race_barrier()")
-  end
-
-  def install_raw_archive_body_wait!(body, lock_key) do
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_raw_archive_body_wait ON raw_archives")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
-
-    Repo.query!("""
-    CREATE FUNCTION office_graph_test_raw_archive_body_wait()
-    RETURNS trigger AS $$
-    BEGIN
-      IF NEW.body = TG_ARGV[0] THEN
-        PERFORM pg_advisory_lock(97001, TG_ARGV[1]::integer);
-        PERFORM pg_advisory_unlock(97001, TG_ARGV[1]::integer);
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    create_test_trigger!(:raw_archive_body_wait, [body, lock_key])
-  end
-
-  def wait_for_blocked_raw_archive!(lock_key, attempts \\ 200)
-
-  def wait_for_blocked_raw_archive!(_lock_key, 0),
-    do: flunk("raw archive insert did not block")
-
-  def wait_for_blocked_raw_archive!(lock_key, attempts) do
-    waiting_count = blocked_raw_archive_count(lock_key)
-
-    if waiting_count > 0 do
-      :ok
-    else
-      Process.sleep(10)
-      wait_for_blocked_raw_archive!(lock_key, attempts - 1)
-    end
-  end
-
-  def blocked_raw_archive_count(lock_key) do
-    %{rows: [[waiting_count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM pg_locks
-        WHERE locktype = 'advisory'
-          AND classid = 97001
-          AND objid = $1
-          AND granted = false
-        """,
-        [lock_key]
-      )
-
-    waiting_count
-  end
-
-  def drop_raw_archive_body_wait! do
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_raw_archive_body_wait ON raw_archives")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_raw_archive_body_wait()")
   end
 
   def install_work_packet_insert_barrier!(operation_id) do
@@ -1254,57 +1153,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_verification_result_insert_barrier()")
   end
 
-  def install_tenancy_insert_barrier! do
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_tenancy_race_barrier ON organizations")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_tenancy_race_barrier()")
-
-    Repo.query!("""
-    CREATE FUNCTION office_graph_test_tenancy_race_barrier()
-    RETURNS trigger AS $$
-    DECLARE
-      tenant_hash integer := hashtext(NEW.slug);
-      started_at timestamp := clock_timestamp();
-    BEGIN
-      IF NEW.slug LIKE 'tenant-race-%' THEN
-        IF pg_try_advisory_lock(93001, tenant_hash) THEN
-          LOOP
-            IF pg_try_advisory_lock(93002, tenant_hash) THEN
-              PERFORM pg_advisory_unlock(93002, tenant_hash);
-              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
-              PERFORM pg_sleep(0.01);
-            ELSE
-              EXIT;
-            END IF;
-          END LOOP;
-
-          PERFORM pg_advisory_unlock(93001, tenant_hash);
-        ELSE
-          PERFORM pg_advisory_lock(93002, tenant_hash);
-          PERFORM pg_sleep(0.05);
-          PERFORM pg_advisory_unlock(93002, tenant_hash);
-        END IF;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_tenancy_race_barrier
-    BEFORE INSERT ON organizations
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_tenancy_race_barrier()
-    """)
-  end
-
-  def drop_tenancy_insert_barrier! do
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_tenancy_race_barrier ON organizations")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_tenancy_race_barrier()")
-  end
-
   def install_operation_insert_barrier! do
     Repo.query!(
       "DROP TRIGGER IF EXISTS office_graph_test_operation_race_barrier ON operation_correlations"
@@ -1360,93 +1208,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_operation_race_barrier()")
   end
 
-  def install_owner_bootstrap_insert_barriers!(owner_email, organization_slug) do
-    drop_owner_bootstrap_insert_barriers!()
-
-    Repo.query!("""
-    CREATE FUNCTION office_graph_test_identity_race_barrier()
-    RETURNS trigger AS $$
-    DECLARE
-      identity_hash integer := hashtext(NEW.email);
-      started_at timestamp := clock_timestamp();
-    BEGIN
-      IF NEW.email = TG_ARGV[0] THEN
-        IF pg_try_advisory_lock(95001, identity_hash) THEN
-          LOOP
-            IF pg_try_advisory_lock(95002, identity_hash) THEN
-              PERFORM pg_advisory_unlock(95002, identity_hash);
-              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
-              PERFORM pg_sleep(0.01);
-            ELSE
-              EXIT;
-            END IF;
-          END LOOP;
-
-          PERFORM pg_advisory_unlock(95001, identity_hash);
-        ELSE
-          PERFORM pg_advisory_lock(95002, identity_hash);
-          PERFORM pg_sleep(0.05);
-          PERFORM pg_advisory_unlock(95002, identity_hash);
-        END IF;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    create_test_trigger!(:identity_insert_barrier, [owner_email])
-
-    Repo.query!("""
-    CREATE FUNCTION office_graph_test_authorization_race_barrier()
-    RETURNS trigger AS $$
-    DECLARE
-      role_hash integer := hashtext(NEW.organization_id::text || ':' || NEW.key);
-      started_at timestamp := clock_timestamp();
-      organization_slug text;
-    BEGIN
-      SELECT slug INTO organization_slug
-      FROM organizations
-      WHERE id = NEW.organization_id;
-
-      IF NEW.key = 'owner' AND organization_slug = TG_ARGV[0] THEN
-        IF pg_try_advisory_lock(95003, role_hash) THEN
-          LOOP
-            IF pg_try_advisory_lock(95004, role_hash) THEN
-              PERFORM pg_advisory_unlock(95004, role_hash);
-              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
-              PERFORM pg_sleep(0.01);
-            ELSE
-              EXIT;
-            END IF;
-          END LOOP;
-
-          PERFORM pg_advisory_unlock(95003, role_hash);
-        ELSE
-          PERFORM pg_advisory_lock(95004, role_hash);
-          PERFORM pg_sleep(0.05);
-          PERFORM pg_advisory_unlock(95004, role_hash);
-        END IF;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    create_test_trigger!(:authorization_insert_barrier, [organization_slug])
-  end
-
-  def drop_owner_bootstrap_insert_barriers! do
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_identity_race_barrier ON principals")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_identity_race_barrier()")
-
-    Repo.query!("DROP TRIGGER IF EXISTS office_graph_test_authorization_race_barrier ON roles")
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_authorization_race_barrier()")
-  end
-
   def cleanup_owner_principal!(owner_email) do
     Repo.query!(
       """
@@ -1463,51 +1224,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
       """,
       [owner_email]
     )
-  end
-
-  def install_source_insert_barrier! do
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_source_race_barrier ON external_sources"
-    )
-
-    Repo.query!("""
-    CREATE OR REPLACE FUNCTION office_graph_test_source_race_barrier()
-    RETURNS trigger AS $$
-    DECLARE
-      source_hash integer := hashtext(NEW.key);
-      started_at timestamp := clock_timestamp();
-    BEGIN
-      IF NEW.key LIKE 'manual:source-race-%' THEN
-        IF pg_try_advisory_lock(91001, source_hash) THEN
-          LOOP
-            IF pg_try_advisory_lock(91002, source_hash) THEN
-              PERFORM pg_advisory_unlock(91002, source_hash);
-              EXIT WHEN clock_timestamp() - started_at > interval '2 seconds';
-              PERFORM pg_sleep(0.01);
-            ELSE
-              EXIT;
-            END IF;
-          END LOOP;
-
-          PERFORM pg_advisory_unlock(91001, source_hash);
-        ELSE
-          PERFORM pg_advisory_lock(91002, source_hash);
-          PERFORM pg_sleep(0.05);
-          PERFORM pg_advisory_unlock(91002, source_hash);
-        END IF;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_source_race_barrier
-    BEFORE INSERT ON external_sources
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_source_race_barrier()
-    """)
   end
 
   def cleanup_committed_scope!(organization_id, principal_ids, source_identities) do
@@ -1984,14 +1700,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
       """,
       [db_uuid(organization_id)]
     )
-  end
-
-  def drop_source_insert_barrier! do
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_source_race_barrier ON external_sources"
-    )
-
-    Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_source_race_barrier()")
   end
 
   def tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug) do

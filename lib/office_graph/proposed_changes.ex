@@ -19,6 +19,7 @@ defmodule OfficeGraph.ProposedChanges do
   alias OfficeGraph.ProposedChanges.{
     AppliedChangeSet,
     CreationResult,
+    Persistence,
     ProposedGraphChange
   }
 
@@ -394,25 +395,34 @@ defmodule OfficeGraph.ProposedChanges do
        ) do
     case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
       [] ->
-        title = first_sentence(body)
+        case Persistence.before_write(:manual_intake_changes, %{
+               normalized_event_id: normalized_event.id,
+               operation_id: operation.id
+             }) do
+          :ok ->
+            title = first_sentence(body)
 
-        @required_change_types
-        |> Enum.map(fn change_type ->
-          attrs =
-            Map.merge(
-              %{
-                organization_id: session_context.organization_id,
-                workspace_id: session_context.workspace_id,
-                operation_id: operation.id,
-                normalized_event_id: normalized_event.id,
-                change_type: change_type
-              },
-              change_payload(change_type, title, body)
-            )
+            @required_change_types
+            |> Enum.map(fn change_type ->
+              attrs =
+                Map.merge(
+                  %{
+                    organization_id: session_context.organization_id,
+                    workspace_id: session_context.workspace_id,
+                    operation_id: operation.id,
+                    normalized_event_id: normalized_event.id,
+                    change_type: change_type
+                  },
+                  change_payload(change_type, title, body)
+                )
 
-          ash_create!(ProposedGraphChange, attrs, session_context)
-        end)
-        |> CreationResult.created()
+              ash_create!(ProposedGraphChange, attrs, session_context)
+            end)
+            |> CreationResult.created()
+
+          {:error, error} ->
+            CreationResult.rejected(error)
+        end
 
       existing ->
         case existing_required_set(existing) do

@@ -25,6 +25,10 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       body: body
     }
 
+    OfficeGraph.ProposedChanges.PersistenceTestAdapter.configure!(
+      manual_intake_changes: {:error, :injected_proposed_change_failure}
+    )
+
     try do
       with_unboxed_connection(fn ->
         insert_minimal_session_scope!(
@@ -35,8 +39,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
           suffix
         )
 
-        install_proposed_change_failure_trigger!(body)
-
         {:ok, operation} =
           Operations.start_operation(session_context, :manual_intake_submit,
             correlation_id: "atomicity-#{suffix}"
@@ -45,7 +47,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
         assert {:error, _error} = capture_submit(session_context, operation, attrs)
         assert accepted_event_count(organization_id, source_identity, replay_identity) == 0
 
-        drop_proposed_change_failure_trigger!()
+        OfficeGraph.ProposedChanges.PersistenceTestAdapter.clear!()
 
         assert {:ok, retry} = Integrations.submit_manual_intake(session_context, operation, attrs)
         assert retry.duplicate? == false
@@ -54,7 +56,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        drop_proposed_change_failure_trigger!()
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
@@ -219,7 +220,8 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     session_id = Ecto.UUID.generate()
     source_identity = "manual:command-race-#{suffix}"
     body = "Command replay race #{suffix}"
-    lock_key = :erlang.phash2(source_identity, 2_000_000_000)
+    barrier = make_ref()
+    test_process = self()
 
     session_context = %SessionContext{
       principal_id: principal_id,
@@ -235,8 +237,24 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       body: body
     }
 
+    OfficeGraph.Integrations.ManualIntakePersistenceTestAdapter.configure!(
+      raw_archive: fn
+        %{body: ^body} ->
+          send(test_process, {barrier, :raw_archive_ready, self()})
+
+          receive do
+            {^barrier, :release} -> :ok
+          after
+            5_000 -> {:error, :test_barrier_timeout}
+          end
+
+        _attrs ->
+          :ok
+      end
+    )
+
     try do
-      {blocked_count, results} =
+      operation =
         with_unboxed_connection(fn ->
           insert_minimal_session_scope!(
             organization_id,
@@ -247,8 +265,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
           )
 
           _source_id = insert_external_source!(source_identity)
-          install_raw_archive_body_wait!(body, lock_key)
-          Repo.query!("SELECT pg_advisory_lock(97001, $1)", [lock_key])
 
           {:ok, operation} =
             Operations.start_command(
@@ -258,30 +274,28 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
               attrs
             )
 
-          tasks =
-            Enum.map(1..2, fn _attempt ->
-              Task.async(fn ->
-                with_unboxed_connection(fn ->
-                  Integrations.submit_manual_intake(session_context, operation, attrs)
-                end)
-              end)
-            end)
-
-          wait_for_blocked_raw_archive!(lock_key)
-          Process.sleep(100)
-          blocked_count = blocked_raw_archive_count(lock_key)
-
-          Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
-          {blocked_count, Task.await_many(tasks, 10_000)}
+          operation
         end)
 
+      tasks =
+        Enum.map(1..2, fn _attempt ->
+          Task.async(fn ->
+            with_unboxed_connection(fn ->
+              Integrations.submit_manual_intake(session_context, operation, attrs)
+            end)
+          end)
+        end)
+
+      assert_receive {^barrier, :raw_archive_ready, writer}, 5_000
+      refute_receive {^barrier, :raw_archive_ready, _other_writer}, 100
+      send(writer, {barrier, :release})
+
+      results = Task.await_many(tasks, 10_000)
+
       assert [{:ok, first}, {:ok, replay}] = results
-      assert blocked_count == 1
       assert replay.normalized_event.id == first.normalized_event.id
     after
       with_unboxed_connection(fn ->
-        Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
-        drop_raw_archive_body_wait!()
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
@@ -305,8 +319,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
 
     try do
       with_unboxed_connection(fn ->
-        install_source_insert_barrier!()
-
         insert_minimal_session_scope!(
           organization_id,
           workspace_id,
@@ -319,13 +331,9 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       results =
         ["first", "second"]
         |> Enum.map(fn replay_identity ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              submit_manual_intake(session_context, source_identity, replay_identity)
-            end)
-          end)
+          fn -> submit_manual_intake(session_context, source_identity, replay_identity) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [
                {:ok, %{duplicate?: false, normalized_event: %{outcome: "accepted"}}},
@@ -341,7 +349,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     after
       with_unboxed_connection(fn ->
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
-        drop_source_insert_barrier!()
       end)
     end
   end
@@ -365,10 +372,27 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
 
     blocked_body = "Task: blocked replay conflict loser #{suffix}"
     accepted_body = "Task: accepted replay conflict winner #{suffix}"
-    lock_key = :erlang.phash2(source_identity, 2_000_000_000)
+    barrier = make_ref()
+    test_process = self()
+
+    OfficeGraph.Integrations.ManualIntakePersistenceTestAdapter.configure!(
+      raw_archive: fn
+        %{body: ^blocked_body} ->
+          send(test_process, {barrier, :raw_archive_ready, self()})
+
+          receive do
+            {^barrier, :release} -> :ok
+          after
+            5_000 -> {:error, :test_barrier_timeout}
+          end
+
+        _attrs ->
+          :ok
+      end
+    )
 
     try do
-      result =
+      {operation, source_id} =
         with_unboxed_connection(fn ->
           insert_minimal_session_scope!(
             organization_id,
@@ -384,38 +408,36 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
             )
 
           source_id = insert_external_source!(source_identity)
-          install_raw_archive_body_wait!(blocked_body, lock_key)
-          Repo.query!("SELECT pg_advisory_lock(97001, $1)", [lock_key])
-
-          task =
-            Task.async(fn ->
-              with_unboxed_connection(fn ->
-                capture_submit(session_context, operation, %{
-                  source_identity: source_identity,
-                  replay_identity: replay_identity,
-                  body: blocked_body
-                })
-              end)
-            end)
-
-          wait_for_blocked_raw_archive!(lock_key)
-
-          accepted =
-            insert_accepted_intake_event_for_source!(
-              session_context,
-              operation,
-              source_id,
-              source_identity,
-              replay_identity,
-              accepted_body
-            )
-
-          Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
-
-          {Task.await(task, 10_000), accepted}
+          {operation, source_id}
         end)
 
-      {loser_result, accepted} = result
+      task =
+        Task.async(fn ->
+          with_unboxed_connection(fn ->
+            capture_submit(session_context, operation, %{
+              source_identity: source_identity,
+              replay_identity: replay_identity,
+              body: blocked_body
+            })
+          end)
+        end)
+
+      assert_receive {^barrier, :raw_archive_ready, writer}, 5_000
+
+      accepted =
+        with_unboxed_connection(fn ->
+          insert_accepted_intake_event_for_source!(
+            session_context,
+            operation,
+            source_id,
+            source_identity,
+            replay_identity,
+            accepted_body
+          )
+        end)
+
+      send(writer, {barrier, :release})
+      loser_result = Task.await(task, 10_000)
       accepted_event_id = accepted.id
 
       assert {:error, {:manual_intake_replay_conflict, ^accepted_event_id}} = loser_result
@@ -425,8 +447,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
              end) == 1
     after
       with_unboxed_connection(fn ->
-        Repo.query!("SELECT pg_advisory_unlock(97001, $1)", [lock_key])
-        drop_raw_archive_body_wait!()
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
@@ -448,20 +468,12 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     ]
 
     try do
-      with_unboxed_connection(fn ->
-        install_tenancy_insert_barrier!()
-      end)
-
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              capture_ensure_local_scope(attrs)
-            end)
-          end)
+          fn -> capture_ensure_local_scope(attrs) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.organization.id == second.organization.id
@@ -475,7 +487,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     after
       with_unboxed_connection(fn ->
         cleanup_tenancy_scope!(organization_slug)
-        drop_tenancy_insert_barrier!()
       end)
     end
   end
@@ -495,20 +506,12 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     ]
 
     try do
-      with_unboxed_connection(fn ->
-        install_owner_bootstrap_insert_barriers!(attrs[:owner_email], attrs[:organization_slug])
-      end)
-
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              capture_bootstrap_local_owner(attrs)
-            end)
-          end)
+          fn -> capture_bootstrap_local_owner(attrs) end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.principal.id == second.principal.id
@@ -524,7 +527,6 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
     after
       with_unboxed_connection(fn ->
         cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
-        drop_owner_bootstrap_insert_barriers!()
       end)
     end
   end

@@ -68,6 +68,7 @@ defmodule OfficeGraph.Integrations.Actions.PersistManualIntake do
   alias OfficeGraph.Integrations.{
     ExternalSource,
     ManualIntakeActionResult,
+    ManualIntakePersistence,
     NormalizedIntakeEvent,
     RawArchive
   }
@@ -204,7 +205,8 @@ defmodule OfficeGraph.Integrations.Actions.PersistManualIntake do
   defp persist_intake(session_context, operation, attrs, source, duplicate_of) do
     outcome = if duplicate_of, do: "duplicate", else: "accepted"
 
-    with {:ok, raw_archive} <-
+    with :ok <- ManualIntakePersistence.before_write(:raw_archive, attrs),
+         {:ok, raw_archive} <-
            create(RawArchive, %{
              organization_id: session_context.organization_id,
              workspace_id: session_context.workspace_id,
