@@ -198,6 +198,49 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       run {OfficeGraph.GitHubIntegration.OutboundCommands, mode: :persist}
     end
 
+    action :persist_revoked_outcome, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.GitHubIntegration.Installation,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :action_id, :uuid, allow_nil?: false
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :state, :string
+      argument :failure_class, :string
+      argument :failure_code, :string
+      argument :attempted_at, :utc_datetime_usec
+      argument :completed_at, :utc_datetime_usec
+
+      run {OfficeGraph.GitHubIntegration.OutboundWorker, mode: :revoked_outcome}
+    end
+
+    action :ensure_outbound_trace, :boolean do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision
+      ]
+
+      argument :action_id, :uuid, allow_nil?: false
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :state, :string, allow_nil?: false
+
+      validate argument_in(:state, ~w(succeeded terminal))
+      run {OfficeGraph.GitHubIntegration.OutboundWorker, mode: :trace}
+    end
+
     action :reply_to_github_review,
            OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
       argument :idempotency_key, :string,

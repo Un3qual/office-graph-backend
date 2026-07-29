@@ -1,6 +1,8 @@
 defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   @moduledoc false
 
+  @behaviour Ash.Resource.Actions.Implementation
+
   @max_attempts 10
   @terminal_retry_delay_seconds 5
 
@@ -9,9 +11,10 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
     max_attempts: @max_attempts,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
-  alias OfficeGraph.{Audit, DurableDelivery, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, DurableDelivery, Operations, Revisions}
 
   alias OfficeGraph.GitHubIntegration.{
+    ActionSupport,
     Installation,
     InstallationCredential,
     OutboundAction,
@@ -23,6 +26,23 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   alias OfficeGraph.SoftwareProving.{CheckRun, PullRequest, ReviewComment, ReviewThread}
 
   require Ash.Query
+
+  @impl true
+  def run(input, [mode: :revoked_outcome], _context) do
+    case persist_revoked_outcome_action(input.arguments) do
+      {:ok, action} -> {:ok, action}
+      {:error, error} -> ActionSupport.rollback(OutboundAction, error)
+    end
+  end
+
+  def run(input, [mode: :trace], _context) do
+    case ensure_trace_action(input.arguments) do
+      :ok -> {:ok, true}
+      {:error, error} -> ActionSupport.rollback(OutboundAction, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   @impl Oban.Worker
   def timeout(_job), do: :timer.minutes(30)
@@ -760,32 +780,84 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
 
   defp persist_revoked_outcome(action, attrs) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, _locked_operation} <- Operations.lock_operation(action.operation_id),
-             {:ok, current} <-
-               action(action.id, action.organization_id, action.workspace_id),
-             {:ok, current} <- record_revoked_action(current, attrs),
-             :ok <- revoke_installation_if_winner(current) do
-          current
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      action_attrs =
+        attrs
+        |> Map.take([
+          :state,
+          :failure_class,
+          :failure_code,
+          :attempted_at,
+          :completed_at
+        ])
+        |> Map.merge(%{
+          action_id: action.id,
+          operation_id: action.operation_id,
+          organization_id: action.organization_id,
+          workspace_id: action.workspace_id
+        })
+
+      OutboundAction
+      |> Ash.ActionInput.for_action(:persist_revoked_outcome, action_attrs)
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
   end
 
+  defp persist_revoked_outcome_action(attrs) do
+    with {:ok, _operation} <- Operations.lock_operation(attrs.operation_id),
+         {:ok, current} <- locked_action(attrs),
+         {:ok, current} <- record_revoked_action(current, attrs),
+         :ok <- revoke_installation_if_winner(current) do
+      {:ok, current}
+    end
+  end
+
+  defp locked_action(attrs) do
+    query =
+      OutboundAction
+      |> Ash.Query.filter(
+        id == ^attrs.action_id and operation_id == ^attrs.operation_id and
+          organization_id == ^attrs.organization_id
+      )
+      |> action_workspace_scope(attrs.workspace_id)
+      |> Ash.Query.lock(:for_update)
+
+    case Ash.read_one(query, authorize?: false) do
+      {:ok, %OutboundAction{} = action} -> {:ok, action}
+      {:ok, nil} -> {:error, :integration_storage_unavailable}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp action_workspace_scope(query, nil), do: Ash.Query.filter(query, is_nil(workspace_id))
+
+  defp action_workspace_scope(query, workspace_id),
+    do: Ash.Query.filter(query, workspace_id == ^workspace_id)
+
   defp record_revoked_action(%OutboundAction{state: state} = action, attrs)
-       when state in ["pending", "retryable"],
-       do: update_action(action, attrs)
+       when state in ["pending", "retryable"] do
+    update_action(
+      action,
+      Map.take(attrs, [
+        :state,
+        :failure_class,
+        :failure_code,
+        :attempted_at,
+        :completed_at
+      ])
+    )
+  end
 
   defp record_revoked_action(action, _attrs), do: {:ok, action}
 
   defp revoke_installation_if_winner(%OutboundAction{} = action) do
     if action.state == "terminal" and action.failure_code == "installation_revoked" do
-      case RecordLoader.get(Installation, action.installation_id,
-             authorize?: false,
-             not_found_error?: false
-           ) do
+      query =
+        Installation
+        |> Ash.Query.filter(id == ^action.installation_id)
+        |> Ash.Query.lock(:for_update)
+
+      case Ash.read_one(query, authorize?: false) do
         {:ok,
          %Installation{
            organization_id: organization_id,
@@ -815,7 +887,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   defp update_installation_lifecycle(installation, lifecycle_state) do
     installation
     |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: lifecycle_state})
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     :ok
   end
@@ -877,38 +949,45 @@ defmodule OfficeGraph.GitHubIntegration.OutboundWorker do
   end
 
   defp trace(action, state) do
-    operation = %{id: action.operation_id, principal_id: action.principal_id}
-    event = "github.#{action.action_kind}.#{state}"
-
-    Repo.transaction(fn ->
-      with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
-        Audit.record_once!(operation, event, "github_outbound_action", action.id)
-        Revisions.record_once!(operation, "github_outbound_action", action.id, event, event)
-        :ok
-      else
-        {:error, error} -> Repo.rollback(error)
-      end
+    StorageResult.run(fn ->
+      OutboundAction
+      |> Ash.ActionInput.for_action(:ensure_outbound_trace, %{
+        action_id: action.id,
+        operation_id: action.operation_id,
+        organization_id: action.organization_id,
+        workspace_id: action.workspace_id,
+        state: state
+      })
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
     |> case do
-      {:ok, :ok} -> :ok
+      {:ok, true} -> :ok
       {:error, _error} -> {:error, :integration_storage_unavailable}
     end
-  rescue
-    _error in [
-      Ash.Error.Forbidden,
-      Ash.Error.Framework,
-      Ash.Error.Invalid,
-      Ash.Error.Unknown,
-      DBConnection.ConnectionError,
-      Ecto.ConstraintError,
-      Ecto.StaleEntryError,
-      Postgrex.Error,
-      RuntimeError
-    ] ->
-      {:error, :integration_storage_unavailable}
-  catch
-    _kind, _reason -> {:error, :integration_storage_unavailable}
   end
+
+  defp ensure_trace_action(attrs) do
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id),
+         {:ok, action} <- locked_action(attrs),
+         :ok <- validate_trace_state(action, attrs.state) do
+      event = "github.#{action.action_kind}.#{attrs.state}"
+
+      _audit =
+        Audit.record_once!(operation, event, "github_outbound_action", action.id)
+
+      _revision =
+        Revisions.record_once!(operation, "github_outbound_action", action.id, event, event)
+
+      :ok
+    end
+  end
+
+  defp validate_trace_state(%OutboundAction{state: state}, state)
+       when state in ["succeeded", "terminal"],
+       do: :ok
+
+  defp validate_trace_state(_action, _state), do: {:error, :forbidden}
 
   defp retry_completed_trace, do: {:snooze, @terminal_retry_delay_seconds}
 
