@@ -1,10 +1,7 @@
 defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   @moduledoc false
 
-  alias OfficeGraph.Identity.{ExternalIdentityLink, Principal}
-  alias OfficeGraph.Repo
-
-  require Ash.Query
+  alias OfficeGraph.Identity.{ExternalIdentityLink, ReconciliationResult}
 
   @storage_exceptions [
     DBConnection.ConnectionError,
@@ -12,6 +9,8 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     Ecto.StaleEntryError,
     Postgrex.Error
   ]
+
+  @provider_subject_constraint "external_identity_links_provider_provider_tenant_subject_index"
 
   def reconcile(claims, opts) do
     case reconcile_with_evidence(claims, opts) do
@@ -24,10 +23,9 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     with {:ok, identity} <- normalized_oidc_identity(claims),
          {:ok, config} <- reconciliation_config(opts) do
       with_storage_boundary(fn ->
-        Repo.transaction(fn ->
-          lock_reconciliation!(identity, config)
-          reconcile_locked(identity, config)
-        end)
+        identity
+        |> run_reconciliation(config)
+        |> normalize_result()
       end)
     end
   end
@@ -77,188 +75,54 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     end
   end
 
-  defp reconcile_locked(identity, config) do
-    case external_identity_link(config, identity.subject) do
-      nil -> reconcile_new_identity(identity, config)
-      link -> reconcile_existing_identity(link, identity)
-    end
-  end
+  defp run_reconciliation(identity, config) do
+    input = %{
+      provider: config.provider,
+      provider_tenant: config.provider_tenant,
+      subject: identity.subject,
+      verified_email: identity.verified_email
+    }
 
-  defp reconcile_existing_identity(link, identity) do
-    case link do
-      %ExternalIdentityLink{status: "review_required"} ->
-        rejected_with_evidence(:identity_review_required, link)
-
-      %ExternalIdentityLink{status: "disabled"} ->
-        rejected_with_evidence(:identity_disabled, link)
-
-      %ExternalIdentityLink{
-        status: "active",
-        linking_state: "linked",
-        principal_id: principal_id
-      } ->
-        case Ash.get(Principal, principal_id,
-               authorize?: false,
-               not_found_error?: false
-             ) do
-          {:ok, %Principal{kind: "human", status: "active"} = principal} ->
-            if verified_identifier_compatible?(link, identity) do
-              authenticated_link =
-                link
-                |> Ash.Changeset.for_update(:record_authentication, %{
-                  last_authenticated_at: DateTime.utc_now()
-                })
-                |> Repo.ash_update!()
-
-              {:ok, %{principal: principal, external_identity_link: authenticated_link}}
-            else
-              reviewed_link =
-                link
-                |> Ash.Changeset.for_update(:set_lifecycle, %{
-                  status: "review_required",
-                  linking_state: "review_required",
-                  review_reason: "verified_identifier_conflict"
-                })
-                |> Repo.ash_update!()
-
-              rejected_with_evidence(:identity_review_required, reviewed_link)
-            end
-
-          {:ok, _ineligible_or_inactive} ->
-            rejected_with_evidence(:principal_disabled, link)
-
-          {:error, error} ->
-            raise error
+    case run_reconciliation_action(input) do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if provider_subject_conflict?(error) do
+          run_reconciliation_action(input)
+        else
+          {:error, error}
         end
+
+      result ->
+        result
     end
   end
 
-  defp verified_identifier_compatible?(
-         %ExternalIdentityLink{verified_email: verified_email},
-         %{verified_email: verified_email}
-       ),
-       do: true
-
-  defp verified_identifier_compatible?(link, identity) do
-    external_links_for_email(identity.verified_email) == [] and
-      case principals_for_email(identity.verified_email) do
-        [] -> true
-        [%Principal{id: principal_id}] -> principal_id == link.principal_id
-        _conflicting_principals -> false
-      end
-  end
-
-  defp reconcile_new_identity(
-         identity,
-         %{
-           account_linking_policy: :verified_email_existing_principal
-         } = config
-       ) do
-    case external_links_for_email(identity.verified_email) do
-      [] ->
-        link_verified_principal(identity, config)
-
-      _incompatible_links ->
-        persist_review_link(identity, config, "verified_identifier_conflict")
-    end
-  end
-
-  defp link_verified_principal(identity, config) do
-    case principals_for_email(identity.verified_email) do
-      [] ->
-        persist_review_link(identity, config, "unlinked_verified_identifier")
-
-      [%Principal{kind: "human", status: "active"} = principal] ->
-        now = DateTime.utc_now()
-
-        link =
-          Repo.ash_create!(
-            ExternalIdentityLink,
-            %{
-              principal_id: principal.id,
-              provider: config.provider,
-              provider_tenant: config.provider_tenant,
-              subject: identity.subject,
-              verified_email: identity.verified_email,
-              status: "active",
-              linking_state: "linked",
-              first_linked_at: now,
-              last_authenticated_at: now
-            }
-          )
-
-        {:ok, %{principal: principal, external_identity_link: link}}
-
-      [%Principal{}] ->
-        persist_review_link(identity, config, "ineligible_principal")
-
-      _ambiguous_principals ->
-        persist_review_link(identity, config, "ambiguous_verified_identifier")
-    end
-  end
-
-  defp persist_review_link(identity, config, reason) do
-    link =
-      Repo.ash_create!(
-        ExternalIdentityLink,
-        %{
-          provider: config.provider,
-          provider_tenant: config.provider_tenant,
-          subject: identity.subject,
-          verified_email: identity.verified_email,
-          status: "review_required",
-          linking_state: "review_required",
-          review_reason: reason
-        }
-      )
-
-    rejected_with_evidence(:identity_review_required, link)
-  end
-
-  defp external_identity_link(config, subject) do
+  defp run_reconciliation_action(input) do
     ExternalIdentityLink
-    |> Ash.Query.filter(
-      provider == ^config.provider and provider_tenant == ^config.provider_tenant and
-        subject == ^subject
-    )
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.ActionInput.for_action(:reconcile_oidc_identity, input)
+    |> Ash.run_action(authorize?: false)
   end
 
-  defp external_links_for_email(verified_email) do
-    ExternalIdentityLink
-    |> Ash.Query.filter(verified_email == ^verified_email)
-    |> Ash.read!(authorize?: false)
-  end
+  defp provider_subject_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) == @provider_subject_constraint
 
-  defp principals_for_email(verified_email) do
-    Principal
-    |> Ash.Query.filter(fragment("lower(btrim(?))", email) == ^verified_email)
-    |> Ash.read!(authorize?: false)
-  end
-
-  defp lock_reconciliation!(identity, config) do
-    [
-      "external-identity-subject:#{config.provider}:#{config.provider_tenant}:#{identity.subject}",
-      "external-identity-email:#{identity.verified_email}"
-    ]
-    |> Enum.sort()
-    |> Enum.each(fn key ->
-      Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
+      _other ->
+        false
     end)
   end
 
-  defp with_storage_boundary(fun) do
-    case fun.() do
-      {:ok, result} -> result
-      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
-      result -> result
-    end
-  rescue
-    _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
+  defp normalize_result({:ok, %ReconciliationResult{} = result}) do
+    ReconciliationResult.to_public_result(result)
   end
 
-  defp rejected_with_evidence(reason, link) do
-    {:error, reason, %{external_identity_link: link}}
+  defp normalize_result({:error, _error}), do: {:error, :identity_storage_unavailable}
+
+  defp with_storage_boundary(fun) do
+    fun.()
+  rescue
+    _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

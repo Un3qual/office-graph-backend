@@ -346,34 +346,6 @@
     {
       "occurrences": [
         [
-          "sha256:ad922ec2845d8f8f35711024076f2440dda032a68b1e9639aca164936a8a090f",
-          "direct_ecto",
-          "Repo.transaction",
-          "reconcile_with_evidence/2",
-          1
-        ],
-        [
-          "sha256:363cb9fabcf9d03ddb953e46c313105505e892f76280c4c818b62e97f82df957",
-          "raw_sql",
-          "fragment",
-          "principals_for_email/1",
-          1
-        ],
-        [
-          "sha256:c765435284174b681d57011ee80c32726530d5a3dd27c1b9ab4f679185c8010e",
-          "raw_sql",
-          "Repo.query!",
-          "lock_reconciliation!/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Identity",
-      "path": "lib/office_graph/identity/services/external_identity_reconciliation.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:ce4945289c6d30bd560491090afd2526e6101ae682439cf35fb206a4c04ca1bf",
           "direct_ecto",
           "Repo.transaction",
