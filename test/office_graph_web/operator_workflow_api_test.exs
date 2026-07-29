@@ -293,7 +293,6 @@ defmodule OfficeGraphWeb.OperatorWorkflowApiTest do
         operation,
         List.last(packets).version,
         %{
-          objective: "Run retained beyond the compact relationship limit.",
           source_surface: "operator_workflow_graphql_test",
           reason: "Prove the latest run remains linked.",
           authority_posture: "human_supervised"

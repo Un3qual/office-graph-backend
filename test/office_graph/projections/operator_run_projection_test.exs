@@ -551,6 +551,63 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
     refute inspect(accept_evidence) =~ "evidence.accept"
   end
 
+  test "run state, activity, and option pages reject cross-scope and unauthorized reads" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, local_check} = create_required_verification_check(bootstrap.session)
+    {:ok, local_run} = create_ready_run(bootstrap.session, local_check)
+
+    suffix = System.unique_integer([:positive])
+
+    {:ok, foreign_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Foreign projection workspace #{suffix}",
+        workspace_slug: "foreign-projection-workspace-#{suffix}",
+        initiative_name: "Foreign projection initiative #{suffix}",
+        initiative_slug: "foreign-projection-initiative-#{suffix}"
+      )
+
+    {:ok, foreign_check} = create_required_verification_check(foreign_scope.session)
+    {:ok, foreign_run} = create_ready_run(foreign_scope.session, foreign_check)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_state(bootstrap.session, foreign_run.run.id)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_activity_page(bootstrap.session, foreign_run.run.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               foreign_run.run.id,
+               "observation",
+               limit: 20,
+               after_cursor: nil
+             )
+
+    denied_session = create_session_with_capabilities!(bootstrap, [])
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_state(denied_session, local_run.run.id)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_activity_page(denied_session, local_run.run.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_command_option_page(
+               denied_session,
+               local_run.run.id,
+               "observation",
+               limit: 20,
+               after_cursor: nil
+             )
+  end
+
   defp collect_activity_edges(session, run_id, cursor \\ nil, edges \\ []) do
     assert {:ok, page} =
              Projections.operator_run_activity_page(session, run_id,
