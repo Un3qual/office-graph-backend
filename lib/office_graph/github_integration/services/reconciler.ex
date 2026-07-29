@@ -1978,10 +1978,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          :ok <-
            validate_retry_request_authority(operation, %{
              installation_id: attrs.installation_id
-           }),
-         :ok <- persistence_ready(:outcome) do
+           }) do
       case attrs.mode do
         "record_failure" ->
+          checkpoint!(:outcome)
           outcome = persist_outcome!(operation.id, outcome_attrs(attrs))
 
           persist_installation_failure!(
@@ -1994,12 +1994,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           {:ok, outcome}
 
         "record_storage_failure" ->
+          checkpoint!(:outcome)
           {:ok, persist_outcome!(operation.id, outcome_attrs(attrs))}
 
         "finalize_failure" ->
+          checkpoint!(:terminal_outcome)
           {:ok, finalize_failure!(operation, attrs)}
 
         "pre_operation" ->
+          checkpoint!(:terminal_outcome)
           outcome = persist_outcome!(operation.id, outcome_attrs(attrs))
 
           if pre_operation_outcome?(outcome, attrs),

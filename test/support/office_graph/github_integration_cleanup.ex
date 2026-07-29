@@ -318,7 +318,19 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
 
   def oban_job_for_action!(action_id) do
     [job] = jobs_for_action(action_id)
+    to_oban_job(job)
+  end
 
+  def oban_job_for_delivery!(delivery_id, worker) do
+    [job] =
+      delivery_id
+      |> jobs_for_delivery()
+      |> Enum.filter(&(&1.worker == worker))
+
+    to_oban_job(job)
+  end
+
+  defp to_oban_job(job) do
     job
     |> Map.from_struct()
     |> Map.take([:id, :args, :worker, :queue, :meta, :attempt, :max_attempts])

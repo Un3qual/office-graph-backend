@@ -17,6 +17,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
     InstallationCredential,
     RecordLoader,
     Reconciler,
+    ReconciliationPersistence,
     ReconciliationRequest
   }
 
@@ -128,6 +129,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
            ),
          {:ok, operation_request} <-
            operation_request(installation, credential_id, request, event_id),
+         :ok <- reconciliation_persistence_ready(:operation),
          {:ok, operation} <- Operations.start_system_operation(operation_request) do
       operation
       |> Reconciler.reconcile(request)
@@ -551,6 +553,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorker do
   end
 
   defp retry_terminal_failure, do: {:snooze, @terminal_retry_delay_seconds}
+
+  defp reconciliation_persistence_ready(stage) do
+    case ReconciliationPersistence.before_write(stage) do
+      :ok -> :ok
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
+  end
 
   @pre_operation_failure_codes ~w(
     provider_rate_limited
