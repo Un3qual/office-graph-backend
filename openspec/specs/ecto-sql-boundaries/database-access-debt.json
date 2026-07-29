@@ -73,34 +73,6 @@
     {
       "occurrences": [
         [
-          "sha256:395e96161004c294bf3b6baf34925ac7a87e90630ab4f743dc134cb525861807",
-          "raw_sql",
-          "Repo.query",
-          "activity_page/3",
-          1
-        ],
-        [
-          "sha256:682745cddc326f99c63b8314de1279752e75883229ddb93872adf653cfb3c04b",
-          "raw_sql",
-          "Repo.query",
-          "command_option_page/4",
-          1
-        ],
-        [
-          "sha256:be459e250ea2728743d65e4c9a22ae631aa63abd26f5600c0c0f3f0297c522a0",
-          "raw_sql",
-          "Repo.query",
-          "read_command_option_summary/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Projections",
-      "path": "lib/office_graph/projections/run_state.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:50a47a7d18565f4ac959005dd990459e73c8ed4d68ac02438c6b6546e11c7e16",
           "direct_ecto",
           "Repo.insert_all",

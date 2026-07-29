@@ -380,6 +380,104 @@ defmodule OfficeGraph.Runs.Run do
                  )
              )
     end
+
+    count :observation_command_option_count, :required_checks do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and state == "pending" and
+                 string_trim(verification_check.title) != "" and
+                 string_downcase(string_trim(verification_check.title)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ] and
+                 not exists(
+                   OfficeGraph.Runs.ExecutionObservation,
+                   work_run_id == parent(run_id) and
+                     organization_id == parent(organization_id) and
+                     workspace_id == parent(workspace_id) and
+                     verification_check_id == parent(verification_check_id) and
+                     normalized_status == "succeeded" and freshness_state == "fresh" and
+                     trust_basis in ["owner_attested", "signed_provider_payload"]
+                 )
+             )
+    end
+
+    count :evidence_candidate_command_option_count, :execution_observations do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and normalized_status == "succeeded" and
+                 freshness_state == "fresh" and
+                 trust_basis in ["owner_attested", "signed_provider_payload"] and
+                 string_trim(verification_check.title) != "" and
+                 string_downcase(string_trim(verification_check.title)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ] and
+                 string_trim(source_kind) != "" and string_trim(source_identity) != "" and
+                 string_downcase(string_trim(source_kind)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ] and
+                 string_downcase(string_trim(source_identity)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ] and
+                 exists(
+                   OfficeGraph.Runs.RunRequiredCheck,
+                   run_id == parent(work_run_id) and
+                     organization_id == parent(organization_id) and
+                     workspace_id == parent(workspace_id) and
+                     verification_check_id == parent(verification_check_id) and
+                     state == "pending"
+                 )
+             )
+    end
+
+    count :evidence_acceptance_command_option_count, :evidence_candidates do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and candidate_state == "candidate" and
+                 freshness_state == "fresh" and
+                 trust_basis in ["owner_attested", "signed_provider_payload"] and
+                 string_trim(verification_check.title) != "" and
+                 string_downcase(string_trim(verification_check.title)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ] and
+                 exists(
+                   OfficeGraph.Runs.RunRequiredCheck,
+                   run_id == parent(work_run_id) and
+                     organization_id == parent(organization_id) and
+                     workspace_id == parent(workspace_id) and
+                     verification_check_id == parent(verification_check_id) and
+                     state == "pending"
+                 )
+             )
+    end
+
+    count :waiver_command_option_count, :required_checks do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and state == "pending" and
+                 string_trim(verification_check.title) != "" and
+                 string_downcase(string_trim(verification_check.title)) not in [
+                   "[redacted]",
+                   "<redacted>",
+                   "redacted",
+                   "***"
+                 ]
+             )
+    end
   end
 
   actions do

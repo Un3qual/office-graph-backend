@@ -45,7 +45,7 @@
 - [x] 7.1 Replace conversation start/append transactions and advisory lock with Ash identities, relationship reads, query locking, and action-owned writes
 - [x] 7.2 Replace proposal/context/agent-state conversation SQL with scoped Ash relationships and typed projection results
 - [x] 7.3 Replace operator-workflow relationship, packet-check, and run SQL with batched Ash relationships, aggregates, and keyset-backed reads
-- [ ] 7.4 Replace run-state activity, command-option, and summary SQL with typed Ash reads while preserving cursor and bounded-query contracts
+- [x] 7.4 Replace run-state activity, command-option, and summary SQL with typed Ash reads while preserving cursor and bounded-query contracts
 - [ ] 7.5 Run projection query-count, pagination, redaction, soft-deletion, authorization, and cross-scope regression suites
 
 ## 8. Remove Test And Test-Support Escapes

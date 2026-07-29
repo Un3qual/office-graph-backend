@@ -1179,7 +1179,11 @@ defmodule OfficeGraph.Runs do
                :evidence_item_count,
                :verification_result_count,
                :missing_evidence_count,
-               :pending_evidence_candidate_count
+               :pending_evidence_candidate_count,
+               :observation_command_option_count,
+               :evidence_candidate_command_option_count,
+               :evidence_acceptance_command_option_count,
+               :waiver_command_option_count
              ],
              authorize?: false
            ) do
@@ -1191,7 +1195,11 @@ defmodule OfficeGraph.Runs do
          evidence_items: run.evidence_item_count,
          verification_results: run.verification_result_count,
          missing_evidence: run.missing_evidence_count,
-         pending_evidence_candidates: run.pending_evidence_candidate_count
+         pending_evidence_candidates: run.pending_evidence_candidate_count,
+         observation_command_options: run.observation_command_option_count,
+         evidence_candidate_command_options: run.evidence_candidate_command_option_count,
+         evidence_acceptance_command_options: run.evidence_acceptance_command_option_count,
+         waiver_command_options: run.waiver_command_option_count
        }}
     end
   end

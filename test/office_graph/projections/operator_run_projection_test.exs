@@ -196,6 +196,60 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
            ]
   end
 
+  test "operator run command options preserve keyset pagination and exact summary counts" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    assert {:ok, run_state} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert run_state.command_option_summary.observation == 2
+    assert run_state.command_option_summary.waiver == 2
+    refute run_state.command_options_overflow
+
+    assert {:ok, first_page} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               run_result.run.id,
+               "observation",
+               limit: 1,
+               after_cursor: nil
+             )
+
+    assert [%{node: first_choice, cursor: cursor}] = first_page.edges
+    assert first_choice.observation.run_id == run_result.run.id
+    assert first_page.has_next_page?
+    refute first_page.has_previous_page?
+
+    assert {:ok, second_page} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               run_result.run.id,
+               "observation",
+               limit: 1,
+               after_cursor: cursor
+             )
+
+    assert [%{node: second_choice}] = second_page.edges
+    refute second_page.has_next_page?
+    assert second_page.has_previous_page?
+    refute second_choice.key == first_choice.key
+
+    assert MapSet.new([
+             first_choice.observation.verification_check_id,
+             second_choice.observation.verification_check_id
+           ]) == MapSet.new([first_check.id, second_check.id])
+
+    activity_edges = collect_activity_edges(bootstrap.session, run_result.run.id)
+
+    assert activity_edges
+           |> Enum.filter(&(&1.node.kind == "missing_evidence"))
+           |> MapSet.new(& &1.node.stable_id) ==
+             MapSet.new([first_check.id, second_check.id])
+  end
+
   test "operator run state source watermark changes when visible child state changes" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -495,5 +549,21 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
     assert accept_evidence.blocker_reasons == ["policy_restricted"]
     assert accept_evidence.target_ids == []
     refute inspect(accept_evidence) =~ "evidence.accept"
+  end
+
+  defp collect_activity_edges(session, run_id, cursor \\ nil, edges \\ []) do
+    assert {:ok, page} =
+             Projections.operator_run_activity_page(session, run_id,
+               limit: 1,
+               after_cursor: cursor
+             )
+
+    edges = edges ++ page.edges
+
+    if page.has_next_page? do
+      collect_activity_edges(session, run_id, List.last(page.edges).cursor, edges)
+    else
+      edges
+    end
   end
 end

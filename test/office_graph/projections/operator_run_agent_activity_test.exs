@@ -91,4 +91,34 @@ defmodule OfficeGraph.Projections.OperatorRunAgentActivityTest do
 
     refute Enum.any?(next_page.edges, &(&1.node.stable_id == invoked.execution.id))
   end
+
+  test "activity keyset pages every typed source without duplicates" do
+    context = AgentRuntimeSupport.invocation_fixture()
+    invoked = AgentRuntimeSupport.invoke_human(context)
+
+    edges = collect_activity_edges(context.session, context.run.id)
+    identities = Enum.map(edges, &{&1.node.kind, &1.node.stable_id})
+
+    assert length(identities) == MapSet.size(MapSet.new(identities))
+    assert {"agent_execution", invoked.execution.id} in identities
+    assert {"agent_context", invoked.context_package.id} in identities
+    assert Enum.any?(identities, &match?({"required_check", _id}, &1))
+    assert Enum.any?(identities, &match?({"missing_evidence", _id}, &1))
+  end
+
+  defp collect_activity_edges(session, run_id, cursor \\ nil, edges \\ []) do
+    assert {:ok, page} =
+             Projections.operator_run_activity_page(session, run_id,
+               limit: 1,
+               after_cursor: cursor
+             )
+
+    edges = edges ++ page.edges
+
+    if page.has_next_page? do
+      collect_activity_edges(session, run_id, List.last(page.edges).cursor, edges)
+    else
+      edges
+    end
+  end
 end
