@@ -152,6 +152,32 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
       change OfficeGraph.WorkGraph.ReviewFinding.ValidateOpenTask
     end
 
+    action :persist_review_finding_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.GraphRelationship,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule,
+        OfficeGraph.WorkGraph.Task
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :task_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, default: ""
+
+      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_review_finding}
+    end
+
     update :mark_verified_complete do
       public? false
       accept []

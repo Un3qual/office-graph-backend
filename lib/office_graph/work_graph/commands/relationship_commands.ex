@@ -1,7 +1,8 @@
 defmodule OfficeGraph.WorkGraph.RelationshipCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Authorization, Operations, Repo}
+  alias OfficeGraph.{Authorization, Operations}
+  alias OfficeGraph.WorkGraph.CommandActionResult
   alias OfficeGraph.WorkGraph.CommandSupport, as: Support
 
   alias OfficeGraph.WorkGraph.{
@@ -18,40 +19,23 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
   @run_resource Module.concat([OfficeGraph, Runs, Run])
   @integration_event_resource Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
 
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: mode], context)
+      when mode in [:create, :create_system, :supersede, :archive, :restore] do
+    run_contract_action(mode, input.arguments, context)
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
+
   def create(session_context, operation, %RelationshipRequest{} = request) do
-    with :ok <- Operations.validate_operation_context(session_context, operation),
-         :ok <- RelationshipRequest.validate(request),
-         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
-         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
-         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
-         :ok <- validate_provenance_scope(session_context, request),
-         :ok <- authorize(session_context, operation, definition, endpoints, :create) do
-      Support.transaction(fn ->
-        RelationshipCyclePolicy.lock_and_validate!(
-          definition,
-          session_context.organization_id,
-          request
-        )
-
-        relationship =
-          persist_active_relationship!(
-            session_context,
-            operation,
-            definition,
-            request,
-            nil
-          )
-
-        Support.trace!(
-          operation,
-          "graph_relationship.create",
-          "graph_relationship",
-          relationship.id
-        )
-
-        relationship
-      end)
-    end
+    run_relationship_contract(
+      :persist_create_contract,
+      operation,
+      request,
+      session_context
+    )
   end
 
   def create(session_context, operation, request) when is_map(request) or is_list(request) do
@@ -71,37 +55,12 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
       workspace_id: operation.workspace_id
     }
 
-    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
-         true <- is_binary(operation.workspace_id),
-         :ok <- RelationshipRequest.validate(request),
-         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
-         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
-         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
-         :ok <- validate_provenance_scope(session_context, request),
-         :ok <- authorize_system_cross_workspace(operation, endpoints) do
-      Support.transaction(fn ->
-        RelationshipCyclePolicy.lock_and_validate!(
-          definition,
-          session_context.organization_id,
-          request
-        )
-
-        relationship =
-          persist_active_relationship!(session_context, operation, definition, request, nil)
-
-        Support.trace!(
-          operation,
-          "graph_relationship.create",
-          "graph_relationship",
-          relationship.id
-        )
-
-        relationship
-      end)
-    else
-      false -> {:error, :forbidden}
-      error -> error
-    end
+    run_relationship_contract(
+      :persist_system_create_contract,
+      operation,
+      request,
+      session_context
+    )
   end
 
   def create_system(_operation, _request), do: {:error, :forbidden}
@@ -112,42 +71,191 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
         %GraphRelationship{} = relationship,
         %RelationshipRequest{} = request
       ) do
+    run_relationship_contract(
+      :persist_supersede_contract,
+      operation,
+      request,
+      session_context,
+      relationship.id
+    )
+  end
+
+  def supersede(_session_context, _operation, _relationship, _request) do
+    {:error, {:invalid_relationship_request, :request}}
+  end
+
+  def archive(session_context, operation, %GraphRelationship{} = relationship, _attrs) do
+    run_simple_relationship_contract(
+      :persist_archive_contract,
+      operation,
+      relationship.id,
+      session_context
+    )
+  end
+
+  def archive(_session_context, _operation, _relationship, _attrs),
+    do: {:error, :forbidden}
+
+  def restore(session_context, operation, %GraphRelationship{} = relationship, attrs) do
+    GraphRelationship
+    |> Ash.ActionInput.for_action(:persist_restore_contract, %{
+      operation_id: operation.id,
+      relationship_id: relationship.id,
+      valid_from: Map.get(Map.new(attrs || %{}), :valid_from)
+    })
+    |> Ash.run_action(actor: session_context, authorize?: false)
+    |> normalize_contract_result()
+  end
+
+  def restore(_session_context, _operation, _relationship, _attrs),
+    do: {:error, :forbidden}
+
+  defp run_contract_action(mode, attrs, context) do
+    actor = Map.get(context, :actor)
+
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id) do
+      mode
+      |> persist_contract(actor, operation, attrs)
+      |> case do
+        {:ok, relationship} ->
+          CommandActionResult.accepted(relationship)
+
+        {:error, error} ->
+          CommandActionResult.rejected(error)
+      end
+    else
+      {:error, error} -> CommandActionResult.rejected(error)
+    end
+  end
+
+  defp persist_contract(:create, session_context, operation, attrs) do
+    persist_create(session_context, operation, action_request(attrs))
+  end
+
+  defp persist_contract(:create_system, _actor, operation, attrs) do
+    session_context = %{
+      principal_id: operation.principal_id,
+      organization_id: operation.organization_id,
+      workspace_id: operation.workspace_id
+    }
+
+    persist_system_create(session_context, operation, action_request(attrs))
+  end
+
+  defp persist_contract(:supersede, session_context, operation, attrs) do
+    persist_supersede(
+      session_context,
+      operation,
+      attrs.relationship_id,
+      action_request(attrs)
+    )
+  end
+
+  defp persist_contract(:archive, session_context, operation, attrs) do
+    persist_archive(session_context, operation, attrs.relationship_id)
+  end
+
+  defp persist_contract(:restore, session_context, operation, attrs) do
+    persist_restore(session_context, operation, attrs.relationship_id, attrs.valid_from)
+  end
+
+  defp persist_create(session_context, operation, request) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <- RelationshipRequest.validate(request),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- validate_provenance_scope(session_context, request),
+         :ok <- authorize(session_context, operation, definition, endpoints, :create) do
+      RelationshipCyclePolicy.lock_and_validate!(
+        definition,
+        session_context.organization_id,
+        request
+      )
+
+      relationship =
+        persist_active_relationship!(session_context, operation, definition, request, nil)
+
+      Support.trace!(
+        operation,
+        "graph_relationship.create",
+        "graph_relationship",
+        relationship.id
+      )
+
+      {:ok, relationship}
+    end
+  end
+
+  defp persist_system_create(session_context, operation, request) do
+    with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
+         true <- is_binary(operation.workspace_id),
+         :ok <- RelationshipRequest.validate(request),
+         {:ok, definition} <- RelationshipDefinitions.fetch_by_key(request.definition_key),
+         :ok <- RelationshipOperationPolicy.validate(operation, definition, :create),
+         {:ok, endpoints} <- validate_endpoints(session_context, definition, request),
+         :ok <- validate_provenance_scope(session_context, request),
+         :ok <- authorize_system_cross_workspace(operation, endpoints) do
+      RelationshipCyclePolicy.lock_and_validate!(
+        definition,
+        session_context.organization_id,
+        request
+      )
+
+      relationship =
+        persist_active_relationship!(session_context, operation, definition, request, nil)
+
+      Support.trace!(
+        operation,
+        "graph_relationship.create",
+        "graph_relationship",
+        relationship.id
+      )
+
+      {:ok, relationship}
+    else
+      false -> {:error, :forbidden}
+      error -> error
+    end
+  end
+
+  defp persist_supersede(session_context, operation, relationship_id, request) do
     with :ok <- Operations.validate_operation_context(session_context, operation),
          :ok <- RelationshipRequest.validate(request) do
-      Support.transaction(fn ->
-        locked = lock_relationship!(relationship.id)
-        validate_relationship_scope(session_context, locked) |> rollback_on_error!()
+      locked = lock_relationship!(relationship_id)
+      validate_relationship_scope(session_context, locked) |> rollback_on_error!()
 
-        definition =
-          request.definition_key
-          |> RelationshipDefinitions.fetch_by_key()
-          |> unwrap_or_rollback!()
+      definition =
+        request.definition_key
+        |> RelationshipDefinitions.fetch_by_key()
+        |> unwrap_or_rollback!()
 
-        RelationshipOperationPolicy.validate(operation, definition, :supersede)
-        |> rollback_on_error!()
+      RelationshipOperationPolicy.validate(operation, definition, :supersede)
+      |> rollback_on_error!()
 
-        endpoints =
-          session_context
-          |> validate_endpoints(definition, request)
-          |> unwrap_or_rollback!()
+      endpoints =
+        session_context
+        |> validate_endpoints(definition, request)
+        |> unwrap_or_rollback!()
 
-        existing_endpoints =
-          session_context
-          |> endpoints_for_relationship(locked)
-          |> unwrap_or_rollback!()
+      existing_endpoints =
+        session_context
+        |> endpoints_for_relationship(locked)
+        |> unwrap_or_rollback!()
 
-        validate_provenance_scope(session_context, request) |> rollback_on_error!()
+      validate_provenance_scope(session_context, request) |> rollback_on_error!()
 
-        authorize(
-          session_context,
-          operation,
-          definition,
-          endpoints,
-          :supersede,
-          [existing_endpoints]
-        )
-        |> rollback_on_error!()
+      authorize(
+        session_context,
+        operation,
+        definition,
+        endpoints,
+        :supersede,
+        [existing_endpoints]
+      )
+      |> rollback_on_error!()
 
+      relationship =
         case locked.lifecycle do
           "active" ->
             superseded =
@@ -193,38 +301,35 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
             replay_supersede!(locked.id, operation.id)
 
           lifecycle ->
-            Repo.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
+            Support.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
         end
-      end)
+
+      {:ok, relationship}
     end
   end
 
-  def supersede(_session_context, _operation, _relationship, _request) do
-    {:error, {:invalid_relationship_request, :request}}
-  end
-
-  def archive(session_context, operation, %GraphRelationship{} = relationship, _attrs) do
+  defp persist_archive(session_context, operation, relationship_id) do
     with :ok <- Operations.validate_operation_context(session_context, operation) do
-      Support.transaction(fn ->
-        locked = lock_relationship!(relationship.id)
-        validate_relationship_scope(session_context, locked) |> rollback_on_error!()
+      locked = lock_relationship!(relationship_id)
+      validate_relationship_scope(session_context, locked) |> rollback_on_error!()
 
-        definition =
-          locked.definition_id
-          |> RelationshipDefinitions.fetch_by_id()
-          |> unwrap_or_rollback!()
+      definition =
+        locked.definition_id
+        |> RelationshipDefinitions.fetch_by_id()
+        |> unwrap_or_rollback!()
 
-        RelationshipOperationPolicy.validate(operation, definition, :archive)
-        |> rollback_on_error!()
+      RelationshipOperationPolicy.validate(operation, definition, :archive)
+      |> rollback_on_error!()
 
-        endpoints =
-          session_context
-          |> endpoints_for_relationship(locked)
-          |> unwrap_or_rollback!()
+      endpoints =
+        session_context
+        |> endpoints_for_relationship(locked)
+        |> unwrap_or_rollback!()
 
-        authorize(session_context, operation, definition, endpoints, :archive)
-        |> rollback_on_error!()
+      authorize(session_context, operation, definition, endpoints, :archive)
+      |> rollback_on_error!()
 
+      relationship =
         case locked.lifecycle do
           "active" ->
             archived =
@@ -248,39 +353,37 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
             locked
 
           lifecycle ->
-            Repo.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
+            Support.rollback({:invalid_relationship_lifecycle, locked.id, lifecycle})
         end
-      end)
+
+      {:ok, relationship}
     end
   end
 
-  def archive(_session_context, _operation, _relationship, _attrs),
-    do: {:error, :forbidden}
-
-  def restore(session_context, operation, %GraphRelationship{} = relationship, attrs) do
+  defp persist_restore(session_context, operation, relationship_id, valid_from) do
     with :ok <- Operations.validate_operation_context(session_context, operation) do
-      Support.transaction(fn ->
-        locked = lock_relationship!(relationship.id)
-        validate_relationship_scope(session_context, locked) |> rollback_on_error!()
+      locked = lock_relationship!(relationship_id)
+      validate_relationship_scope(session_context, locked) |> rollback_on_error!()
 
-        definition =
-          locked.definition_id
-          |> RelationshipDefinitions.fetch_by_id()
-          |> unwrap_or_rollback!()
+      definition =
+        locked.definition_id
+        |> RelationshipDefinitions.fetch_by_id()
+        |> unwrap_or_rollback!()
 
-        RelationshipOperationPolicy.validate(operation, definition, :restore)
-        |> rollback_on_error!()
+      RelationshipOperationPolicy.validate(operation, definition, :restore)
+      |> rollback_on_error!()
 
-        request = relationship_request(locked, attrs)
+      request = relationship_request(locked, %{valid_from: valid_from})
 
-        endpoints =
-          session_context
-          |> validate_endpoints(definition, request)
-          |> unwrap_or_rollback!()
+      endpoints =
+        session_context
+        |> validate_endpoints(definition, request)
+        |> unwrap_or_rollback!()
 
-        authorize(session_context, operation, definition, endpoints, :restore)
-        |> rollback_on_error!()
+      authorize(session_context, operation, definition, endpoints, :restore)
+      |> rollback_on_error!()
 
+      relationship =
         case locked.lifecycle do
           "archived" ->
             RelationshipCyclePolicy.lock_and_validate!(
@@ -311,14 +414,75 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
             locked
 
           _lifecycle ->
-            Repo.rollback({:relationship_restore_ineligible, locked.id})
+            Support.rollback({:relationship_restore_ineligible, locked.id})
         end
-      end)
+
+      {:ok, relationship}
     end
   end
 
-  def restore(_session_context, _operation, _relationship, _attrs),
-    do: {:error, :forbidden}
+  defp run_relationship_contract(
+         action,
+         operation,
+         request,
+         session_context,
+         relationship_id \\ nil
+       ) do
+    GraphRelationship
+    |> Ash.ActionInput.for_action(
+      action,
+      request
+      |> relationship_action_attrs(operation.id)
+      |> maybe_put_relationship_id(relationship_id)
+    )
+    |> Ash.run_action(actor: session_context, authorize?: false)
+    |> normalize_contract_result()
+  end
+
+  defp run_simple_relationship_contract(action, operation, relationship_id, session_context) do
+    GraphRelationship
+    |> Ash.ActionInput.for_action(action, %{
+      operation_id: operation.id,
+      relationship_id: relationship_id
+    })
+    |> Ash.run_action(actor: session_context, authorize?: false)
+    |> normalize_contract_result()
+  end
+
+  defp normalize_contract_result(result) do
+    result
+    |> Support.normalize_action_result()
+    |> case do
+      {:ok, %CommandActionResult{} = action_result} ->
+        CommandActionResult.to_public_result(action_result)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp relationship_action_attrs(request, operation_id) do
+    request
+    |> Map.from_struct()
+    |> Map.put(:operation_id, operation_id)
+  end
+
+  defp maybe_put_relationship_id(attrs, nil), do: attrs
+
+  defp maybe_put_relationship_id(attrs, relationship_id),
+    do: Map.put(attrs, :relationship_id, relationship_id)
+
+  defp action_request(attrs) do
+    struct!(RelationshipRequest, %{
+      definition_key: attrs.definition_key,
+      source_item_id: attrs.source_item_id,
+      target_item_id: attrs.target_item_id,
+      workspace_id: attrs.workspace_id,
+      valid_from: attrs.valid_from,
+      run_id: attrs.run_id,
+      integration_event_id: attrs.integration_event_id
+    })
+  end
 
   defp validate_endpoints(session_context, definition, request) do
     with {:ok, source} <- Support.ash_get(GraphItem, request.source_item_id),
@@ -468,7 +632,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
     if relationship.workspace_id == governing_workspace_id do
       relationship
     else
-      Repo.rollback({:relationship_governing_scope_conflict, :workspace_id})
+      Support.rollback({:relationship_governing_scope_conflict, :workspace_id})
     end
   end
 
@@ -497,13 +661,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
     |> Support.ash_read_one_internal()
     |> case do
       {:ok, nil} ->
-        Repo.rollback({:relationship_supersede_replay_missing, superseded_relationship_id})
+        Support.rollback({:relationship_supersede_replay_missing, superseded_relationship_id})
 
       {:ok, replacement} ->
         replacement
 
       {:error, error} ->
-        Repo.rollback(error)
+        Support.rollback(error)
     end
   end
 
@@ -547,10 +711,10 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
   end
 
   defp unwrap_or_rollback!({:ok, value}), do: value
-  defp unwrap_or_rollback!({:error, error}), do: Repo.rollback(error)
+  defp unwrap_or_rollback!({:error, error}), do: Support.rollback(error)
 
   defp rollback_on_error!(:ok), do: :ok
-  defp rollback_on_error!({:error, error}), do: Repo.rollback(error)
+  defp rollback_on_error!({:error, error}), do: Support.rollback(error)
 
   defp relationship_request(relationship, attrs) do
     attrs = Map.new(attrs || %{})

@@ -7,6 +7,7 @@ defmodule OfficeGraph.WorkGraph do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Content,
       OfficeGraph.Identity,
       OfficeGraph.Operations,

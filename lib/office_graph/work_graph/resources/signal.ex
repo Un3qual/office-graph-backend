@@ -93,6 +93,27 @@ defmodule OfficeGraph.WorkGraph.Signal do
               ]}
     end
 
+    action :persist_signal_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.GraphItem
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, default: ""
+
+      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_signal}
+    end
+
     update :set_state do
       accept [:state]
       validate one_of(:state, ~w(open closed))

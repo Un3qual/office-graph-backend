@@ -493,20 +493,6 @@
     {
       "occurrences": [
         [
-          "sha256:71e3d5152524759c6bb3fa00f4a9670dad65a2a144b825e58334ab72250b7f5a",
-          "direct_ecto",
-          "Repo.transaction",
-          "transaction/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.WorkGraph",
-      "path": "lib/office_graph/work_graph/commands/command_support.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:a5fcb557168af1c98837d67ee837df0a5154fef3bdffb87b73c8bd2f254df35b",
           "direct_ecto",
           "Repo.transaction",

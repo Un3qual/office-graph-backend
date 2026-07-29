@@ -163,6 +163,84 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
       change OfficeGraph.WorkGraph.VerificationCheck.ValidateOpenReviewFinding
     end
 
+    action :persist_verification_check_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.GraphRelationship,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule,
+        OfficeGraph.WorkGraph.ReviewFinding
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :review_finding_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, default: ""
+
+      run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_verification_check}
+    end
+
+    action :persist_completion_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.Artifact,
+        OfficeGraph.WorkGraph.EvidenceItem,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.GraphRelationship,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule,
+        OfficeGraph.WorkGraph.ReviewFinding,
+        OfficeGraph.WorkGraph.Task,
+        OfficeGraph.WorkGraph.VerificationResult
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, default: ""
+      argument :artifact_uri, :string
+      argument :policy_basis, :string
+      argument :reason, :string
+
+      run {OfficeGraph.WorkGraph.VerificationCommands, mode: :complete_verification}
+    end
+
+    action :persist_evidence_satisfaction_contract,
+           OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.ReviewFinding,
+        OfficeGraph.WorkGraph.Task
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid, allow_nil?: false
+
+      run {OfficeGraph.WorkGraph.VerificationCommands, mode: :satisfy_from_evidence}
+    end
+
     update :mark_satisfied do
       public? false
       accept []

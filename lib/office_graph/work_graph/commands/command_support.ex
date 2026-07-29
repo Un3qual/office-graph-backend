@@ -1,19 +1,33 @@
+defmodule OfficeGraph.WorkGraph.CommandActionResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :value, :term
+    field :reason, :term
+  end
+
+  def accepted(value), do: new(status: "accepted", value: value)
+  def rejected(reason), do: new(status: "rejected", reason: reason)
+
+  def to_public_result(%__MODULE__{status: "accepted", value: value}), do: {:ok, value}
+  def to_public_result(%__MODULE__{status: "rejected", reason: reason}), do: {:error, reason}
+end
+
 defmodule OfficeGraph.WorkGraph.CommandSupport do
   @moduledoc false
 
   alias OfficeGraph.Audit
+  alias OfficeGraph.CommandSupport
   alias OfficeGraph.Content
   alias OfficeGraph.Operations
-  alias OfficeGraph.Repo
   alias OfficeGraph.Revisions
 
   alias OfficeGraph.WorkGraph.GraphItem
 
   require Ash.Query
-
-  def transaction(fun) do
-    Repo.transaction(fun)
-  end
 
   def create_document!(session_context, operation, plain_text) do
     session_context
@@ -86,7 +100,7 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
   end
 
   def unwrap_ash({:error, error}) do
-    Repo.rollback(error)
+    rollback(error)
   end
 
   def unwrap_content({:ok, document}) do
@@ -94,7 +108,21 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
   end
 
   def unwrap_content({:error, error}) do
-    Repo.rollback(error)
+    rollback(error)
+  end
+
+  def rollback(error) do
+    Ash.DataLayer.rollback(GraphItem, {:work_graph_action_error, error})
+  end
+
+  def normalize_action_result(result) do
+    result
+    |> CommandSupport.normalize_action_result()
+    |> case do
+      {:error, {:work_graph_action_error, error}} -> {:error, error}
+      {:error, %Ash.Error.Invalid{changeset: %Ash.Changeset{} = changeset}} -> {:error, changeset}
+      result -> result
+    end
   end
 
   def validate_scope(session_context, record) do
@@ -109,7 +137,7 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
   def validate_scope!(session_context, record) do
     case validate_scope(session_context, record) do
       :ok -> :ok
-      {:error, error} -> Repo.rollback(error)
+      {:error, error} -> rollback(error)
     end
   end
 
@@ -120,7 +148,7 @@ defmodule OfficeGraph.WorkGraph.CommandSupport do
   def validate_open_review_finding!(%{lifecycle_state: "open"}), do: :ok
 
   def validate_open_review_finding!(review_finding) do
-    Repo.rollback({:invalid_review_finding_status, review_finding.id})
+    rollback({:invalid_review_finding_status, review_finding.id})
   end
 
   def create_graph_item!(id, session_context, resource_type, resource_id, title) do

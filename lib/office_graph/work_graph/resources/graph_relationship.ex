@@ -136,6 +136,129 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       change set_attribute(:valid_until, nil)
     end
 
+    action :persist_create_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :definition_key, :string, allow_nil?: false
+      argument :source_item_id, :uuid, allow_nil?: false
+      argument :target_item_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :valid_from, :utc_datetime_usec
+      argument :run_id, :uuid
+      argument :integration_event_id, :uuid
+
+      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :create}
+    end
+
+    action :persist_system_create_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :definition_key, :string, allow_nil?: false
+      argument :source_item_id, :uuid, allow_nil?: false
+      argument :target_item_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :valid_from, :utc_datetime_usec
+      argument :run_id, :uuid
+      argument :integration_event_id, :uuid
+
+      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :create_system}
+    end
+
+    action :persist_supersede_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :relationship_id, :uuid, allow_nil?: false
+      argument :definition_key, :string, allow_nil?: false
+      argument :source_item_id, :uuid, allow_nil?: false
+      argument :target_item_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :valid_from, :utc_datetime_usec
+      argument :run_id, :uuid
+      argument :integration_event_id, :uuid
+
+      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :supersede}
+    end
+
+    action :persist_archive_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :relationship_id, :uuid, allow_nil?: false
+
+      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :archive}
+    end
+
+    action :persist_restore_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Integrations.NormalizedIntakeEvent,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :relationship_id, :uuid, allow_nil?: false
+      argument :valid_from, :utc_datetime_usec
+
+      run {OfficeGraph.WorkGraph.RelationshipCommands, mode: :restore}
+    end
+
     update :mark_superseded do
       public? false
       accept [:operation_id, :asserting_principal_id]
