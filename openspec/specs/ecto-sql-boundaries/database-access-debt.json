@@ -3,27 +3,6 @@
     {
       "occurrences": [
         [
-          "sha256:8e7f5ce82714fb62a4dc1b2513f3d6d138ed08bac267ce3b91b402c27338f911",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_binding/2",
-          1
-        ],
-        [
-          "sha256:5855a5a24a30df3aa392f7a71d0d563971737b7e67dab86ff5f59bb10068a207",
-          "raw_sql",
-          "Repo.query!",
-          "lock_binding_scope!/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:52bdf0486d917e12227ba2ca83ba803171ae8109eaf212db41ec4b7cf11b437b",
           "direct_ecto",
           "Repo.transaction",
@@ -61,27 +40,6 @@
       ],
       "owner": "OfficeGraph.AgentRuntime",
       "path": "lib/office_graph/agent_runtime/commands/context_expansion_commands.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:95976fd089ebb2fc0596b3af4935d6ec6a501215b77e20395a622c69c4de0fea",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist/5",
-          1
-        ],
-        [
-          "sha256:fe0a6dea91738cafda1101e4e8e12f83f462f8a87d9bb39c7055e249ed79a594",
-          "raw_sql",
-          "Repo.query!",
-          "lock_invocation_identity!/3",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/commands/invocation_commands.ex",
       "remediation_change": "remove-direct-database-access"
     },
     {

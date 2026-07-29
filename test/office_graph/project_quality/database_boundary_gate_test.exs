@@ -137,6 +137,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     sources =
       Enum.map(
         [
+          "lib/office_graph/agent_runtime.ex",
+          "lib/office_graph/agent_runtime/commands/invocation_commands.ex",
           "lib/office_graph/authorization.ex",
           "lib/office_graph/content.ex",
           "lib/office_graph/identity.ex",

@@ -43,6 +43,44 @@ defmodule OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
   end
 end
 
+defmodule OfficeGraph.AgentRuntime.InvocationResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :operation, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Operations.OperationCorrelation]
+
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+    field :authority_snapshot, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AuthoritySnapshot]
+
+    field :context_package, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+    field :context_entries, {:array, :struct},
+      allow_nil?: false,
+      constraints: [items: [instance_of: OfficeGraph.AgentRuntime.ContextEntry]]
+  end
+
+  def build!(operation, execution, snapshot, context_package, context_entries) do
+    new!(
+      operation: operation,
+      execution: execution,
+      authority_snapshot: snapshot,
+      context_package: context_package,
+      context_entries: context_entries
+    )
+  end
+end
+
 defimpl Jason.Encoder, for: OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
   def encode(result, options) do
     Jason.Encode.map(
@@ -301,6 +339,41 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       validate one_of(:invocation_mode, ~w(human automatic))
       validate one_of(:origin, ~w(operator system_trigger))
       validate one_of(:state, @lifecycle_states)
+    end
+
+    action :persist_invocation_contract, OfficeGraph.AgentRuntime.InvocationResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.AgentDefinition,
+        OfficeGraph.AgentRuntime.AuthoritySnapshot,
+        OfficeGraph.AgentRuntime.ContextEntry,
+        OfficeGraph.AgentRuntime.ContextPackage,
+        OfficeGraph.AgentRuntime.OrganizationBinding,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkGraph.GraphItem
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+
+      argument :expected_operation, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.Operations.OperationCorrelation]
+
+      argument :binding_id, :uuid, allow_nil?: false
+      argument :graph_item_id, :uuid, allow_nil?: false
+      argument :run_id, :uuid, allow_nil?: false
+      argument :origin, :string, allow_nil?: false
+      argument :invocation_mode, :string, allow_nil?: false
+      argument :idempotency_key, :string, allow_nil?: false
+      argument :requested_outcome, :string, allow_nil?: false
+      argument :requested_capabilities, {:array, :string}, allow_nil?: false
+      argument :autonomy_mode, :string, allow_nil?: false
+      argument :delegator_principal_id, :uuid
+
+      run {OfficeGraph.AgentRuntime.InvocationCommands, mode: :persist}
     end
 
     update :transition do

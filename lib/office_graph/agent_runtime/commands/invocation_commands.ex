@@ -1,15 +1,17 @@
 defmodule OfficeGraph.AgentRuntime.InvocationCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Authorization, Operations, Repo}
+  alias OfficeGraph.{Authorization, CommandSupport, Operations}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentDefinition,
     AgentExecution,
     Authority,
     AuthoritySnapshot,
     ContextAssembler,
     ExecutionWorker,
+    InvocationResult,
     InvocationRequest,
     OrganizationBinding,
     StorageResult
@@ -18,6 +20,36 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
   require Ash.Query
 
   @human_action "agent.invoke"
+  @request_fields [
+    :binding_id,
+    :graph_item_id,
+    :run_id,
+    :origin,
+    :invocation_mode,
+    :idempotency_key,
+    :requested_outcome,
+    :requested_capabilities,
+    :autonomy_mode
+  ]
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :persist], _context) do
+    attrs = input.arguments
+    request = struct!(InvocationRequest, Map.take(attrs, @request_fields))
+
+    case persist_records(
+           attrs.expected_operation,
+           request,
+           attrs.delegator_principal_id
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def invoke(session_context, operation, %InvocationRequest{} = request)
       when is_map(session_context) and is_map(operation) do
@@ -137,54 +169,65 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     if valid?, do: :ok, else: {:error, :forbidden}
   end
 
-  defp persist(operation, request, binding, definition, delegator_principal_id) do
+  defp persist(operation, request, _binding, _definition, delegator_principal_id) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, locked_operation} <- Operations.lock_operation(operation.id),
-             :ok <- validate_locked_operation(locked_operation, operation),
-             {:ok, locked_binding, locked_definition} <-
-               lock_binding_and_definition(binding, definition) do
-          lock_invocation_identity!(locked_binding.id, request.run_id, request.idempotency_key)
-
-          case existing_execution(locked_operation, locked_binding, request) do
-            {:ok, nil} ->
-              with :ok <- validate_new_invocation_lifecycle(locked_binding, locked_definition),
-                   {:ok, authority} <-
-                     Authority.compute(locked_binding, locked_definition, request,
-                       delegator_principal_id: delegator_principal_id,
-                       operation_id: locked_operation.id
-                     ) do
-                create_invocation!(
-                  locked_operation,
-                  locked_binding,
-                  locked_definition,
-                  request,
-                  authority,
-                  delegator_principal_id
-                )
-              else
-                {:error, reason} -> Repo.rollback(reason)
-              end
-
-            {:ok, execution} ->
-              replay_invocation!(
-                execution,
-                locked_operation,
-                locked_binding,
-                locked_definition,
-                request,
-                delegator_principal_id
-              )
-
-            {:error, reason} ->
-              Repo.rollback(reason)
-          end
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-      |> normalize_transaction_result()
+      AgentExecution
+      |> Ash.ActionInput.for_action(
+        :persist_invocation_contract,
+        request
+        |> Map.from_struct()
+        |> Map.put(:operation_id, operation.id)
+        |> Map.put(:expected_operation, operation)
+        |> Map.put(:delegator_principal_id, delegator_principal_id)
+      )
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
+  end
+
+  defp persist_records(operation, request, delegator_principal_id) do
+    with {:ok, locked_operation} <- Operations.lock_operation(operation.id),
+         :ok <- validate_locked_operation(locked_operation, operation),
+         {:ok, binding, definition} <-
+           scoped_binding(
+             request.binding_id,
+             operation.organization_id,
+             operation.workspace_id
+           ),
+         {:ok, locked_binding, locked_definition} <-
+           lock_binding_and_definition(binding, definition) do
+      case existing_execution(locked_operation, locked_binding, request) do
+        {:ok, nil} ->
+          with :ok <- validate_new_invocation_lifecycle(locked_binding, locked_definition),
+               {:ok, authority} <-
+                 Authority.compute(locked_binding, locked_definition, request,
+                   delegator_principal_id: delegator_principal_id,
+                   operation_id: locked_operation.id
+                 ) do
+            create_invocation(
+              locked_operation,
+              locked_binding,
+              locked_definition,
+              request,
+              authority,
+              delegator_principal_id
+            )
+          end
+
+        {:ok, execution} ->
+          replay_invocation(
+            execution,
+            locked_operation,
+            locked_binding,
+            locked_definition,
+            request,
+            delegator_principal_id
+          )
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
   end
 
   defp validate_locked_operation(locked, expected) do
@@ -274,7 +317,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
     |> Ash.read_one(authorize?: false)
   end
 
-  defp create_invocation!(
+  defp create_invocation(
          operation,
          binding,
          definition,
@@ -282,50 +325,72 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
          authority,
          delegator_principal_id
        ) do
-    projected_entries =
-      case ContextAssembler.project(authority, request.graph_item_id, request.run_id) do
-        {:ok, entries} -> entries
-        {:error, reason} -> Repo.rollback(reason)
+    with {:ok, projected_entries} <-
+           ContextAssembler.project(authority, request.graph_item_id, request.run_id),
+         {:ok, execution} <-
+           AgentExecution
+           |> Ash.Changeset.for_create(:create, %{
+             definition_id: definition.id,
+             organization_binding_id: binding.id,
+             organization_id: binding.organization_id,
+             workspace_id: binding.workspace_id,
+             run_id: request.run_id,
+             graph_item_id: request.graph_item_id,
+             agent_principal_id: binding.agent_principal_id,
+             delegator_principal_id: delegator_principal_id,
+             operation_id: operation.id,
+             invocation_mode: request.invocation_mode,
+             origin: request.origin,
+             requested_outcome: request.requested_outcome,
+             autonomy_mode: request.autonomy_mode,
+             state: "queued",
+             state_version: 1,
+             attempt_count: 0,
+             idempotency_key: request.idempotency_key
+           })
+           |> Ash.create(
+             authorize?: false,
+             return_notifications?: true,
+             upsert?: true,
+             upsert_identity: :unique_binding_run_idempotency,
+             upsert_fields: []
+           )
+           |> CommandSupport.normalize_ash_write() do
+      if execution.operation_id == operation.id do
+        create_invocation_dependencies(
+          operation,
+          execution,
+          authority,
+          projected_entries
+        )
+      else
+        replay_invocation(
+          execution,
+          operation,
+          binding,
+          definition,
+          request,
+          delegator_principal_id
+        )
       end
-
-    execution =
-      Repo.ash_create!(AgentExecution, %{
-        definition_id: definition.id,
-        organization_binding_id: binding.id,
-        organization_id: binding.organization_id,
-        workspace_id: binding.workspace_id,
-        run_id: request.run_id,
-        graph_item_id: request.graph_item_id,
-        agent_principal_id: binding.agent_principal_id,
-        delegator_principal_id: delegator_principal_id,
-        operation_id: operation.id,
-        invocation_mode: request.invocation_mode,
-        origin: request.origin,
-        requested_outcome: request.requested_outcome,
-        autonomy_mode: request.autonomy_mode,
-        state: "queued",
-        state_version: 1,
-        attempt_count: 0,
-        idempotency_key: request.idempotency_key
-      })
-
-    snapshot =
-      authority
-      |> Map.put(:execution_id, execution.id)
-      |> then(&Repo.ash_create!(AuthoritySnapshot, &1))
-
-    {context_package, context_entries} =
-      ContextAssembler.persist_initial!(execution, snapshot, operation, projected_entries)
-
-    case ExecutionWorker.prepare_initial(execution, snapshot) do
-      {:ok, _prepared_step} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
     end
-
-    invocation_result(operation, execution, snapshot, context_package, context_entries)
   end
 
-  defp replay_invocation!(
+  defp create_invocation_dependencies(operation, execution, authority, projected_entries) do
+    with {:ok, snapshot} <-
+           authority
+           |> Map.put(:execution_id, execution.id)
+           |> then(&Ash.Changeset.for_create(AuthoritySnapshot, :create, &1))
+           |> Ash.create(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         {context_package, context_entries} <-
+           ContextAssembler.persist_initial!(execution, snapshot, operation, projected_entries),
+         {:ok, _prepared_step} <- ExecutionWorker.prepare_initial(execution, snapshot) do
+      {:ok, invocation_result(operation, execution, snapshot, context_package, context_entries)}
+    end
+  end
+
+  defp replay_invocation(
          execution,
          operation,
          binding,
@@ -355,39 +420,31 @@ defmodule OfficeGraph.AgentRuntime.InvocationCommands do
       )
 
     if matching? do
-      snapshot =
+      snapshot_result =
         AuthoritySnapshot
         |> Ash.Query.filter(execution_id == ^execution.id and version == 1)
-        |> Ash.read_one!(authorize?: false)
+        |> Ash.read_one(authorize?: false)
 
-      case ContextAssembler.load_initial(execution.id) do
-        {:ok, {context_package, context_entries}} ->
-          invocation_result(operation, execution, snapshot, context_package, context_entries)
-
-        {:error, reason} ->
-          Repo.rollback(reason)
+      with {:ok, %AuthoritySnapshot{} = snapshot} <- snapshot_result,
+           {:ok, {context_package, context_entries}} <-
+             ContextAssembler.load_initial(execution.id) do
+        {:ok, invocation_result(operation, execution, snapshot, context_package, context_entries)}
+      else
+        {:ok, nil} -> {:error, :integration_storage_unavailable}
+        {:error, reason} -> {:error, reason}
       end
     else
-      Repo.rollback({:agent_invocation_idempotency_conflict, execution.id})
+      {:error, {:agent_invocation_idempotency_conflict, execution.id}}
     end
   end
 
   defp invocation_result(operation, execution, snapshot, context_package, context_entries) do
-    %{
-      operation: operation,
-      execution: execution,
-      authority_snapshot: snapshot,
-      context_package: context_package,
-      context_entries: context_entries
-    }
+    InvocationResult.build!(
+      operation,
+      execution,
+      snapshot,
+      context_package,
+      context_entries
+    )
   end
-
-  defp lock_invocation_identity!(binding_id, run_id, idempotency_key) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "agent-runtime:invoke:#{binding_id}:#{run_id}:#{idempotency_key}"
-    ])
-  end
-
-  defp normalize_transaction_result({:ok, result}), do: {:ok, result}
-  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
 end

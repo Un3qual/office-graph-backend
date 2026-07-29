@@ -1,3 +1,36 @@
+defmodule OfficeGraph.AgentRuntime.BindingResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :operation, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Operations.OperationCorrelation]
+
+    field :definition, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentDefinition]
+
+    field :binding, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.OrganizationBinding]
+
+    field :principal, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Identity.Principal]
+  end
+
+  def build!(operation, definition, binding, principal) do
+    new!(
+      operation: operation,
+      definition: definition,
+      binding: binding,
+      principal: principal
+    )
+  end
+end
+
 defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
   @moduledoc false
 
@@ -53,6 +86,25 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
 
       validate one_of(:lifecycle_state, ~w(active disabled revoked))
       change OfficeGraph.AgentRuntime.Changes.SyncBindingDisabledAt
+    end
+
+    action :persist_run_review_binding_contract, OfficeGraph.AgentRuntime.BindingResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.AgentDefinition,
+        OfficeGraph.Authorization.Capability,
+        OfficeGraph.Authorization.Role,
+        OfficeGraph.Authorization.RoleAssignment,
+        OfficeGraph.Authorization.RoleCapability,
+        OfficeGraph.Identity.Principal,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+
+      run {OfficeGraph.AgentRuntime, mode: :bind_run_review}
     end
 
     update :set_lifecycle_state do
