@@ -71,6 +71,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCommands do
     BindingCredential,
     BindingResult,
     Installation,
+    InstallationBindingStore,
     InstallationCredential,
     PermissionEntry,
     PermissionSnapshot,
@@ -108,7 +109,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCommands do
           |> Map.new()
           |> Map.put(:operation_id, operation.id)
         )
-        |> Ash.run_action(actor: session_context, authorize?: false)
+        |> InstallationBindingStore.persist(actor: session_context, authorize?: false)
       end
 
       action

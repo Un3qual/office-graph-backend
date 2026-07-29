@@ -58,6 +58,14 @@ config :office_graph,
        :github_record_loader,
        OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter
 
+config :office_graph,
+       :github_installation_binding_store,
+       OfficeGraph.GitHubIntegration.InstallationBindingStore.AshAdapter
+
+config :office_graph,
+       :authorization_decision_store,
+       OfficeGraph.Authorization.DecisionStore.AshAdapter
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

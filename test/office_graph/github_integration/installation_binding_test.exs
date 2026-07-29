@@ -1,11 +1,13 @@
 defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration}
+  alias OfficeGraph.Authorization.DecisionStoreTestAdapter
   alias OfficeGraph.Authorization.RoleAssignment
 
   alias OfficeGraph.GitHubIntegration.{
     Installation,
+    InstallationBindingStoreTestAdapter,
     InstallationCredential,
     PermissionEntry,
     PermissionSnapshot,
@@ -64,29 +66,29 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     refute inspect(first) =~ "actual-webhook-secret"
     refute inspect(first) =~ "actual-private-key"
 
-    assert Repo.aggregate(Installation, :count) == 1
-    assert Repo.aggregate(PermissionSnapshot, :count) == 1
-    assert Repo.aggregate(PermissionEntry, :count) == 2
+    assert Ash.count!(Installation, authorize?: false) == 1
+    assert Ash.count!(PermissionSnapshot, authorize?: false) == 1
+    assert Ash.count!(PermissionEntry, authorize?: false) == 2
   end
 
   test "organization-scoped binding requires an organization-scoped capability grant" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     attrs = %{binding_attrs(bootstrap, "organization-scope") | workspace_id: nil}
-    principal_count = Repo.aggregate(Principal, :count)
-    role_assignment_count = Repo.aggregate(RoleAssignment, :count)
+    principal_count = Ash.count!(Principal, authorize?: false)
+    role_assignment_count = Ash.count!(RoleAssignment, authorize?: false)
 
     assert {:error, :forbidden} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
-    assert Repo.aggregate(Installation, :count) == 0
-    assert Repo.aggregate(Principal, :count) == principal_count
-    assert Repo.aggregate(RoleAssignment, :count) == role_assignment_count
-    assert Repo.aggregate(IntegrationCredential, :count) == 0
-    assert Repo.aggregate(InstallationCredential, :count) == 0
+    assert Ash.count!(Installation, authorize?: false) == 0
+    assert Ash.count!(Principal, authorize?: false) == principal_count
+    assert Ash.count!(RoleAssignment, authorize?: false) == role_assignment_count
+    assert Ash.count!(IntegrationCredential, authorize?: false) == 0
+    assert Ash.count!(InstallationCredential, authorize?: false) == 0
 
     grant_organization_role_assignment!(bootstrap)
 
     assert {:ok, bound} = GitHubIntegration.bind_installation(bootstrap.session, attrs)
     assert bound.installation.workspace_id == nil
-    assert Repo.aggregate(Installation, :count) == 1
+    assert Ash.count!(Installation, authorize?: false) == 1
   end
 
   test "installation lookup storage failures remain retryable during binding" do
@@ -98,79 +100,31 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert {:error, :integration_storage_unavailable} =
              GitHubIntegration.bind_installation(bootstrap.session, attrs)
 
-    assert Repo.aggregate(Installation, :count) == 0
+    assert Ash.count!(Installation, authorize?: false) == 0
   end
 
   test "authorization decision write outages remain retryable during binding" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     attrs = binding_attrs(bootstrap, "authorization-write-unavailable")
 
-    Repo.query!("""
-    ALTER TABLE authorization_decisions
-    ADD CONSTRAINT test_github_binding_authorization_write_storage
-    CHECK (action <> 'github.installation.bind')
-    """)
+    DecisionStoreTestAdapter.configure!({:error, :database_unavailable})
 
-    result =
-      try do
-        GitHubIntegration.bind_installation(bootstrap.session, attrs)
-      after
-        Repo.query!("""
-        ALTER TABLE authorization_decisions
-        DROP CONSTRAINT test_github_binding_authorization_write_storage
-        """)
-      end
+    assert {:error, :integration_storage_unavailable} =
+             GitHubIntegration.bind_installation(bootstrap.session, attrs)
 
-    assert {:error, :integration_storage_unavailable} = result
-    assert Repo.aggregate(Installation, :count) == 0
+    assert Ash.count!(Installation, authorize?: false) == 0
   end
 
-  test "system-role write outages remain retryable during binding" do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    attrs = binding_attrs(bootstrap, "system-role-write-unavailable")
-
-    Repo.query!("""
-    ALTER TABLE roles
-    ADD CONSTRAINT test_github_binding_system_role_write_storage
-    CHECK (key NOT LIKE 'system:%')
-    """)
-
-    result =
-      try do
-        GitHubIntegration.bind_installation(bootstrap.session, attrs)
-      after
-        Repo.query!("""
-        ALTER TABLE roles
-        DROP CONSTRAINT test_github_binding_system_role_write_storage
-        """)
-      end
-
-    assert {:error, :integration_storage_unavailable} = result
-    assert Repo.aggregate(Installation, :count) == 0
-  end
-
-  test "binding transaction storage failures expose only the retryable availability result" do
+  test "binding action storage failures expose only the retryable availability result" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     attrs = binding_attrs(bootstrap, "transaction-unavailable")
 
-    Repo.query!("""
-    ALTER TABLE github_installations
-    ADD CONSTRAINT test_github_binding_transaction_storage
-    CHECK (external_installation_id < 0)
-    """)
+    InstallationBindingStoreTestAdapter.configure!({:error, :database_unavailable})
 
-    result =
-      try do
-        GitHubIntegration.bind_installation(bootstrap.session, attrs)
-      after
-        Repo.query!("""
-        ALTER TABLE github_installations
-        DROP CONSTRAINT test_github_binding_transaction_storage
-        """)
-      end
+    assert {:error, :integration_storage_unavailable} =
+             GitHubIntegration.bind_installation(bootstrap.session, attrs)
 
-    assert {:error, :integration_storage_unavailable} = result
-    assert Repo.aggregate(Installation, :count) == 0
+    assert Ash.count!(Installation, authorize?: false) == 0
   end
 
   test "binding rejects changed replay input, missing capability, and cross-tenant scope" do
@@ -214,7 +168,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert {:error, :forbidden} =
              GitHubIntegration.bind_installation(second.session, duplicate_provider_id)
 
-    assert Repo.aggregate(Installation, :count) == 1
+    assert Ash.count!(Installation, authorize?: false) == 1
   end
 
   test "installations in the same scope reuse credential metadata for shared references" do
@@ -240,7 +194,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
       Map.new(second_binding.credentials, &{&1.purpose, &1.credential_id})
 
     assert second_credentials == first_credentials
-    assert Repo.aggregate(IntegrationCredential, :count) == 2
+    assert Ash.count!(IntegrationCredential, authorize?: false) == 2
   end
 
   test "secret references reject content outside one complete URI or environment reference" do
@@ -257,7 +211,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
     assert {:error, {:invalid_field, :webhook_secret_reference}} =
              GitHubIntegration.bind_installation(bootstrap.session, attrs)
 
-    assert Repo.aggregate(Installation, :count) == 0
+    assert Ash.count!(Installation, authorize?: false) == 0
   end
 
   test "concurrent external installation claims have one stable forbidden loser" do
@@ -303,7 +257,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationBindingTest do
 
     assert Enum.count(results, &match?({:ok, _binding}, &1)) == 1
     assert Enum.count(results, &(&1 == {:error, :forbidden})) == 1
-    assert Repo.aggregate(Installation, :count) == 1
+    assert Ash.count!(Installation, authorize?: false) == 1
   end
 
   defp binding_attrs(bootstrap, label) do

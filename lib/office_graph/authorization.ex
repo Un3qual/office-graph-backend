@@ -6,8 +6,8 @@ defmodule OfficeGraph.Authorization do
   use Boundary, deps: [OfficeGraph.Identity], exports: []
 
   alias OfficeGraph.Authorization.{
-    AuthorizationDecision,
     Capability,
+    DecisionStore,
     PolicyBundle,
     Role,
     RoleAssignment,
@@ -396,14 +396,7 @@ defmodule OfficeGraph.Authorization do
       reason: reason
     }
 
-    AuthorizationDecision
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> case do
-      {:ok, _decision, _notifications} -> :ok
-      {:ok, _decision} -> :ok
-      {:error, error} -> {:error, {:authorization_decision_failed, error}}
-    end
+    DecisionStore.record(attrs)
   end
 
   defp operation_matches_session?(operation, session_context) do
