@@ -178,20 +178,6 @@
     {
       "occurrences": [
         [
-          "sha256:4788c2abfd5a6172b16143a570b33128cb74a54206cbb9564693b380eb5c0e7f",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_plain_document/3",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Content",
-      "path": "lib/office_graph/content.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:11dedea83d5cc5ea56b38ecd963e4040596287f5ac08552f0d9aa628379cab5b",
           "raw_sql",
           "fragment",
@@ -740,20 +726,6 @@
       ],
       "owner": "OfficeGraph.Runs",
       "path": "lib/office_graph/runs.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:c2a5133d347bc99add8ba7a5ee63db5c98afeb071a4dc3d142533bcbb4daa9ef",
-          "direct_ecto",
-          "Repo.transaction",
-          "ensure_local_scope/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Tenancy",
-      "path": "lib/office_graph/tenancy.ex",
       "remediation_change": "remove-direct-database-access"
     },
     {

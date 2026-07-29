@@ -10,6 +10,8 @@ defmodule OfficeGraph.Tenancy.Initiative do
     table "initiatives"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_slug: "initiatives_workspace_id_slug_index"
   end
 
   attributes do
@@ -53,6 +55,15 @@ defmodule OfficeGraph.Tenancy.Initiative do
 
     create :create do
       accept [:id, :organization_id, :workspace_id, :name, :slug]
+    end
+
+    create :ensure do
+      public? false
+      accept [:organization_id, :workspace_id, :name, :slug]
+      upsert? true
+      upsert_identity :unique_slug
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

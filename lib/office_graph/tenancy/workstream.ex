@@ -10,6 +10,8 @@ defmodule OfficeGraph.Tenancy.Workstream do
     table "workstreams"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_slug: "workstreams_initiative_id_slug_index"
   end
 
   attributes do
@@ -55,6 +57,15 @@ defmodule OfficeGraph.Tenancy.Workstream do
 
     create :create do
       accept [:id, :organization_id, :workspace_id, :initiative_id, :name, :slug]
+    end
+
+    create :ensure do
+      public? false
+      accept [:organization_id, :workspace_id, :initiative_id, :name, :slug]
+      upsert? true
+      upsert_identity :unique_slug
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

@@ -3,10 +3,16 @@ defmodule OfficeGraph.Tenancy do
   Public boundary for organizations, workspaces, initiatives, and scopes.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo], exports: []
+  use Boundary, deps: [], exports: []
 
-  alias OfficeGraph.Repo
-  alias OfficeGraph.Tenancy.{Initiative, Organization, Workspace, Workstream}
+  alias OfficeGraph.Tenancy.{Organization, Workspace}
+
+  @identity_constraints ~w[
+    organizations_slug_index
+    workspaces_organization_id_slug_index
+    initiatives_workspace_id_slug_index
+    workstreams_initiative_id_slug_index
+  ]
 
   def validate_workspace_scope(organization_id, workspace_id) do
     if is_binary(organization_id) and is_binary(workspace_id) do
@@ -25,75 +31,45 @@ defmodule OfficeGraph.Tenancy do
   end
 
   def ensure_local_scope(attrs) do
-    Repo.transaction(fn ->
-      organization =
-        get_or_create!(
-          Organization,
-          [slug: attrs[:organization_slug]],
-          %{
-            name: attrs[:organization_name],
-            slug: attrs[:organization_slug]
-          }
-        )
+    input =
+      attrs
+      |> Map.new()
+      |> Map.take([
+        :organization_name,
+        :organization_slug,
+        :workspace_name,
+        :workspace_slug,
+        :initiative_name,
+        :initiative_slug
+      ])
 
-      workspace =
-        get_or_create!(
-          Workspace,
-          [organization_id: organization.id, slug: attrs[:workspace_slug]],
-          %{
-            organization_id: organization.id,
-            name: attrs[:workspace_name],
-            slug: attrs[:workspace_slug]
-          }
-        )
+    case run_ensure_local_scope(input) do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if tenancy_identity_conflict?(error) do
+          run_ensure_local_scope(input)
+        else
+          {:error, error}
+        end
 
-      initiative =
-        get_or_create!(
-          Initiative,
-          [workspace_id: workspace.id, slug: attrs[:initiative_slug]],
-          %{
-            organization_id: organization.id,
-            workspace_id: workspace.id,
-            name: attrs[:initiative_name],
-            slug: attrs[:initiative_slug]
-          }
-        )
+      result ->
+        result
+    end
+  end
 
-      _workstream =
-        get_or_create!(
-          Workstream,
-          [initiative_id: initiative.id, slug: "default"],
-          %{
-            organization_id: organization.id,
-            workspace_id: workspace.id,
-            initiative_id: initiative.id,
-            name: "Default Workstream",
-            slug: "default"
-          }
-        )
+  defp run_ensure_local_scope(input) do
+    Organization
+    |> Ash.ActionInput.for_action(:ensure_local_scope, input)
+    |> Ash.run_action(authorize?: false)
+  end
 
-      %{organization: organization, workspace: workspace, initiative: initiative}
+  defp tenancy_identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) in @identity_constraints
+
+      _other ->
+        false
     end)
-  end
-
-  defp get_or_create!(resource, lookup, attrs) do
-    Repo.get_or_insert!(resource, lookup, attrs, fn resource, _attrs ->
-      insert_contract!(resource)
-    end)
-  end
-
-  defp insert_contract!(Organization), do: {"organizations", [:slug], [:id]}
-
-  defp insert_contract!(Workspace) do
-    {"workspaces", [:organization_id, :slug], [:id, :organization_id]}
-  end
-
-  defp insert_contract!(Initiative) do
-    {"initiatives", [:workspace_id, :slug], [:id, :organization_id, :workspace_id]}
-  end
-
-  defp insert_contract!(Workstream) do
-    {"workstreams", [:initiative_id, :slug],
-     [:id, :organization_id, :workspace_id, :initiative_id]}
   end
 end

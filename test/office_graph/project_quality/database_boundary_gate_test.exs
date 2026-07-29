@@ -1,7 +1,7 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   use ExUnit.Case, async: true
 
-  alias OfficeGraph.ProjectQuality.DatabaseBoundaryGate
+  alias OfficeGraph.ProjectQuality.{DatabaseBoundaryGate, DatabaseBoundaryScanner}
 
   test "accepts a current occurrence recorded only as removal debt" do
     current = [occurrence("sha256:current")]
@@ -131,6 +131,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
 
   test "current repository matches the reviewed database-access inventories" do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
+  end
+
+  test "completed foundation slices contain no direct database access" do
+    sources =
+      Enum.map(
+        [
+          "lib/office_graph/content.ex",
+          "lib/office_graph/tenancy.ex"
+        ],
+        fn path ->
+          %{path: path, source: File.read!(path)}
+        end
+      )
+
+    assert DatabaseBoundaryScanner.scan_sources(sources) == []
   end
 
   test "reports remediation progress by owner and construct class" do

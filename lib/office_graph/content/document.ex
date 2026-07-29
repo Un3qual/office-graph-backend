@@ -1,3 +1,50 @@
+defmodule OfficeGraph.Content.Actions.PersistPlainDocument do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Content.{Document, DocumentBlock, DocumentRevision}
+
+  @impl true
+  def run(input, _opts, _context) do
+    attrs = input.arguments
+
+    with {:ok, document, _document_notifications} <-
+           create(Document, %{
+             organization_id: attrs.organization_id,
+             workspace_id: attrs.workspace_id,
+             plain_text: attrs.plain_text
+           }),
+         {:ok, _block, _block_notifications} <-
+           create(DocumentBlock, %{
+             document_id: document.id,
+             position: 0,
+             block_type: "paragraph",
+             text: attrs.plain_text
+           }),
+         {:ok, _revision, _revision_notifications} <-
+           create(DocumentRevision, %{
+             document_id: document.id,
+             operation_id: attrs.operation_id,
+             revision_number: 1,
+             semantic_summary: "initial"
+           }) do
+      # Content has no notifiers. Requesting and deliberately consuming nested
+      # notifications keeps this action quiet even while legacy callers still
+      # wrap it in an outer transaction.
+      {:ok, document}
+    end
+  end
+
+  defp create(resource, attrs) do
+    Ash.create(resource, attrs,
+      action: :create,
+      authorize?: false,
+      return_notifications?: true
+    )
+  end
+end
+
 defmodule OfficeGraph.Content.Document do
   @moduledoc false
 
@@ -68,6 +115,24 @@ defmodule OfficeGraph.Content.Document do
 
     create :create do
       accept [:id, :organization_id, :workspace_id, :plain_text]
+    end
+
+    action :persist_plain_document, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision
+      ]
+
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :plain_text, :string, allow_nil?: false
+
+      run OfficeGraph.Content.Actions.PersistPlainDocument
     end
   end
 end

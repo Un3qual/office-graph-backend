@@ -350,6 +350,32 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert operation_id == operation.id
   end
 
+  test "plain document action rolls back the document and block when its revision fails", %{
+    bootstrap: bootstrap
+  } do
+    plain_text = "Atomic document failure #{System.unique_integer([:positive])}"
+
+    assert {:error, _foreign_key_error} =
+             Document
+             |> Ash.ActionInput.for_action(:persist_plain_document, %{
+               organization_id: bootstrap.organization.id,
+               workspace_id: bootstrap.workspace.id,
+               operation_id: Ecto.UUID.generate(),
+               plain_text: plain_text
+             })
+             |> Ash.run_action(authorize?: false)
+
+    assert [] =
+             Document
+             |> Ash.Query.filter(plain_text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+
+    assert [] =
+             DocumentBlock
+             |> Ash.Query.filter(text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+  end
+
   test "plain document creation requires the capability matching the operation action", %{
     bootstrap: bootstrap
   } do

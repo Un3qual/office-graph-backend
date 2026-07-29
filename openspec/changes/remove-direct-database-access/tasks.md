@@ -2,12 +2,12 @@
 
 - [x] 1.1 Pin the exact 721-entry starting inventory to the canonical fingerprinted `remove-direct-database-access` subset at parent commit `914b6564`
 - [x] 1.2 Add owner/class progress reporting and architecture tests that require zero non-migration debt at completion without weakening migration or approved-exception coverage
-- [ ] 1.3 Add a production read-modify-write audit that records every touched mutating function, persisted reads, selected Ash safeguard, and concurrency test
+- [x] 1.3 Add a production read-modify-write audit that records every touched mutating function, persisted reads, selected Ash safeguard, and concurrency test
 - [x] 1.4 Make Ecto, AshPostgres, and repository query logging quiet in normal tests with a documented opt-in diagnostic switch and focused regression test
 
 ## 2. Replace Foundation And Identity Escapes
 
-- [ ] 2.1 Replace tenancy and content explicit transactions with action-owned Ash persistence and preserve bootstrap/document atomicity
+- [x] 2.1 Replace tenancy and content explicit transactions with action-owned Ash persistence and preserve bootstrap/document atomicity
 - [ ] 2.2 Replace authorization partial-index fragments and explicit transactions with Ash identities, actions, and upserts
 - [ ] 2.3 Replace identity bootstrap and session transactions, OIDC SQL, normalized-email fragments, and advisory locks with Ash actions, atomics, identities, and query locks
 - [ ] 2.4 Add concurrent owner/session/OIDC/external-identity tests proving uniqueness, consumption, stale conflict, and failure atomicity

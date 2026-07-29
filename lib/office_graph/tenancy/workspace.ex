@@ -10,6 +10,8 @@ defmodule OfficeGraph.Tenancy.Workspace do
     table "workspaces"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_slug: "workspaces_organization_id_slug_index"
   end
 
   attributes do
@@ -51,6 +53,15 @@ defmodule OfficeGraph.Tenancy.Workspace do
 
     create :create do
       accept [:id, :organization_id, :name, :slug]
+    end
+
+    create :ensure do
+      public? false
+      accept [:organization_id, :name, :slug]
+      upsert? true
+      upsert_identity :unique_slug
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 
