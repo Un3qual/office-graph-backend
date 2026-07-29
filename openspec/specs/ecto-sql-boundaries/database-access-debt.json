@@ -136,20 +136,6 @@
     {
       "occurrences": [
         [
-          "sha256:78329afb989ed2e6ee3d33b5cdd276e3be8f44d83e6f4b4597920f52cb038c04",
-          "direct_ecto",
-          "Repo.transaction",
-          "record_receipt/5",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.GithubIntegration",
-      "path": "lib/office_graph/github_integration/services/webhook_receipt.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:5cfbe070a73b85a417df5545651fa29a2495cdf6e8a22aeeef1430399dc00c4c",
           "direct_ecto",
           "Repo.transaction",

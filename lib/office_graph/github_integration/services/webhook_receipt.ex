@@ -3,15 +3,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
 
   require Ash.Query
 
-  alias OfficeGraph.{DurableDelivery, Integrations, Operations, Repo}
-
   alias OfficeGraph.GitHubIntegration.{
     Installation,
     InstallationCredential,
     RecordLoader,
     SecretStore,
     WebhookSignature,
-    WebhookWorker
+    WebhookReceiptCommands
   }
 
   @supported_events MapSet.new(~w(
@@ -37,8 +35,21 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
              workspace_id: installation.workspace_id
            }),
          :ok <- WebhookSignature.verify(raw_body, signature, secret),
-         :ok <- supported_event(event_name) do
-      record_receipt(installation, credential_binding, delivery_id, event_name, raw_body)
+         :ok <- supported_event(event_name),
+         {:ok, pull_request_ids} <- webhook_pull_request_ids(event_name, raw_body) do
+      WebhookReceiptCommands.record(
+        installation,
+        credential_binding,
+        delivery_id,
+        event_name,
+        raw_body,
+        pull_request_ids
+      )
+      |> case do
+        {:ok, %{status: :created}} -> {:ok, :accepted}
+        {:ok, %{status: :replayed}} -> {:ok, :duplicate}
+        {:error, reason} -> {:error, normalize_receipt_error(reason)}
+      end
     else
       {:error, reason} when reason in [:unavailable, :integration_storage_unavailable] ->
         {:error, :receipt_unavailable}
@@ -59,145 +70,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
 
   def accept(_headers, _raw_body), do: {:error, :invalid_delivery}
 
-  defp record_receipt(installation, credential_binding, delivery_id, event_name, raw_body) do
-    case Repo.transaction(fn ->
-           with {:ok, request} <-
-                  Operations.new_system_operation_request(%{
-                    organization_id: installation.organization_id,
-                    workspace_id: installation.workspace_id,
-                    principal_id: installation.webhook_principal_id,
-                    action: :provider_webhook_receive,
-                    authority_basis: "github_installation:#{installation.id}",
-                    causation_key: "github_delivery:#{delivery_id}",
-                    idempotency_scope: "github:delivery",
-                    idempotency_key: delivery_id,
-                    credential_id: credential_binding.credential_id
-                  }),
-                {:ok, operation} <- Operations.start_system_operation(request),
-                {:ok, source} <-
-                  Integrations.ensure_provider_source(
-                    "github_app:#{installation.app_slug}",
-                    "GitHub App #{installation.app_slug}"
-                  ),
-                {:ok, archive, archive_state} <-
-                  Integrations.archive_system_delivery(operation, source, %{
-                    external_delivery_id: delivery_id,
-                    body: raw_body,
-                    provider_event: event_name,
-                    external_installation_id: installation.external_installation_id
-                  }),
-                {:ok, receipt_state} <-
-                  record_delivery_effects(
-                    archive_state,
-                    installation,
-                    operation,
-                    delivery_id,
-                    event_name,
-                    archive.id,
-                    raw_body
-                  ) do
-             receipt_state
-           else
-             {:error, reason} -> Repo.rollback(reason)
-           end
-         end) do
-      {:ok, :created} -> {:ok, :accepted}
-      {:ok, :replayed} -> {:ok, :duplicate}
-      {:error, reason} -> {:error, normalize_receipt_error(reason)}
-    end
-  end
-
-  defp record_delivery_effects(
-         :created,
-         installation,
-         operation,
-         delivery_id,
-         event_name,
-         archive_id,
-         raw_body
-       ) do
-    with {:ok, event} <-
-           DurableDelivery.record_system_and_enqueue(operation, %{
-             event_key: "github-delivery:#{delivery_id}",
-             event_kind: "provider_delivery.received"
-           }),
-         {:ok, _jobs} <-
-           enqueue_webhooks(
-             installation,
-             delivery_id,
-             event_name,
-             archive_id,
-             event.id,
-             raw_body
-           ) do
-      {:ok, :created}
-    end
-  end
-
-  defp record_delivery_effects(
-         :replayed,
-         _installation,
-         _operation,
-         _delivery_id,
-         _event_name,
-         _archive_id,
-         _raw_body
-       ),
-       do: {:ok, :replayed}
-
-  defp enqueue_webhooks(installation, delivery_id, event_name, archive_id, event_id, raw_body) do
-    with {:ok, pull_request_ids} <- webhook_pull_request_ids(event_name, raw_body) do
-      Enum.reduce_while(pull_request_ids, {:ok, []}, fn pull_request_id, {:ok, jobs} ->
-        case enqueue_webhook(
-               installation,
-               delivery_id,
-               event_name,
-               archive_id,
-               event_id,
-               pull_request_id
-             ) do
-          {:ok, job} -> {:cont, {:ok, [job | jobs]}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-    end
-  end
-
-  defp enqueue_webhook(
-         installation,
-         delivery_id,
-         event_name,
-         archive_id,
-         event_id,
-         pull_request_id
-       ) do
-    args = %{
-      "delivery_id" => delivery_id,
-      "event_name" => event_name,
-      "installation_id" => installation.id,
-      "archive_id" => archive_id,
-      "event_id" => event_id,
-      "organization_id" => installation.organization_id,
-      "workspace_id" => installation.workspace_id
-    }
-
-    args =
-      if is_nil(pull_request_id),
-        do: args,
-        else: Map.put(args, "pull_request_id", pull_request_id)
-
-    args
-    |> WebhookWorker.new()
-    |> Oban.insert()
-  end
-
   defp webhook_pull_request_ids("check_run", raw_body) do
     with {:ok, payload} <- Jason.decode(raw_body),
          %{"pull_requests" => pull_requests} when is_list(pull_requests) <-
            Map.get(payload, "check_run"),
          {:ok, identities} <- map_pull_request_identities(pull_requests) do
       case Enum.uniq(identities) do
-        [] -> {:ok, [nil]}
+        [] -> {:ok, []}
         identities -> {:ok, identities}
       end
     else
@@ -205,7 +84,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
     end
   end
 
-  defp webhook_pull_request_ids(_event_name, _raw_body), do: {:ok, [nil]}
+  defp webhook_pull_request_ids(_event_name, _raw_body), do: {:ok, []}
 
   defp map_pull_request_identities(pull_requests) do
     Enum.reduce_while(pull_requests, {:ok, []}, fn pull_request, {:ok, identities} ->

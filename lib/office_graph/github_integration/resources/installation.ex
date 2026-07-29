@@ -241,6 +241,31 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       run {OfficeGraph.GitHubIntegration.InstallationCommands, mode: :bind}
     end
 
+    action :record_webhook_receipt,
+           OfficeGraph.GitHubIntegration.WebhookReceiptResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.GitHubIntegration.InstallationCredential,
+        OfficeGraph.Integrations.ExternalSource,
+        OfficeGraph.Integrations.IntegrationCredential,
+        OfficeGraph.Integrations.RawArchive,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :installation_id, :uuid, allow_nil?: false
+      argument :credential_binding_id, :uuid, allow_nil?: false
+      argument :credential_id, :uuid, allow_nil?: false
+      argument :delivery_id, :string, allow_nil?: false
+      argument :event_name, :string, allow_nil?: false
+      argument :raw_body, :string, allow_nil?: false, constraints: [trim?: false]
+      argument :pull_request_ids, {:array, :string}, allow_nil?: false
+
+      run {OfficeGraph.GitHubIntegration.WebhookReceiptCommands, mode: :record}
+    end
+
     action :bind_github_installation,
            OfficeGraph.GitHubIntegration.CommandResults.BindInstallation do
       argument :idempotency_key, :string,
