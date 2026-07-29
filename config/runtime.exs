@@ -23,6 +23,10 @@ end
 config :office_graph, OfficeGraphWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() == :test and System.get_env("OFFICE_GRAPH_TEST_SQL_LOG") in ~w(true 1) do
+  config :office_graph, OfficeGraph.Repo, log: :debug
+end
+
 oidc_preferred_organization_id = System.get_env("AUTHENTIK_PREFERRED_ORGANIZATION_ID")
 oidc_preferred_workspace_id = System.get_env("AUTHENTIK_PREFERRED_WORKSPACE_ID")
 

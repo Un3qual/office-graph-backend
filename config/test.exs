@@ -22,7 +22,8 @@ config :office_graph, OfficeGraph.Repo,
     System.get_env("OFFICE_GRAPH_TEST_DATABASE_NAME", "office_graph_test") <>
       System.get_env("MIX_TEST_PARTITION", ""),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  log: false
 
 config :office_graph, Oban,
   testing: :manual,

@@ -71,6 +71,16 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(%{kind: :completed_remediation_debt} = diagnostic, root, params) do
+    format_boundary_issue(
+      root,
+      @debt_path,
+      params,
+      "completed_remediation_debt: archived change #{diagnostic.remediation_change} " <>
+        "still owns #{diagnostic.count} debt occurrences"
+    )
+  end
+
   defp issue_for(%{kind: :stale} = diagnostic, root, params) do
     path = inventory_path(diagnostic.inventory)
 

@@ -162,6 +162,13 @@ nix --extra-experimental-features 'nix-command flakes' develop --command openspe
 nix --extra-experimental-features 'nix-command flakes' develop --command openspec validate --changes --strict
 ```
 
+Successful database queries are quiet in the test environment. Enable query
+debug logging for a focused diagnostic run without changing tracked config:
+
+```sh
+OFFICE_GRAPH_TEST_SQL_LOG=1 nix --extra-experimental-features 'nix-command flakes' develop --command mix test test/path/to/failing_test.exs
+```
+
 The historical script name remains for compatibility and delegates to the
 canonical `bin/verify` entry point:
 

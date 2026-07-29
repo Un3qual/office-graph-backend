@@ -48,11 +48,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
       )
 
+    debt = load_debt_inventory!(debt_path)
+
     compare(
       DatabaseBoundaryScanner.scan_repository(root),
-      load_debt_inventory!(debt_path),
+      debt,
       load_approved_inventory!(approved_path)
-    )
+    ) ++ completed_remediation_diagnostics(root, debt)
+  end
+
+  @spec remediation_progress([map()], String.t()) :: map()
+  def remediation_progress(debt, remediation_change) do
+    matching =
+      Enum.filter(
+        debt,
+        &(Map.get(&1, "remediation_change") == remediation_change)
+      )
+
+    %{
+      total: length(matching),
+      by_class: Enum.frequencies_by(matching, &Map.fetch!(&1, "class")),
+      by_owner:
+        matching
+        |> Enum.frequencies_by(&Map.fetch!(&1, "owner"))
+        |> Enum.map(fn {owner, total} -> %{owner: owner, total: total} end)
+        |> Enum.sort_by(& &1.owner)
+    }
+  end
+
+  @spec completed_remediation_diagnostics(Path.t(), [map()]) :: [map()]
+  def completed_remediation_diagnostics(root, debt) do
+    debt
+    |> Enum.group_by(&Map.fetch!(&1, "remediation_change"))
+    |> Enum.flat_map(fn {remediation_change, occurrences} ->
+      archive_pattern =
+        Path.join([
+          root,
+          "openspec",
+          "changes",
+          "archive",
+          "*-#{remediation_change}"
+        ])
+
+      if Path.wildcard(archive_pattern) == [] do
+        []
+      else
+        [
+          %{
+            kind: :completed_remediation_debt,
+            remediation_change: remediation_change,
+            count: length(occurrences)
+          }
+        ]
+      end
+    end)
+    |> Enum.sort_by(& &1.remediation_change)
   end
 
   @spec decode_debt_inventory!(map()) :: [map()]

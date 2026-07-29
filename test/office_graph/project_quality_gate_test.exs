@@ -1,5 +1,5 @@
 defmodule OfficeGraph.ProjectQualityGateTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   test "canonical aliases execute one complete ExUnit suite" do
     aliases = Mix.Project.config()[:aliases]
@@ -32,6 +32,33 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     assert data_volume
     assert data_volume["source"] == "office_graph_postgres_18_data"
     assert OfficeGraph.Repo.min_pg_version() == Version.parse!("18.0.0")
+  end
+
+  test "test query logging is quiet by default and explicitly opt-in" do
+    repo_config = Application.fetch_env!(:office_graph, OfficeGraph.Repo)
+
+    inspect_config = ~S"""
+    IO.puts(
+      "REPO_QUERY_LOG=#{System.get_env("OFFICE_GRAPH_TEST_SQL_LOG")}:" <>
+        inspect(Application.fetch_env!(:office_graph, OfficeGraph.Repo)[:log])
+    )
+    """
+
+    assert repo_config[:log] == false
+
+    {output, 0} =
+      System.cmd(
+        "mix",
+        [
+          "run",
+          "-e",
+          inspect_config
+        ],
+        env: [{"MIX_ENV", "test"}, {"OFFICE_GRAPH_TEST_SQL_LOG", "1"}],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "REPO_QUERY_LOG=1::debug"
   end
 
   test "canonical verification runs project boundaries exactly once through Credo" do

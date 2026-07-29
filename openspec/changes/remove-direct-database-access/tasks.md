@@ -1,9 +1,9 @@
 ## 1. Lock The Removal Boundary
 
 - [x] 1.1 Pin the exact 721-entry starting inventory to the canonical fingerprinted `remove-direct-database-access` subset at parent commit `914b6564`
-- [ ] 1.2 Add owner/class progress reporting and architecture tests that require zero non-migration debt at completion without weakening migration or approved-exception coverage
+- [x] 1.2 Add owner/class progress reporting and architecture tests that require zero non-migration debt at completion without weakening migration or approved-exception coverage
 - [ ] 1.3 Add a production read-modify-write audit that records every touched mutating function, persisted reads, selected Ash safeguard, and concurrency test
-- [ ] 1.4 Make Ecto, AshPostgres, and repository query logging quiet in normal tests with a documented opt-in diagnostic switch and focused regression test
+- [x] 1.4 Make Ecto, AshPostgres, and repository query logging quiet in normal tests with a documented opt-in diagnostic switch and focused regression test
 
 ## 2. Replace Foundation And Identity Escapes
 

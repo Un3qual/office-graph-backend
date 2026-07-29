@@ -133,6 +133,68 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end
 
+  test "reports remediation progress by owner and construct class" do
+    debt = [
+      debt_entry("sha256:transaction"),
+      debt_entry("sha256:query")
+      |> Map.merge(%{
+        "class" => "raw_sql",
+        "construct" => "Repo.query!",
+        "owner" => "OfficeGraph.Identity",
+        "path" => "lib/office_graph/identity.ex"
+      }),
+      debt_entry("sha256:migration")
+      |> Map.merge(%{
+        "class" => "raw_sql",
+        "construct" => "migration.execute",
+        "owner" => "OfficeGraph.Repo.Migrations",
+        "path" => "priv/repo/migrations/example.exs",
+        "remediation_change" => "rebaseline-unreleased-migrations"
+      })
+    ]
+
+    assert DatabaseBoundaryGate.remediation_progress(
+             debt,
+             "remove-direct-database-access"
+           ) == %{
+             total: 2,
+             by_class: %{"direct_ecto" => 1, "raw_sql" => 1},
+             by_owner: [
+               %{owner: "OfficeGraph.Example", total: 1},
+               %{owner: "OfficeGraph.Identity", total: 1}
+             ]
+           }
+  end
+
+  test "rejects removal debt after its remediation change is archived" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_completed_remediation_#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.mkdir_p!(
+      Path.join(
+        root,
+        "openspec/changes/archive/2026-07-28-remove-direct-database-access"
+      )
+    )
+
+    assert [
+             %{
+               kind: :completed_remediation_debt,
+               remediation_change: "remove-direct-database-access",
+               count: 1
+             }
+           ] =
+             DatabaseBoundaryGate.completed_remediation_diagnostics(
+               root,
+               [debt_entry("sha256:leftover")]
+             )
+  end
+
   defp occurrence(fingerprint) do
     %{
       fingerprint: fingerprint,
