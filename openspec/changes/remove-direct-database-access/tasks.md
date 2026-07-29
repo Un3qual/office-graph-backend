@@ -63,4 +63,4 @@
 - [x] 9.2 Run focused authorization, lifecycle, idempotency, replay, optimistic-lock, concurrency, projection query-count, worker, and failure-atomicity suites
 - [x] 9.3 Run formatter, compile with warnings as errors, strict Credo/database-boundary checks, type analysis, and strict OpenSpec validation
 - [ ] 9.4 Run the complete canonical `bin/verify` gate and confirm quiet SQL logging, 104 canonical specs plus the active change, frontend verification, and the full backend suite
-- [ ] 9.5 Review the final diff for hidden Repo wrappers, raw fragments, generic repository abstractions, weakened tests, source-string coupling, accidental API changes, and unapproved exceptions
+- [x] 9.5 Review the final diff for hidden Repo wrappers, raw fragments, generic repository abstractions, weakened tests, source-string coupling, accidental API changes, and unapproved exceptions

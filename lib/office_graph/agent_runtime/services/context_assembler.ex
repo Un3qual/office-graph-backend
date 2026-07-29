@@ -1,8 +1,14 @@
 defmodule OfficeGraph.AgentRuntime.ContextAssembler do
   @moduledoc false
 
-  alias OfficeGraph.{Projections, Repo}
-  alias OfficeGraph.AgentRuntime.{ContextEntry, ContextPackage}
+  alias OfficeGraph.Projections
+
+  alias OfficeGraph.AgentRuntime.{
+    AgentExecution,
+    ContextEntry,
+    ContextExpansionRequest,
+    ContextPackage
+  }
 
   require Ash.Query
 
@@ -38,7 +44,7 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
       end)
 
     package =
-      Repo.ash_create!(ContextPackage, %{
+      create!(AgentExecution, ContextPackage, %{
         execution_id: execution.id,
         authority_snapshot_id: snapshot.id,
         organization_id: execution.organization_id,
@@ -53,7 +59,11 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
 
     persisted_entries =
       Enum.map(entries, fn entry ->
-        Repo.ash_create!(ContextEntry, Map.put(entry, :context_package_id, package.id))
+        create!(
+          AgentExecution,
+          ContextEntry,
+          Map.put(entry, :context_package_id, package.id)
+        )
       end)
 
     {package, persisted_entries}
@@ -63,7 +73,7 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
     current_entries = load_entries!(current_package.id)
 
     if Enum.count(current_entries, &expansion_target?(&1, request)) != 1 do
-      Repo.rollback(:context_expansion_target_mismatch)
+      rollback(ContextExpansionRequest, :context_expansion_target_mismatch)
     end
 
     expanded_entries =
@@ -92,7 +102,7 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
       end)
 
     package =
-      Repo.ash_create!(ContextPackage, %{
+      create!(ContextExpansionRequest, ContextPackage, %{
         execution_id: execution.id,
         authority_snapshot_id: snapshot.id,
         organization_id: execution.organization_id,
@@ -109,7 +119,11 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
 
     entries =
       Enum.map(expanded_entries, fn entry ->
-        Repo.ash_create!(ContextEntry, Map.put(entry, :context_package_id, package.id))
+        create!(
+          ContextExpansionRequest,
+          ContextEntry,
+          Map.put(entry, :context_package_id, package.id)
+        )
       end)
 
     {package, entries}
@@ -142,9 +156,21 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
   defp load_entries!(package_id) do
     case load_entries(package_id) do
       {:ok, entries} -> entries
-      {:error, reason} -> Repo.rollback(reason)
+      {:error, reason} -> rollback(ContextExpansionRequest, reason)
     end
   end
+
+  defp create!(owner, resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> case do
+      {:ok, record, _notifications} -> record
+      {:error, error} -> rollback(owner, error)
+    end
+  end
+
+  defp rollback(owner, error), do: Ash.DataLayer.rollback(owner, error)
 
   defp expansion_target?(entry, request) do
     entry.resource_type == request.target_resource_type and

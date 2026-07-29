@@ -17,6 +17,8 @@ defmodule OfficeGraph.DurableDelivery do
     EventRequest,
     ProjectionInvalidation,
     StoredJob,
+    StoredJobArgs,
+    StoredJobMeta,
     Subscriptions,
     SystemEventRequest,
     TerminalJob,
@@ -68,9 +70,9 @@ defmodule OfficeGraph.DurableDelivery do
         StoredJob
         |> Ash.Query.filter(
           state in ["cancelled", "discarded"] and
-            get_path(args, ["organization_id"]) == ^session_context.organization_id and
-            (get_path(args, ["workspace_id"]) == ^session_context.workspace_id or
-               is_nil(get_path(args, ["workspace_id"])))
+            get_path(args, [:organization_id]) == ^session_context.organization_id and
+            (get_path(args, [:workspace_id]) == ^session_context.workspace_id or
+               is_nil(get_path(args, [:workspace_id])))
         )
         |> Ash.Query.sort(terminal_at: :desc, id: :desc)
         |> Ash.Query.limit(limit)
@@ -368,7 +370,7 @@ defmodule OfficeGraph.DurableDelivery do
     event_ids =
       jobs
       |> Enum.flat_map(fn job ->
-        event_id = job.args["event_id"]
+        event_id = job.args.event_id
 
         case Ecto.UUID.cast(event_id) do
           {:ok, event_id} -> [event_id]
@@ -391,7 +393,7 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp terminal_failure_code(%{meta: %{"terminal_failure_code" => code}}) do
+  defp terminal_failure_code(%{meta: %StoredJobMeta{terminal_failure_code: code}}) do
     OfficeGraph.DurableDelivery.WorkerResult.safe_code(code, nil)
   end
 
@@ -404,11 +406,11 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp terminal_event_scope(%{args: args}) do
+  defp terminal_event_scope(%{args: %StoredJobArgs{} = args}) do
     {
-      normalized_event_id(args["event_id"]),
-      normalized_scope_id(args["organization_id"]),
-      normalized_scope_id(args["workspace_id"])
+      normalized_event_id(args.event_id),
+      normalized_scope_id(args.organization_id),
+      normalized_scope_id(args.workspace_id)
     }
   end
 

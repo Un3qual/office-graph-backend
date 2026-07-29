@@ -1,7 +1,7 @@
 defmodule OfficeGraphWeb.NodeConversationsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  alias OfficeGraph.{NodeConversations, Operations, Repo}
+  alias OfficeGraph.{NodeConversations, Operations}
 
   alias OfficeGraph.AgentRuntime.{
     ApprovalRequest,
@@ -369,46 +369,56 @@ defmodule OfficeGraphWeb.NodeConversationsApiTest do
     expires_at = DateTime.add(DateTime.utc_now(), 3_600, :second)
 
     approval =
-      Repo.ash_create!(ApprovalRequest, %{
-        execution_id: invoked.execution.id,
-        authority_snapshot_id: invoked.authority_snapshot.id,
-        organization_id: context.bootstrap.organization.id,
-        workspace_id: context.bootstrap.workspace.id,
-        operation_id: invoked.operation.id,
-        step_key: "generated-approval",
-        execution_state_version: invoked.execution.state_version,
-        requested_action: "repository.read",
-        reason: "Verify generated approval relationships.",
-        scope_type: "workspace",
-        scope_id: context.bootstrap.workspace.id,
-        capability_key: "repository.read",
-        sensitivity: "internal",
-        state: "pending",
-        expires_at: expires_at
-      })
+      Ash.create!(
+        ApprovalRequest,
+        %{
+          execution_id: invoked.execution.id,
+          authority_snapshot_id: invoked.authority_snapshot.id,
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.bootstrap.workspace.id,
+          operation_id: invoked.operation.id,
+          step_key: "generated-approval",
+          execution_state_version: invoked.execution.state_version,
+          requested_action: "repository.read",
+          reason: "Verify generated approval relationships.",
+          scope_type: "workspace",
+          scope_id: context.bootstrap.workspace.id,
+          capability_key: "repository.read",
+          sensitivity: "internal",
+          state: "pending",
+          expires_at: expires_at
+        },
+        action: :create,
+        authorize?: false
+      )
 
     expansion =
-      Repo.ash_create!(ContextExpansionRequest, %{
-        execution_id: invoked.execution.id,
-        current_context_package_id: invoked.context_package.id,
-        authority_snapshot_id: invoked.authority_snapshot.id,
-        organization_id: context.bootstrap.organization.id,
-        workspace_id: context.bootstrap.workspace.id,
-        operation_id: invoked.operation.id,
-        step_key: "generated-expansion",
-        execution_state_version: invoked.execution.state_version,
-        target_resource_type: "repository",
-        target_resource_id: context.graph_item_id,
-        target_scope_type: "workspace",
-        target_scope_id: context.bootstrap.workspace.id,
-        access_mode: "read",
-        capability_key: "repository.read",
-        reason: "Verify generated expansion relationships.",
-        sensitivity: "internal",
-        expected_duration_seconds: 300,
-        state: "pending",
-        expires_at: expires_at
-      })
+      Ash.create!(
+        ContextExpansionRequest,
+        %{
+          execution_id: invoked.execution.id,
+          current_context_package_id: invoked.context_package.id,
+          authority_snapshot_id: invoked.authority_snapshot.id,
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.bootstrap.workspace.id,
+          operation_id: invoked.operation.id,
+          step_key: "generated-expansion",
+          execution_state_version: invoked.execution.state_version,
+          target_resource_type: "repository",
+          target_resource_id: context.graph_item_id,
+          target_scope_type: "workspace",
+          target_scope_id: context.bootstrap.workspace.id,
+          access_mode: "read",
+          capability_key: "repository.read",
+          reason: "Verify generated expansion relationships.",
+          sensitivity: "internal",
+          expected_duration_seconds: 300,
+          state: "pending",
+          expires_at: expires_at
+        },
+        action: :create,
+        authorize?: false
+      )
 
     {approval, expansion}
   end

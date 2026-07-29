@@ -1,6 +1,8 @@
 defmodule OfficeGraph.DurableDelivery.StoredJob do
   @moduledoc false
 
+  alias OfficeGraph.DurableDelivery.{StoredJobArgs, StoredJobMeta}
+
   use Ash.Resource,
     domain: OfficeGraph.DurableDelivery.Domain,
     data_layer: AshPostgres.DataLayer
@@ -21,8 +23,17 @@ defmodule OfficeGraph.DurableDelivery.StoredJob do
     attribute :state, :string, allow_nil?: false, public?: true, writable?: false
     attribute :queue, :string, allow_nil?: false, public?: true, writable?: false
     attribute :worker, :string, allow_nil?: false, public?: true, writable?: false
-    attribute :args, :map, allow_nil?: false, public?: true, writable?: false
-    attribute :meta, :map, allow_nil?: false, public?: true, writable?: false
+
+    attribute :args, StoredJobArgs,
+      allow_nil?: false,
+      public?: true,
+      writable?: false
+
+    attribute :meta, StoredJobMeta,
+      allow_nil?: false,
+      public?: true,
+      writable?: false
+
     attribute :attempt, :integer, allow_nil?: false, public?: true, writable?: false
     attribute :max_attempts, :integer, allow_nil?: false, public?: true, writable?: false
     attribute :attempted_at, :utc_datetime_usec, public?: true, writable?: false
