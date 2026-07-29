@@ -647,27 +647,6 @@
     {
       "occurrences": [
         [
-          "sha256:c36739a3efdd5a24fc1dbb8902953f873ec2b9858899dc2d10fb666ffe55dfce",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_version_records/4",
-          1
-        ],
-        [
-          "sha256:27183120a8d79aeb3c625d4b1aea1da2e0083c77cbb2663a0dac19f2e6804d2e",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_packet_records/3",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.WorkPackets",
-      "path": "lib/office_graph/work_packets.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:2479bb29ad843d9ec5774ef1af130eb500cc4c864ef7735e3a37269930a0ccd4",
           "raw_sql",
           "migration.where",

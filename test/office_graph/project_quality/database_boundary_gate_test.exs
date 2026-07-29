@@ -144,7 +144,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           "lib/office_graph/identity/services/human_sessions.ex",
           "lib/office_graph/integrations.ex",
           "lib/office_graph/proposed_changes.ex",
-          "lib/office_graph/tenancy.ex"
+          "lib/office_graph/tenancy.ex",
+          "lib/office_graph/work_packets.ex"
         ],
         fn path ->
           %{path: path, source: File.read!(path)}

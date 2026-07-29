@@ -171,6 +171,60 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
       change OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion
     end
 
+    action :persist_packet_contract, OfficeGraph.WorkPackets.PacketActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.VerificationCheck,
+        OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference,
+        OfficeGraph.WorkPackets.WorkPacketVersion
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :objective, :string, allow_nil?: false
+      argument :context_summary, :string, allow_nil?: false
+      argument :requirements, :string, allow_nil?: false
+      argument :success_criteria, :string
+      argument :autonomy_posture, :string, allow_nil?: false
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
+
+      run {OfficeGraph.WorkPackets, mode: :create_packet}
+    end
+
+    action :persist_packet_version_contract, OfficeGraph.WorkPackets.PacketActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.VerificationCheck,
+        OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference,
+        OfficeGraph.WorkPackets.WorkPacketVersion
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :packet_id, :uuid, allow_nil?: false
+      argument :expected_current_version_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :objective, :string, allow_nil?: false
+      argument :context_summary, :string, allow_nil?: false
+      argument :requirements, :string, allow_nil?: false
+      argument :success_criteria, :string
+      argument :autonomy_posture, :string, allow_nil?: false
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
+
+      run {OfficeGraph.WorkPackets, mode: :create_version}
+    end
+
     action :create_work_packet,
            OfficeGraph.WorkPackets.CommandResults.PacketMutation do
       argument :idempotency_key, :string,
