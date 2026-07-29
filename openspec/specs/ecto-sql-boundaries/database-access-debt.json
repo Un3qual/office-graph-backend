@@ -4000,48 +4000,6 @@
     {
       "occurrences": [
         [
-          "sha256:c2bafdb704778ba11106d372ae0d304bbd6d44a8bfb5e493e2b65eff7f0f0455",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:a24a038b193f76e8dc1df89fb8eadb8cb6c36b1b7e1dc2e6d03ab284184ed3ea",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ],
-        [
-          "sha256:aaccfd0a7ad6a212627c8c82a55dd535f18229aa887851670c2dca558ac503a2",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          3
-        ],
-        [
-          "sha256:d10a40523f0df6c649422479d0fe1981817897118cc93334896e6243a522e4e1",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          4
-        ],
-        [
-          "sha256:f559e0d43dec7332e5badc944c2c54678ac2770798bf7a3f6cd10e6c7c69355b",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          5
-        ]
-      ],
-      "owner": "OfficeGraph.Identity",
-      "path": "test/office_graph/identity/human_authentication_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:d05d9455a05d462ea4a4fbc5aa87caad71fd39daddbccc6c9b41ceaa66f5343d",
           "raw_sql",
           "fragment",

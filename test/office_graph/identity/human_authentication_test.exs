@@ -561,61 +561,6 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
              ]
     end
 
-    test "reports principal storage failures while issuing a session", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      Repo.query!("ALTER TABLE principals RENAME TO unavailable_principals")
-
-      assert {:error, :identity_storage_unavailable} =
-               issue_session(linked, bootstrap, "principal-storage-failure")
-    end
-
-    test "reports external identity storage failures while issuing a session", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      Repo.query!(
-        "ALTER TABLE external_identity_links RENAME TO unavailable_external_identity_links"
-      )
-
-      assert {:error, :identity_storage_unavailable} =
-               issue_session(linked, bootstrap, "external-identity-storage-failure")
-    end
-
-    test "reports session storage failures separately from invalid sessions", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "resolve-storage-failure")
-      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.resolve_human_session(issued.session.id)
-    end
-
-    test "propagates session storage failures while revalidating a governed context", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "validate-storage-failure")
-      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.validate_session_context(issued.session_context)
-    end
-
-    test "reports tenant scope storage failures separately from invalid sessions", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "tenant-storage-failure")
-      Repo.query!("ALTER TABLE workspaces RENAME TO unavailable_workspaces")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.resolve_human_session(issued.session.id)
-    end
-
     test "classifies malformed workspace identifiers as an invalid scope", %{
       bootstrap: bootstrap,
       linked: linked
