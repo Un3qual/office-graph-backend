@@ -346,34 +346,6 @@
     {
       "occurrences": [
         [
-          "sha256:ce4945289c6d30bd560491090afd2526e6101ae682439cf35fb206a4c04ca1bf",
-          "direct_ecto",
-          "Repo.transaction",
-          "issue/4",
-          1
-        ],
-        [
-          "sha256:87f7ff4ac184cc23c2719e88597cd9b31650fad1806e10741ea84ea30133d075",
-          "direct_ecto",
-          "Repo.transaction",
-          "revoke/2",
-          1
-        ],
-        [
-          "sha256:df48f86badf32a2dce0a78a28f04b75be0438935f556e6bd9092a997fff407e5",
-          "raw_sql",
-          "Repo.query!",
-          "lock!/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Identity",
-      "path": "lib/office_graph/identity/services/human_sessions.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:592ac931aeb4a3ed42152dbec69ce52bb07f34c37fb16a35436b710907a1fb4a",
           "raw_sql",
           "unsafe_fragment",

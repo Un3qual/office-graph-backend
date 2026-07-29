@@ -634,6 +634,11 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                )
     end
 
+    test "classifies malformed logout session identifiers as invalid" do
+      assert {:error, :invalid_session} =
+               Identity.revoke_human_session("not-a-uuid", trace_id: "malformed-logout")
+    end
+
     test "rejects expired, revoked, disabled-link, and disabled-principal sessions", %{
       bootstrap: bootstrap,
       linked: linked

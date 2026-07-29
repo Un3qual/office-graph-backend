@@ -1,3 +1,276 @@
+defmodule OfficeGraph.Identity.HumanSessionIssueResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :string
+
+    field :session, :struct, constraints: [instance_of: OfficeGraph.Identity.Session]
+  end
+
+  def issued(session), do: new(status: "issued", session: session)
+  def rejected(reason), do: new(status: "rejected", reason: Atom.to_string(reason))
+end
+
+defmodule OfficeGraph.Identity.Actions.IssueHumanSession do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Identity.{
+    AuthenticationEvent,
+    ExternalIdentityLink,
+    HumanSessionIssueResult,
+    Principal,
+    Session
+  }
+
+  require Ash.Query
+
+  @purpose "human_web"
+
+  @impl true
+  def run(input, _opts, _context) do
+    attrs = input.arguments
+
+    case locked_identity(attrs.principal_id, attrs.external_identity_link_id) do
+      {:ok, principal, external_identity_link} ->
+        create_session(principal, external_identity_link, attrs)
+
+      {:rejected, reason} ->
+        HumanSessionIssueResult.rejected(reason)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp locked_identity(principal_id, external_identity_link_id) do
+    with {:ok, principal} <- locked_principal(principal_id),
+         {:ok, external_identity_link} <- locked_external_identity(external_identity_link_id) do
+      classify_identity(principal, external_identity_link, principal_id)
+    end
+  end
+
+  defp locked_principal(principal_id) do
+    Principal
+    |> Ash.Query.filter(id == ^principal_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp locked_external_identity(external_identity_link_id) do
+    ExternalIdentityLink
+    |> Ash.Query.filter(id == ^external_identity_link_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp classify_identity(
+         %Principal{kind: "human", status: "active"} = principal,
+         %ExternalIdentityLink{
+           principal_id: principal_id,
+           status: "active",
+           linking_state: "linked"
+         } = external_identity_link,
+         principal_id
+       ) do
+    {:ok, principal, external_identity_link}
+  end
+
+  defp classify_identity(
+         %Principal{kind: "human", status: "active"},
+         _inactive_or_missing_link,
+         _principal_id
+       ) do
+    {:rejected, :identity_disabled}
+  end
+
+  defp classify_identity(_inactive_or_missing_principal, _link, _principal_id) do
+    {:rejected, :principal_disabled}
+  end
+
+  defp create_session(principal, external_identity_link, attrs) do
+    now = DateTime.utc_now()
+
+    with :ok <-
+           revoke_active(
+             principal.id,
+             attrs.organization_id,
+             attrs.workspace_id,
+             now,
+             attrs.trace_id
+           ),
+         {:ok, session} <-
+           create(Session, %{
+             principal_id: principal.id,
+             external_identity_link_id: external_identity_link.id,
+             organization_id: attrs.organization_id,
+             workspace_id: attrs.workspace_id,
+             purpose: @purpose,
+             authentication_method: attrs.authentication_method,
+             issued_at: now,
+             expires_at: DateTime.add(now, attrs.ttl_seconds, :second),
+             source_surface: attrs.source_surface,
+             trace_id: attrs.trace_id
+           }),
+         {:ok, _event} <-
+           create_event(%{
+             principal_id: principal.id,
+             external_identity_link_id: external_identity_link.id,
+             session_id: session.id,
+             organization_id: attrs.organization_id,
+             workspace_id: attrs.workspace_id,
+             event: "login",
+             result: "succeeded",
+             reason: "login_completed",
+             authentication_method: attrs.authentication_method,
+             source_surface: attrs.source_surface,
+             trace_id: attrs.trace_id
+           }) do
+      HumanSessionIssueResult.issued(session)
+    end
+  end
+
+  defp revoke_active(principal_id, organization_id, workspace_id, revoked_at, trace_id) do
+    Session
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and organization_id == ^organization_id and
+        workspace_id == ^workspace_id and purpose == ^@purpose and is_nil(revoked_at)
+    )
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, sessions} ->
+        Enum.reduce_while(sessions, :ok, fn session, :ok ->
+          case revoke_session(session, revoked_at, trace_id) do
+            :ok -> {:cont, :ok}
+            {:error, error} -> {:halt, {:error, error}}
+          end
+        end)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp revoke_session(session, revoked_at, trace_id) do
+    with {:ok, revoked_session} <- update(session, :revoke, %{revoked_at: revoked_at}),
+         {:ok, _event} <-
+           create_event(%{
+             principal_id: revoked_session.principal_id,
+             external_identity_link_id: revoked_session.external_identity_link_id,
+             session_id: revoked_session.id,
+             organization_id: revoked_session.organization_id,
+             workspace_id: revoked_session.workspace_id,
+             event: "revocation",
+             result: "succeeded",
+             reason: "session_replaced",
+             authentication_method: revoked_session.authentication_method,
+             source_surface: revoked_session.source_surface,
+             trace_id: trace_id
+           }) do
+      :ok
+    end
+  end
+
+  defp create_event(attrs), do: create(AuthenticationEvent, attrs)
+
+  defp create(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp update(record, action, attrs) do
+    record
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}
+  defp consume_notifications({:error, error}), do: {:error, error}
+end
+
+defmodule OfficeGraph.Identity.Actions.RevokeHumanSession do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Identity.{AuthenticationEvent, Session}
+
+  require Ash.Query
+
+  @purpose "human_web"
+
+  @impl true
+  def run(input, _opts, _context) do
+    case locked_session(input.arguments.session_id) do
+      {:ok, %Session{purpose: @purpose, revoked_at: nil} = session} ->
+        revoke(session, input.arguments.trace_id)
+
+      {:ok, %Session{purpose: @purpose}} ->
+        {:ok, "already_revoked"}
+
+      {:ok, _missing_or_wrong_purpose} ->
+        {:ok, "invalid"}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp locked_session(session_id) do
+    Session
+    |> Ash.Query.filter(id == ^session_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp revoke(session, trace_id) do
+    with {:ok, revoked_session} <-
+           update(session, :revoke, %{revoked_at: DateTime.utc_now()}),
+         {:ok, _event} <-
+           create_event(%{
+             principal_id: revoked_session.principal_id,
+             external_identity_link_id: revoked_session.external_identity_link_id,
+             session_id: revoked_session.id,
+             organization_id: revoked_session.organization_id,
+             workspace_id: revoked_session.workspace_id,
+             event: "logout",
+             result: "succeeded",
+             reason: "user_logout",
+             authentication_method: revoked_session.authentication_method,
+             source_surface: revoked_session.source_surface,
+             trace_id: trace_id
+           }) do
+      {:ok, "revoked"}
+    end
+  end
+
+  defp create_event(attrs) do
+    AuthenticationEvent
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp update(record, action, attrs) do
+    record
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}
+  defp consume_notifications({:error, error}), do: {:error, error}
+end
+
 defmodule OfficeGraph.Identity.Session do
   @moduledoc false
 
@@ -95,6 +368,39 @@ defmodule OfficeGraph.Identity.Session do
 
     update :revoke do
       accept [:revoked_at]
+    end
+
+    action :issue_human_session, OfficeGraph.Identity.HumanSessionIssueResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Identity.AuthenticationEvent,
+        OfficeGraph.Identity.ExternalIdentityLink,
+        OfficeGraph.Identity.Principal
+      ]
+
+      argument :principal_id, :uuid, allow_nil?: false
+      argument :external_identity_link_id, :uuid, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :authentication_method, :string, allow_nil?: false
+      argument :source_surface, :string, allow_nil?: false
+      argument :trace_id, :string, allow_nil?: false
+      argument :ttl_seconds, :integer, allow_nil?: false, constraints: [min: 1]
+
+      run OfficeGraph.Identity.Actions.IssueHumanSession
+    end
+
+    action :revoke_human_session, :string do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Identity.AuthenticationEvent]
+
+      argument :session_id, :uuid, allow_nil?: false
+      argument :trace_id, :string, allow_nil?: false
+
+      run OfficeGraph.Identity.Actions.RevokeHumanSession
     end
   end
 

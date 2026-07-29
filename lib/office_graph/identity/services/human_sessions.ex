@@ -9,9 +9,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
     SessionContext
   }
 
-  alias OfficeGraph.{Repo, Tenancy}
-
-  require Ash.Query
+  alias OfficeGraph.Tenancy
 
   @purpose "human_web"
 
@@ -37,19 +35,19 @@ defmodule OfficeGraph.Identity.HumanSessions do
     with {:ok, attrs} <- session_attrs(opts),
          :ok <- validate_workspace_scope(organization_id, workspace_id) do
       with_storage_boundary(fn ->
-        Repo.transaction(fn ->
-          lock_context!(principal.id, organization_id, workspace_id)
-
-          with :ok <- validate_current_identity(principal.id, external_identity_link.id) do
-            create_session(
-              principal,
-              external_identity_link,
-              organization_id,
-              workspace_id,
-              attrs
-            )
-          end
-        end)
+        Session
+        |> Ash.ActionInput.for_action(:issue_human_session, %{
+          principal_id: principal.id,
+          external_identity_link_id: external_identity_link.id,
+          organization_id: organization_id,
+          workspace_id: workspace_id,
+          authentication_method: attrs.authentication_method,
+          source_surface: attrs.source_surface,
+          trace_id: attrs.trace_id,
+          ttl_seconds: attrs.ttl_seconds
+        })
+        |> Ash.run_action(authorize?: false)
+        |> normalize_issue_result()
       end)
     end
   end
@@ -112,43 +110,21 @@ defmodule OfficeGraph.Identity.HumanSessions do
     trace_id = Keyword.get(opts, :trace_id)
 
     if present?(trace_id) do
-      with_storage_boundary(fn ->
-        Repo.transaction(fn ->
-          lock_session_id!(session_id)
+      case Ash.Type.UUID.cast_input(session_id, []) do
+        {:ok, session_id} ->
+          with_storage_boundary(fn ->
+            Session
+            |> Ash.ActionInput.for_action(:revoke_human_session, %{
+              session_id: session_id,
+              trace_id: trace_id
+            })
+            |> Ash.run_action(authorize?: false)
+            |> normalize_revoke_result()
+          end)
 
-          case Ash.get(Session, session_id,
-                 authorize?: false,
-                 not_found_error?: false
-               ) do
-            {:ok, %Session{purpose: @purpose, revoked_at: nil} = session} ->
-              session
-              |> Ash.Changeset.for_update(:revoke, %{revoked_at: DateTime.utc_now()})
-              |> Repo.ash_update!()
-
-              create_event!(%{
-                principal_id: session.principal_id,
-                external_identity_link_id: session.external_identity_link_id,
-                session_id: session.id,
-                organization_id: session.organization_id,
-                workspace_id: session.workspace_id,
-                event: "logout",
-                result: "succeeded",
-                reason: "user_logout",
-                authentication_method: session.authentication_method,
-                source_surface: session.source_surface,
-                trace_id: trace_id
-              })
-
-              :ok
-
-            {:ok, %Session{purpose: @purpose}} ->
-              :ok
-
-            _missing_or_wrong_purpose ->
-              {:error, :invalid_session}
-          end
-        end)
-      end)
+        :error ->
+          {:error, :invalid_session}
+      end
     else
       {:error, :invalid_trace}
     end
@@ -225,117 +201,6 @@ defmodule OfficeGraph.Identity.HumanSessions do
       {:error, :tenancy_storage_unavailable} -> {:error, :identity_storage_unavailable}
       _invalid_or_unavailable -> {:error, :invalid_scope}
     end
-  end
-
-  defp validate_current_identity(principal_id, external_identity_link_id) do
-    principal =
-      Principal
-      |> Ash.Query.filter(id == ^principal_id)
-      |> Ash.Query.lock(:for_update)
-      |> Ash.read_one(authorize?: false)
-
-    link =
-      ExternalIdentityLink
-      |> Ash.Query.filter(id == ^external_identity_link_id)
-      |> Ash.Query.lock(:for_update)
-      |> Ash.read_one(authorize?: false)
-
-    case {principal, link} do
-      {{:error, error}, _link} ->
-        raise error
-
-      {_principal, {:error, error}} ->
-        raise error
-
-      {{:ok, %Principal{kind: "human", status: "active"}},
-       {:ok,
-        %ExternalIdentityLink{
-          principal_id: ^principal_id,
-          status: "active",
-          linking_state: "linked"
-        }}} ->
-        :ok
-
-      {{:ok, %Principal{kind: "human", status: "active"}}, {:ok, _inactive_or_missing_link}} ->
-        {:error, :identity_disabled}
-
-      {{:ok, %Principal{}}, _link} ->
-        {:error, :principal_disabled}
-
-      {{:ok, nil}, _link} ->
-        {:error, :principal_disabled}
-
-      {_active_principal, {:ok, _inactive_or_missing_link}} ->
-        {:error, :identity_disabled}
-    end
-  end
-
-  defp create_session(principal, external_identity_link, organization_id, workspace_id, attrs) do
-    now = DateTime.utc_now()
-
-    revoke_active!(principal.id, organization_id, workspace_id, now, attrs.trace_id)
-
-    session =
-      Repo.ash_create!(
-        Session,
-        %{
-          principal_id: principal.id,
-          external_identity_link_id: external_identity_link.id,
-          organization_id: organization_id,
-          workspace_id: workspace_id,
-          purpose: @purpose,
-          authentication_method: attrs.authentication_method,
-          issued_at: now,
-          expires_at: DateTime.add(now, attrs.ttl_seconds, :second),
-          source_surface: attrs.source_surface,
-          trace_id: attrs.trace_id
-        }
-      )
-
-    create_event!(%{
-      principal_id: principal.id,
-      external_identity_link_id: external_identity_link.id,
-      session_id: session.id,
-      organization_id: organization_id,
-      workspace_id: workspace_id,
-      event: "login",
-      result: "succeeded",
-      reason: "login_completed",
-      authentication_method: attrs.authentication_method,
-      source_surface: attrs.source_surface,
-      trace_id: attrs.trace_id
-    })
-
-    {:ok, %{session: session, session_context: context(session)}}
-  end
-
-  defp revoke_active!(principal_id, organization_id, workspace_id, revoked_at, trace_id) do
-    Session
-    |> Ash.Query.filter(
-      principal_id == ^principal_id and organization_id == ^organization_id and
-        workspace_id == ^workspace_id and purpose == ^@purpose and is_nil(revoked_at)
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read!(authorize?: false)
-    |> Enum.each(fn session ->
-      session
-      |> Ash.Changeset.for_update(:revoke, %{revoked_at: revoked_at})
-      |> Repo.ash_update!()
-
-      create_event!(%{
-        principal_id: session.principal_id,
-        external_identity_link_id: session.external_identity_link_id,
-        session_id: session.id,
-        organization_id: session.organization_id,
-        workspace_id: session.workspace_id,
-        event: "revocation",
-        result: "succeeded",
-        reason: "session_replaced",
-        authentication_method: session.authentication_method,
-        source_surface: session.source_surface,
-        trace_id: trace_id
-      })
-    end)
   end
 
   defp validate_session_record(%Session{purpose: @purpose, revoked_at: %DateTime{}} = session),
@@ -418,10 +283,6 @@ defmodule OfficeGraph.Identity.HumanSessions do
     }
   end
 
-  defp create_event!(attrs) do
-    Repo.ash_create!(AuthenticationEvent, event_attrs(attrs))
-  end
-
   defp event_attrs(attrs) do
     attrs
     |> Map.new()
@@ -431,22 +292,36 @@ defmodule OfficeGraph.Identity.HumanSessions do
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_reason(reason), do: reason
 
-  defp lock_context!(principal_id, organization_id, workspace_id) do
-    lock!("human-session:#{principal_id}:#{organization_id}:#{workspace_id}:#{@purpose}")
+  defp normalize_issue_result(
+         {:ok,
+          %OfficeGraph.Identity.HumanSessionIssueResult{
+            status: "issued",
+            session: session
+          }}
+       ) do
+    {:ok, %{session: session, session_context: context(session)}}
   end
 
-  defp lock_session_id!(session_id), do: lock!("human-session-id:#{session_id}")
-
-  defp lock!(key) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
+  defp normalize_issue_result(
+         {:ok,
+          %OfficeGraph.Identity.HumanSessionIssueResult{
+            status: "rejected",
+            reason: reason
+          }}
+       ) do
+    {:error, String.to_existing_atom(reason)}
   end
+
+  defp normalize_issue_result({:error, _error}), do: {:error, :identity_storage_unavailable}
+
+  defp normalize_revoke_result({:ok, result}) when result in ["revoked", "already_revoked"],
+    do: :ok
+
+  defp normalize_revoke_result({:ok, "invalid"}), do: {:error, :invalid_session}
+  defp normalize_revoke_result({:error, _error}), do: {:error, :identity_storage_unavailable}
 
   defp with_storage_boundary(fun) do
-    case fun.() do
-      {:ok, result} -> result
-      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
-      result -> result
-    end
+    fun.()
   rescue
     _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
   end

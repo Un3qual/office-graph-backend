@@ -9,7 +9,7 @@
 
 - [x] 2.1 Replace tenancy and content explicit transactions with action-owned Ash persistence and preserve bootstrap/document atomicity
 - [x] 2.2 Replace authorization partial-index fragments and explicit transactions with Ash identities, actions, and upserts
-- [ ] 2.3 Replace identity bootstrap and session transactions, OIDC SQL, normalized-email fragments, and advisory locks with Ash actions, atomics, identities, and query locks
+- [x] 2.3 Replace identity bootstrap and session transactions, OIDC SQL, normalized-email fragments, and advisory locks with Ash actions, atomics, identities, and query locks
 - [ ] 2.4 Add concurrent owner/session/OIDC/external-identity tests proving uniqueness, consumption, stale conflict, and failure atomicity
 
 ## 3. Replace Core Workflow Escapes
