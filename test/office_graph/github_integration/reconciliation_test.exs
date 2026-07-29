@@ -9,7 +9,6 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     GitHubIntegration,
     Integrations,
     Operations,
-    Repo,
     SoftwareProving
   }
 
@@ -21,6 +20,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     InstallationCredential,
     RecordLoaderTestAdapter,
     Reconciler,
+    ReconciliationPersistenceTestAdapter,
     ReconciliationRequest,
     SecretStore.TestAdapter,
     SyncOutcome
@@ -119,7 +119,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert pull_request_reference.url ==
              "https://github.com/Un3qual/office-graph-backend/pull/24-new"
 
-    assert Repo.aggregate(SyncOutcome, :count) == 2
+    assert Ash.count!(SyncOutcome, authorize?: false) == 2
   end
 
   test "repository state advances independently of an unchanged pull request" do
@@ -736,7 +736,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         provider_sequence: 3,
         operation_id: operation_v1.id
       })
-      |> Repo.ash_update!()
+      |> Ash.update!(authorize?: false)
 
     check =
       check
@@ -747,7 +747,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         provider_sequence: 3,
         operation_id: operation_v1.id
       })
-      |> Repo.ash_update!()
+      |> Ash.update!(authorize?: false)
 
     {:ok, github_source} = Integrations.ensure_provider_source("github", "GitHub")
 
@@ -843,7 +843,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         deleted_at: deleted_at,
         operation_id: operation_v1.id
       })
-      |> Repo.ash_update!()
+      |> Ash.update!(authorize?: false)
 
     assert %DateTime{} = repository.deleted_at
 
@@ -981,10 +981,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     operation = reconciliation_operation!(context, request, "credential-binding-removed")
 
-    Repo.query!(
-      "DELETE FROM github_installation_credentials WHERE installation_id = $1 AND purpose = 'app_private_key'",
-      [Ecto.UUID.dump!(context.installation.id)]
-    )
+    RecordLoaderTestAdapter.configure!(%{InstallationCredential => {:ok, nil}})
 
     assert {:error, {:terminal, :invalid_credential}} =
              Reconciler.reconcile(operation, request)
@@ -1015,25 +1012,10 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     Provider.put(%{{"pull_request", request.object_id} => {:error, :network_error}})
 
-    Repo.query!("""
-    ALTER TABLE github_sync_outcomes
-    ADD CONSTRAINT test_github_failure_outcome_write_storage
-    CHECK (failure_code IS DISTINCT FROM 'provider_unavailable')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(outcome: {:error, :database_unavailable})
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      rescue
-        error -> {:raised, error}
-      after
-        Repo.query!("""
-        ALTER TABLE github_sync_outcomes
-        DROP CONSTRAINT test_github_failure_outcome_write_storage
-        """)
-      end
-
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
     refute SyncOutcome
            |> Ash.Query.filter(operation_id == ^operation.id)
@@ -1055,7 +1037,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     context.installation
     |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     Provider.put(%{
       {"pull_request", request.object_id} =>
@@ -1134,13 +1116,13 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:error, {:retryable, :integration_storage_unavailable}} =
              Reconciler.reconcile(operation, request)
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
 
     RecordLoaderTestAdapter.put(%{})
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
-    assert Repo.aggregate(Repository, :count) == 1
+    assert Ash.count!(Repository, authorize?: false) == 1
   end
 
   test "provider-neutral create failures remain retryable and recover atomically" do
@@ -1169,25 +1151,18 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
       end)
 
     Provider.put(%{{"pull_request", request.object_id} => {:ok, provider_snapshot}})
-    repository_count = Repo.aggregate(Repository, :count)
+    repository_count = Ash.count!(Repository, authorize?: false)
 
-    Repo.query!("""
-    ALTER TABLE repositories
-    ADD CONSTRAINT test_github_provider_resource_create_storage
-    CHECK (name <> 'create-storage-blocked')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      provider_resource: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE repositories DROP CONSTRAINT test_github_provider_resource_create_storage"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == repository_count
+    assert Ash.count!(Repository, authorize?: false) == repository_count
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1222,23 +1197,16 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
          )}
     })
 
-    Repo.query!("""
-    ALTER TABLE external_sources
-    ADD CONSTRAINT test_github_reconciliation_provider_source_storage
-    CHECK (NOT (kind = 'provider' AND key = 'github'))
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      provider_source: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE external_sources DROP CONSTRAINT test_github_reconciliation_provider_source_storage"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1265,27 +1233,20 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
         {:ok, snapshot(1, "open", pull_request_node_id, repository_node_id)}
     })
 
-    Repo.query!("""
-    ALTER TABLE external_references
-    ADD CONSTRAINT test_github_external_reference_storage
-    CHECK (external_id <> 'repository:R_external_reference_write_unavailable')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      external_reference: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE external_references DROP CONSTRAINT test_github_external_reference_storage"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
-    assert Repo.aggregate(Repository, :count) == 1
+    assert Ash.count!(Repository, authorize?: false) == 1
   end
 
   test "provider-neutral update failures remain retryable and preserve canonical state" do
@@ -1339,26 +1300,18 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     Provider.put(%{{"pull_request", pull_request_node_id} => {:ok, updated_snapshot}})
 
-    Repo.query!("""
-    ALTER TABLE repositories
-    ADD CONSTRAINT test_github_provider_resource_update_storage
-    CHECK (name <> 'update-storage-blocked')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      provider_resource: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(update_operation, update_request)
-      after
-        Repo.query!(
-          "ALTER TABLE repositories DROP CONSTRAINT test_github_provider_resource_update_storage"
-        )
-      end
-
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(update_operation, update_request)
 
     unchanged = Ash.get!(Repository, repository.id, authorize?: false)
     assert unchanged.name == "update-storage-initial"
     assert unchanged.provider_sequence == 1
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(update_operation, update_request)
     assert recovered.state == "reconciled"
@@ -1368,7 +1321,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert updated.provider_sequence == 2
   end
 
-  test "provider resource trace write outages roll back and remain retryable" do
+  test "late repository persistence outages roll back and remain retryable" do
     context = reconciliation_context("trace-storage-unavailable")
 
     request =
@@ -1391,29 +1344,22 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     Provider.put(%{{"pull_request", "PR_trace_storage_unavailable"} => {:ok, provider_snapshot}})
 
-    Repo.query!("""
-    ALTER TABLE audit_records
-    ADD CONSTRAINT test_github_provider_trace_storage
-    CHECK (action <> 'repository.reconcile.create')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      after_repository: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE audit_records DROP CONSTRAINT test_github_provider_trace_storage"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
   end
 
-  test "external-reference trace write outages roll back and remain retryable" do
+  test "late external-reference persistence outages roll back and remain retryable" do
     context = reconciliation_context("reference-trace-storage-unavailable")
 
     request =
@@ -1439,24 +1385,17 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
       {"pull_request", "PR_reference_trace_storage_unavailable"} => {:ok, provider_snapshot}
     })
 
-    Repo.query!("""
-    ALTER TABLE audit_records
-    ADD CONSTRAINT test_github_reference_trace_storage
-    CHECK (action <> 'external_reference.reconcile.create')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      after_reference: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE audit_records DROP CONSTRAINT test_github_reference_trace_storage"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == 0
-    assert Repo.aggregate(ExternalReference, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
+    assert Ash.count!(ExternalReference, authorize?: false) == 0
+
+    ReconciliationPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1478,7 +1417,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:error, {:terminal, :invalid_provider_response}} =
              Reconciler.reconcile(operation, request)
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "snapshot identity conflicts persist a classified terminal outcome" do
@@ -1534,7 +1473,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert outcome.state == "terminal"
     assert outcome.failure_code == "invalid_provider_response"
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "cyclic review comment parents are classified before provider-neutral writes" do
@@ -1573,7 +1512,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert outcome.state == "terminal"
     assert outcome.failure_code == "invalid_provider_response"
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "malformed requested-object collections are classified before root matching" do
@@ -1609,7 +1548,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
       assert outcome.failure_code == "invalid_provider_response"
     end
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "provider resources and references cannot be reconciled by another provider source" do
@@ -1748,7 +1687,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
                Reconciler.reconcile(operation, request)
     end
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "GitHub waiting-family check states normalize to queued" do
@@ -1838,7 +1777,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:error, {:terminal, :invalid_provider_response}} =
              Reconciler.reconcile(operation, request)
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "review replies cannot declare a different thread than their parent" do
@@ -1874,7 +1813,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert {:error, {:terminal, :invalid_provider_response}} =
              Reconciler.reconcile(operation, request)
 
-    assert Repo.aggregate(Repository, :count) == 0
+    assert Ash.count!(Repository, authorize?: false) == 0
   end
 
   test "non-pull-request deliveries require the requested object in the snapshot" do
@@ -1953,8 +1892,8 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
                second_request
              )
 
-    assert Repo.aggregate(Repository, :count) == 2
-    assert Repo.aggregate(RepositoryExtension, :count) == 2
+    assert Ash.count!(Repository, authorize?: false) == 2
+    assert Ash.count!(RepositoryExtension, authorize?: false) == 2
 
     references =
       ExternalReference
@@ -2026,7 +1965,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Enum.sort(Enum.map(repositories, & &1.workspace_id)) ==
              Enum.sort([first.bootstrap.workspace.id, second.bootstrap.workspace.id])
 
-    assert Repo.aggregate(RepositoryExtension, :count) == 2
+    assert Ash.count!(RepositoryExtension, authorize?: false) == 2
 
     references =
       ExternalReference

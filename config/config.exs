@@ -74,6 +74,10 @@ config :office_graph,
        :github_outbound_persistence,
        OfficeGraph.GitHubIntegration.OutboundPersistence.Default
 
+config :office_graph,
+       :github_reconciliation_persistence,
+       OfficeGraph.GitHubIntegration.ReconciliationPersistence.Default
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

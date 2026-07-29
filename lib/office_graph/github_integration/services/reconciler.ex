@@ -19,6 +19,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     InstallationCredential,
     OutboundAction,
     RecordLoader,
+    ReconciliationPersistence,
     ReconciliationRequest,
     ReviewReplyMarker,
     SecretStore,
@@ -190,6 +191,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp reconcile_provider(operation, request, installation) do
     with {:ok, credential} <- resolve_credential(operation, installation),
+         :ok <- persistence_ready(:provider_source),
          {:ok, source} <- Integrations.ensure_provider_source("github", "GitHub"),
          {:ok, snapshot} <- fetch_snapshot(request, installation, credential) do
       reconcile_snapshot(operation, request, installation, source, snapshot)
@@ -732,6 +734,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       )
 
     provider = repository_provider_metadata(snapshot.repository, snapshot)
+    checkpoint!(:provider_resource)
 
     result =
       SoftwareProving.upsert_provider_resource(operation, source, Repository, existing, %{
@@ -767,6 +770,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       result.status
     )
 
+    checkpoint!(:after_repository)
     result
   end
 
@@ -1482,15 +1486,21 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp failing_check?(_check), do: false
 
   defp maybe_reference!(operation, source, record, object_type, node_id, url) do
-    ExternalRefs.upsert_provider_reference(operation, source, %{
-      provider: "github",
-      object_type: object_type,
-      external_id: "#{object_type}:#{node_id}",
-      url: url,
-      resource_type: resource_type(record),
-      resource_id: record.id
-    })
-    |> unwrap!()
+    checkpoint!(:external_reference)
+
+    reference =
+      ExternalRefs.upsert_provider_reference(operation, source, %{
+        provider: "github",
+        object_type: object_type,
+        external_id: "#{object_type}:#{node_id}",
+        url: url,
+        resource_type: resource_type(record),
+        resource_id: record.id
+      })
+      |> unwrap!()
+
+    checkpoint!(:after_reference)
+    reference
   end
 
   defp existing_reference!(operation, source, record, object_type, node_id) do
@@ -1968,7 +1978,8 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
          :ok <-
            validate_retry_request_authority(operation, %{
              installation_id: attrs.installation_id
-           }) do
+           }),
+         :ok <- persistence_ready(:outcome) do
       case attrs.mode do
         "record_failure" ->
           outcome = persist_outcome!(operation.id, outcome_attrs(attrs))
@@ -2025,4 +2036,18 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   defp unwrap!({:error, error}), do: rollback!(error)
 
   defp rollback!(error), do: ActionSupport.rollback(SyncOutcome, error)
+
+  defp checkpoint!(stage) do
+    case persistence_ready(stage) do
+      :ok -> :ok
+      {:error, error} -> rollback!(error)
+    end
+  end
+
+  defp persistence_ready(stage) do
+    case ReconciliationPersistence.before_write(stage) do
+      :ok -> :ok
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
+  end
 end
