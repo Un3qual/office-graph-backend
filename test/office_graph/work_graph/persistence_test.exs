@@ -836,8 +836,8 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
                authorize?: false
              )
 
-    assert Exception.message(duplicate_error) =~
-             "normalized_intake_events_accepted_replay_identity_index"
+    assert %Ash.Error.Invalid{} = duplicate_error
+    assert Exception.message(duplicate_error) =~ "has already been taken"
   end
 
   test "manual intake rejects same replay identity with changed content", %{
