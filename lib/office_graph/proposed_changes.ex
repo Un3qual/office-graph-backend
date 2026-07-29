@@ -8,14 +8,19 @@ defmodule OfficeGraph.ProposedChanges do
       OfficeGraph.Authorization,
       OfficeGraph.CommandSupport,
       OfficeGraph.Operations,
-      OfficeGraph.Repo,
       OfficeGraph.WorkGraph
     ],
     exports: []
 
   alias OfficeGraph.Authorization
-  alias OfficeGraph.ProposedChanges.ProposedGraphChange
-  alias OfficeGraph.Repo
+  alias OfficeGraph.Operations
+
+  alias OfficeGraph.ProposedChanges.{
+    AppliedChangeSet,
+    CreationResult,
+    ProposedGraphChange
+  }
+
   alias OfficeGraph.WorkGraph
   alias OfficeGraph.WorkGraph.{ReviewFinding, Signal, Task, VerificationCheck}
 
@@ -32,6 +37,8 @@ defmodule OfficeGraph.ProposedChanges do
   @manual_intake_action "manual_intake.submit"
   @normalized_intake_event Module.concat([OfficeGraph, Integrations, NormalizedIntakeEvent])
 
+  @behaviour Ash.Resource.Actions.Implementation
+
   def create_from_agent(operation, execution, context_package, step_key, kind, summary) do
     with true <- kind in [:proposal, :finding] and is_binary(summary),
          :ok <- validate_agent_output(operation, execution, context_package, step_key) do
@@ -45,7 +52,8 @@ defmodule OfficeGraph.ProposedChanges do
       |> Ash.read_one!(authorize?: false)
       |> case do
         nil ->
-          Repo.ash_create!(ProposedGraphChange, %{
+          ProposedGraphChange
+          |> Ash.Changeset.for_create(:create, %{
             organization_id: execution.organization_id,
             workspace_id: execution.workspace_id,
             operation_id: operation.id,
@@ -56,13 +64,15 @@ defmodule OfficeGraph.ProposedChanges do
             title: summary,
             body: summary
           })
+          |> Ash.create!(authorize?: false, return_notifications?: true)
+          |> record_without_notifications()
 
         change ->
           if change.operation_id == operation.id and
                change.context_package_id == context_package.id and
                change.title == summary and change.body == summary,
              do: change,
-             else: Repo.rollback(:agent_proposal_replay_conflict)
+             else: {:error, :agent_proposal_replay_conflict}
       end
     else
       false -> {:error, :invalid_agent_output}
@@ -91,6 +101,56 @@ defmodule OfficeGraph.ProposedChanges do
                         :missing_proposed_change
                       ])
 
+  @impl true
+  def run(input, [mode: :create_manual_intake], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    case Operations.read_operation(attrs.operation_id) do
+      {:ok, operation} ->
+        create_manual_intake_changes(
+          session_context,
+          operation,
+          attrs.normalized_event_id,
+          attrs.body
+        )
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def run(input, [mode: :apply], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    case Operations.read_operation(attrs.operation_id) do
+      {:ok, operation} ->
+        proposed_change_refs = Enum.map(attrs.proposed_change_ids, &%{id: &1})
+
+        case apply_all_locked(
+               session_context,
+               operation,
+               proposed_change_refs,
+               attrs.normalized_event_id
+             ) do
+          {:ok, applied} ->
+            AppliedChangeSet.applied(applied)
+
+          {:error, error} when is_apply_validation_error(error) ->
+            AppliedChangeSet.rejected(error)
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
+
   def get_many(session_context, ids), do: read_scoped_changes(session_context, ids)
 
   def for_normalized_event(session_context, normalized_event_id) do
@@ -111,65 +171,33 @@ defmodule OfficeGraph.ProposedChanges do
   end
 
   def create_for_manual_intake(session_context, operation, normalized_event, attrs) do
-    title = first_sentence(attrs.body)
-
     with :ok <-
            validate_manual_intake_creation_context(session_context, operation, normalized_event) do
-      Repo.transaction(fn ->
-        normalized_event = lock_normalized_event!(session_context, operation, normalized_event)
-
-        case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
-          [] ->
-            Enum.map(@required_change_types, fn change_type ->
-              attrs =
-                Map.merge(
-                  %{
-                    organization_id: session_context.organization_id,
-                    workspace_id: session_context.workspace_id,
-                    operation_id: operation.id,
-                    normalized_event_id: normalized_event.id,
-                    change_type: change_type
-                  },
-                  change_payload(change_type, title, attrs.body)
-                )
-
-              ash_create!(
-                ProposedGraphChange,
-                attrs,
-                session_context
-              )
-            end)
-
-          existing ->
-            case existing_required_set(existing) do
-              {:ok, proposed_changes} ->
-                proposed_changes
-
-              {:error, error} ->
-                Repo.rollback(error)
-            end
-        end
-      end)
+      ProposedGraphChange
+      |> Ash.ActionInput.for_action(:create_manual_intake_changes, %{
+        operation_id: operation.id,
+        normalized_event_id: normalized_event.id,
+        body: attrs.body
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> case do
+        {:ok, %CreationResult{} = result} -> CreationResult.to_public_result(result)
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
   def apply_all(session_context, operation, input) do
     with {:ok, proposed_changes, normalized_event_id} <- normalize_apply_input(input) do
-      Repo.transaction(fn ->
-        case apply_all_locked(
-               session_context,
-               operation,
-               proposed_changes,
-               normalized_event_id
-             ) do
-          {:ok, applied} -> {:ok, applied}
-          {:error, error} when is_apply_validation_error(error) -> {:error, error}
-          {:error, error} -> Repo.rollback(error)
-        end
-      end)
+      ProposedGraphChange
+      |> Ash.ActionInput.for_action(:apply_change_set, %{
+        operation_id: operation.id,
+        normalized_event_id: normalized_event_id,
+        proposed_change_ids: Enum.map(proposed_changes, & &1.id)
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
       |> case do
-        {:ok, {:ok, applied}} -> {:ok, applied}
-        {:ok, {:error, error}} -> {:error, error}
+        {:ok, %AppliedChangeSet{} = result} -> AppliedChangeSet.to_public_result(result)
         {:error, error} -> {:error, error}
       end
     end
@@ -302,23 +330,86 @@ defmodule OfficeGraph.ProposedChanges do
     end
   end
 
-  defp lock_normalized_event!(session_context, operation, normalized_event) do
+  defp create_manual_intake_changes(
+         session_context,
+         operation,
+         normalized_event_id,
+         body
+       ) do
+    case lock_normalized_event(normalized_event_id) do
+      {:ok, normalized_event} ->
+        case validate_manual_intake_creation_context(
+               session_context,
+               operation,
+               normalized_event
+             ) do
+          :ok ->
+            create_or_replay_manual_changes(
+              session_context,
+              operation,
+              normalized_event,
+              body
+            )
+
+          {:error, error} ->
+            CreationResult.rejected(error)
+        end
+
+      {:error, error} ->
+        CreationResult.rejected(error)
+    end
+  end
+
+  defp create_or_replay_manual_changes(
+         session_context,
+         operation,
+         normalized_event,
+         body
+       ) do
+    case read_existing_for_normalized_event(normalized_event.id, lock?: true) do
+      [] ->
+        title = first_sentence(body)
+
+        @required_change_types
+        |> Enum.map(fn change_type ->
+          attrs =
+            Map.merge(
+              %{
+                organization_id: session_context.organization_id,
+                workspace_id: session_context.workspace_id,
+                operation_id: operation.id,
+                normalized_event_id: normalized_event.id,
+                change_type: change_type
+              },
+              change_payload(change_type, title, body)
+            )
+
+          ash_create!(ProposedGraphChange, attrs, session_context)
+        end)
+        |> CreationResult.created()
+
+      existing ->
+        case existing_required_set(existing) do
+          {:ok, proposed_changes} -> CreationResult.created(proposed_changes)
+          {:error, error} -> CreationResult.rejected(error)
+        end
+    end
+  end
+
+  defp lock_normalized_event(normalized_event_id) do
     @normalized_intake_event
-    |> Ash.Query.filter(id == ^normalized_event.id)
+    |> Ash.Query.filter(id == ^normalized_event_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, %{__struct__: @normalized_intake_event} = locked_event} ->
-        case validate_manual_intake_creation_context(session_context, operation, locked_event) do
-          :ok -> locked_event
-          {:error, error} -> Repo.rollback(error)
-        end
+        {:ok, locked_event}
 
       {:ok, nil} ->
-        Repo.rollback({:missing_normalized_event, normalized_event.id})
+        {:error, {:missing_normalized_event, normalized_event_id}}
 
       {:error, error} ->
-        Repo.rollback({:normalized_event_lock_failed, error})
+        {:error, {:normalized_event_lock_failed, error}}
     end
   end
 

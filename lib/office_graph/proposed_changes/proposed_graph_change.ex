@@ -1,3 +1,82 @@
+defmodule OfficeGraph.ProposedChanges.CreationResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :term
+
+    field :proposed_changes, {:array, :struct},
+      allow_nil?: false,
+      constraints: [items: [instance_of: OfficeGraph.ProposedChanges.ProposedGraphChange]]
+  end
+
+  def created(proposed_changes),
+    do: new(status: "created", proposed_changes: proposed_changes)
+
+  def rejected(reason),
+    do: new(status: "rejected", reason: reason, proposed_changes: [])
+
+  def to_public_result(%__MODULE__{status: "created", proposed_changes: proposed_changes}),
+    do: {:ok, proposed_changes}
+
+  def to_public_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+end
+
+defmodule OfficeGraph.ProposedChanges.AppliedChangeSet do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :term
+
+    field :signal, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.Signal]
+
+    field :task, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.Task]
+
+    field :review_finding, :struct,
+      constraints: [instance_of: OfficeGraph.WorkGraph.ReviewFinding]
+
+    field :verification_check, :struct,
+      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationCheck]
+  end
+
+  def applied(result) do
+    new(
+      status: "applied",
+      signal: result.signal,
+      task: result.task,
+      review_finding: result.review_finding,
+      verification_check: result.verification_check
+    )
+  end
+
+  def rejected(reason), do: new(status: "rejected", reason: reason)
+
+  def to_public_result(%__MODULE__{
+        status: "applied",
+        signal: signal,
+        task: task,
+        review_finding: review_finding,
+        verification_check: verification_check
+      }) do
+    {:ok,
+     %{
+       signal: signal,
+       task: task,
+       review_finding: review_finding,
+       verification_check: verification_check
+     }}
+  end
+
+  def to_public_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+end
+
 defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   @moduledoc false
 
@@ -142,6 +221,37 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       validate attribute_equals(:status, "pending")
       change OfficeGraph.ProposedChanges.ProposedGraphChange.ValidatePendingUpdate
       change set_attribute(:status, "applied")
+    end
+
+    action :create_manual_intake_changes, OfficeGraph.ProposedChanges.CreationResult do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Integrations.NormalizedIntakeEvent]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :normalized_event_id, :uuid, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+
+      run {OfficeGraph.ProposedChanges, mode: :create_manual_intake}
+    end
+
+    action :apply_change_set, OfficeGraph.ProposedChanges.AppliedChangeSet do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Authorization.AuthorizationDecision,
+        OfficeGraph.WorkGraph.ReviewFinding,
+        OfficeGraph.WorkGraph.Signal,
+        OfficeGraph.WorkGraph.Task,
+        OfficeGraph.WorkGraph.VerificationCheck
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :normalized_event_id, :uuid
+      argument :proposed_change_ids, {:array, :uuid}, allow_nil?: false
+
+      run {OfficeGraph.ProposedChanges, mode: :apply}
     end
 
     action :apply_proposed_changes,

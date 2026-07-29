@@ -584,18 +584,13 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
   end
 
   @tag :scanner_contract
-  test "direct Ecto scanner reports proposed-change transaction boundaries" do
+  test "completed proposed-change slice has no direct Ecto operations" do
     operations =
       direct_ecto_operations()
       |> Enum.filter(&(&1.path == "lib/office_graph/proposed_changes.ex"))
-      |> MapSet.new(&{&1.path, &1.function, &1.operation})
 
-    assert operations ==
-             MapSet.new([
-               {"lib/office_graph/proposed_changes.ex", "apply_all/3", "Repo.transaction"},
-               {"lib/office_graph/proposed_changes.ex", "create_for_manual_intake/4",
-                "Repo.transaction"}
-             ])
+    assert operations == [],
+           "ProposedChanges must persist through owning Ash actions:\n#{format_direct_operations(operations)}"
   end
 
   @tag :scanner_contract

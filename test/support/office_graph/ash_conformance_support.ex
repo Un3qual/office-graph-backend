@@ -11,7 +11,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
   @stabilization_change_archive "openspec/changes/archive/2026-06-30-stabilize-architecture-foundation"
   @api_migration_ledger "openspec/specs/backend-model-ownership/api-migration-ledger.md"
-  @api_surface_classification "openspec/changes/complete-ash-generated-apis/api-surface-classification.md"
+  @api_surface_classification "openspec/changes/archive/2026-07-28-complete-ash-generated-apis/api-surface-classification.md"
   @map_field_classification "#{@stabilization_change_archive}/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
@@ -1776,12 +1776,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def scan_file_for_ash_authorization_bypasses(path) do
-    path
-    |> File.read!()
+    source = File.read!(path)
+    function_declarations = function_declarations_by_line(source)
+
+    source
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.reduce({nil, []}, fn {line, line_number}, {current_function, bypasses} ->
-      current_function = function_name(line) || current_function
+      current_function = Map.get(function_declarations, line_number, current_function)
 
       bypasses =
         if line =~ "authorize?: false" do

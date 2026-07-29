@@ -15,7 +15,7 @@
 ## 3. Replace Core Workflow Escapes
 
 - [x] 3.1 Replace integration intake transactions, insert-all path, and partial identity fragment with Ash action-managed replay behavior
-- [ ] 3.2 Replace proposed-change transactions with owning actions and preserve all-or-nothing application and typed conflict ordering
+- [x] 3.2 Replace proposed-change transactions with owning actions and preserve all-or-nothing application and typed conflict ordering
 - [ ] 3.3 Replace work-packet and run transaction wrappers, observation advisory lock, and child-count SQL with Ash actions, identities, atomics, and aggregates
 - [ ] 3.4 Replace evidence acceptance and waiver transactions with action-owned Ash changes and atomic parent verification updates
 - [ ] 3.5 Add concurrent intake, proposal, packet, run, observation, evidence, and waiver tests for replay, stale state, and failure atomicity

@@ -479,27 +479,6 @@
     {
       "occurrences": [
         [
-          "sha256:1efa50c7b6d35d492eab737245ee6524a0a50e88153ee972b0758330f030ea6d",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_for_manual_intake/4",
-          1
-        ],
-        [
-          "sha256:afc65628bd14da7d21c0501870eb711b7d5b927595931b64071ecd7ba510e068",
-          "direct_ecto",
-          "Repo.transaction",
-          "apply_all/3",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.ProposedChanges",
-      "path": "lib/office_graph/proposed_changes.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:50a47a7d18565f4ac959005dd990459e73c8ed4d68ac02438c6b6546e11c7e16",
           "direct_ecto",
           "Repo.insert_all",
