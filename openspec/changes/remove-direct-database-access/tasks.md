@@ -50,7 +50,7 @@
 
 ## 8. Remove Test And Test-Support Escapes
 
-- [ ] 8.1 Replace foundation, authorization, authentication, identity, integrations, and durable-delivery test SQL/direct Ecto with public behavior and typed fixtures
+- [x] 8.1 Replace foundation, authorization, authentication, identity, integrations, and durable-delivery test SQL/direct Ecto with public behavior and typed fixtures
 - [ ] 8.2 Replace agent-runtime test SQL/direct Ecto with public actions and test adapter seams
 - [ ] 8.3 Replace GitHub integration test SQL/direct Ecto with public actions, provider adapters, and typed ordering controls
 - [ ] 8.4 Replace work-graph, work-packet, run, projection, and web API test SQL/direct Ecto with public actions and behavior assertions
