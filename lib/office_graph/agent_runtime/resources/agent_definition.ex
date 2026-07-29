@@ -83,6 +83,7 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
       public? false
 
       accept [
+        :model_adapter_key,
         :model_credential_id,
         :requested_capabilities,
         :tool_allowlist,
