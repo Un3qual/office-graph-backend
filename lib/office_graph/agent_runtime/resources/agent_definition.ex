@@ -78,6 +78,11 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
       accept [:lifecycle_state]
       validate one_of(:lifecycle_state, ~w(active disabled retired))
     end
+
+    update :set_model_credential do
+      public? false
+      accept [:model_credential_id]
+    end
   end
 
   identities do

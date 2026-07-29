@@ -1536,34 +1536,6 @@
     {
       "occurrences": [
         [
-          "sha256:8f05f933a3c5bd907a4decf883b9eb638e8d4f27422a1a28c11172cc84b9a84d",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:8c80f1b86de7656d4bcac8dc1eabcf26938dc5b789f2b8a8b5c03bbf485099ab",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ],
-        [
-          "sha256:1f620e40f18edc2e103175a119b279359ae54753da52dd75003c9edd8b9bcfd9",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          3
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "test/office_graph/agent_runtime/approval_commands_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:165a0a4ccd332bad4c2fcd1b62da677420fcde0f3cc94f3481a95dec8490435a",
           "raw_sql",
           "Repo.query!",
@@ -4436,62 +4408,6 @@
       ],
       "owner": "OfficeGraphWeb",
       "path": "test/office_graph_web/operator_workflow_api_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:4fe090450481a216147b019fce78ca716c733f8d700a5f774bcda02e39e3c240",
-          "raw_sql",
-          "fragment",
-          "execution_jobs/1",
-          1
-        ],
-        [
-          "sha256:b9c6b6f0a7850974112c9d61bc4f1258e523b4ead84ff4ae7582afc0e926aeab",
-          "direct_ecto",
-          "Repo.all",
-          "execution_jobs/1",
-          1
-        ],
-        [
-          "sha256:379f67188744fd70b868be095dfac13e79eada646f53b01c06b3429cdc106c75",
-          "raw_sql",
-          "fragment",
-          "approval_resume_jobs/1",
-          1
-        ],
-        [
-          "sha256:cbffb65396a304402f602e531749dec7d5fcb1b4bd25668ab96f82a454aecf59",
-          "direct_ecto",
-          "Repo.all",
-          "approval_resume_jobs/1",
-          1
-        ],
-        [
-          "sha256:08780271a667e05edf2b8011e83a40a7334236bfda138550bac0b9e576de71d0",
-          "raw_sql",
-          "fragment",
-          "gate_expiry_jobs/2",
-          1
-        ],
-        [
-          "sha256:db3a763f81debe7b26d27fef20a178a38cfb32af7b672fc6ae872d7084ef7dd1",
-          "raw_sql",
-          "fragment",
-          "gate_expiry_jobs/2",
-          2
-        ],
-        [
-          "sha256:d0c818de47e552511a51a9c29879a3d9fce10b5ca7d3a21f059975c13d51d3d4",
-          "direct_ecto",
-          "Repo.all",
-          "gate_expiry_jobs/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.TestSupport",
-      "path": "test/support/office_graph/agent_runtime_support.ex",
       "remediation_change": "remove-direct-database-access"
     },
     {

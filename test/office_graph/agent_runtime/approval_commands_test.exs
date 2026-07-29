@@ -53,10 +53,11 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
         authorize?: false
       )
 
-    OfficeGraph.Repo.query!(
-      "UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2",
-      [Ecto.UUID.dump!(credential.id), Ecto.UUID.dump!(context.definition.id)]
-    )
+    context.definition
+    |> Ash.Changeset.for_update(:set_model_credential, %{
+      model_credential_id: credential.id
+    })
+    |> Ash.update!(authorize?: false)
 
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
@@ -203,10 +204,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
     fixture = waiting_approval_fixture()
     assert [expiry_job] = gate_expiry_jobs("approval", fixture.request.id)
 
-    OfficeGraph.Repo.query!(
-      "UPDATE agent_approval_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(fixture.request.id)]
-    )
+    expire_request!(fixture.request)
 
     assert :ok = GateExpiryWorker.perform(%{expiry_job | attempt: 1, max_attempts: 3})
 
@@ -291,10 +289,7 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
 
     expired = waiting_approval_fixture()
 
-    OfficeGraph.Repo.query!(
-      "UPDATE agent_approval_requests SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(expired.request.id)]
-    )
+    expire_request!(expired.request)
 
     expired_attrs = %{
       approval_request_id: expired.request.id,
@@ -341,5 +336,13 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommandsTest do
 
   defp approve(session, operation, request_id, expected_version, reason) do
     AgentRuntime.approve(session, operation, request_id, expected_version, reason)
+  end
+
+  defp expire_request!(request) do
+    request
+    |> Ash.Changeset.for_update(:set_expiry, %{
+      expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+    })
+    |> Ash.update!(authorize?: false)
   end
 end
