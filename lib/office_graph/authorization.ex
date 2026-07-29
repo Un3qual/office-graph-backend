@@ -109,7 +109,8 @@ defmodule OfficeGraph.Authorization do
 
   def authorize_system_principal(principal_id, organization_id, workspace_id, action)
       when is_binary(principal_id) and is_binary(organization_id) do
-    with {:ok, required} <- Map.fetch(@recognized_capabilities, action),
+    with :ok <- Persistence.before_read(:system_principal),
+         {:ok, required} <- Map.fetch(@recognized_capabilities, action),
          {:ok, true} <- Identity.active_system_principal(principal_id),
          {:ok, true} <-
            granted_capability_for_principal(
@@ -433,22 +434,24 @@ defmodule OfficeGraph.Authorization do
          workspace_id,
          required
        ) do
-    case Ash.get(Capability, %{key: required},
-           authorize?: false,
-           not_found_error?: false
-         ) do
-      {:ok, %Capability{id: capability_id}} ->
-        with {:ok, role_ids} <- role_ids_for_capability(capability_id, organization_id),
-             {:ok, granted?} <-
-               role_assignment_exists(principal_id, organization_id, workspace_id, role_ids) do
-          {:ok, granted?}
-        end
+    with :ok <- Persistence.before_read(:principal_capability) do
+      case Ash.get(Capability, %{key: required},
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %Capability{id: capability_id}} ->
+          with {:ok, role_ids} <- role_ids_for_capability(capability_id, organization_id),
+               {:ok, granted?} <-
+                 role_assignment_exists(principal_id, organization_id, workspace_id, role_ids) do
+            {:ok, granted?}
+          end
 
-      {:ok, nil} ->
-        {:ok, false}
+        {:ok, nil} ->
+          {:ok, false}
 
-      {:error, _storage_error} ->
-        {:error, :integration_storage_unavailable}
+        {:error, _storage_error} ->
+          {:error, :integration_storage_unavailable}
+      end
     end
   end
 

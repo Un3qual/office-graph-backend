@@ -11,7 +11,6 @@ defmodule OfficeGraph.ProposedChangesTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
-  alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
 
   import OfficeGraph.SessionCaseHelpers
@@ -1032,56 +1031,18 @@ defmodule OfficeGraph.ProposedChangesTest do
   end
 
   defp insert_change_for_event!(session_context, operation, normalized_event, change_type) do
-    id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      """
-      INSERT INTO proposed_graph_changes (
-        id,
-        organization_id,
-        workspace_id,
-        operation_id,
-        normalized_event_id,
-        status,
-        change_type,
-        title,
-        body,
-        validation_errors,
-        inserted_at,
-        updated_at
-      ) VALUES (
-        $1::uuid,
-        $2::uuid,
-        $3::uuid,
-        $4::uuid,
-        $5::uuid,
-        'pending',
-        $6,
-        $7,
-        $8,
-        ARRAY[]::text[],
-        $9,
-        $9
-      )
-      """,
-      [
-        db_uuid(id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(operation.id),
-        db_uuid(normalized_event.id),
-        change_type,
-        "Duplicate event #{change_type}",
-        "Duplicate event #{change_type} body",
-        now
-      ]
-    )
-
-    Ash.get!(ProposedGraphChange, id, authorize?: false)
+    Ash.Seed.seed!(ProposedGraphChange, %{
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id,
+      operation_id: operation.id,
+      normalized_event_id: normalized_event.id,
+      status: "pending",
+      change_type: change_type,
+      title: "Duplicate event #{change_type}",
+      body: "Duplicate event #{change_type} body",
+      validation_errors: []
+    })
   end
-
-  defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 
   defp create_accepted_event_without_changes!(session_context, operation, suffix) do
     source_identity = "manual:#{suffix}-#{System.unique_integer([:positive])}"

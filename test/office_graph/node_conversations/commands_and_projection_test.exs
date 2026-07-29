@@ -1,7 +1,7 @@
 defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{NodeConversations, Operations, Repo, SessionCaseHelpers}
+  alias OfficeGraph.{NodeConversations, Operations, SessionCaseHelpers}
 
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
@@ -101,7 +101,7 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
              NodeConversations.append_human_message(context.session, operation, attrs)
 
     assert replay.id == message.id
-    assert Repo.aggregate(ConversationMessage, :count) == 1
+    assert Ash.count!(ConversationMessage, authorize?: false) == 1
 
     assert {:error, {:command_idempotency_conflict, operation_id}} =
              NodeConversations.append_human_message(
@@ -203,19 +203,17 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     {:ok, step_operation} = Operations.read_operation(job.args["operation_id"])
 
     assert {:ok, agent_message} =
-             Repo.transaction(fn ->
-               OutputRouter.route!(
-                 step_operation,
-                 invoked.execution,
-                 invoked.context_package,
-                 "model:review",
-                 %ModelOutput{
-                   classification: :message,
-                   safe_summary: "Agent-authored run message",
-                   structured_content: %{"message" => %{"body" => "Agent-authored run message"}}
-                 }
-               )
-             end)
+             OutputRouter.route(
+               step_operation,
+               invoked.execution,
+               invoked.context_package,
+               "model:review",
+               %ModelOutput{
+                 classification: :message,
+                 safe_summary: "Agent-authored run message",
+                 structured_content: %{"message" => %{"body" => "Agent-authored run message"}}
+               }
+             )
 
     conversation =
       Ash.get!(OfficeGraph.NodeConversations.Conversation, agent_message.conversation_id,
@@ -262,10 +260,7 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
     other_context = AgentRuntimeSupport.invocation_fixture()
     other_invoked = AgentRuntimeSupport.invoke_human(other_context)
 
-    Repo.query!(
-      "UPDATE conversation_messages SET context_package_id = $1 WHERE id = $2",
-      [Ecto.UUID.dump!(other_invoked.context_package.id), Ecto.UUID.dump!(agent_message.id)]
-    )
+    Ash.Seed.update!(agent_message, %{context_package_id: other_invoked.context_package.id})
 
     assert {:ok, redacted_projection} =
              NodeConversations.project(
@@ -327,7 +322,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
   test "projects the latest one hundred messages in chronological order" do
     context = AgentRuntimeSupport.invocation_fixture()
     conversation = start_conversation!(context)
-    base_time = ~U[2026-01-01 00:00:00.000000Z]
 
     messages =
       for index <- 1..101 do
@@ -349,11 +343,6 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
         assert {:ok, message} =
                  NodeConversations.append_human_message(context.session, operation, attrs)
-
-        Repo.query!(
-          "UPDATE conversation_messages SET inserted_at = $1 WHERE id = $2",
-          [DateTime.add(base_time, index, :second), Ecto.UUID.dump!(message.id)]
-        )
 
         message
       end
@@ -523,10 +512,9 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     changed_authority_context = AgentRuntimeSupport.invocation_fixture()
 
-    Repo.query!(
-      "UPDATE work_packet_versions SET autonomy_posture = 'bounded_automatic', updated_at = now() WHERE id = $1",
-      [Ecto.UUID.dump!(changed_authority_context.packet_version.id)]
-    )
+    Ash.Seed.update!(changed_authority_context.packet_version, %{
+      autonomy_posture: "bounded_automatic"
+    })
 
     assert_invocation_disabled(changed_authority_context)
   end
@@ -564,75 +552,90 @@ defmodule OfficeGraph.NodeConversations.CommandsAndProjectionTest do
 
     {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
 
-    Repo.ash_create!(AgentExecution, %{
-      id: Ecto.UUID.generate(),
-      definition_id: context.definition.id,
-      organization_binding_id: context.binding.id,
-      organization_id: context.bootstrap.organization.id,
-      workspace_id: context.bootstrap.workspace.id,
-      run_id: context.run.id,
-      graph_item_id: context.graph_item_id,
-      agent_principal_id: context.agent_principal.id,
-      delegator_principal_id: context.session.principal_id,
-      operation_id: operation.id,
-      invocation_mode: "human",
-      origin: "operator",
-      requested_outcome: key,
-      autonomy_mode: "human_supervised",
-      state: state,
-      state_version: 1,
-      attempt_count: 0,
-      idempotency_key: key
-    })
+    Ash.create!(
+      AgentExecution,
+      %{
+        id: Ecto.UUID.generate(),
+        definition_id: context.definition.id,
+        organization_binding_id: context.binding.id,
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id,
+        run_id: context.run.id,
+        graph_item_id: context.graph_item_id,
+        agent_principal_id: context.agent_principal.id,
+        delegator_principal_id: context.session.principal_id,
+        operation_id: operation.id,
+        invocation_mode: "human",
+        origin: "operator",
+        requested_outcome: key,
+        autonomy_mode: "human_supervised",
+        state: state,
+        state_version: 1,
+        attempt_count: 0,
+        idempotency_key: key
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 
   defp create_approval_request!(context, invoked, step_key, state, expires_at) do
-    Repo.ash_create!(ApprovalRequest, %{
-      id: Ecto.UUID.generate(),
-      execution_id: invoked.execution.id,
-      authority_snapshot_id: invoked.authority_snapshot.id,
-      organization_id: context.bootstrap.organization.id,
-      workspace_id: context.bootstrap.workspace.id,
-      operation_id: invoked.operation.id,
-      step_key: step_key,
-      execution_state_version: invoked.execution.state_version,
-      requested_action: "repository.read",
-      reason: "Read the exact bounded repository context.",
-      scope_type: "workspace",
-      scope_id: context.bootstrap.workspace.id,
-      capability_key: "repository.read",
-      sensitivity: "internal",
-      external_write: false,
-      state: state,
-      version: 1,
-      expires_at: expires_at
-    })
+    Ash.create!(
+      ApprovalRequest,
+      %{
+        id: Ecto.UUID.generate(),
+        execution_id: invoked.execution.id,
+        authority_snapshot_id: invoked.authority_snapshot.id,
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id,
+        operation_id: invoked.operation.id,
+        step_key: step_key,
+        execution_state_version: invoked.execution.state_version,
+        requested_action: "repository.read",
+        reason: "Read the exact bounded repository context.",
+        scope_type: "workspace",
+        scope_id: context.bootstrap.workspace.id,
+        capability_key: "repository.read",
+        sensitivity: "internal",
+        external_write: false,
+        state: state,
+        version: 1,
+        expires_at: expires_at
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 
   defp create_expansion_request!(context, invoked, step_key, state, expires_at) do
-    Repo.ash_create!(ContextExpansionRequest, %{
-      id: Ecto.UUID.generate(),
-      execution_id: invoked.execution.id,
-      current_context_package_id: invoked.context_package.id,
-      authority_snapshot_id: invoked.authority_snapshot.id,
-      organization_id: context.bootstrap.organization.id,
-      workspace_id: context.bootstrap.workspace.id,
-      operation_id: invoked.operation.id,
-      step_key: step_key,
-      execution_state_version: invoked.execution.state_version,
-      target_resource_type: "repository",
-      target_resource_id: context.graph_item_id,
-      target_scope_type: "workspace",
-      target_scope_id: context.bootstrap.workspace.id,
-      access_mode: "read",
-      capability_key: "repository.read",
-      reason: "Read the exact bounded repository context.",
-      sensitivity: "internal",
-      expected_duration_seconds: 300,
-      state: state,
-      version: 1,
-      expires_at: expires_at
-    })
+    Ash.create!(
+      ContextExpansionRequest,
+      %{
+        id: Ecto.UUID.generate(),
+        execution_id: invoked.execution.id,
+        current_context_package_id: invoked.context_package.id,
+        authority_snapshot_id: invoked.authority_snapshot.id,
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id,
+        operation_id: invoked.operation.id,
+        step_key: step_key,
+        execution_state_version: invoked.execution.state_version,
+        target_resource_type: "repository",
+        target_resource_id: context.graph_item_id,
+        target_scope_type: "workspace",
+        target_scope_id: context.bootstrap.workspace.id,
+        access_mode: "read",
+        capability_key: "repository.read",
+        reason: "Read the exact bounded repository context.",
+        sensitivity: "internal",
+        expected_duration_seconds: 300,
+        state: state,
+        version: 1,
+        expires_at: expires_at
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 
   defp command!(session, action, key, attrs) do

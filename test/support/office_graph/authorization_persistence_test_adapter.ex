@@ -21,6 +21,11 @@ defmodule OfficeGraph.Authorization.PersistenceTestAdapter do
     :ok
   end
 
+  def clear! do
+    Application.put_env(:office_graph, @responses_key, %{})
+    :ok
+  end
+
   @impl true
   def before_read(stage) do
     case Application.fetch_env!(:office_graph, @responses_key) do
