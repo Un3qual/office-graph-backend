@@ -2530,55 +2530,6 @@
     {
       "occurrences": [
         [
-          "sha256:01c5dfda13a7d1550a506a72c72ee566fa5837c9b4a8ba3918132254f0a74da5",
-          "direct_ecto",
-          "Repo.update!",
-          null,
-          1
-        ],
-        [
-          "sha256:4d7bcbc35249182c476f14c8510dbe64bfa322344eb6e22df3033de217298fe6",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:0e77c4fe907a1672699aa79e54c06c7bd7663fd5cb1a92bac7e511971391c076",
-          "direct_ecto",
-          "Repo.update!",
-          "insert_other_scope_terminal_job/0",
-          1
-        ],
-        [
-          "sha256:cef35bcbbf2d3759428834ef2ad2d9c6683da89e93b86404dc151d4c4fb47027",
-          "direct_ecto",
-          "Repo.update!",
-          "insert_terminal_job/4",
-          1
-        ],
-        [
-          "sha256:38878a8ea63a5aad3ba6cf62e41295612ff97844bb50ed904fd788bb70909e64",
-          "raw_sql",
-          "fragment",
-          "jobs_for_event/1",
-          1
-        ],
-        [
-          "sha256:6e4cd01fc312f08b89e392e2cbfb024d6391649ef2007a5900e9488204d9836f",
-          "direct_ecto",
-          "Repo.all",
-          "jobs_for_event/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.DurableDelivery",
-      "path": "test/office_graph/durable_delivery/terminal_jobs_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:cf592b4e618dc616f09901d6db33aa9128a2995575004e74b7d8acf8c53bacdc",
           "direct_ecto",
           "Repo.aggregate",

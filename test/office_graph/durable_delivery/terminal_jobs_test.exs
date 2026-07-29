@@ -1,7 +1,10 @@
 defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
   use OfficeGraph.DataCase, async: false
+  use Oban.Testing, repo: OfficeGraph.Repo
 
-  alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
+  alias OfficeGraph.{DurableDelivery, Foundation, Operations}
+  alias OfficeGraph.Authorization.RoleAssignment
+  alias OfficeGraph.DurableDelivery.DispatchEventWorker
 
   test "returns bounded safe terminal summaries only for the authorized scope" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -18,16 +21,7 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     [job] = jobs_for_event(event.id)
     :ok = DurableDelivery.mark_failed(event.id, "invalid_payload")
 
-    job =
-      job
-      |> Ecto.Changeset.change(%{
-        state: "cancelled",
-        attempt: 2,
-        attempted_at: DateTime.utc_now(),
-        cancelled_at: DateTime.utc_now(),
-        errors: [%{"attempt" => 2, "error" => "secret stack trace"}]
-      })
-      |> Repo.update!()
+    assert :ok = Oban.cancel_job(job)
 
     insert_other_scope_terminal_job()
 
@@ -35,7 +29,7 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
     assert summary.id == job.id
     assert summary.failure_code == "invalid_payload"
     assert summary.state == "cancelled"
-    assert summary.attempt == 2
+    assert summary.attempt == 0
     refute Map.has_key?(Map.from_struct(summary), :args)
     refute Map.has_key?(Map.from_struct(summary), :errors)
     refute Map.has_key?(Map.from_struct(summary), :stacktrace)
@@ -51,9 +45,10 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
   test "rechecks live grants before returning terminal history" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
-    Repo.query!("DELETE FROM role_assignments WHERE id = $1", [
-      Ecto.UUID.dump!(bootstrap.role_assignment.id)
-    ])
+    assignment =
+      Ash.get!(RoleAssignment, bootstrap.role_assignment.id, authorize?: false)
+
+    Ash.destroy!(assignment, action: :revoke, authorize?: false)
 
     assert {:error, :forbidden} = DurableDelivery.list_terminal_jobs(bootstrap.session)
   end
@@ -157,12 +152,12 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
         "organization_id" => Ecto.UUID.generate(),
         "workspace_id" => Ecto.UUID.generate()
       }
-      |> OfficeGraph.DurableDelivery.DispatchEventWorker.new()
+      |> DispatchEventWorker.new()
       |> Oban.insert()
 
+    :ok = Oban.cancel_job(job)
+
     job
-    |> Ecto.Changeset.change(state: "cancelled", cancelled_at: DateTime.utc_now())
-    |> Repo.update!()
   end
 
   defp insert_terminal_job(bootstrap, event_id, failure_code, workspace_id \\ :session_workspace) do
@@ -175,21 +170,20 @@ defmodule OfficeGraph.DurableDelivery.TerminalJobsTest do
         "organization_id" => bootstrap.organization.id,
         "workspace_id" => workspace_id
       }
-      |> OfficeGraph.DurableDelivery.DispatchEventWorker.new()
+      |> DispatchEventWorker.new()
       |> Oban.insert()
 
+    {:ok, job} =
+      Oban.update_job(job, %{
+        meta: %{"terminal_failure_code" => failure_code}
+      })
+
+    :ok = Oban.cancel_job(job)
+
     job
-    |> Ecto.Changeset.change(%{
-      state: "cancelled",
-      cancelled_at: DateTime.utc_now(),
-      meta: %{"terminal_failure_code" => failure_code}
-    })
-    |> Repo.update!()
   end
 
   defp jobs_for_event(event_id) do
-    Oban.Job
-    |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
-    |> Repo.all()
+    all_enqueued(worker: DispatchEventWorker, args: %{event_id: event_id})
   end
 end
