@@ -48,7 +48,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
       |> case do
         {:ok, %{status: :created}} -> {:ok, :accepted}
         {:ok, %{status: :replayed}} -> {:ok, :duplicate}
-        {:error, reason} -> {:error, normalize_receipt_error(reason)}
+        {:error, :integration_storage_unavailable} -> {:error, :receipt_unavailable}
+        {:error, _reason} -> {:error, :receipt_failed}
       end
     else
       {:error, reason} when reason in [:unavailable, :integration_storage_unavailable] ->
@@ -178,24 +179,4 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
       do: :ok,
       else: {:error, :unsupported_event}
   end
-
-  defp normalize_receipt_error({:system_idempotency_conflict, _operation_id}),
-    do: :delivery_identity_conflict
-
-  defp normalize_receipt_error(:integration_storage_unavailable),
-    do: :receipt_unavailable
-
-  defp normalize_receipt_error(%Ash.Changeset{}), do: :receipt_unavailable
-  defp normalize_receipt_error(%Ash.ActionInput{}), do: :receipt_unavailable
-
-  defp normalize_receipt_error(reason)
-       when reason in [
-              :delivery_identity_conflict,
-              :invalid_delivery,
-              :unknown_installation,
-              :unsupported_event
-            ],
-       do: reason
-
-  defp normalize_receipt_error(_reason), do: :receipt_failed
 end

@@ -38,9 +38,6 @@ defmodule OfficeGraphWeb.GitHubWebhookController do
   defp render_error(conn, :unsupported_event),
     do: error(conn, :unprocessable_entity, "unsupported_event")
 
-  defp render_error(conn, :delivery_identity_conflict),
-    do: error(conn, :conflict, "delivery_identity_conflict")
-
   defp render_error(conn, :invalid_delivery),
     do: error(conn, :unprocessable_entity, "invalid_delivery")
 

@@ -1102,14 +1102,9 @@ defmodule OfficeGraph.Runs do
   defp require_packet_version_id(%{id: id}) when is_binary(id), do: {:ok, id}
   defp require_packet_version_id(_packet_version), do: {:error, :missing_packet_version}
 
-  defp reload_packet_version(_session_context, nil), do: {:error, :missing_packet_version}
-
   defp reload_packet_version(session_context, %{id: id}) do
     fetch_scoped(WorkPacketVersion, session_context, id)
   end
-
-  defp reload_packet_version(_session_context, _packet_version),
-    do: {:error, :missing_packet_version}
 
   defp reload_run(_session_context, nil), do: {:error, :missing_work_run}
 

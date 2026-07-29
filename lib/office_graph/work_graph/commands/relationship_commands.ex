@@ -717,7 +717,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
   defp rollback_on_error!({:error, error}), do: Support.rollback(error)
 
   defp relationship_request(relationship, attrs) do
-    attrs = Map.new(attrs || %{})
+    attrs = Map.new(attrs)
 
     %RelationshipRequest{
       definition_key: Map.get(attrs, :definition_key, "stored_definition"),
