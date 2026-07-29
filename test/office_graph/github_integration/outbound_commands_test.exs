@@ -525,7 +525,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     result = OutboundWorker.perform(%{job | attempt: job.max_attempts})
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
     RecordLoaderTestAdapter.put(%{})
 
     assert {:snooze, 5} = result
@@ -597,7 +597,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert staged_job.meta["terminal_result_code"] == "permission_denied"
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
 
@@ -642,7 +642,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
     assert Provider.calls("check_update", "CR_outbound") == 1
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert :ok = OutboundWorker.perform(staged_job)
 
@@ -681,7 +681,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
     assert Provider.calls("check_update", "CR_outbound") == 1
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     context.check
     |> Ash.Changeset.for_update(:reconcile, %{
@@ -816,7 +816,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert trace_counts(action, "github.review_reply.succeeded") == {0, 0}
     assert Provider.calls("review_reply", "PRRC_outbound") == 1
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert :ok = OutboundWorker.perform(job)
     assert trace_counts(action, "github.review_reply.succeeded") == {1, 1}
@@ -1029,7 +1029,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     staged_job = job_for(action.id)
     assert staged_job.meta["terminal_action_id"] == action.id
 
-    OutboundPersistenceTestAdapter.clear!()
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert {:cancel, "installation_revoked"} = OutboundWorker.perform(staged_job)
     assert Provider.calls("review_reply", "PRRC_outbound") == 1

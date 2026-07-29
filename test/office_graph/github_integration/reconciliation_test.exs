@@ -1162,7 +1162,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert Ash.count!(Repository, authorize?: false) == repository_count
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1206,7 +1206,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert Ash.count!(Repository, authorize?: false) == 0
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1242,7 +1242,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert Ash.count!(Repository, authorize?: false) == 0
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1311,7 +1311,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert unchanged.name == "update-storage-initial"
     assert unchanged.provider_sequence == 1
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(update_operation, update_request)
     assert recovered.state == "reconciled"
@@ -1353,7 +1353,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
 
     assert Ash.count!(Repository, authorize?: false) == 0
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1395,7 +1395,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationTest do
     assert Ash.count!(Repository, authorize?: false) == 0
     assert Ash.count!(ExternalReference, authorize?: false) == 0
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"

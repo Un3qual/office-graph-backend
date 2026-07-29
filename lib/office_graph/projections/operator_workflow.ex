@@ -868,11 +868,24 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
           end
         end)
         |> Enum.uniq_by(& &1.id)
-        |> Enum.sort(&run_more_recent?/2)
-        |> Enum.take(@relationship_summary_limit + 1)
+        |> Enum.reduce([], fn run, selected ->
+          selected
+          |> insert_recent_run(run)
+          |> Enum.take(@relationship_summary_limit + 1)
+        end)
 
       {operation_id, runs}
     end)
+  end
+
+  defp insert_recent_run([], run), do: [run]
+
+  defp insert_recent_run([next | rest] = runs, run) do
+    if run_more_recent?(run, next) do
+      [run | runs]
+    else
+      [next | insert_recent_run(rest, run)]
+    end
   end
 
   defp run_more_recent?(left, right) do

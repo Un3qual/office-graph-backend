@@ -21,7 +21,7 @@ defmodule OfficeGraph.Operations.PersistenceTestAdapter do
     :ok
   end
 
-  def clear! do
+  def clear_operation_failures! do
     Application.put_env(:office_graph, @responses_key, %{})
     :ok
   end

@@ -113,7 +113,7 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
         {:ok, GateExpiryResult.snooze!(max(DateTime.diff(request.expires_at, now, :second), 1))}
 
       matching_wait?(request_kind, request, execution) ->
-        with {:ok, operation} <- read_operation(request.operation_id),
+        with {:ok, operation} <- Operations.read_operation(request.operation_id),
              {:ok, _expired} <- mark_expired(request_kind, request, now),
              :ok <- fail_waiting_execution(request_kind, execution, operation, now) do
           {:ok, GateExpiryResult.complete!()}
@@ -192,8 +192,6 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp read_operation(operation_id), do: Operations.read_operation(operation_id)
 
   defp lock_request("approval", request_id), do: lock(ApprovalRequest, request_id)
 

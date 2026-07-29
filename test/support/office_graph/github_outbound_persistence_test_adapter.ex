@@ -21,7 +21,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundPersistenceTestAdapter do
     :ok
   end
 
-  def clear! do
+  def clear_outbound_failures! do
     Application.put_env(:office_graph, @responses_key, %{})
     :ok
   end

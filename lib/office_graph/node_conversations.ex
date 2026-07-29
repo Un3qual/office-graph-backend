@@ -216,16 +216,12 @@ defmodule OfficeGraph.NodeConversations do
     if package_ids == [] do
       {:ok, %{}}
     else
-      read_visible_context_packages(session_context, conversation, package_ids)
+      ConversationProjection.read_visible_context_packages(
+        session_context,
+        conversation,
+        package_ids
+      )
     end
-  end
-
-  defp read_visible_context_packages(session_context, conversation, package_ids) do
-    ConversationProjection.read_visible_context_packages(
-      session_context,
-      conversation,
-      package_ids
-    )
   end
 
   defp project_message_context(message, referenced_context) do

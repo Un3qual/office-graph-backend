@@ -16,8 +16,11 @@ defmodule OfficeGraph.Projections.RunState.Activity do
          {:ok, activities} <- mark_failed_missing_evidence(session_context, run, activities) do
       activities =
         activities
-        |> Enum.sort(&before?/2)
-        |> Enum.take(limit + 1)
+        |> Enum.reduce([], fn activity, selected ->
+          selected
+          |> insert_activity(activity)
+          |> Enum.take(limit + 1)
+        end)
 
       {:ok, activities}
     end
@@ -56,7 +59,7 @@ defmodule OfficeGraph.Projections.RunState.Activity do
       case Ash.read(query, actor: session_context) do
         {:ok, records} ->
           projected = Enum.map(records, &projection.(&1))
-          {:cont, {:ok, projected ++ activities}}
+          {:cont, {:ok, Enum.reverse(projected, activities)}}
 
         {:error, error} ->
           {:halt, {:error, error}}
@@ -338,6 +341,16 @@ defmodule OfficeGraph.Projections.RunState.Activity do
   defp message_title("agent"), do: "Agent message"
   defp message_title("human"), do: "Human message"
   defp message_title(_source), do: "System message"
+
+  defp insert_activity([], activity), do: [activity]
+
+  defp insert_activity([next | rest] = activities, activity) do
+    if before?(activity, next) do
+      [activity | activities]
+    else
+      [next | insert_activity(rest, activity)]
+    end
+  end
 
   defp before?(left, right) do
     case compare_timestamps(left.inserted_at, right.inserted_at) do

@@ -322,7 +322,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert staged_job.meta["terminal_delivery_id"] == "delivery-worker-pre-operation-exhausted"
 
     staged_job = refresh_job(job)
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
     assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(staged_job)
 
     outcome =
@@ -392,7 +392,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
     staged_job = refresh_job(job)
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
     assert {:cancel, "invalid_delivery_archive"} = WebhookWorker.perform(staged_job)
 
     outcome =
@@ -491,7 +491,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     refute Map.has_key?(refresh_job(job).meta, "terminal_failure_code")
     assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert :ok = WebhookWorker.perform(job)
   end
@@ -797,7 +797,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert outcome.state == "retryable"
 
-    ReconciliationPersistenceTestAdapter.clear!()
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     terminalization_job = refresh_job(job)
 

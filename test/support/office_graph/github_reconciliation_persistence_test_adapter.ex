@@ -21,7 +21,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationPersistenceTestAdapter do
     :ok
   end
 
-  def clear! do
+  def clear_reconciliation_failures! do
     Application.put_env(:office_graph, @responses_key, %{})
     :ok
   end

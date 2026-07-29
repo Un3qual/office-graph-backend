@@ -301,7 +301,7 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert {:error, "system_conformance_storage_unavailable"} =
              SystemConformanceWorker.perform(job)
 
-    OperationPersistenceTestAdapter.clear!()
+    OperationPersistenceTestAdapter.clear_operation_failures!()
 
     refute Map.has_key?(
              Ash.get!(StoredJob, job.id, authorize?: false).meta,

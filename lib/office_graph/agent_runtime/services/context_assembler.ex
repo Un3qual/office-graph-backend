@@ -73,7 +73,10 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
     current_entries = load_entries!(current_package.id)
 
     if Enum.count(current_entries, &expansion_target?(&1, request)) != 1 do
-      rollback(ContextExpansionRequest, :context_expansion_target_mismatch)
+      Ash.DataLayer.rollback(
+        ContextExpansionRequest,
+        :context_expansion_target_mismatch
+      )
     end
 
     expanded_entries =
@@ -156,7 +159,7 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
   defp load_entries!(package_id) do
     case load_entries(package_id) do
       {:ok, entries} -> entries
-      {:error, reason} -> rollback(ContextExpansionRequest, reason)
+      {:error, reason} -> Ash.DataLayer.rollback(ContextExpansionRequest, reason)
     end
   end
 
@@ -166,11 +169,9 @@ defmodule OfficeGraph.AgentRuntime.ContextAssembler do
     |> Ash.create(authorize?: false, return_notifications?: true)
     |> case do
       {:ok, record, _notifications} -> record
-      {:error, error} -> rollback(owner, error)
+      {:error, error} -> Ash.DataLayer.rollback(owner, error)
     end
   end
-
-  defp rollback(owner, error), do: Ash.DataLayer.rollback(owner, error)
 
   defp expansion_target?(entry, request) do
     entry.resource_type == request.target_resource_type and
