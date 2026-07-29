@@ -3,48 +3,6 @@
     {
       "occurrences": [
         [
-          "sha256:e106f52e298f4a41ec2c93fedcf3029202cfbb7560435d2aa1343466dda8c72e",
-          "raw_sql",
-          "Repo.query",
-          "claim_dispatch_posture/3",
-          1
-        ],
-        [
-          "sha256:92161ee1d8756a6de1f3f3dc0071d2e12be491bf1d6f4792466c7270b2798cd4",
-          "direct_ecto",
-          "Repo.transaction",
-          "claim/4",
-          1
-        ],
-        [
-          "sha256:e1cade586a6adf14180f54a76508b89617f813522ee4b21aeb990e49088e9b61",
-          "direct_ecto",
-          "Repo.transaction",
-          "complete/3",
-          1
-        ],
-        [
-          "sha256:932906b27576f6a1bc87b9928559cc98b508b8d05ab92036b7675f3042abaf0c",
-          "direct_ecto",
-          "Repo.transaction",
-          "fail_unclaimed_step/3",
-          1
-        ],
-        [
-          "sha256:1b5622e742861afd1b0aa5efc6a11c56e2397275d0199185224625fd0789e772",
-          "direct_ecto",
-          "Repo.transaction",
-          "finalize_step/5",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/workers/execution_worker.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:11dedea83d5cc5ea56b38ecd963e4040596287f5ac08552f0d9aa628379cab5b",
           "raw_sql",
           "fragment",

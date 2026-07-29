@@ -6,10 +6,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     max_attempts: 3,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
-  alias OfficeGraph.{AgentRuntime, DurableDelivery, Operations, Repo}
+  alias OfficeGraph.{AgentRuntime, CommandSupport, DurableDelivery, Operations}
   alias OfficeGraph.Integrations.IntegrationCredential
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AdapterContract,
     AdapterRegistry,
     AdapterResult,
@@ -21,6 +22,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     ContextExpansionRequest,
     ContextPackage,
     ExecutionStateMachine,
+    ExecutionWorkerActionResult,
     GateExpiryWorker,
     ModelInput,
     ModelRequest,
@@ -36,6 +38,78 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   @lease_seconds div(@worker_timeout_ms, 1_000) + 30
   @retry_delay_seconds 1
   @terminal_retry_delay_seconds 5
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl Ash.Resource.Actions.Implementation
+  def run(input, [mode: :claim], _context) do
+    attrs = input.arguments
+
+    worker_context = %{
+      approval_request_id: attrs.approval_request_id,
+      context_expansion_request_id: attrs.context_expansion_request_id,
+      context_package: attrs.context_package,
+      credential_kinds: attrs.credential_kinds,
+      manifest: attrs.manifest,
+      snapshot: attrs.snapshot
+    }
+
+    case claim_records(
+           worker_context,
+           attrs.operation_id,
+           attrs.execution_id,
+           attrs.step_key,
+           attrs.fixture_id,
+           attrs.lease_token
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(input, [mode: :complete], _context) do
+    attrs = input.arguments
+
+    case complete_records(
+           attrs.operation_id,
+           attrs.execution_id,
+           attrs.request_id,
+           attrs.lease_token,
+           attrs.context_package,
+           attrs.output
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(input, [mode: :fail_unclaimed], _context) do
+    attrs = input.arguments
+
+    case fail_unclaimed_records(attrs.operation_id, attrs.execution_id, attrs.failure_code) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(input, [mode: :finalize], _context) do
+    attrs = input.arguments
+
+    case finalize_records(
+           attrs.operation_id,
+           attrs.execution_id,
+           attrs.request_id,
+           attrs.lease_token,
+           attrs.request_state,
+           attrs.execution_state,
+           attrs.failure_code
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def prepare_initial(%AgentExecution{} = execution, %AuthoritySnapshot{} = snapshot) do
     with {:ok, operation} <- create_step_operation(execution, snapshot, @initial_step_key),
@@ -203,39 +277,36 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
 
   defp claim_dispatch_posture(execution_id, request_id, lease_token)
        when is_binary(execution_id) and is_binary(request_id) and is_binary(lease_token) do
-    Repo.query(
-      """
-      SELECT
-        executions.state,
-        executions.failure_code,
-        executions.lease_token,
-        executions.lease_expires_at > NOW(),
-        requests.state
-      FROM agent_executions AS executions
-      JOIN agent_model_requests AS requests
-        ON requests.execution_id = executions.id
-      WHERE executions.id = $1
-        AND requests.id = $2
-      """,
-      [Ecto.UUID.dump!(execution_id), Ecto.UUID.dump!(request_id)]
-    )
-    |> case do
-      {:ok, %{rows: [["running", _failure_code, ^lease_token, true, "running"]]}} ->
+    with {:ok, %ModelRequest{} = request} <-
+           Ash.get(ModelRequest, request_id, authorize?: false, not_found_error?: false),
+         true <- request.execution_id == execution_id,
+         {:ok, %AgentExecution{} = execution} <-
+           Ash.get(AgentExecution, execution_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+      dispatch_posture(execution, request, lease_token)
+    else
+      {:ok, _missing_record} -> :stale
+      false -> :stale
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp dispatch_posture(execution, request, lease_token) do
+    cond do
+      execution.state == "running" and execution.lease_token == lease_token and
+        active_lease?(execution) and request.state == "running" ->
         :current
 
-      {:ok,
-       %{rows: [["completed", _failure_code, _persisted_lease, _lease_current, "succeeded"]]}} ->
+      execution.state == "completed" and request.state == "succeeded" ->
         :completed
 
-      {:ok, %{rows: [[state, failure_code, _persisted_lease, _lease_current, _request_state]]}}
-      when state in ["failed", "cancelled"] ->
-        {:terminal, safe_code(failure_code, "agent_execution_#{state}")}
+      execution.state in ["failed", "cancelled"] ->
+        {:terminal, safe_code(execution.failure_code, "agent_execution_#{execution.state}")}
 
-      {:ok, _result} ->
+      true ->
         :stale
-
-      {:error, _storage_error} ->
-        {:error, :integration_storage_unavailable}
     end
   end
 
@@ -415,14 +486,44 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp claim(context, operation, step_key, fixture_id) do
     lease_token = Ecto.UUID.generate()
 
-    Repo.transaction(fn ->
-      execution = lock_execution!(context.execution.id)
+    AgentExecution
+    |> Ash.ActionInput.for_action(:claim_worker_step, %{
+      operation_id: operation.id,
+      execution_id: context.execution.id,
+      step_key: step_key,
+      fixture_id: fixture_id,
+      lease_token: lease_token,
+      snapshot: context.snapshot,
+      context_package: context.context_package,
+      manifest: context.manifest,
+      credential_kinds: context.credential_kinds,
+      approval_request_id: context.approval_request_id,
+      context_expansion_request_id: context.context_expansion_request_id
+    })
+    |> Ash.run_action(authorize?: false)
+    |> ActionSupport.normalize_action_result()
+    |> case do
+      {:ok, result} -> {:ok, claim_result(result, context)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
+  defp claim_records(
+         context,
+         operation_id,
+         execution_id,
+         step_key,
+         fixture_id,
+         lease_token
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, %AgentExecution{} = execution} <- lock_execution(execution_id),
+         :ok <- validate_claim_context(context, operation, execution, step_key) do
       case execution_posture(execution) do
         :available ->
-          input = model_input(context, operation, execution, step_key, fixture_id)
-
-          with :ok <- AdapterContract.validate_model_preflight(context.manifest, input) do
+          with {:ok, input} <-
+                 model_input(context, operation, execution, step_key, fixture_id),
+               :ok <- AdapterContract.validate_model_preflight(context.manifest, input) do
             cond do
               context_requires_expansion?(context.context_package.id) ->
                 wait_available_step(
@@ -454,21 +555,65 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
                   lease_token
                 )
             end
-          else
-            {:error, reason} -> Repo.rollback(reason)
           end
 
         {:leased, delay} ->
-          {:leased, delay}
+          {:ok, ExecutionWorkerActionResult.build!(:leased, %{delay_seconds: delay})}
 
         {:waiting, state} ->
-          {:waiting, state, execution, nil}
+          {:ok,
+           ExecutionWorkerActionResult.build!(:waiting, %{
+             state: state,
+             execution: execution
+           })}
 
         {:terminal, state} ->
-          {:terminal, state, execution}
+          {:ok,
+           ExecutionWorkerActionResult.build!(:terminal, %{
+             state: state,
+             execution: execution
+           })}
       end
-    end)
+    else
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
   end
+
+  defp validate_claim_context(context, operation, execution, step_key) do
+    valid? =
+      context.snapshot.execution_id == execution.id and
+        context.context_package.execution_id == execution.id and
+        context.context_package.authority_snapshot_id == context.snapshot.id
+
+    if valid?,
+      do: validate_step_operation(operation, execution, context.snapshot, step_key),
+      else: {:error, :forbidden}
+  end
+
+  defp claim_result(%ExecutionWorkerActionResult{status: :run} = result, context) do
+    {:run,
+     %{
+       adapter: context.adapter,
+       context_package: context.context_package,
+       execution: result.execution,
+       input: result.input,
+       lease_token: result.lease_token,
+       manifest: context.manifest,
+       request: result.model_request
+     }}
+  end
+
+  defp claim_result(%ExecutionWorkerActionResult{status: :leased} = result, _context),
+    do: {:leased, result.delay_seconds}
+
+  defp claim_result(%ExecutionWorkerActionResult{status: :waiting} = result, _context) do
+    request = result.approval_request || result.context_expansion_request
+    {:waiting, result.state, result.execution, request}
+  end
+
+  defp claim_result(%ExecutionWorkerActionResult{status: :terminal} = result, _context),
+    do: {:terminal, result.state, result.execution}
 
   defp wait_available_step(
          context,
@@ -478,159 +623,219 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
          _fixture_id,
          waiting_state
        ) do
-    with :ok <- ExecutionStateMachine.validate(execution.state, waiting_state) do
-      waiting_request =
-        prepare_waiting_request!(waiting_state, context, operation, execution, step_key)
-
-      waiting =
-        transition!(execution, operation, waiting_state, %{
-          current_step_key: step_key,
-          failure_code: nil,
-          lease_token: nil,
-          lease_expires_at: nil
-        })
-
+    with :ok <- ExecutionStateMachine.validate(execution.state, waiting_state),
+         {:ok, waiting_request} <-
+           prepare_waiting_request(waiting_state, context, operation, execution, step_key),
+         {:ok, waiting} <-
+           transition(execution, operation, waiting_state, %{
+             current_step_key: step_key,
+             failure_code: nil,
+             lease_token: nil,
+             lease_expires_at: nil
+           }) do
       GateExpiryWorker.enqueue!(waiting_request)
 
-      {:waiting, waiting_state, waiting, waiting_request}
-    else
-      {:error, reason} -> Repo.rollback(reason)
+      {:ok, waiting_result(waiting_state, waiting, waiting_request)}
     end
+  end
+
+  defp waiting_result("waiting_approval", execution, request) do
+    ExecutionWorkerActionResult.build!(:waiting, %{
+      state: "waiting_approval",
+      execution: execution,
+      approval_request: request
+    })
+  end
+
+  defp waiting_result("waiting_context", execution, request) do
+    ExecutionWorkerActionResult.build!(:waiting, %{
+      state: "waiting_context",
+      execution: execution,
+      context_expansion_request: request
+    })
   end
 
   defp claim_available_step(context, operation, execution, step_key, input, lease_token) do
     with :ok <- ExecutionStateMachine.validate(execution.state, "running"),
-         :ok <- AdapterContract.validate_model_input(context.manifest, input) do
-      credential_id = snapshotted_model_credential_id!(context.snapshot)
-      request = create_or_load_request!(context, operation, input, credential_id)
-      validate_request_replay!(request, input, credential_id)
-
+         :ok <- AdapterContract.validate_model_input(context.manifest, input),
+         {:ok, credential_id} <- snapshotted_model_credential_id(context.snapshot),
+         {:ok, request} <- create_or_load_request(context, operation, input, credential_id),
+         :ok <- validate_request_replay(request, input, credential_id) do
       case request.state do
         "succeeded" ->
-          completed =
-            transition!(execution, operation, "completed", %{
-              completed_at: request.completed_at || DateTime.utc_now(),
-              failure_code: nil,
-              lease_token: nil,
-              lease_expires_at: nil
-            })
-
-          {:terminal, "completed", completed}
+          with {:ok, completed} <-
+                 transition(execution, operation, "completed", %{
+                   completed_at: request.completed_at || DateTime.utc_now(),
+                   failure_code: nil,
+                   lease_token: nil,
+                   lease_expires_at: nil
+                 }) do
+            {:ok,
+             ExecutionWorkerActionResult.build!(:terminal, %{
+               state: "completed",
+               execution: completed
+             })}
+          end
 
         state when state in ["failed", "cancelled"] ->
           terminal_state = if state == "cancelled", do: "cancelled", else: "failed"
 
-          terminal =
-            transition!(execution, operation, terminal_state, %{
-              failure_code: request.failure_code,
-              lease_token: nil,
-              lease_expires_at: nil
-            })
-
-          {:terminal, terminal_state, terminal}
+          with {:ok, terminal} <-
+                 transition(execution, operation, terminal_state, %{
+                   failure_code: request.failure_code,
+                   lease_token: nil,
+                   lease_expires_at: nil
+                 }) do
+            {:ok,
+             ExecutionWorkerActionResult.build!(:terminal, %{
+               state: terminal_state,
+               execution: terminal
+             })}
+          end
 
         _active ->
-          running_request =
-            request
-            |> Ash.Changeset.for_update(:record_result, %{state: "running"})
-            |> Repo.ash_update!()
-
-          running_execution =
-            transition!(execution, operation, "running", %{
-              attempt_count: execution.attempt_count + 1,
-              current_step_key: step_key,
-              failure_code: nil,
-              lease_token: lease_token,
-              lease_expires_at: DateTime.add(DateTime.utc_now(), @lease_seconds, :second),
-              started_at: execution.started_at || DateTime.utc_now()
-            })
-
-          {:run,
-           %{
-             adapter: context.adapter,
-             context_package: context.context_package,
-             execution: running_execution,
-             input: input,
-             lease_token: lease_token,
-             manifest: context.manifest,
-             request: running_request
-           }}
+          with {:ok, running_request} <-
+                 request
+                 |> Ash.Changeset.for_update(:record_result, %{state: "running"})
+                 |> Ash.update(authorize?: false, return_notifications?: true)
+                 |> CommandSupport.normalize_ash_write(),
+               {:ok, running_execution} <-
+                 transition(execution, operation, "running", %{
+                   attempt_count: execution.attempt_count + 1,
+                   current_step_key: step_key,
+                   failure_code: nil,
+                   lease_token: lease_token,
+                   lease_expires_at: DateTime.add(DateTime.utc_now(), @lease_seconds, :second),
+                   started_at: execution.started_at || DateTime.utc_now()
+                 }) do
+            {:ok,
+             ExecutionWorkerActionResult.build!(:run, %{
+               execution: running_execution,
+               input: input,
+               lease_token: lease_token,
+               model_request: running_request
+             })}
+          end
       end
-    else
-      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
   defp complete(claim, operation, output) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        execution = lock_execution!(claim.execution.id)
-        request = lock_model_request!(claim.request.id)
-
-        cond do
-          execution.state == "cancelled" ->
-            maybe_cancel_request!(request, "cancelled")
-            :ok
-
-          execution.lease_token == claim.lease_token and execution.state == "running" ->
-            now = DateTime.utc_now()
-
-            output_router().route!(
-              operation,
-              execution,
-              claim.context_package,
-              request.step_key,
-              output
-            )
-
-            request
-            |> Ash.Changeset.for_update(:record_result, %{
-              state: "succeeded",
-              output_hash: hash(output),
-              output_classification: Atom.to_string(output.classification),
-              failure_code: nil,
-              completed_at: now
-            })
-            |> Repo.ash_update!()
-
-            transition!(execution, operation, "completed", %{
-              completed_at: now,
-              failure_code: nil,
-              lease_token: nil,
-              lease_expires_at: nil
-            })
-
-            :ok
-
-          request.state == "succeeded" and execution.state == "completed" ->
-            :ok
-
-          true ->
-            Repo.rollback(:stale_agent_execution_lease)
-        end
-      end)
-      |> normalize_step_transaction()
+      AgentExecution
+      |> Ash.ActionInput.for_action(:complete_worker_step, %{
+        operation_id: operation.id,
+        execution_id: claim.execution.id,
+        request_id: claim.request.id,
+        lease_token: claim.lease_token,
+        context_package: claim.context_package,
+        output: output
+      })
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
+      |> normalize_worker_action()
     end)
   end
 
-  defp fail_unclaimed_step(execution_id, operation, failure_code \\ "agent_authority_revoked") do
-    Repo.transaction(fn ->
-      execution = lock_execution!(execution_id)
+  defp complete_records(
+         operation_id,
+         execution_id,
+         request_id,
+         lease_token,
+         context_package,
+         output
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, %AgentExecution{} = execution} <- lock_execution(execution_id),
+         {:ok, %ModelRequest{} = request} <- lock_model_request(request_id),
+         true <- request.execution_id == execution.id do
+      cond do
+        execution.state == "cancelled" ->
+          with :ok <- maybe_cancel_request(request, "cancelled") do
+            ok_worker_result()
+          end
 
-      if ExecutionStateMachine.terminal?(execution.state) do
-        :ok
-      else
-        transition!(execution, operation, "failed", %{
-          completed_at: DateTime.utc_now(),
-          failure_code: failure_code,
-          lease_token: nil,
-          lease_expires_at: nil
-        })
+        execution.lease_token == lease_token and execution.state == "running" ->
+          complete_current_step(operation, execution, request, context_package, output)
 
-        :ok
+        request.state == "succeeded" and execution.state == "completed" ->
+          ok_worker_result()
+
+        true ->
+          {:error, :stale_agent_execution_lease}
       end
-    end)
-    |> normalize_step_transaction()
+    else
+      {:ok, nil} -> {:error, :stale_agent_execution_lease}
+      false -> {:error, :stale_agent_execution_lease}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp complete_current_step(operation, execution, request, context_package, output) do
+    now = DateTime.utc_now()
+
+    output_router().route!(
+      operation,
+      execution,
+      context_package,
+      request.step_key,
+      output
+    )
+
+    with {:ok, _request} <-
+           request
+           |> Ash.Changeset.for_update(:record_result, %{
+             state: "succeeded",
+             output_hash: hash(output),
+             output_classification: Atom.to_string(output.classification),
+             failure_code: nil,
+             completed_at: now
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         {:ok, _execution} <-
+           transition(execution, operation, "completed", %{
+             completed_at: now,
+             failure_code: nil,
+             lease_token: nil,
+             lease_expires_at: nil
+           }) do
+      ok_worker_result()
+    end
+  end
+
+  defp fail_unclaimed_step(execution_id, operation, failure_code \\ "agent_authority_revoked") do
+    AgentExecution
+    |> Ash.ActionInput.for_action(:fail_unclaimed_worker_step, %{
+      operation_id: operation.id,
+      execution_id: execution_id,
+      failure_code: failure_code
+    })
+    |> Ash.run_action(authorize?: false)
+    |> ActionSupport.normalize_action_result()
+    |> normalize_worker_action()
+  end
+
+  defp fail_unclaimed_records(operation_id, execution_id, failure_code) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, %AgentExecution{} = execution} <- lock_execution(execution_id) do
+      if ExecutionStateMachine.terminal?(execution.state) do
+        ok_worker_result()
+      else
+        with {:ok, _failed} <-
+               transition(execution, operation, "failed", %{
+                 completed_at: DateTime.utc_now(),
+                 failure_code: failure_code,
+                 lease_token: nil,
+                 lease_expires_at: nil
+               }) do
+          ok_worker_result()
+        end
+      end
+    else
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp persist_adapter_result({:ok, output}, claim, operation, job) do
@@ -704,56 +909,115 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   end
 
   defp finalize_step(claim, operation, request_state, execution_state, failure_code) do
-    Repo.transaction(fn ->
-      execution = lock_execution!(claim.execution.id)
-      request = lock_model_request!(claim.request.id)
-
-      cond do
-        execution.state == "cancelled" ->
-          maybe_cancel_request!(request, failure_code)
-          :ok
-
-        execution.lease_token == claim.lease_token and execution.state == "running" ->
-          now = DateTime.utc_now()
-
-          request
-          |> Ash.Changeset.for_update(:record_result, %{
-            state: request_state,
-            failure_code: failure_code,
-            completed_at: if(request_state in ["failed", "cancelled"], do: now, else: nil)
-          })
-          |> Repo.ash_update!()
-
-          transition_attrs = %{
-            failure_code: failure_code,
-            lease_token: nil,
-            lease_expires_at: nil
-          }
-
-          transition_attrs =
-            case execution_state do
-              "failed" -> Map.put(transition_attrs, :completed_at, now)
-              "cancelled" -> Map.put(transition_attrs, :cancelled_at, now)
-              _other -> transition_attrs
-            end
-
-          transition!(execution, operation, execution_state, transition_attrs)
-          :ok
-
-        true ->
-          Repo.rollback(:stale_agent_execution_lease)
-      end
-    end)
-    |> normalize_step_transaction()
+    AgentExecution
+    |> Ash.ActionInput.for_action(:finalize_worker_step, %{
+      operation_id: operation.id,
+      execution_id: claim.execution.id,
+      request_id: claim.request.id,
+      lease_token: claim.lease_token,
+      request_state: request_state,
+      execution_state: execution_state,
+      failure_code: failure_code
+    })
+    |> Ash.run_action(authorize?: false)
+    |> ActionSupport.normalize_action_result()
+    |> normalize_worker_action()
   end
 
-  defp normalize_step_transaction({:ok, :ok}), do: :ok
-  defp normalize_step_transaction({:error, reason}), do: {:error, reason}
+  defp finalize_records(
+         operation_id,
+         execution_id,
+         request_id,
+         lease_token,
+         request_state,
+         execution_state,
+         failure_code
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, %AgentExecution{} = execution} <- lock_execution(execution_id),
+         {:ok, %ModelRequest{} = request} <- lock_model_request(request_id),
+         true <- request.execution_id == execution.id do
+      cond do
+        execution.state == "cancelled" ->
+          with :ok <- maybe_cancel_request(request, failure_code) do
+            ok_worker_result()
+          end
 
-  defp create_or_load_request!(context, operation, input, credential_id) do
-    case model_request(context.execution.id, input.step_key, input.idempotency_key) do
-      nil ->
-        Repo.ash_create!(ModelRequest, %{
+        execution.lease_token == lease_token and execution.state == "running" ->
+          finalize_current_step(
+            operation,
+            execution,
+            request,
+            request_state,
+            execution_state,
+            failure_code
+          )
+
+        true ->
+          {:error, :stale_agent_execution_lease}
+      end
+    else
+      {:ok, nil} -> {:error, :stale_agent_execution_lease}
+      false -> {:error, :stale_agent_execution_lease}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp finalize_current_step(
+         operation,
+         execution,
+         request,
+         request_state,
+         execution_state,
+         failure_code
+       ) do
+    now = DateTime.utc_now()
+
+    with {:ok, _request} <-
+           request
+           |> Ash.Changeset.for_update(:record_result, %{
+             state: request_state,
+             failure_code: failure_code,
+             completed_at: if(request_state in ["failed", "cancelled"], do: now, else: nil)
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         {:ok, _execution} <-
+           transition(
+             execution,
+             operation,
+             execution_state,
+             terminal_transition_attrs(execution_state, failure_code, now)
+           ) do
+      ok_worker_result()
+    end
+  end
+
+  defp terminal_transition_attrs(execution_state, failure_code, now) do
+    attrs = %{
+      failure_code: failure_code,
+      lease_token: nil,
+      lease_expires_at: nil
+    }
+
+    case execution_state do
+      "failed" -> Map.put(attrs, :completed_at, now)
+      "cancelled" -> Map.put(attrs, :cancelled_at, now)
+      _other -> attrs
+    end
+  end
+
+  defp ok_worker_result,
+    do: {:ok, ExecutionWorkerActionResult.build!(:ok)}
+
+  defp normalize_worker_action({:ok, %ExecutionWorkerActionResult{status: :ok}}), do: :ok
+  defp normalize_worker_action({:error, reason}), do: {:error, reason}
+
+  defp create_or_load_request(_context, operation, input, credential_id) do
+    case model_request(input.execution_id, input.step_key, input.idempotency_key) do
+      {:ok, nil} ->
+        ModelRequest
+        |> Ash.Changeset.for_create(:create, %{
           id: input.request_id,
           execution_id: input.execution_id,
           context_package_id: input.context_package_id,
@@ -771,9 +1035,14 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
           input_hash: encoded_fingerprint(input),
           requested_at: DateTime.utc_now()
         })
+        |> Ash.create(authorize?: false, return_notifications?: true)
+        |> CommandSupport.normalize_ash_write()
 
-      request ->
-        request
+      {:ok, request} ->
+        {:ok, request}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -784,52 +1053,63 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         idempotency_key == ^idempotency_key
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp create_or_load_approval_request!(context, operation, execution, step_key) do
-    attrs = %{
-      execution_id: execution.id,
-      authority_snapshot_id: context.snapshot.id,
-      organization_id: execution.organization_id,
-      workspace_id: execution.workspace_id,
-      operation_id: operation.id,
-      step_key: step_key,
-      execution_state_version: execution.state_version + 1,
-      requested_action: "model.generate",
-      reason: "adapter_requires_human_approval",
-      scope_type: "workspace",
-      scope_id: execution.workspace_id,
-      capability_key: List.first(context.manifest.capability_keys),
-      credential_id: snapshotted_model_credential_id!(context.snapshot),
-      context_expansion_request_id: context.context_expansion_request_id,
-      sensitivity: Atom.to_string(context.manifest.sensitivity),
-      external_write: context.manifest.external_write,
-      state: "pending",
-      version: 1,
-      expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
-    }
+  defp create_or_load_approval_request(context, operation, execution, step_key) do
+    with {:ok, credential_id} <- snapshotted_model_credential_id(context.snapshot) do
+      attrs = %{
+        execution_id: execution.id,
+        authority_snapshot_id: context.snapshot.id,
+        organization_id: execution.organization_id,
+        workspace_id: execution.workspace_id,
+        operation_id: operation.id,
+        step_key: step_key,
+        execution_state_version: execution.state_version + 1,
+        requested_action: "model.generate",
+        reason: "adapter_requires_human_approval",
+        scope_type: "workspace",
+        scope_id: execution.workspace_id,
+        capability_key: List.first(context.manifest.capability_keys),
+        credential_id: credential_id,
+        context_expansion_request_id: context.context_expansion_request_id,
+        sensitivity: Atom.to_string(context.manifest.sensitivity),
+        external_write: context.manifest.external_write,
+        state: "pending",
+        version: 1,
+        expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+      }
 
-    ApprovalRequest
-    |> Ash.Query.filter(
-      execution_id == ^execution.id and step_key == ^step_key and state == "pending"
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
-    |> case do
-      nil -> Repo.ash_create!(ApprovalRequest, attrs)
-      request -> validate_approval_request_replay!(request, attrs)
+      ApprovalRequest
+      |> Ash.Query.filter(
+        execution_id == ^execution.id and step_key == ^step_key and state == "pending"
+      )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} ->
+          ApprovalRequest
+          |> Ash.Changeset.for_create(:create, attrs)
+          |> Ash.create(authorize?: false, return_notifications?: true)
+          |> CommandSupport.normalize_ash_write()
+
+        {:ok, request} ->
+          validate_approval_request_replay(request, attrs)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
-  defp prepare_waiting_request!("waiting_approval", context, operation, execution, step_key),
-    do: create_or_load_approval_request!(context, operation, execution, step_key)
+  defp prepare_waiting_request("waiting_approval", context, operation, execution, step_key),
+    do: create_or_load_approval_request(context, operation, execution, step_key)
 
-  defp prepare_waiting_request!("waiting_context", context, operation, execution, step_key),
-    do: create_or_load_context_expansion_request!(context, operation, execution, step_key)
+  defp prepare_waiting_request("waiting_context", context, operation, execution, step_key),
+    do: create_or_load_context_expansion_request(context, operation, execution, step_key)
 
-  defp create_or_load_context_expansion_request!(context, operation, execution, step_key) do
-    target =
+  defp create_or_load_context_expansion_request(context, operation, execution, step_key) do
+    target_result =
       ContextEntry
       |> Ash.Query.filter(
         context_package_id == ^context.context_package.id and posture == "expansion_required"
@@ -837,52 +1117,62 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
       |> Ash.Query.sort(ordinal: :asc)
       |> Ash.Query.limit(1)
       |> Ash.Query.lock(:for_update)
-      |> Ash.read_one!(authorize?: false)
-
-    if is_nil(target), do: Repo.rollback(:context_expansion_target_missing)
+      |> Ash.read_one(authorize?: false)
 
     capability_key = "agent.tool.read"
 
-    unless capability_key in context.snapshot.capability_keys do
-      Repo.rollback(:context_expansion_not_authorized)
-    end
+    with {:ok, %ContextEntry{} = target} <- target_result,
+         true <- capability_key in context.snapshot.capability_keys do
+      attrs = %{
+        execution_id: execution.id,
+        current_context_package_id: context.context_package.id,
+        authority_snapshot_id: context.snapshot.id,
+        organization_id: execution.organization_id,
+        workspace_id: execution.workspace_id,
+        operation_id: operation.id,
+        step_key: step_key,
+        execution_state_version: execution.state_version + 1,
+        target_resource_type: target.resource_type,
+        target_resource_id: target.resource_id,
+        target_scope_type: "workspace",
+        target_scope_id: target.workspace_id,
+        access_mode: "read",
+        capability_key: capability_key,
+        reason: "context_entry_requires_expansion",
+        sensitivity: "internal",
+        expected_duration_seconds: 900,
+        state: "pending",
+        version: 1,
+        expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+      }
 
-    attrs = %{
-      execution_id: execution.id,
-      current_context_package_id: context.context_package.id,
-      authority_snapshot_id: context.snapshot.id,
-      organization_id: execution.organization_id,
-      workspace_id: execution.workspace_id,
-      operation_id: operation.id,
-      step_key: step_key,
-      execution_state_version: execution.state_version + 1,
-      target_resource_type: target.resource_type,
-      target_resource_id: target.resource_id,
-      target_scope_type: "workspace",
-      target_scope_id: target.workspace_id,
-      access_mode: "read",
-      capability_key: capability_key,
-      reason: "context_entry_requires_expansion",
-      sensitivity: "internal",
-      expected_duration_seconds: 900,
-      state: "pending",
-      version: 1,
-      expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
-    }
+      ContextExpansionRequest
+      |> Ash.Query.filter(
+        execution_id == ^execution.id and step_key == ^step_key and state == "pending"
+      )
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} ->
+          ContextExpansionRequest
+          |> Ash.Changeset.for_create(:create, attrs)
+          |> Ash.create(authorize?: false, return_notifications?: true)
+          |> CommandSupport.normalize_ash_write()
 
-    ContextExpansionRequest
-    |> Ash.Query.filter(
-      execution_id == ^execution.id and step_key == ^step_key and state == "pending"
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
-    |> case do
-      nil -> Repo.ash_create!(ContextExpansionRequest, attrs)
-      request -> validate_context_expansion_request_replay!(request, attrs)
+        {:ok, request} ->
+          validate_context_expansion_request_replay(request, attrs)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, nil} -> {:error, :context_expansion_target_missing}
+      false -> {:error, :context_expansion_not_authorized}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp validate_context_expansion_request_replay!(request, attrs) do
+  defp validate_context_expansion_request_replay(request, attrs) do
     fields = [
       :execution_id,
       :current_context_package_id,
@@ -906,11 +1196,11 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
     ]
 
     if Enum.all?(fields, &(Map.get(request, &1) == Map.get(attrs, &1))),
-      do: request,
-      else: Repo.rollback(:agent_context_expansion_request_conflict)
+      do: {:ok, request},
+      else: {:error, :agent_context_expansion_request_conflict}
   end
 
-  defp validate_approval_request_replay!(request, attrs) do
+  defp validate_approval_request_replay(request, attrs) do
     valid? =
       Enum.all?(
         [
@@ -936,10 +1226,10 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         &(Map.get(request, &1) == Map.get(attrs, &1))
       )
 
-    if valid?, do: request, else: Repo.rollback(:agent_approval_request_conflict)
+    if valid?, do: {:ok, request}, else: {:error, :agent_approval_request_conflict}
   end
 
-  defp validate_request_replay!(request, input, credential_id) do
+  defp validate_request_replay(request, input, credential_id) do
     valid? =
       request.execution_id == input.execution_id and
         request.context_package_id == input.context_package_id and
@@ -951,80 +1241,81 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         request.timeout_ms == input.timeout_ms and request.token_budget == input.token_budget and
         request.input_hash == encoded_fingerprint(input)
 
-    unless valid?, do: Repo.rollback(:agent_step_idempotency_conflict)
+    if valid?, do: :ok, else: {:error, :agent_step_idempotency_conflict}
   end
 
-  defp snapshotted_model_credential_id!(%AuthoritySnapshot{credential_ids: []}), do: nil
+  defp snapshotted_model_credential_id(%AuthoritySnapshot{credential_ids: []}), do: {:ok, nil}
 
-  defp snapshotted_model_credential_id!(%AuthoritySnapshot{credential_ids: [credential_id]}),
-    do: credential_id
+  defp snapshotted_model_credential_id(%AuthoritySnapshot{credential_ids: [credential_id]}),
+    do: {:ok, credential_id}
 
-  defp snapshotted_model_credential_id!(_snapshot),
-    do: Repo.rollback(:authority_snapshot_invalid)
+  defp snapshotted_model_credential_id(_snapshot), do: {:error, :authority_snapshot_invalid}
 
   defp model_input(context, operation, execution, step_key, fixture_id) do
     manifest = context.manifest
 
-    %ModelInput{
-      request_id: existing_request_id(execution.id, step_key) || Ecto.UUID.generate(),
-      execution_id: execution.id,
-      step_key: step_key,
-      context_package_id: context.context_package.id,
-      authority_snapshot_id: context.snapshot.id,
-      operation_id: operation.id,
-      adapter_key: manifest.key,
-      adapter_version: manifest.version,
-      idempotency_key: step_idempotency_key(execution.id, step_key),
-      capability_keys: context.snapshot.capability_keys,
-      credential_kinds: context.credential_kinds,
-      sensitivity: manifest.sensitivity,
-      approval_granted?: is_binary(context.approval_request_id),
-      timeout_ms: manifest.timeout_ms,
-      token_budget: manifest.token_budget,
-      adapter_payload: %{fixture_id: fixture_id}
-    }
+    with {:ok, existing_request_id} <- existing_request_id(execution.id, step_key) do
+      {:ok,
+       %ModelInput{
+         request_id: existing_request_id || Ecto.UUID.generate(),
+         execution_id: execution.id,
+         step_key: step_key,
+         context_package_id: context.context_package.id,
+         authority_snapshot_id: context.snapshot.id,
+         operation_id: operation.id,
+         adapter_key: manifest.key,
+         adapter_version: manifest.version,
+         idempotency_key: step_idempotency_key(execution.id, step_key),
+         capability_keys: context.snapshot.capability_keys,
+         credential_kinds: context.credential_kinds,
+         sensitivity: manifest.sensitivity,
+         approval_granted?: is_binary(context.approval_request_id),
+         timeout_ms: manifest.timeout_ms,
+         token_budget: manifest.token_budget,
+         adapter_payload: %{fixture_id: fixture_id}
+       }}
+    end
   end
 
   defp existing_request_id(execution_id, step_key) do
     ModelRequest
     |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
     |> Ash.Query.select([:id])
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
     |> case do
-      nil -> nil
-      request -> request.id
+      {:ok, nil} -> {:ok, nil}
+      {:ok, request} -> {:ok, request.id}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp lock_execution!(execution_id) do
+  defp lock_execution(execution_id) do
     AgentExecution
     |> Ash.Query.filter(id == ^execution_id)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp lock_model_request!(request_id) do
+  defp lock_model_request(request_id) do
     ModelRequest
     |> Ash.Query.filter(id == ^request_id)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp transition!(execution, operation, state, attrs) do
-    with :ok <- ExecutionStateMachine.validate(execution.state, state) do
-      updated =
-        execution
-        |> Ash.Changeset.for_update(:transition, Map.put(attrs, :state, state))
-        |> Repo.ash_update!()
-
-      record_transition_event!(operation, updated)
-      updated
-    else
-      {:error, reason} -> Repo.rollback(reason)
+  defp transition(execution, operation, state, attrs) do
+    with :ok <- ExecutionStateMachine.validate(execution.state, state),
+         {:ok, updated} <-
+           execution
+           |> Ash.Changeset.for_update(:transition, Map.put(attrs, :state, state))
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         :ok <- record_transition_event(operation, updated) do
+      {:ok, updated}
     end
   end
 
-  defp record_transition_event!(operation, execution) do
+  defp record_transition_event(operation, execution) do
     case DurableDelivery.record_system_and_enqueue(operation, %{
            event_key: "agent-execution:#{execution.id}:v#{execution.state_version}",
            event_kind: "agent_execution.#{execution.state}",
@@ -1033,24 +1324,27 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
            subject_version: execution.state_version
          }) do
       {:ok, _event} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp maybe_cancel_request!(%ModelRequest{state: state}, _failure_code)
+  defp maybe_cancel_request(%ModelRequest{state: state}, _failure_code)
        when state in ["succeeded", "failed", "cancelled"],
        do: :ok
 
-  defp maybe_cancel_request!(request, failure_code) do
+  defp maybe_cancel_request(request, failure_code) do
     request
     |> Ash.Changeset.for_update(:record_result, %{
       state: "cancelled",
       failure_code: failure_code,
       completed_at: DateTime.utc_now()
     })
-    |> Repo.ash_update!()
-
-    :ok
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> CommandSupport.normalize_ash_write()
+    |> case do
+      {:ok, _request} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp execution_posture(%AgentExecution{} = execution) do

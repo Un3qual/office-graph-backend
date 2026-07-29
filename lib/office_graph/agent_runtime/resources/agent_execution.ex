@@ -102,6 +102,41 @@ defmodule OfficeGraph.AgentRuntime.CancellationResult do
   end
 end
 
+defmodule OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:ok, :run, :leased, :waiting, :terminal]]
+
+    field :state, :string
+    field :lease_token, :string
+    field :delay_seconds, :integer, constraints: [min: 1]
+
+    field :execution, :struct, constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+    field :model_request, :struct,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ModelRequest]
+
+    field :approval_request, :struct,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ApprovalRequest]
+
+    field :context_expansion_request, :struct,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ContextExpansionRequest]
+
+    field :input, :struct, constraints: [instance_of: OfficeGraph.AgentRuntime.ModelInput]
+  end
+
+  def build!(status, attrs \\ %{}) do
+    attrs
+    |> Map.put(:status, status)
+    |> new!()
+  end
+end
+
 defimpl Jason.Encoder, for: OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
   def encode(result, options) do
     Jason.Encode.map(
@@ -414,6 +449,119 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :expected_state_version, :integer, allow_nil?: false, constraints: [min: 1]
 
       run {OfficeGraph.AgentRuntime.CancellationCommands, mode: :persist_cancel}
+    end
+
+    action :claim_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.ApprovalRequest,
+        OfficeGraph.AgentRuntime.ContextEntry,
+        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        OfficeGraph.AgentRuntime.ModelRequest,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :step_key, :string, allow_nil?: false
+      argument :fixture_id, :string, allow_nil?: false
+      argument :lease_token, :string, allow_nil?: false
+
+      argument :snapshot, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.AuthoritySnapshot]
+
+      argument :context_package, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+      argument :manifest, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ModelManifest]
+
+      argument :credential_kinds, {:array, :atom},
+        allow_nil?: false,
+        constraints: [items: [one_of: [:secret_reference]]]
+
+      argument :approval_request_id, :uuid
+      argument :context_expansion_request_id, :uuid
+
+      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :claim}
+    end
+
+    action :complete_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.ModelRequest,
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.NodeConversations.ConversationMessage,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.ProposedChanges.ProposedGraphChange,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.ExecutionObservation,
+        OfficeGraph.WorkGraph.EvidenceCandidate
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :request_id, :uuid, allow_nil?: false
+      argument :lease_token, :string, allow_nil?: false
+
+      argument :context_package, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+      argument :output, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ModelOutput]
+
+      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :complete}
+    end
+
+    action :fail_unclaimed_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :failure_code, :string, allow_nil?: false
+
+      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :fail_unclaimed}
+    end
+
+    action :finalize_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.ModelRequest,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :request_id, :uuid, allow_nil?: false
+      argument :lease_token, :string, allow_nil?: false
+      argument :request_state, :string, allow_nil?: false
+      argument :execution_state, :string, allow_nil?: false
+      argument :failure_code, :string, allow_nil?: false
+
+      validate argument_in(:request_state, ~w(retry_scheduled failed cancelled))
+      validate argument_in(:execution_state, ~w(retry_scheduled failed cancelled))
+
+      run {OfficeGraph.AgentRuntime.ExecutionWorker, mode: :finalize}
     end
 
     update :transition do
