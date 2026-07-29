@@ -133,7 +133,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end
 
-  test "completed foundation slices contain no direct database access" do
+  test "completed production slices contain no direct database access" do
     sources =
       Enum.map(
         [
@@ -144,6 +144,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           "lib/office_graph/identity/services/human_sessions.ex",
           "lib/office_graph/integrations.ex",
           "lib/office_graph/proposed_changes.ex",
+          "lib/office_graph/runs.ex",
           "lib/office_graph/tenancy.ex",
           "lib/office_graph/work_packets.ex"
         ],

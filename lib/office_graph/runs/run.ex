@@ -137,6 +137,69 @@ defimpl Jason.Encoder, for: OfficeGraph.Runs.CommandResults.RecordExecutionObser
   end
 end
 
+defmodule OfficeGraph.Runs.RunMutationResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :term
+
+    field :run, :struct, constraints: [instance_of: OfficeGraph.Runs.Run]
+
+    field :required_checks, {:array, :struct},
+      constraints: [items: [instance_of: OfficeGraph.Runs.RunRequiredCheck]]
+
+    field :observation, :struct, constraints: [instance_of: OfficeGraph.Runs.ExecutionObservation]
+
+    field :required_check, :struct, constraints: [instance_of: OfficeGraph.Runs.RunRequiredCheck]
+  end
+
+  def started(run, required_checks),
+    do: new(status: "started", run: run, required_checks: required_checks)
+
+  def observed(observation, run),
+    do: new(status: "observed", observation: observation, run: run)
+
+  def verified(run, required_check \\ nil),
+    do: new(status: "verified", run: run, required_check: required_check)
+
+  def rejected(reason), do: new(status: "rejected", reason: reason)
+
+  def to_start_result(%__MODULE__{
+        status: "started",
+        run: run,
+        required_checks: required_checks
+      }),
+      do: {:ok, %{run: run, required_checks: required_checks}}
+
+  def to_start_result(%__MODULE__{status: "rejected", reason: reason}), do: {:error, reason}
+
+  def to_observation_result(%__MODULE__{
+        status: "observed",
+        observation: observation,
+        run: run
+      }),
+      do: {:ok, %{observation: observation, run: run}}
+
+  def to_observation_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+
+  def to_verification_result(%__MODULE__{
+        status: "verified",
+        run: run,
+        required_check: required_check
+      }),
+      do: {:ok, %{run: run, required_check: required_check}}
+
+  def to_verification_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+
+  def to_run_result(%__MODULE__{status: "verified", run: run}), do: {:ok, run}
+  def to_run_result(%__MODULE__{status: "rejected", reason: reason}), do: {:error, reason}
+end
+
 defmodule OfficeGraph.Runs.Run do
   @moduledoc false
 
@@ -258,6 +321,67 @@ defmodule OfficeGraph.Runs.Run do
     end
   end
 
+  aggregates do
+    count :required_check_count, :required_checks do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id)
+             )
+    end
+
+    count :observation_count, :execution_observations do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id)
+             )
+    end
+
+    count :evidence_candidate_count, :evidence_candidates do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id)
+             )
+    end
+
+    count :evidence_item_count, :evidence_items do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id)
+             )
+    end
+
+    count :verification_result_count, :verification_results do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id)
+             )
+    end
+
+    count :missing_evidence_count, :required_checks do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and state == "pending"
+             )
+    end
+
+    count :pending_evidence_candidate_count, :evidence_candidates do
+      filter expr(
+               organization_id == parent(organization_id) and
+                 workspace_id == parent(workspace_id) and
+                 candidate_state == "candidate" and freshness_state == "fresh" and
+                 trust_basis in ["owner_attested", "signed_provider_payload"] and
+                 exists(
+                   OfficeGraph.Runs.RunRequiredCheck,
+                   run_id == parent(work_run_id) and
+                     organization_id == parent(organization_id) and
+                     workspace_id == parent(workspace_id) and
+                     verification_check_id == parent(verification_check_id) and
+                     state == "pending"
+                 )
+             )
+    end
+  end
+
   actions do
     read :read do
       primary? true
@@ -311,6 +435,71 @@ defmodule OfficeGraph.Runs.Run do
         :verification_state,
         :completed_at
       ]
+    end
+
+    action :persist_run_contract, OfficeGraph.Runs.RunMutationResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.VerificationCheck,
+        OfficeGraph.WorkPackets.WorkPacket,
+        OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference,
+        OfficeGraph.WorkPackets.WorkPacketVersion,
+        OfficeGraph.Runs.RunRequiredCheck
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :packet_version_id, :uuid, allow_nil?: false
+      argument :authority_posture, :string
+      argument :source_surface, :string
+      argument :reason, :string
+
+      run {OfficeGraph.Runs, mode: :start_run}
+    end
+
+    action :persist_observation_contract, OfficeGraph.Runs.RunMutationResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.VerificationCheck,
+        OfficeGraph.Runs.ExecutionObservation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :run_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid
+      argument :graph_item_id, :uuid
+      argument :source_kind, :string, allow_nil?: false
+      argument :source_identity, :string, allow_nil?: false
+      argument :idempotency_key, :string
+      argument :observed_status, :string, allow_nil?: false
+      argument :normalized_status, :string, allow_nil?: false
+      argument :source_recorded_at, :utc_datetime_usec
+      argument :freshness_state, :string, allow_nil?: false
+      argument :trust_basis, :string, allow_nil?: false
+      argument :rationale, :string
+      argument :classification, :string
+
+      run {OfficeGraph.Runs, mode: :record_observation}
+    end
+
+    action :apply_verification_result, OfficeGraph.Runs.RunMutationResult do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Runs.RunRequiredCheck]
+
+      argument :run_id, :uuid, allow_nil?: false
+      argument :result, :string, allow_nil?: false
+      argument :verification_check_id, :uuid
+
+      run {OfficeGraph.Runs, mode: :apply_verification}
     end
 
     action :start_work_run,

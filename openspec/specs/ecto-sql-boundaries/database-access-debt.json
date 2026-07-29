@@ -493,55 +493,6 @@
     {
       "occurrences": [
         [
-          "sha256:294e88b1b7dde17ea73f42528efbd9865621d5398b68456c166216573dce1322",
-          "direct_ecto",
-          "Repo.transaction",
-          "apply_accepted_verification_result/2",
-          1
-        ],
-        [
-          "sha256:b77b0ce14142d17782b32fa3b71fe5c8f8826503374d4c88dba1f8fa6db075ae",
-          "direct_ecto",
-          "Repo.transaction",
-          "apply_required_check_result/3",
-          1
-        ],
-        [
-          "sha256:ed47954c4053810a1b412eb317b816fdd13a0c4bf48286d0dddbdc8d609a77e5",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_observation/4",
-          1
-        ],
-        [
-          "sha256:88fa5c2c96f42774adfa840266d694adc467920ade8316c3f5fcd9b4abc81640",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_run_records/4",
-          1
-        ],
-        [
-          "sha256:b27bac4ff26e0055fafb83f7b1bd409e9df19e5e11d3015e559c3d7385557cd2",
-          "raw_sql",
-          "Repo.query!",
-          "lock_observation_idempotency_key!/2",
-          1
-        ],
-        [
-          "sha256:8920ac2ca753ef864827736e861826d2bc7ff619521bcd9af3559017b051aeb7",
-          "raw_sql",
-          "Repo.query",
-          "projection_child_counts/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Runs",
-      "path": "lib/office_graph/runs.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:dcb63c994a058b906242de2eb594f01f88d55cb4827051db9aa4ffb354081fd2",
           "direct_ecto",
           "Repo.transaction",

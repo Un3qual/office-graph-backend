@@ -170,7 +170,6 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
         {2, [:lease_token, :model_request_replay]},
       "lib/office_graph/api_support.ex" => {1, [:fixture_trace]},
       "lib/office_graph/external_refs.ex" => {1, [:insert_replay_detection]},
-      "lib/office_graph/integrations.ex" => {1, [:insert_replay_detection]},
       "lib/office_graph/operations.ex" => {1, [:operation_correlation]},
       "lib/office_graph/verification.ex" => {2, [:multi_record_graph_linkage]},
       "lib/office_graph/work_graph/commands/proposal_commands.ex" =>
