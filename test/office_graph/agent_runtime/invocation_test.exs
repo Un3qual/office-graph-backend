@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.InvocationTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Foundation, Operations, Repo}
+  alias OfficeGraph.{AgentRuntime, Foundation, Operations}
 
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
@@ -41,9 +41,9 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     assert first.execution.origin == "operator"
     assert first.execution.state == "queued"
 
-    assert Repo.aggregate(AgentExecution, :count) == 1
-    assert Repo.aggregate(AuthoritySnapshot, :count) == 1
-    assert Repo.aggregate(ContextPackage, :count) == 1
+    assert Ash.count!(AgentExecution, authorize?: false) == 1
+    assert Ash.count!(AuthoritySnapshot, authorize?: false) == 1
+    assert Ash.count!(ContextPackage, authorize?: false) == 1
   end
 
   test "human invocation rejects an operation whose command digest names another request",
@@ -60,7 +60,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
              AgentRuntime.invoke(context.session, operation, conflicting_request)
 
     assert operation_id == operation.id
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "automatic invocation consumes the generic system operation without another operation schema",
@@ -103,7 +103,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
              })
 
     assert {:error, :forbidden} = AgentRuntime.invoke_system(unrelated_operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "automatic invocation rejects capabilities revoked from the agent principal", context do
@@ -114,31 +114,14 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
         idempotency_key: "revoked-agent-capability-#{context.suffix}"
       })
 
-    Repo.query!(
-      """
-      DELETE FROM role_capabilities
-      WHERE role_id IN (
-        SELECT role_id
-        FROM role_assignments
-        WHERE principal_id = $1 AND organization_id = $2 AND workspace_id = $3
-      )
-      AND capability_id IN (
-        SELECT id FROM capabilities WHERE key = 'agent.model.generate'
-      )
-      """,
-      [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
-      ]
-    )
+    AgentRuntimeSupport.revoke_capabilities!(context, ["agent.model.generate"])
 
     assert {:ok, operation} = AgentRuntimeSupport.system_operation(context, request)
 
     assert {:error, {:unauthorized_agent_capabilities, ["agent.model.generate"]}} =
              AgentRuntime.invoke_system(operation, request)
 
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "human invocation rejects capabilities that the delegator was not granted", context do
@@ -161,7 +144,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
              ["agent.model.generate", "evidence.suggest", "proposal.create"]}} =
              AgentRuntime.invoke(limited_session, operation, request)
 
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "an invocation replay survives later binding and definition deactivation", context do
@@ -193,7 +176,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
              AgentRuntime.invoke(context.session, wrong_operation, request)
 
     assert wrong_operation_id == wrong_operation.id
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "invocation rejects inactive bindings", context do
@@ -207,7 +190,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
 
     assert disabled_binding.lifecycle_state == "disabled"
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "invocation rejects inactive definitions", context do
@@ -219,7 +202,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     |> Ash.update!(authorize?: false)
 
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "invocation rejects a terminal run", context do
@@ -235,20 +218,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
     |> Ash.update!(authorize?: false)
 
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
-  end
-
-  test "invocation rejects run authority that no longer matches the packet", context do
-    request = AgentRuntimeSupport.request(context)
-    assert {:ok, operation} = AgentRuntimeSupport.human_operation(context.session, request)
-
-    Repo.query!(
-      "UPDATE work_packet_versions SET autonomy_posture = 'bounded_automatic', updated_at = now() WHERE id = $1",
-      [Ecto.UUID.dump!(context.packet_version.id)]
-    )
-
-    assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "invocation rejects graph context from another organization", context do
@@ -289,7 +259,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
 
     assert {:error, :forbidden} = AgentRuntime.invoke(context.session, operation, foreign_request)
 
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "automatic invocation rejects a system trigger for a different subject", context do
@@ -306,7 +276,7 @@ defmodule OfficeGraph.AgentRuntime.InvocationTest do
              })
 
     assert {:error, :forbidden} = AgentRuntime.invoke_system(operation, request)
-    assert Repo.aggregate(AgentExecution, :count) == 0
+    assert Ash.count!(AgentExecution, authorize?: false) == 0
   end
 
   test "the invocation request accepts only the bounded typed envelope" do

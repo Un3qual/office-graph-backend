@@ -164,6 +164,29 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
     end)
   end
 
+  def revoke_capabilities!(context, capability_keys) do
+    role_ids =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id == ^context.agent_principal.id and
+          organization_id == ^context.bootstrap.organization.id and
+          workspace_id == ^context.bootstrap.workspace.id
+      )
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.role_id)
+
+    capability_ids =
+      Capability
+      |> Ash.Query.filter(key in ^capability_keys)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.id)
+
+    RoleCapability
+    |> Ash.Query.filter(role_id in ^role_ids and capability_id in ^capability_ids)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, action: :revoke, authorize?: false))
+  end
+
   defp base_request(context) do
     %{
       binding_id: context.binding.id,
