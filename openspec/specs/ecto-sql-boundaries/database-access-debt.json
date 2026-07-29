@@ -4000,27 +4000,6 @@
     {
       "occurrences": [
         [
-          "sha256:d05d9455a05d462ea4a4fbc5aa87caad71fd39daddbccc6c9b41ceaa66f5343d",
-          "raw_sql",
-          "fragment",
-          "jobs_for_event/1",
-          1
-        ],
-        [
-          "sha256:974a1730cf55a6b8b3ec64807e92f5fe85dfc236dcb98d3d1a5cae9c5a2d744a",
-          "direct_ecto",
-          "Repo.all",
-          "jobs_for_event/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Integrations",
-      "path": "test/office_graph/integrations/durable_delivery_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:bb202e99260352432e963eb143864474b86f859b080545290b11a256c4c659e8",
           "raw_sql",
           "Repo.query!",
