@@ -493,41 +493,6 @@
     {
       "occurrences": [
         [
-          "sha256:dcb63c994a058b906242de2eb594f01f88d55cb4827051db9aa4ffb354081fd2",
-          "direct_ecto",
-          "Repo.transaction",
-          "create_evidence_candidate_record/3",
-          1
-        ],
-        [
-          "sha256:2c3d15d86267d46a3a10652ef3bf530ee569380996e327024a80181e1b0a1e07",
-          "direct_ecto",
-          "Repo.transaction",
-          "accept_evidence_candidate_record/4",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Verification",
-      "path": "lib/office_graph/verification.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:2783fda8df1a8fbb6370bab43cd40c1f3ef713d2e9639d88da851a31ae7a1591",
-          "direct_ecto",
-          "Repo.transaction",
-          "waive_required_check_record/4",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.Verification",
-      "path": "lib/office_graph/verification/waiver.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:fc1067b3214b6eb167effde73073a754aff8314820ff25027f595eca7191ee5b",
           "raw_sql",
           "Repo.query!",

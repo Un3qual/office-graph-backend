@@ -13,6 +13,7 @@ defmodule OfficeGraph.ProposedChanges do
     exports: []
 
   alias OfficeGraph.Authorization
+  alias OfficeGraph.CommandSupport
   alias OfficeGraph.Operations
 
   alias OfficeGraph.ProposedChanges.{
@@ -180,6 +181,7 @@ defmodule OfficeGraph.ProposedChanges do
         body: attrs.body
       })
       |> Ash.run_action(actor: session_context, authorize?: false)
+      |> CommandSupport.normalize_action_result()
       |> case do
         {:ok, %CreationResult{} = result} -> CreationResult.to_public_result(result)
         {:error, error} -> {:error, error}
@@ -196,6 +198,7 @@ defmodule OfficeGraph.ProposedChanges do
         proposed_change_ids: Enum.map(proposed_changes, & &1.id)
       })
       |> Ash.run_action(actor: session_context, authorize?: false)
+      |> CommandSupport.normalize_action_result()
       |> case do
         {:ok, %AppliedChangeSet{} = result} -> AppliedChangeSet.to_public_result(result)
         {:error, error} -> {:error, error}

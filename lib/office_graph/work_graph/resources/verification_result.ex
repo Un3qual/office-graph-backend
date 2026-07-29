@@ -98,6 +98,47 @@ defimpl Jason.Encoder,
   end
 end
 
+defmodule OfficeGraph.Verification.WaiverActionResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :term
+
+    field :verification_result, :struct,
+      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+
+    field :required_check, :struct, constraints: [instance_of: OfficeGraph.Runs.RunRequiredCheck]
+
+    field :run, :struct, constraints: [instance_of: OfficeGraph.Runs.Run]
+  end
+
+  def waived(result) do
+    new(
+      status: "waived",
+      verification_result: result.verification_result,
+      required_check: result.required_check,
+      run: result.run
+    )
+  end
+
+  def rejected(reason), do: new(status: "rejected", reason: reason)
+
+  def to_public_result(%__MODULE__{status: "waived"} = result) do
+    {:ok,
+     %{
+       verification_result: result.verification_result,
+       required_check: result.required_check,
+       run: result.run
+     }}
+  end
+
+  def to_public_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+end
+
 defmodule OfficeGraph.WorkGraph.VerificationResult do
   @moduledoc false
 
@@ -221,6 +262,30 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
               ]}
 
       change OfficeGraph.WorkGraph.VerificationResult.ValidateResultEvidence
+    end
+
+    action :persist_waiver_contract, OfficeGraph.Verification.WaiverActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.Runs.RunRequiredCheck,
+        OfficeGraph.WorkGraph.VerificationCheck
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :run_id, :uuid, allow_nil?: false
+      argument :required_check_id, :uuid, allow_nil?: false
+      argument :expected_execution_state, :string, allow_nil?: false
+      argument :expected_verification_state, :string, allow_nil?: false
+      argument :reason, :string, allow_nil?: false
+      argument :policy_basis, :string, allow_nil?: false
+
+      run {OfficeGraph.Verification.Waiver, mode: :persist_waiver}
     end
 
     action :waive_verification_check,

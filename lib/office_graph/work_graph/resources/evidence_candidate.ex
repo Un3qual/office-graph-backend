@@ -191,6 +191,64 @@ defimpl Jason.Encoder, for: OfficeGraph.Verification.CommandResults.AcceptEviden
   end
 end
 
+defmodule OfficeGraph.Verification.CandidateActionResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :string, allow_nil?: false
+    field :reason, :term
+
+    field :candidate, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceCandidate]
+
+    field :evidence_item, :struct, constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceItem]
+
+    field :verification_result, :struct,
+      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+
+    field :evidence_graph_item, :struct,
+      constraints: [instance_of: OfficeGraph.WorkGraph.GraphItem]
+
+    field :work_run, :struct, constraints: [instance_of: OfficeGraph.Runs.Run]
+  end
+
+  def candidate(candidate), do: new(status: "candidate", candidate: candidate)
+
+  def accepted(result) do
+    new(
+      status: "accepted",
+      candidate: result.candidate,
+      evidence_item: result.evidence_item,
+      verification_result: result.verification_result,
+      evidence_graph_item: result.evidence_graph_item,
+      work_run: result.work_run
+    )
+  end
+
+  def rejected(reason), do: new(status: "rejected", reason: reason)
+
+  def to_candidate_result(%__MODULE__{status: "candidate", candidate: candidate}),
+    do: {:ok, candidate}
+
+  def to_candidate_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+
+  def to_acceptance_result(%__MODULE__{status: "accepted"} = result) do
+    {:ok,
+     %{
+       candidate: result.candidate,
+       evidence_item: result.evidence_item,
+       verification_result: result.verification_result,
+       evidence_graph_item: result.evidence_graph_item,
+       work_run: result.work_run
+     }}
+  end
+
+  def to_acceptance_result(%__MODULE__{status: "rejected", reason: reason}),
+    do: {:error, reason}
+end
+
 defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   @moduledoc false
 
@@ -205,7 +263,10 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
     repo OfficeGraph.Repo
     migrate? false
 
-    identity_index_names unique_operation: "evidence_candidates_operation_id_unique_index"
+    identity_index_names(
+      unique_agent_step: "evidence_candidates_agent_step_index",
+      unique_operation: "evidence_candidates_operation_id_unique_index"
+    )
   end
 
   attributes do
@@ -344,6 +405,71 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       change set_attribute(:candidate_state, "accepted")
     end
 
+    action :persist_candidate_contract, OfficeGraph.Verification.CandidateActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Runs.ExecutionObservation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.Runs.RunRequiredCheck,
+        OfficeGraph.WorkGraph.Artifact,
+        OfficeGraph.WorkGraph.VerificationCheck
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid, allow_nil?: false
+      argument :work_run_id, :uuid
+      argument :execution_observation_id, :uuid
+      argument :artifact_id, :uuid
+      argument :claim, :string, allow_nil?: false
+      argument :source_kind, :string, allow_nil?: false
+      argument :source_identity, :string, allow_nil?: false
+      argument :freshness_state, :string, allow_nil?: false
+      argument :trust_basis, :string, allow_nil?: false
+      argument :sensitivity, :string, allow_nil?: false
+
+      run {OfficeGraph.Verification, mode: :create_candidate}
+    end
+
+    action :accept_candidate_contract, OfficeGraph.Verification.CandidateActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.ExecutionObservation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.Runs.RunRequiredCheck,
+        OfficeGraph.WorkGraph.Artifact,
+        OfficeGraph.WorkGraph.EvidenceItem,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.GraphRelationship,
+        OfficeGraph.WorkGraph.RelationshipDefinition,
+        OfficeGraph.WorkGraph.RelationshipEndpointRule,
+        OfficeGraph.WorkGraph.ReviewFinding,
+        OfficeGraph.WorkGraph.Task,
+        OfficeGraph.WorkGraph.VerificationCheck,
+        OfficeGraph.WorkGraph.VerificationResult
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :candidate_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :body, :string, default: ""
+      argument :result, :string, default: "passed"
+      argument :acceptance_policy_basis, :string
+      argument :reason, :string
+
+      run {OfficeGraph.Verification, mode: :accept_candidate}
+    end
+
     action :create_evidence_candidate,
            OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate do
       argument :idempotency_key, :string,
@@ -386,6 +512,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   end
 
   identities do
+    identity :unique_agent_step, [:execution_id, :step_key], where: expr(not is_nil(execution_id))
+
     identity :unique_operation, [:operation_id]
   end
 
