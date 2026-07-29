@@ -451,6 +451,37 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       run {OfficeGraph.AgentRuntime.CancellationCommands, mode: :persist_cancel}
     end
 
+    action :route_output_contract, :struct do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.NodeConversations.ConversationMessage,
+        OfficeGraph.ProposedChanges.ProposedGraphChange,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.Runs.ExecutionObservation,
+        OfficeGraph.WorkGraph.EvidenceCandidate
+      ]
+
+      argument :operation, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.Operations.OperationCorrelation]
+
+      argument :execution, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+      argument :context_package, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+      argument :step_key, :string, allow_nil?: false
+      argument :output, :struct, allow_nil?: false
+
+      run {OfficeGraph.AgentRuntime.OutputRouter, mode: :route}
+    end
+
     action :claim_worker_step, OfficeGraph.AgentRuntime.ExecutionWorkerActionResult do
       public? false
       transaction? true

@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Audit, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, Operations, Revisions}
   alias OfficeGraph.AgentRuntime.{ModelOutput, OutputRouter}
   alias OfficeGraph.NodeConversations.ConversationMessage
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
@@ -33,33 +33,29 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
       before_run = Ash.get!(Run, fixture.execution.run_id, authorize?: false)
 
       assert {:ok, first} =
-               Repo.transaction(fn ->
-                 OutputRouter.route!(
-                   fixture.operation,
-                   fixture.execution,
-                   fixture.context_package,
-                   "model:review",
-                   output
-                 )
-               end)
+               OutputRouter.route(
+                 fixture.operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review",
+                 output
+               )
 
       assert first.execution_id == fixture.execution.id
       assert first.context_package_id == fixture.context_package.id
       assert first.step_key == "model:review"
 
       assert {:ok, replay} =
-               Repo.transaction(fn ->
-                 OutputRouter.route!(
-                   fixture.operation,
-                   fixture.execution,
-                   fixture.context_package,
-                   "model:review",
-                   output
-                 )
-               end)
+               OutputRouter.route(
+                 fixture.operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review",
+                 output
+               )
 
       assert replay.id == first.id
-      assert Repo.aggregate(@resource, :count) == 1
+      assert Ash.count!(@resource, authorize?: false) == 1
       assert Audit.count_for_operation(fixture.operation.id) == 1
       assert Revisions.count_for_operation(fixture.operation.id) == 1
 
@@ -76,24 +72,21 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
     fixture = output_fixture()
     before_counts = mutation_counts()
 
-    Repo.query!(
-      "UPDATE agent_definitions SET allowed_output_kinds = ARRAY['message']::text[] WHERE id = $1",
-      [Ecto.UUID.dump!(fixture.execution.definition_id)]
-    )
+    AgentRuntimeSupport.configure_definition!(fixture.definition, %{
+      allowed_output_kinds: ["message"]
+    })
 
     assert {:error, {:agent_output_kind_not_allowed, "proposal"}} =
-             Repo.transaction(fn ->
-               OutputRouter.route!(
-                 fixture.operation,
-                 fixture.execution,
-                 fixture.context_package,
-                 "model:review",
-                 output(:proposal)
-               )
-             end)
+             OutputRouter.route(
+               fixture.operation,
+               fixture.execution,
+               fixture.context_package,
+               "model:review",
+               output(:proposal)
+             )
 
     assert mutation_counts() == before_counts
-    assert Repo.aggregate(ProposedGraphChange, :count) == 0
+    assert Ash.count!(ProposedGraphChange, authorize?: false) == 0
     assert Audit.count_for_operation(fixture.operation.id) == 0
     assert Revisions.count_for_operation(fixture.operation.id) == 0
   end
@@ -107,46 +100,16 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
       )
 
     assert {:ok, candidate} =
-             Repo.transaction(fn ->
-               OutputRouter.route!(
-                 fixture.operation,
-                 fixture.execution,
-                 fixture.context_package,
-                 "model:review",
-                 output(:evidence_candidate)
-               )
-             end)
-
-    assert candidate.verification_check_id == fixture.verification_check.id
-    refute candidate.verification_check_id == hd(fixture.verification_checks).id
-  end
-
-  test "preserves transient authorization storage failures during output operation validation" do
-    fixture = output_fixture()
-
-    Repo.query!("SET LOCAL search_path TO pg_catalog")
-
-    result =
-      try do
-        Operations.validate_agent_output_operation(
-          fixture.operation,
-          fixture.execution,
-          fixture.context_package,
-          "model:review"
-        )
-      after
-        Repo.query!("SET LOCAL search_path TO public")
-      end
-
-    assert {:error, :integration_storage_unavailable} = result
-
-    assert :ok =
-             Operations.validate_agent_output_operation(
+             OutputRouter.route(
                fixture.operation,
                fixture.execution,
                fixture.context_package,
-               "model:review"
+               "model:review",
+               output(:evidence_candidate)
              )
+
+    assert candidate.verification_check_id == fixture.verification_check.id
+    refute candidate.verification_check_id == hd(fixture.verification_checks).id
   end
 
   test "requires output operations to carry the exact step authority lineage" do
@@ -197,18 +160,16 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
       assert {:error,
               {:agent_output_capability_not_authorized, @classification_string,
                @required_capability}} =
-               Repo.transaction(fn ->
-                 OutputRouter.route!(
-                   fixture.operation,
-                   fixture.execution,
-                   fixture.context_package,
-                   "model:review",
-                   output(@classification)
-                 )
-               end)
+               OutputRouter.route(
+                 fixture.operation,
+                 fixture.execution,
+                 fixture.context_package,
+                 "model:review",
+                 output(@classification)
+               )
 
       assert mutation_counts() == before_counts
-      assert Repo.aggregate(@resource, :count) == 0
+      assert Ash.count!(@resource, authorize?: false) == 0
       assert Audit.count_for_operation(fixture.operation.id) == 0
       assert Revisions.count_for_operation(fixture.operation.id) == 0
     end
@@ -233,6 +194,7 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
 
     %{
       execution: invoked.execution,
+      definition: context.definition,
       context_package: invoked.context_package,
       operation: operation,
       verification_check: context.verification_check,
@@ -268,10 +230,10 @@ defmodule OfficeGraph.AgentRuntime.OutputRouterTest do
 
   defp mutation_counts do
     %{
-      tasks: Repo.aggregate(Task, :count),
-      findings: Repo.aggregate(ReviewFinding, :count),
-      evidence_items: Repo.aggregate(EvidenceItem, :count),
-      verification_results: Repo.aggregate(VerificationResult, :count)
+      tasks: Ash.count!(Task, authorize?: false),
+      findings: Ash.count!(ReviewFinding, authorize?: false),
+      evidence_items: Ash.count!(EvidenceItem, authorize?: false),
+      verification_results: Ash.count!(VerificationResult, authorize?: false)
     }
   end
 

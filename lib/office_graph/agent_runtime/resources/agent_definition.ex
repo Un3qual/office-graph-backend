@@ -81,7 +81,13 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
 
     update :configure_authority do
       public? false
-      accept [:model_credential_id, :requested_capabilities, :tool_allowlist]
+
+      accept [
+        :model_credential_id,
+        :requested_capabilities,
+        :tool_allowlist,
+        :allowed_output_kinds
+      ]
     end
   end
 

@@ -4,7 +4,9 @@ defmodule OfficeGraph.AgentRuntime.OutputRouter do
   alias OfficeGraph.{Audit, NodeConversations, ProposedChanges, Revisions, Runs, Verification}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentDefinition,
+    AgentExecution,
     AuthoritySnapshot,
     ModelOutput,
     ToolOutput
@@ -18,21 +20,52 @@ defmodule OfficeGraph.AgentRuntime.OutputRouter do
     observation: nil
   }
 
+  @behaviour Ash.Resource.Actions.Implementation
+
+  def route(operation, execution, context_package, step_key, output)
+      when is_struct(output, ModelOutput) or is_struct(output, ToolOutput) do
+    AgentExecution
+    |> Ash.ActionInput.for_action(:route_output_contract, %{
+      operation: operation,
+      execution: execution,
+      context_package: context_package,
+      step_key: step_key,
+      output: output
+    })
+    |> Ash.run_action(authorize?: false)
+    |> ActionSupport.normalize_action_result()
+  end
+
   def route!(operation, execution, context_package, step_key, output)
       when is_struct(output, ModelOutput) or is_struct(output, ToolOutput) do
-    with :ok <- validate_output_kind(execution, context_package, output.classification) do
-      routed = route_classification(output, operation, execution, context_package, step_key)
+    case route_in_transaction(operation, execution, context_package, step_key, output) do
+      {:ok, resource} -> resource
+      {:error, reason} -> ActionSupport.rollback(AgentExecution, reason)
+    end
+  end
 
-      case routed do
-        {:error, reason} ->
-          OfficeGraph.Repo.rollback(reason)
+  @impl true
+  def run(input, [mode: :route], _context) do
+    attrs = input.arguments
 
-        resource ->
-          record_traces!(operation, output.classification, resource)
-          resource
-      end
-    else
-      {:error, reason} -> OfficeGraph.Repo.rollback(reason)
+    case route_in_transaction(
+           attrs.operation,
+           attrs.execution,
+           attrs.context_package,
+           attrs.step_key,
+           attrs.output
+         ) do
+      {:ok, resource} -> {:ok, resource}
+      {:error, reason} -> ActionSupport.rollback(AgentExecution, reason)
+    end
+  end
+
+  defp route_in_transaction(operation, execution, context_package, step_key, output) do
+    with :ok <- validate_output_kind(execution, context_package, output.classification),
+         resource when not is_tuple(resource) <-
+           route_classification(output, operation, execution, context_package, step_key) do
+      record_traces!(operation, output.classification, resource)
+      {:ok, resource}
     end
   end
 
