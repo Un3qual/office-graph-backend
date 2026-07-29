@@ -2,9 +2,19 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   @moduledoc false
 
   import ExUnit.Assertions
+  require Ash.Query
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias OfficeGraph.Authorization.{Capability, PolicyBundle, Role, RoleAssignment, RoleCapability}
+  alias OfficeGraph.Identity.{Principal, PrincipalProfile, Session}
+  alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
+  alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.ProposedChanges
+  alias OfficeGraph.ProposedChanges.ProposedGraphChange
+  alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
+  alias OfficeGraph.Tenancy.{Organization, Workspace}
+  alias OfficeGraph.WorkGraph.{EvidenceCandidate, EvidenceItem, VerificationResult}
+  alias OfficeGraph.WorkPackets.{WorkPacket, WorkPacketVersion}
 
   alias OfficeGraph.{
     Foundation,
@@ -95,14 +105,12 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def with_unboxed_connection(fun) do
-    checkout = Sandbox.checkout(Repo, sandbox: false)
+    owner = Sandbox.start_owner!(Repo, sandbox: false)
 
     try do
       fun.()
     after
-      if checkout == :ok do
-        Sandbox.checkin(Repo)
-      end
+      Sandbox.stop_owner(owner)
     end
   end
 
@@ -255,99 +263,54 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         session_id,
         suffix
       ) do
-    now = DateTime.utc_now()
+    create!(Organization, %{
+      id: organization_id,
+      name: "Race Org #{suffix}",
+      slug: "race-org-#{suffix}"
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO organizations (id, name, slug, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, $3, $4, $4)
-      """,
-      [db_uuid(organization_id), "Race Org #{suffix}", "race-org-#{suffix}", now]
-    )
+    create!(Workspace, %{
+      id: workspace_id,
+      organization_id: organization_id,
+      name: "Race Workspace #{suffix}",
+      slug: "race-workspace-#{suffix}"
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO workspaces (id, organization_id, name, slug, inserted_at, updated_at)
-      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $5)
-      """,
-      [
-        db_uuid(workspace_id),
-        db_uuid(organization_id),
-        "Race Workspace #{suffix}",
-        "race-workspace-#{suffix}",
-        now
-      ]
-    )
+    create!(Principal, %{
+      id: principal_id,
+      email: "race-#{suffix}@office-graph.local",
+      kind: "human",
+      status: "active"
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO principals (id, email, kind, status, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, 'human', 'active', $3, $3)
-      """,
-      [db_uuid(principal_id), "race-#{suffix}@office-graph.local", now]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO sessions (
-        id,
-        principal_id,
-        organization_id,
-        workspace_id,
-        purpose,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'source_race', $5, $5)
-      """,
-      [
-        db_uuid(session_id),
-        db_uuid(principal_id),
-        db_uuid(organization_id),
-        db_uuid(workspace_id),
-        now
-      ]
-    )
+    create!(Session, %{
+      id: session_id,
+      principal_id: principal_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      purpose: "source_race"
+    })
 
     grant_owner_capabilities!(organization_id, workspace_id, principal_id, suffix)
   end
 
   def grant_owner_capabilities!(organization_id, workspace_id, principal_id, suffix) do
-    now = DateTime.utc_now()
     role_id = Ecto.UUID.generate()
 
-    Repo.query!(
-      """
-      INSERT INTO roles (id, organization_id, key, name, inserted_at, updated_at)
-      VALUES ($1::uuid, $2::uuid, $3, 'Race Owner', $4, $4)
-      """,
-      [db_uuid(role_id), db_uuid(organization_id), "race-owner-#{suffix}", now]
-    )
+    create!(Role, %{
+      id: role_id,
+      organization_id: organization_id,
+      key: "race-owner-#{suffix}",
+      name: "Race Owner"
+    })
 
-    role_assignment_id = Ecto.UUID.generate()
-
-    Repo.query!(
-      """
-      INSERT INTO role_assignments (
-        id,
-        principal_id,
-        role_id,
-        organization_id,
-        workspace_id,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $6)
-      """,
-      [
-        db_uuid(role_assignment_id),
-        db_uuid(principal_id),
-        db_uuid(role_id),
-        db_uuid(organization_id),
-        db_uuid(workspace_id),
-        now
-      ]
-    )
+    create!(RoleAssignment, %{
+      id: Ecto.UUID.generate(),
+      principal_id: principal_id,
+      role_id: role_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id
+    })
 
     for key <- [
           "skeleton.read",
@@ -358,33 +321,14 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         ] do
       capability_id = ensure_capability!(key)
 
-      Repo.query!(
-        """
-        INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $4)
-        ON CONFLICT (role_id, capability_id) DO NOTHING
-        """,
-        [db_uuid(Ecto.UUID.generate()), db_uuid(role_id), db_uuid(capability_id), now]
-      )
+      ensure!(RoleCapability, %{role_id: role_id, capability_id: capability_id})
     end
   end
 
   def ensure_capability!(key) do
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      """
-      INSERT INTO capabilities (id, key, description, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, $2, $3, $3)
-      ON CONFLICT (key) DO NOTHING
-      """,
-      [db_uuid(Ecto.UUID.generate()), key, now]
-    )
-
-    %{rows: [[capability_id]]} =
-      Repo.query!("SELECT id FROM capabilities WHERE key = $1", [key])
-
-    capability_id
+    Capability
+    |> ensure!(%{key: key, description: key})
+    |> Map.fetch!(:id)
   end
 
   def insert_additional_session_in_scope!(
@@ -394,37 +338,20 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         session_id,
         suffix
       ) do
-    now = DateTime.utc_now()
+    create!(Principal, %{
+      id: principal_id,
+      email: "operation-context-#{suffix}@office-graph.local",
+      kind: "human",
+      status: "active"
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO principals (id, email, kind, status, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, 'human', 'active', $3, $3)
-      """,
-      [db_uuid(principal_id), "operation-context-#{suffix}@office-graph.local", now]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO sessions (
-        id,
-        principal_id,
-        organization_id,
-        workspace_id,
-        purpose,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'operation_context', $5, $5)
-      """,
-      [
-        db_uuid(session_id),
-        db_uuid(principal_id),
-        db_uuid(organization_id),
-        db_uuid(workspace_id),
-        now
-      ]
-    )
+    create!(Session, %{
+      id: session_id,
+      principal_id: principal_id,
+      organization_id: organization_id,
+      workspace_id: workspace_id,
+      purpose: "operation_context"
+    })
   end
 
   def capture_submit(session_context, operation, attrs) do
@@ -458,228 +385,176 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def accepted_event_count(organization_id, source_identity, replay_identity) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM normalized_intake_events
-        WHERE organization_id = $1::uuid
-          AND source_identity = $2
-          AND replay_identity = $3
-          AND outcome = 'accepted'
-        """,
-        [db_uuid(organization_id), source_identity, replay_identity]
-      )
-
-    count
+    NormalizedIntakeEvent
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and
+        source_identity == ^source_identity and
+        replay_identity == ^replay_identity and
+        outcome == "accepted"
+    )
+    |> count!()
   end
 
   def intake_record_count(organization_id, source_identity) do
-    %{rows: [[raw_archive_count, normalized_event_count, proposed_change_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*)
-           FROM raw_archives
-           WHERE organization_id = $1::uuid),
-          (SELECT count(*)
-           FROM normalized_intake_events
-           WHERE organization_id = $1::uuid
-             AND source_identity = $2),
-          (SELECT count(*)
-           FROM proposed_graph_changes
-           WHERE organization_id = $1::uuid)
-        """,
-        [db_uuid(organization_id), source_identity]
+    raw_archive_count =
+      RawArchive
+      |> Ash.Query.filter(organization_id == ^organization_id)
+      |> count!()
+
+    normalized_event_count =
+      NormalizedIntakeEvent
+      |> Ash.Query.filter(
+        organization_id == ^organization_id and source_identity == ^source_identity
       )
+      |> count!()
+
+    proposed_change_count =
+      ProposedGraphChange
+      |> Ash.Query.filter(organization_id == ^organization_id)
+      |> count!()
 
     raw_archive_count + normalized_event_count + proposed_change_count
   end
 
   def proposed_change_count(normalized_event_id) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM proposed_graph_changes
-        WHERE normalized_event_id = $1::uuid
-        """,
-        [db_uuid(normalized_event_id)]
-      )
-
-    count
+    ProposedGraphChange
+    |> Ash.Query.filter(normalized_event_id == ^normalized_event_id)
+    |> count!()
   end
 
   def operation_idempotency_count(organization_id, idempotency_key) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM operation_correlations
-        WHERE organization_id = $1::uuid
-          AND idempotency_key = $2
-        """,
-        [db_uuid(organization_id), idempotency_key]
-      )
-
-    count
+    OperationCorrelation
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and idempotency_key == ^idempotency_key
+    )
+    |> count!()
   end
 
   def packet_creation_counts(operation_id) do
-    %{rows: [[packet_count, version_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*) FROM work_packets WHERE operation_id = $1::uuid),
-          (SELECT count(*) FROM work_packet_versions WHERE operation_id = $1::uuid)
-        """,
-        [db_uuid(operation_id)]
-      )
+    packet_count =
+      WorkPacket
+      |> Ash.Query.filter(operation_id == ^operation_id)
+      |> count!()
+
+    version_count =
+      WorkPacketVersion
+      |> Ash.Query.filter(operation_id == ^operation_id)
+      |> count!()
 
     {packet_count, version_count}
   end
 
   def run_creation_counts(operation_id) do
-    %{rows: [[run_count, required_check_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*) FROM runs WHERE operation_id = $1::uuid),
-          (SELECT count(*)
-           FROM run_required_checks
-           WHERE run_id IN (SELECT id FROM runs WHERE operation_id = $1::uuid))
-        """,
-        [db_uuid(operation_id)]
-      )
+    runs =
+      Run
+      |> Ash.Query.filter(operation_id == ^operation_id)
+      |> Ash.read!(authorize?: false)
 
-    {run_count, required_check_count}
+    run_ids = Enum.map(runs, & &1.id)
+
+    required_check_count =
+      RunRequiredCheck
+      |> Ash.Query.filter(run_id in ^run_ids)
+      |> count!()
+
+    {length(runs), required_check_count}
   end
 
   def evidence_candidate_creation_count(operation_id) do
-    %{rows: [[candidate_count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM evidence_candidates
-        WHERE operation_id = $1::uuid
-        """,
-        [db_uuid(operation_id)]
-      )
-
-    candidate_count
+    EvidenceCandidate
+    |> Ash.Query.filter(operation_id == ^operation_id)
+    |> count!()
   end
 
   def evidence_acceptance_counts(candidate_id) do
-    %{rows: [[evidence_item_count, verification_result_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*) FROM evidence_items WHERE candidate_id = $1::uuid),
-          (SELECT count(*)
-           FROM verification_results
-           WHERE evidence_item_id IN (
-             SELECT id FROM evidence_items WHERE candidate_id = $1::uuid
-           ))
-        """,
-        [db_uuid(candidate_id)]
-      )
+    items =
+      EvidenceItem
+      |> Ash.Query.filter(candidate_id == ^candidate_id)
+      |> Ash.read!(authorize?: false)
 
-    {evidence_item_count, verification_result_count}
+    item_ids = Enum.map(items, & &1.id)
+
+    result_count =
+      VerificationResult
+      |> Ash.Query.filter(evidence_item_id in ^item_ids)
+      |> count!()
+
+    {length(items), result_count}
   end
 
   def evidence_acceptance_operation_counts(operation_id) do
-    %{rows: [[evidence_item_count, verification_result_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*) FROM evidence_items WHERE acceptance_operation_id = $1::uuid),
-          (SELECT count(*)
-           FROM verification_results
-           WHERE evidence_item_id IN (
-             SELECT id FROM evidence_items WHERE acceptance_operation_id = $1::uuid
-           ))
-        """,
-        [db_uuid(operation_id)]
-      )
+    items =
+      EvidenceItem
+      |> Ash.Query.filter(acceptance_operation_id == ^operation_id)
+      |> Ash.read!(authorize?: false)
 
-    {evidence_item_count, verification_result_count}
+    item_ids = Enum.map(items, & &1.id)
+
+    result_count =
+      VerificationResult
+      |> Ash.Query.filter(evidence_item_id in ^item_ids)
+      |> count!()
+
+    {length(items), result_count}
   end
 
   def observation_source_key_count(source_identity, idempotency_key) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM execution_observations
-        WHERE source_identity = $1
-          AND idempotency_key = $2
-        """,
-        [source_identity, idempotency_key]
-      )
-
-    count
+    ExecutionObservation
+    |> Ash.Query.filter(
+      source_identity == ^source_identity and idempotency_key == ^idempotency_key
+    )
+    |> count!()
   end
 
   def no_run_verification_result_count(verification_check_id) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM verification_results
-        WHERE verification_check_id = $1::uuid
-          AND work_run_id IS NULL
-        """,
-        [db_uuid(verification_check_id)]
-      )
-
-    count
+    VerificationResult
+    |> Ash.Query.filter(verification_check_id == ^verification_check_id and is_nil(work_run_id))
+    |> count!()
   end
 
   def run_verification_result_count(run_id, verification_check_id) do
-    %{rows: [[count]]} =
-      Repo.query!(
-        """
-        SELECT count(*)
-        FROM verification_results
-        WHERE work_run_id = $1::uuid
-          AND verification_check_id = $2::uuid
-        """,
-        [db_uuid(run_id), db_uuid(verification_check_id)]
-      )
-
-    count
+    VerificationResult
+    |> Ash.Query.filter(
+      work_run_id == ^run_id and verification_check_id == ^verification_check_id
+    )
+    |> count!()
   end
 
   def owner_bootstrap_counts(organization_slug, owner_email) do
-    %{rows: [[principal_count, profile_count, session_count, assignment_count, policy_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*)
-           FROM principals
-           WHERE email = $1),
-          (SELECT count(*)
-           FROM principal_profiles pp
-           JOIN principals p ON p.id = pp.principal_id
-           WHERE p.email = $1),
-          (SELECT count(*)
-           FROM sessions s
-           JOIN principals p ON p.id = s.principal_id
-           WHERE p.email = $1
-             AND s.purpose = 'local_owner'),
-          (SELECT count(*)
-           FROM role_assignments ra
-           JOIN principals p ON p.id = ra.principal_id
-           WHERE p.email = $1),
-          (SELECT count(*)
-           FROM policy_bundles pb
-           JOIN organizations o ON o.id = pb.organization_id
-           WHERE o.slug = $2)
-        """,
-        [owner_email, organization_slug]
-      )
+    principals =
+      Principal
+      |> Ash.Query.filter(email == ^owner_email)
+      |> Ash.read!(authorize?: false)
 
-    {principal_count, profile_count, session_count, assignment_count, policy_count}
+    principal_ids = Enum.map(principals, & &1.id)
+
+    organization_ids =
+      Organization
+      |> Ash.Query.filter(slug == ^organization_slug)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.id)
+
+    profile_count =
+      PrincipalProfile
+      |> Ash.Query.filter(principal_id in ^principal_ids)
+      |> count!()
+
+    session_count =
+      Session
+      |> Ash.Query.filter(principal_id in ^principal_ids and purpose == "local_owner")
+      |> count!()
+
+    assignment_count =
+      RoleAssignment
+      |> Ash.Query.filter(principal_id in ^principal_ids)
+      |> count!()
+
+    policy_count =
+      PolicyBundle
+      |> Ash.Query.filter(organization_id in ^organization_ids)
+      |> count!()
+
+    {length(principals), profile_count, session_count, assignment_count, policy_count}
   end
 
   def insert_accepted_intake_event_without_proposed_changes!(
@@ -689,96 +564,27 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         replay_identity,
         body
       ) do
-    now = DateTime.utc_now()
-    source_id = Ecto.UUID.generate()
-    raw_archive_id = Ecto.UUID.generate()
-    normalized_event_id = Ecto.UUID.generate()
+    source_id = insert_external_source!(source_identity)
 
-    Repo.query!(
-      """
-      INSERT INTO external_sources (id, key, name, kind, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, 'Manual Intake', 'manual', $3, $3)
-      """,
-      [db_uuid(source_id), source_identity, now]
+    insert_accepted_intake_event_for_source!(
+      session_context,
+      operation,
+      source_id,
+      source_identity,
+      replay_identity,
+      body
     )
-
-    Repo.query!(
-      """
-      INSERT INTO raw_archives (
-        id,
-        organization_id,
-        workspace_id,
-        source_id,
-        operation_id,
-        content_hash,
-        body,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $8)
-      """,
-      [
-        db_uuid(raw_archive_id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(source_id),
-        db_uuid(operation.id),
-        content_hash(body),
-        body,
-        now
-      ]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO normalized_intake_events (
-        id,
-        organization_id,
-        workspace_id,
-        raw_archive_id,
-        operation_id,
-        source_identity,
-        replay_identity,
-        outcome,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'accepted', $8, $8)
-      """,
-      [
-        db_uuid(normalized_event_id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(raw_archive_id),
-        db_uuid(operation.id),
-        source_identity,
-        replay_identity,
-        now
-      ]
-    )
-
-    %{
-      id: normalized_event_id,
-      organization_id: session_context.organization_id,
-      workspace_id: session_context.workspace_id,
-      operation_id: operation.id,
-      outcome: "accepted"
-    }
   end
 
   def insert_external_source!(source_identity) do
-    source_id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      """
-      INSERT INTO external_sources (id, key, name, kind, inserted_at, updated_at)
-      VALUES ($1::uuid, $2, 'Manual Intake', 'manual', $3, $3)
-      """,
-      [db_uuid(source_id), source_identity, now]
-    )
-
-    source_id
+    ExternalSource
+    |> create!(%{
+      id: Ecto.UUID.generate(),
+      key: source_identity,
+      name: "Manual Intake",
+      kind: "manual"
+    })
+    |> Map.fetch!(:id)
   end
 
   def insert_accepted_intake_event_for_source!(
@@ -789,72 +595,28 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
         replay_identity,
         body
       ) do
-    now = DateTime.utc_now()
     raw_archive_id = Ecto.UUID.generate()
-    normalized_event_id = Ecto.UUID.generate()
 
-    Repo.query!(
-      """
-      INSERT INTO raw_archives (
-        id,
-        organization_id,
-        workspace_id,
-        source_id,
-        operation_id,
-        content_hash,
-        body,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $8)
-      """,
-      [
-        db_uuid(raw_archive_id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(source_id),
-        db_uuid(operation.id),
-        content_hash(body),
-        body,
-        now
-      ]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO normalized_intake_events (
-        id,
-        organization_id,
-        workspace_id,
-        raw_archive_id,
-        operation_id,
-        source_identity,
-        replay_identity,
-        outcome,
-        inserted_at,
-        updated_at
-      )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'accepted', $8, $8)
-      """,
-      [
-        db_uuid(normalized_event_id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(raw_archive_id),
-        db_uuid(operation.id),
-        source_identity,
-        replay_identity,
-        now
-      ]
-    )
-
-    %{
-      id: normalized_event_id,
+    create!(RawArchive, %{
+      id: raw_archive_id,
       organization_id: session_context.organization_id,
       workspace_id: session_context.workspace_id,
+      source_id: source_id,
       operation_id: operation.id,
+      content_hash: content_hash(body),
+      body: body
+    })
+
+    create!(NormalizedIntakeEvent, %{
+      id: Ecto.UUID.generate(),
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id,
+      raw_archive_id: raw_archive_id,
+      operation_id: operation.id,
+      source_identity: source_identity,
+      replay_identity: replay_identity,
       outcome: "accepted"
-    }
+    })
   end
 
   def content_hash(body) do
@@ -2334,6 +2096,20 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     cleanup_tenancy_scope!(organization_slug)
     cleanup_owner_principal!(owner_email)
   end
+
+  defp create!(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp ensure!(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:ensure, attrs)
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp count!(query), do: Ash.count!(query, authorize?: false)
 
   def db_uuid(<<_::128>> = uuid), do: uuid
   def db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
