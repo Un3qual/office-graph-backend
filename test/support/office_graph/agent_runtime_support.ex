@@ -2,7 +2,15 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
   @moduledoc false
 
   alias OfficeGraph.{AgentRuntime, Foundation, Operations}
-  alias OfficeGraph.AgentRuntime.{ExecutionWorker, GateExpiryWorker, InvocationRequest}
+
+  alias OfficeGraph.AgentRuntime.{
+    ContextEntry,
+    ContextPackage,
+    ExecutionWorker,
+    GateExpiryWorker,
+    InvocationRequest
+  }
+
   alias OfficeGraph.Authorization.{Capability, RoleAssignment, RoleCapability}
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
 
@@ -135,6 +143,76 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
     |> Ash.update!(authorize?: false)
   end
 
+  def require_context_expansion!(invocation, count \\ 1)
+      when is_integer(count) and count > 0 do
+    target_ordinals =
+      invocation.context_entries
+      |> Enum.sort_by(& &1.ordinal)
+      |> Enum.take(count)
+      |> MapSet.new(& &1.ordinal)
+
+    entry_attrs =
+      Enum.map(invocation.context_entries, fn entry ->
+        expansion_required? = MapSet.member?(target_ordinals, entry.ordinal)
+
+        %{
+          organization_id: entry.organization_id,
+          workspace_id: entry.workspace_id,
+          entry_type: entry.entry_type,
+          resource_type: entry.resource_type,
+          resource_id: entry.resource_id,
+          external_reference_id: entry.external_reference_id,
+          posture: if(expansion_required?, do: "expansion_required", else: entry.posture),
+          rationale_code:
+            if(
+              expansion_required?,
+              do: "fixture_context_expansion_required",
+              else: entry.rationale_code
+            ),
+          source_version: entry.source_version,
+          ordinal: entry.ordinal,
+          operation_id: entry.operation_id
+        }
+        |> then(&Map.put(&1, :content_hash, fixture_digest(&1)))
+      end)
+
+    package =
+      Ash.create!(
+        ContextPackage,
+        %{
+          execution_id: invocation.execution.id,
+          authority_snapshot_id: invocation.authority_snapshot.id,
+          organization_id: invocation.execution.organization_id,
+          workspace_id: invocation.execution.workspace_id,
+          selected_graph_item_id: invocation.execution.graph_item_id,
+          run_id: invocation.execution.run_id,
+          previous_package_id: invocation.context_package.id,
+          operation_id: invocation.operation.id,
+          version: invocation.context_package.version + 1,
+          package_hash: fixture_digest(entry_attrs),
+          assembled_at: DateTime.utc_now()
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    entries =
+      Enum.map(entry_attrs, fn attrs ->
+        Ash.create!(
+          ContextEntry,
+          Map.put(attrs, :context_package_id, package.id),
+          action: :create,
+          authorize?: false
+        )
+      end)
+
+    %{
+      context_package: package,
+      context_entries: entries,
+      targets: Enum.filter(entries, &(&1.posture == "expansion_required"))
+    }
+  end
+
   def grant_capabilities!(context, capability_keys) do
     assignment =
       RoleAssignment
@@ -202,5 +280,12 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
         |> Kernel.--(["agent.invoke"]),
       autonomy_mode: "human_supervised"
     }
+  end
+
+  defp fixture_digest(value) do
+    value
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 end

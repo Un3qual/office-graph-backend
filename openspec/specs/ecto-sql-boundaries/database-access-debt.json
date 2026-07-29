@@ -1648,20 +1648,6 @@
     {
       "occurrences": [
         [
-          "sha256:84dbd3fa2f0b017dd8ded1bac8d165f655c7c2dd8213cd9e21c3896ab422be25",
-          "raw_sql",
-          "Repo.query!",
-          "persistence_fixture!/0",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "test/office_graph/agent_runtime/persistence_state_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:97e2b5023db15c82f6741f477679ddbb6fb4303e6606daec0da060ba69bfac3a",
           "raw_sql",
           "Repo.query!",

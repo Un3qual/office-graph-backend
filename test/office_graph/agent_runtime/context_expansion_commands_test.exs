@@ -52,7 +52,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     assert resolved.request.state == "approved"
     assert resolved.request.version == 2
     assert resolved.execution.state == "queued"
-    assert resolved.context_package.version == 2
+    assert resolved.context_package.version == fixture.context_package.version + 1
     assert resolved.context_package.previous_package_id == fixture.context_package.id
     assert resolved.context_package.expansion_request_id == request.id
     refute resolved.context_package.package_hash == fixture.context_package.package_hash
@@ -92,7 +92,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
              )
 
     assert replayed.context_package.id == resolved.context_package.id
-    assert Ash.count!(ContextPackage, authorize?: false) == 2
+    assert Ash.count!(ContextPackage, authorize?: false) == 3
     assert [_same_job] = expansion_resume_jobs(request.id)
     assert Audit.count_for_operation(operation.id) == 1
     assert Revisions.count_for_operation(operation.id) == 1
@@ -103,7 +103,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     first_request = fixture.request
 
     first = approve_expansion(fixture, first_request, "Approve the first bounded reference.")
-    assert first.context_package.version == 2
+    assert first.context_package.version == fixture.context_package.version + 1
 
     [first_resume] = expansion_resume_jobs(first_request.id)
     assert :ok = ExecutionWorker.perform(%{first_resume | attempt: 1, max_attempts: 3})
@@ -120,7 +120,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Ash.read_one!(authorize?: false)
 
     second = approve_expansion(fixture, second_request, "Approve the second bounded reference.")
-    assert second.context_package.version == 3
+    assert second.context_package.version == fixture.context_package.version + 2
     assert second.context_package.previous_package_id == first.context_package.id
     assert second.context_package.expansion_request_id == second_request.id
 
@@ -172,7 +172,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     resolved =
       approve_expansion(fixture, fixture.request, "Approve the bounded retrying reference.")
 
-    assert resolved.context_package.version == 2
+    assert resolved.context_package.version == fixture.context_package.version + 1
     [resume_job] = expansion_resume_jobs(fixture.request.id)
     retry_job = %{resume_job | args: Map.put(resume_job.args, "fixture_id", "retryable")}
 
@@ -357,16 +357,8 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
     [job] = execution_jobs(invoked.execution.id)
     expansion_count = Keyword.get(opts, :expansion_count, 1)
 
-    targets =
-      invoked.context_entries
-      |> Enum.sort_by(& &1.ordinal)
-      |> Enum.take(expansion_count)
-
-    Enum.each(targets, fn target ->
-      target
-      |> Ash.Changeset.for_update(:set_posture, %{posture: "expansion_required"})
-      |> Ash.update!(authorize?: false)
-    end)
+    expansion_fixture =
+      AgentRuntimeSupport.require_context_expansion!(invoked, expansion_count)
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
@@ -376,13 +368,13 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommandsTest do
       |> Ash.Query.filter(execution_id == ^execution.id and state == "pending")
       |> Ash.read_one!(authorize?: false)
 
-    target = targets |> hd() |> then(&Ash.get!(ContextEntry, &1.id, authorize?: false))
+    target = hd(expansion_fixture.targets)
 
     %{
       context: context,
       execution: execution,
       request: request,
-      context_package: invoked.context_package,
+      context_package: expansion_fixture.context_package,
       target: target
     }
   end

@@ -7,7 +7,6 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   alias OfficeGraph.AgentRuntime.{
     AgentExecution,
     ApprovalRequest,
-    ContextEntry,
     ContextExpansionRequest,
     ModelRequest
   }
@@ -893,9 +892,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     [expansion_job] = execution_jobs(expansion_invocation.execution.id)
 
-    expansion_invocation.context_entries
-    |> Enum.min_by(& &1.ordinal)
-    |> require_context_expansion!()
+    AgentRuntimeSupport.require_context_expansion!(expansion_invocation)
 
     assert :ok = ExecutionWorker.perform(%{expansion_job | attempt: 1, max_attempts: 3})
 
@@ -1001,9 +998,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     [job] = execution_jobs(invoked.execution.id)
 
-    invoked.context_entries
-    |> Enum.min_by(& &1.ordinal)
-    |> require_context_expansion!()
+    AgentRuntimeSupport.require_context_expansion!(invoked)
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
@@ -1024,9 +1019,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       })
 
     [job] = execution_jobs(invoked.execution.id)
-    target = Enum.min_by(invoked.context_entries, & &1.ordinal)
-
-    require_context_expansion!(target)
+    AgentRuntimeSupport.require_context_expansion!(invoked)
 
     assert {:cancel, "agent_context_expansion_not_authorized"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -1249,13 +1242,6 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     })
 
     AgentRuntimeSupport.grant_capabilities!(context, ["agent.tool.read"])
-  end
-
-  defp require_context_expansion!(entry) do
-    ContextEntry
-    |> Ash.get!(entry.id, authorize?: false)
-    |> Ash.Changeset.for_update(:set_posture, %{posture: "expansion_required"})
-    |> Ash.update!(authorize?: false)
   end
 
   defp configure_adapter_registry(update) when is_function(update, 1) do
