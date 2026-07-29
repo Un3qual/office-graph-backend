@@ -7,11 +7,11 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Projections.CommandAffordance
   alias OfficeGraph.Projections.KeysetCursor
-  alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.WorkGraph.{GraphRelationship, ReviewFinding, Signal, Task, VerificationCheck}
 
   alias OfficeGraph.WorkPackets.{
+    WorkPacketRequiredCheck,
     WorkPacketSourceReference,
     WorkPacketVersion
   }
@@ -79,28 +79,36 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     with :ok <- authorize_read(session_context),
          {:ok, normalized_event_id} <- normalize_event_id(normalized_event_id),
          {:ok, after_key} <- decode_relationship_cursor(after_cursor),
-         {:ok, %{rows: rows}} <-
-           Repo.query(
-             relationship_details_sql(),
-             relationship_detail_params(
-               session_context,
-               normalized_event_id,
-               after_key,
-               limit + 1
-             )
+         {:ok, proposed_changes_by_event_id} <-
+           read_proposed_changes_by_event_id(session_context, [normalized_event_id]),
+         {:ok, applied_projections_by_event_id} <-
+           applied_projections_by_event_id(
+             session_context,
+             [%{id: normalized_event_id}],
+             proposed_changes_by_event_id
            ) do
-      detail_rows = Enum.reject(rows, &(List.first(&1) == nil))
-      page_rows = Enum.take(detail_rows, limit)
-      counts = relationship_counts_from_rows(rows)
+      applied_projection =
+        Map.get(
+          applied_projections_by_event_id,
+          normalized_event_id,
+          empty_applied_projection()
+        )
+
+      details =
+        applied_projection
+        |> relationship_details()
+        |> apply_relationship_cursor(after_key)
+
+      page_rows = Enum.take(details, limit)
+      counts = relationship_counts(applied_projection)
 
       {:ok,
        %{
          edges:
-           Enum.map(page_rows, fn row ->
-             detail = relationship_detail_row(row)
+           Enum.map(page_rows, fn detail ->
              %{node: detail, cursor: KeysetCursor.encode([detail.kind, detail.stable_id])}
            end),
-         has_next_page?: length(detail_rows) > limit,
+         has_next_page?: length(details) > limit,
          has_previous_page?: not is_nil(after_cursor),
          graph_link_count: counts.graph_links,
          graph_relationship_count: counts.graph_relationships
@@ -108,238 +116,46 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     end
   end
 
-  defp relationship_details_sql do
-    """
-    WITH #{relationship_projection_ctes()}, detail_totals AS (
-      SELECT event_id,
-             count(*) FILTER (WHERE kind = 'graph_link') AS graph_link_count,
-             count(*) FILTER (WHERE kind = 'graph_relationship') AS graph_relationship_count
-      FROM details
-      GROUP BY event_id
-    ), paged_details AS (
-      SELECT *
-      FROM details
-      WHERE event_id = $4
-        AND ($5::text IS NULL OR (kind, stable_id) > ($5, $6))
-      ORDER BY kind ASC, stable_id ASC
-      LIMIT $7
-    )
-    SELECT paged_details.kind, paged_details.stable_id, paged_details.title,
-           paged_details.status, paged_details.source_graph_item_id::text,
-           paged_details.target_graph_item_id::text, paged_details.link_type,
-           paged_details.definition_key,
-           COALESCE(detail_totals.graph_link_count, 0),
-           COALESCE(detail_totals.graph_relationship_count, 0)
-    FROM requested_events
-    LEFT JOIN detail_totals USING (event_id)
-    LEFT JOIN paged_details USING (event_id)
-    WHERE requested_events.event_id = $4
-    ORDER BY paged_details.kind ASC NULLS LAST, paged_details.stable_id ASC NULLS LAST
-    """
-  end
-
-  defp relationship_counts_sql do
-    """
-    WITH #{relationship_projection_ctes()}, counts AS (
-      SELECT event_id,
-             count(*) FILTER (WHERE kind = 'graph_link') AS graph_link_count,
-             count(*) FILTER (WHERE kind = 'graph_relationship') AS graph_relationship_count
-      FROM details
-      GROUP BY event_id
-    )
-    SELECT requested_events.event_id::text,
-           COALESCE(counts.graph_link_count, 0),
-           COALESCE(counts.graph_relationship_count, 0)
-    FROM requested_events
-    LEFT JOIN counts USING (event_id)
-    ORDER BY requested_events.event_id
-    """
-  end
-
-  defp relationship_projection_ctes do
-    """
-    requested_events AS (
-      SELECT unnest($1::uuid[]) AS event_id
-    ), applied_links AS (
-      SELECT pgc.normalized_event_id AS event_id, 'signal'::text AS link_type,
-             s.id, s.graph_item_id, s.title, s.state AS status
-      FROM proposed_graph_changes pgc JOIN signals s ON s.id = pgc.applied_resource_id
-      WHERE pgc.normalized_event_id IN (SELECT event_id FROM requested_events)
-        AND pgc.organization_id = $2 AND pgc.workspace_id = $3
-        AND pgc.status = 'applied' AND pgc.change_type = 'create_signal'
-        AND s.organization_id = $2 AND s.workspace_id = $3
-      UNION ALL
-      SELECT pgc.normalized_event_id, 'task', t.id, t.graph_item_id, t.title, t.lifecycle_state
-      FROM proposed_graph_changes pgc JOIN tasks t ON t.id = pgc.applied_resource_id
-      WHERE pgc.normalized_event_id IN (SELECT event_id FROM requested_events)
-        AND pgc.organization_id = $2 AND pgc.workspace_id = $3
-        AND pgc.status = 'applied' AND pgc.change_type = 'create_task'
-        AND t.organization_id = $2 AND t.workspace_id = $3
-      UNION ALL
-      SELECT pgc.normalized_event_id, 'review_finding', rf.id, rf.graph_item_id, rf.title,
-             rf.lifecycle_state
-      FROM proposed_graph_changes pgc JOIN review_findings rf ON rf.id = pgc.applied_resource_id
-      WHERE pgc.normalized_event_id IN (SELECT event_id FROM requested_events)
-        AND pgc.organization_id = $2 AND pgc.workspace_id = $3
-        AND pgc.status = 'applied' AND pgc.change_type = 'create_review_finding'
-        AND rf.organization_id = $2 AND rf.workspace_id = $3
-      UNION ALL
-      SELECT pgc.normalized_event_id, 'verification_check', vc.id, vc.graph_item_id, vc.title,
-             vc.lifecycle_state
-      FROM proposed_graph_changes pgc JOIN verification_checks vc ON vc.id = pgc.applied_resource_id
-      WHERE pgc.normalized_event_id IN (SELECT event_id FROM requested_events)
-        AND pgc.organization_id = $2 AND pgc.workspace_id = $3
-        AND pgc.status = 'applied' AND pgc.change_type = 'create_verification_check'
-        AND vc.organization_id = $2 AND vc.workspace_id = $3
-    ), source_matched_versions AS (
-      SELECT DISTINCT applied_links.event_id, wps.work_packet_version_id
-      FROM applied_links
-      JOIN work_packet_version_sources wps
-        ON wps.graph_item_id = applied_links.graph_item_id
-       AND wps.organization_id = $2 AND wps.workspace_id = $3
-    ), linked_versions AS (
-      SELECT source_matched_versions.event_id, wpv.id, wpv.work_packet_id, wpv.version_number,
-             wpv.title, wpv.lifecycle_state
-      FROM source_matched_versions
-      JOIN work_packet_versions wpv
-        ON wpv.id = source_matched_versions.work_packet_version_id
-       AND wpv.organization_id = $2 AND wpv.workspace_id = $3
-      WHERE EXISTS (
-          SELECT 1 FROM work_packet_version_required_checks wprc
-          WHERE wprc.work_packet_version_id = wpv.id
-            AND wprc.organization_id = $2 AND wprc.workspace_id = $3
-            AND EXISTS (
-              SELECT 1 FROM applied_links al
-              WHERE al.event_id = source_matched_versions.event_id
-                AND al.link_type = 'verification_check'
-                AND al.id = wprc.verification_check_id
-            )
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM work_packet_version_required_checks wprc
-          WHERE wprc.work_packet_version_id = wpv.id
-            AND wprc.organization_id = $2 AND wprc.workspace_id = $3
-            AND NOT EXISTS (
-              SELECT 1 FROM applied_links al
-              WHERE al.event_id = source_matched_versions.event_id
-                AND al.link_type = 'verification_check'
-                AND al.id = wprc.verification_check_id
-            )
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM applied_links al
-          WHERE al.event_id = source_matched_versions.event_id
-            AND al.link_type = 'verification_check'
-            AND NOT EXISTS (
-              SELECT 1 FROM work_packet_version_required_checks wprc
-              WHERE wprc.work_packet_version_id = wpv.id
-                AND wprc.organization_id = $2 AND wprc.workspace_id = $3
-                AND wprc.verification_check_id = al.id
-            )
-        )
-    ), packet_links AS (
-      SELECT DISTINCT ON (event_id, work_packet_id) event_id, work_packet_id AS id,
-             title, lifecycle_state AS status
-      FROM linked_versions
-      ORDER BY event_id, work_packet_id, version_number DESC
-    ), workflow_links AS (
-      SELECT event_id, 'work_packet'::text AS link_type, id, title, status
-      FROM packet_links
-      UNION ALL
-      SELECT linked_versions.event_id, 'work_run', r.id, COALESCE(r.objective, 'Work run'),
-             COALESCE(r.aggregate_state, r.state)
-      FROM runs r
-      JOIN linked_versions ON linked_versions.id = r.work_packet_version_id
-      WHERE r.organization_id = $2 AND r.workspace_id = $3
-    ), details AS (
-      SELECT event_id, 'graph_link'::text AS kind, link_type || ':' || id::text AS stable_id,
-             title, status, graph_item_id AS source_graph_item_id, NULL::uuid AS target_graph_item_id,
-             link_type, NULL::text AS definition_key
-      FROM applied_links
-      UNION ALL
-      SELECT event_id, 'graph_link', link_type || ':' || id::text, title, status,
-             NULL::uuid, NULL::uuid, link_type, NULL::text
-      FROM workflow_links
-      UNION ALL
-      SELECT applied_sources.event_id, 'graph_relationship', gr.id::text,
-             rd.key, NULL,
-             gr.source_item_id, gr.target_item_id, NULL::text, rd.key
-      FROM (
-        SELECT DISTINCT event_id, graph_item_id FROM applied_links
-      ) applied_sources
-      JOIN graph_relationships gr ON gr.source_item_id = applied_sources.graph_item_id
-      JOIN relationship_definitions rd ON rd.id = gr.definition_id
-      JOIN graph_items source_gi ON source_gi.id = gr.source_item_id
-        AND source_gi.organization_id = $2 AND source_gi.workspace_id = $3
-      JOIN graph_items target_gi ON target_gi.id = gr.target_item_id
-        AND target_gi.organization_id = $2 AND target_gi.workspace_id = $3
-      WHERE gr.organization_id = $2 AND gr.workspace_id = $3
-        AND gr.lifecycle = 'active'
-        AND EXISTS (
-        SELECT 1 FROM applied_links target_link
-        WHERE target_link.event_id = applied_sources.event_id
-          AND target_link.graph_item_id = target_gi.id
+  defp relationship_details(applied_projection) do
+    graph_link_details =
+      Enum.map(
+        applied_projection.graph_links ++ applied_projection.workflow_links,
+        fn link ->
+          %{
+            kind: "graph_link",
+            stable_id: "#{link.type}:#{link.id}",
+            title: link.title,
+            status: link.state,
+            source_graph_item_id: link.graph_item_id,
+            target_graph_item_id: nil,
+            link_type: link.type,
+            definition_key: nil
+          }
+        end
       )
-    )
-    """
+
+    relationship_details =
+      Enum.map(applied_projection.graph_relationships, fn relationship ->
+        %{
+          kind: "graph_relationship",
+          stable_id: relationship.id,
+          title: relationship.definition_key,
+          status: nil,
+          source_graph_item_id: relationship.source_graph_item_id,
+          target_graph_item_id: relationship.target_graph_item_id,
+          link_type: nil,
+          definition_key: relationship.definition_key
+        }
+      end)
+
+    Enum.sort_by(graph_link_details ++ relationship_details, &{&1.kind, &1.stable_id})
   end
 
-  defp relationship_detail_params(session_context, event_id, after_key, limit) do
-    {kind, stable_id} = after_key || {nil, nil}
+  defp apply_relationship_cursor(details, nil), do: details
 
-    [
-      [Ecto.UUID.dump!(event_id)],
-      Ecto.UUID.dump!(session_context.organization_id),
-      Ecto.UUID.dump!(session_context.workspace_id),
-      Ecto.UUID.dump!(event_id),
-      kind,
-      stable_id,
-      limit
-    ]
+  defp apply_relationship_cursor(details, after_key) do
+    Enum.filter(details, fn detail -> {detail.kind, detail.stable_id} > after_key end)
   end
-
-  defp relationship_detail_row([
-         kind,
-         stable_id,
-         title,
-         status,
-         source_id,
-         target_id,
-         link_type,
-         definition_key,
-         _graph_link_count,
-         _graph_relationship_count
-       ]) do
-    %{
-      kind: kind,
-      stable_id: stable_id,
-      title: title,
-      status: status,
-      source_graph_item_id: source_id,
-      target_graph_item_id: target_id,
-      link_type: link_type,
-      definition_key: definition_key
-    }
-  end
-
-  defp relationship_counts_from_rows([
-         [
-           _kind,
-           _id,
-           _title,
-           _status,
-           _source,
-           _target,
-           _link_type,
-           _definition_key,
-           links,
-           relationships
-         ]
-         | _rest
-       ]),
-       do: %{graph_links: links, graph_relationships: relationships}
-
-  defp relationship_counts_from_rows([]), do: %{graph_links: 0, graph_relationships: 0}
 
   def operator_workflow_items_page(session_context, opts) do
     with {:ok, page} <- read_intake_rows_page(session_context, opts) do
@@ -467,9 +283,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     with {:ok, proposed_changes_by_event_id} <-
            read_proposed_changes_by_event_id(session_context, event_ids),
          {:ok, applied_projections_by_event_id} <-
-           applied_projections_by_event_id(session_context, events, proposed_changes_by_event_id),
-         {:ok, relationship_counts_by_event_id} <-
-           read_relationship_counts_by_event_id(session_context, event_ids) do
+           applied_projections_by_event_id(session_context, events, proposed_changes_by_event_id) do
       command_authorizations = command_authorizations(session_context)
 
       rows =
@@ -485,7 +299,7 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
             event,
             proposed_changes,
             applied_projection,
-            Map.fetch!(relationship_counts_by_event_id, event.id)
+            relationship_counts(applied_projection)
           )
         end)
 
@@ -590,25 +404,12 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
 
   defp proposed_change_title(_event), do: "Manual intake"
 
-  defp read_relationship_counts_by_event_id(_session_context, []), do: {:ok, %{}}
-
-  defp read_relationship_counts_by_event_id(session_context, event_ids) do
-    params = [
-      Enum.map(event_ids, &Ecto.UUID.dump!/1),
-      Ecto.UUID.dump!(session_context.organization_id),
-      Ecto.UUID.dump!(session_context.workspace_id)
-    ]
-
-    case Repo.query(relationship_counts_sql(), params) do
-      {:ok, %{rows: rows}} ->
-        {:ok,
-         Map.new(rows, fn [event_id, graph_links, graph_relationships] ->
-           {event_id, %{graph_links: graph_links, graph_relationships: graph_relationships}}
-         end)}
-
-      {:error, error} ->
-        {:error, error}
-    end
+  defp relationship_counts(applied_projection) do
+    %{
+      graph_links:
+        length(applied_projection.graph_links) + length(applied_projection.workflow_links),
+      graph_relationships: length(applied_projection.graph_relationships)
+    }
   end
 
   defp source_summary(title, proposed_changes) do
@@ -910,10 +711,9 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
            ),
          version_ids = version_ids_by_operation_id |> flatten_map_values() |> Enum.uniq(),
          {:ok, packet_versions} <-
-           read_scoped_many(WorkPacketVersion, session_context, version_ids),
-         {:ok, runs_by_operation_id} <-
-           read_runs_for_workflow_events(session_context, version_ids_by_operation_id) do
+           read_packet_versions_with_runs(session_context, version_ids) do
       packet_versions = Enum.sort_by(packet_versions, & &1.version_number, :desc)
+      runs_by_operation_id = runs_by_operation_id(version_ids_by_operation_id, packet_versions)
 
       workflow_links_by_operation_id =
         Map.new(version_ids_by_operation_id, fn {operation_id, operation_version_ids} ->
@@ -940,39 +740,19 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
   defp read_work_packet_required_checks(_session_context, []), do: {:ok, []}
 
   defp read_work_packet_required_checks(session_context, verification_check_ids) do
-    sql = """
-    WITH candidate_versions AS (
-      SELECT DISTINCT work_packet_version_id
-      FROM work_packet_version_required_checks
-      WHERE verification_check_id = ANY($1::uuid[])
-        AND organization_id = $2 AND workspace_id = $3
+    WorkPacketRequiredCheck
+    |> Ash.Query.filter(
+      organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id and
+        exists(
+          work_packet_version.required_checks,
+          verification_check_id in ^verification_check_ids and
+            organization_id == ^session_context.organization_id and
+            workspace_id == ^session_context.workspace_id
+        )
     )
-    SELECT work_packet_version_id::text, verification_check_id::text
-    FROM work_packet_version_required_checks
-    WHERE work_packet_version_id IN (SELECT work_packet_version_id FROM candidate_versions)
-      AND organization_id = $2 AND workspace_id = $3
-    ORDER BY inserted_at, id
-    """
-
-    params = [
-      Enum.map(verification_check_ids, &Ecto.UUID.dump!/1),
-      Ecto.UUID.dump!(session_context.organization_id),
-      Ecto.UUID.dump!(session_context.workspace_id)
-    ]
-
-    case Repo.query(sql, params) do
-      {:ok, %{rows: rows}} ->
-        {:ok,
-         Enum.map(rows, fn [work_packet_version_id, verification_check_id] ->
-           %{
-             work_packet_version_id: work_packet_version_id,
-             verification_check_id: verification_check_id
-           }
-         end)}
-
-      {:error, error} ->
-        {:error, error}
-    end
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.read(authorize?: false)
   end
 
   defp read_work_packet_source_references(_session_context, []), do: {:ok, []}
@@ -1053,66 +833,53 @@ defmodule OfficeGraph.Projections.OperatorWorkflow do
     |> Enum.uniq()
   end
 
-  defp read_runs_for_workflow_events(_session_context, version_ids_by_event)
-       when map_size(version_ids_by_event) == 0,
-       do: {:ok, %{}}
+  defp read_packet_versions_with_runs(_session_context, []), do: {:ok, []}
 
-  defp read_runs_for_workflow_events(session_context, version_ids_by_event) do
-    event_versions =
-      for {event_key, version_ids} <- version_ids_by_event,
-          version_id <- version_ids,
-          do: {event_key, version_id}
+  defp read_packet_versions_with_runs(session_context, version_ids) do
+    run_resource = Ash.Resource.Info.related(WorkPacketVersion, :runs)
 
-    {event_keys, version_ids} = Enum.unzip(event_versions)
+    run_query =
+      run_resource
+      |> Ash.Query.filter(
+        organization_id == ^session_context.organization_id and
+          workspace_id == ^session_context.workspace_id
+      )
+      |> Ash.Query.sort(inserted_at: :desc, id: :desc)
 
-    sql = """
-    WITH event_versions(event_key, version_id) AS (
-      SELECT * FROM unnest($1::text[], $2::uuid[])
-    ), ranked_runs AS (
-      SELECT event_versions.event_key, r.id, r.work_packet_version_id, r.objective,
-             r.state, r.aggregate_state,
-             row_number() OVER (
-               PARTITION BY event_key
-               ORDER BY r.inserted_at DESC, r.id DESC
-             ) AS event_rank
-      FROM event_versions
-      JOIN runs r ON r.work_packet_version_id = event_versions.version_id
-      WHERE r.organization_id = $3 AND r.workspace_id = $4
+    WorkPacketVersion
+    |> Ash.Query.filter(
+      id in ^version_ids and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
     )
-    SELECT event_key, id::text, work_packet_version_id::text, objective, state,
-           aggregate_state
-    FROM ranked_runs
-    WHERE event_rank <= $5
-    ORDER BY event_key, event_rank
-    """
+    |> Ash.Query.load(runs: run_query)
+    |> Ash.read(authorize?: false)
+  end
 
-    params = [
-      event_keys,
-      Enum.map(version_ids, &Ecto.UUID.dump!/1),
-      Ecto.UUID.dump!(session_context.organization_id),
-      Ecto.UUID.dump!(session_context.workspace_id),
-      @relationship_summary_limit + 1
-    ]
+  defp runs_by_operation_id(version_ids_by_operation_id, packet_versions) do
+    packet_versions_by_id = Map.new(packet_versions, &{&1.id, &1})
 
-    case Repo.query(sql, params) do
-      {:ok, %{rows: rows}} ->
-        {:ok,
-         Enum.group_by(
-           rows,
-           &List.first/1,
-           fn [_event_key, id, work_packet_version_id, objective, state, aggregate_state] ->
-             %{
-               id: id,
-               work_packet_version_id: work_packet_version_id,
-               objective: objective,
-               state: state,
-               aggregate_state: aggregate_state
-             }
-           end
-         )}
+    Map.new(version_ids_by_operation_id, fn {operation_id, version_ids} ->
+      runs =
+        version_ids
+        |> Enum.flat_map(fn version_id ->
+          case Map.get(packet_versions_by_id, version_id) do
+            nil -> []
+            packet_version -> packet_version.runs
+          end
+        end)
+        |> Enum.uniq_by(& &1.id)
+        |> Enum.sort(&run_more_recent?/2)
+        |> Enum.take(@relationship_summary_limit + 1)
 
-      {:error, error} ->
-        {:error, error}
+      {operation_id, runs}
+    end)
+  end
+
+  defp run_more_recent?(left, right) do
+    case DateTime.compare(left.inserted_at, right.inserted_at) do
+      :gt -> true
+      :lt -> false
+      :eq -> left.id >= right.id
     end
   end
 

@@ -146,28 +146,19 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
     assert detail.audit_trace.resource_count == 7
     assert detail.revision_trace.resource_count == 7
 
-    {{:ok, relationship_page}, relationship_queries} =
-      QueryCounter.count(fn ->
-        Projections.operator_relationship_details_page(
-          bootstrap.session,
-          intake.normalized_event.id,
-          limit: 2,
-          after_cursor: nil
-        )
-      end)
+    assert {:ok, relationship_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 2,
+               after_cursor: nil
+             )
 
     assert length(relationship_page.edges) == 2
-
-    detail_queries =
-      Enum.filter(
-        relationship_queries,
-        &String.contains?(&1.query || "", "graph_relationships gr")
-      )
-
-    assert length(detail_queries) == 1
-    assert String.contains?(hd(detail_queries).query, "graph_relationships")
-    assert QueryCounter.source_count(relationship_queries, "audit_records") == 0
-    assert String.contains?(hd(detail_queries).query, "LIMIT")
+    assert relationship_page.graph_link_count == 4
+    assert relationship_page.graph_relationship_count == 3
+    assert relationship_page.has_next_page?
+    refute relationship_page.has_previous_page?
   end
 
   test "operator workflow stops offering packet creation once its packet contract exists" do
@@ -256,20 +247,19 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     assert length(inbox.rows) == 50
 
-    relationship_projection_queries =
-      Enum.filter(queries, fn query ->
-        String.contains?(query.query || "", "graph_relationships gr")
-      end)
+    assert Enum.all?(inbox.rows, fn row ->
+             row.relationship_summary == %{
+               graph_links: 0,
+               graph_relationships: 0,
+               has_more: false
+             }
+           end)
 
-    assert length(relationship_projection_queries) == 1
-
-    relationship_query = hd(relationship_projection_queries).query
-    assert String.contains?(relationship_query, "source_matched_versions AS")
-
-    refute Regex.match?(
-             ~r/FROM requested_events\s+JOIN work_packet_versions/,
-             relationship_query
-           )
+    assert QueryCounter.source_count(queries, "proposed_graph_changes") <= 1
+    assert QueryCounter.source_count(queries, "graph_relationships") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_required_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_sources") <= 1
+    assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
   test "operator run state query count stays bounded across child collections" do
@@ -604,18 +594,36 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     restore_running_run!(recent_run)
 
-    {{:ok, detail}, queries} =
-      QueryCounter.count(fn ->
-        Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
-      end)
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(
+               bootstrap.session,
+               intake.normalized_event.id
+             )
 
     assert detail.status == recent_run.aggregate_state
 
-    run_query = Enum.find(queries, &String.contains?(&1.query || "", "ranked_runs"))
-    assert run_query
-    assert String.contains?(run_query.query, "PARTITION BY event_key")
-    assert String.contains?(run_query.query, "ORDER BY r.inserted_at DESC, r.id DESC")
-    assert {:ok, %Postgrex.Result{num_rows: 21}} = run_query.result
+    assert Enum.any?(
+             detail.graph_links,
+             &(&1.type == "work_run" and &1.id == recent_run.id)
+           )
+
+    assert {:ok, relationship_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 100,
+               after_cursor: nil
+             )
+
+    run_edges =
+      Enum.filter(
+        relationship_page.edges,
+        &(&1.node.link_type == "work_run")
+      )
+
+    assert length(run_edges) == 21
+    assert Enum.any?(run_edges, &(&1.node.stable_id == "work_run:#{recent_run.id}"))
+    refute recent_run.id == uuid_first_run.id
     refute recent_version.id == uuid_first_version.id
   end
 
