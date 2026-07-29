@@ -59,6 +59,12 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.AuditRecord do
     attributes: [operation_id: :uuid]
 end
 
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.AuthenticationEvent do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "authentication_events",
+    attributes: [organization_id: :uuid, principal_id: :uuid]
+end
+
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.AuthorizationDecision do
   use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
     table: "authorization_decisions",
@@ -105,6 +111,12 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExecutionObservation do
   use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
     table: "execution_observations",
     attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalIdentityLink do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "external_identity_links",
+    attributes: [principal_id: :uuid, verified_email: :string]
 end
 
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalSource do
@@ -302,6 +314,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Domain do
   resources do
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.Artifact
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.AuditRecord
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.AuthenticationEvent
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.AuthorizationDecision
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.Conversation
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ConversationMessage
@@ -310,6 +323,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Domain do
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.EvidenceCandidate
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.EvidenceItem
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExecutionObservation
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalIdentityLink
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalSource
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.GraphItem
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.GraphRelationship
@@ -350,6 +364,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
   alias __MODULE__.{
     Artifact,
     AuditRecord,
+    AuthenticationEvent,
     AuthorizationDecision,
     Conversation,
     ConversationMessage,
@@ -358,6 +373,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     EvidenceCandidate,
     EvidenceItem,
     ExecutionObservation,
+    ExternalIdentityLink,
     ExternalSource,
     GraphItem,
     GraphRelationship,
@@ -424,6 +440,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
 
     PrincipalProfile
     |> Ash.Query.filter(principal_id in ^principal_ids)
+    |> destroy_all!()
+
+    ExternalIdentityLink
+    |> Ash.Query.filter(principal_id in ^principal_ids or verified_email == ^owner_email)
     |> destroy_all!()
 
     Principal
@@ -561,6 +581,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
 
     RoleCapability
     |> Ash.Query.filter(role_id in ^role_ids)
+    |> destroy_all!()
+
+    AuthenticationEvent
+    |> Ash.Query.filter(organization_id in ^organization_ids)
     |> destroy_all!()
 
     for resource <- [

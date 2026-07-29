@@ -1,9 +1,10 @@
 defmodule OfficeGraph.Identity.HumanSessionPersistence do
   @moduledoc false
 
-  @callback before_access(:resolve | :revoke | :event) :: :ok | {:error, term()}
+  @callback before_access(:resolve | :revoke | :event | :issue_event) ::
+              :ok | {:error, term()}
 
-  def before_access(stage) when stage in [:resolve, :revoke, :event] do
+  def before_access(stage) when stage in [:resolve, :revoke, :event, :issue_event] do
     case implementation().before_access(stage) do
       :ok -> :ok
       {:error, _reason} -> {:error, :identity_storage_unavailable}

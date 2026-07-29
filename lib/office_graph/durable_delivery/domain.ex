@@ -5,5 +5,6 @@ defmodule OfficeGraph.DurableDelivery.Domain do
 
   resources do
     resource OfficeGraph.DurableDelivery.DomainEvent
+    resource OfficeGraph.DurableDelivery.StoredJob
   end
 end

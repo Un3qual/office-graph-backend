@@ -100,6 +100,59 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
       accept [:delivery_state, :failure_code, :failed_at]
       require_atomic? false
     end
+
+    action :record_and_enqueue, :term do
+      public? false
+      transaction? true
+
+      argument :operation_kind, :string, allow_nil?: false
+      argument :event_scope, :string, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :causation_event_id, :uuid
+      argument :event_key, :string, allow_nil?: false
+      argument :event_kind, :string, allow_nil?: false
+      argument :subject_kind, :string
+      argument :subject_id, :uuid
+      argument :subject_version, :integer
+      argument :occurred_at, :utc_datetime_usec, allow_nil?: false
+
+      run fn input, _context ->
+        OfficeGraph.DurableDelivery.record_and_enqueue_action(input.arguments)
+      end
+    end
+
+    action :dispatch, :term do
+      public? false
+      transaction? true
+
+      argument :event_id, :uuid, allow_nil?: false
+      argument :enforce_scope?, :boolean, allow_nil?: false
+      argument :organization_id, :uuid
+      argument :workspace_id, :uuid
+      argument :broadcaster, :atom, allow_nil?: false
+
+      run fn input, _context ->
+        {:ok, OfficeGraph.DurableDelivery.dispatch_action(input.arguments)}
+      end
+    end
+
+    action :mark_failure, :term do
+      public? false
+      transaction? true
+
+      argument :event_id, :uuid, allow_nil?: false
+      argument :enforce_scope?, :boolean, allow_nil?: false
+      argument :organization_id, :uuid
+      argument :workspace_id, :uuid
+      argument :failure_code, :string, allow_nil?: false
+      argument :allowed_states, {:array, :string}, allow_nil?: false
+
+      run fn input, _context ->
+        {:ok, OfficeGraph.DurableDelivery.mark_failure_action(input.arguments)}
+      end
+    end
   end
 
   identities do

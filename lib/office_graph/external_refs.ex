@@ -15,7 +15,7 @@ defmodule OfficeGraph.ExternalRefs do
 
   require Ash.Query
 
-  alias OfficeGraph.{Audit, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, Operations, Revisions}
   alias OfficeGraph.ExternalRefs.ExternalReference
 
   def upsert_provider_reference(operation, source, attrs)
@@ -83,45 +83,61 @@ defmodule OfficeGraph.ExternalRefs do
   def read_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
   defp persist_reference(operation, source, identity) do
-    reference_id = Ecto.UUID.generate()
+    upsert_identity =
+      if is_nil(operation.workspace_id),
+        do: :unique_organization_source_external_id,
+        else: :unique_workspace_source_external_id
 
-    lookup = [
-      organization_id: operation.organization_id,
-      workspace_id: operation.workspace_id,
-      source_id: source.id,
-      external_id: identity.external_id
-    ]
+    result =
+      ExternalReference
+      |> Ash.Changeset.for_create(:create, %{
+        organization_id: operation.organization_id,
+        workspace_id: operation.workspace_id,
+        source_id: source.id,
+        provider: identity.provider,
+        object_type: identity.object_type,
+        external_id: identity.external_id,
+        url: identity.url,
+        sync_state: "synced",
+        operation_id: operation.id,
+        resource_type: identity.resource_type,
+        resource_id: identity.resource_id
+      })
+      |> Ash.create(
+        authorize?: false,
+        return_notifications?: true,
+        return_skipped_upsert?: true,
+        upsert?: true,
+        upsert_identity: upsert_identity,
+        upsert_fields: []
+      )
 
-    case Repo.get_or_insert(
-           ExternalReference,
-           lookup,
-           %{
-             id: reference_id,
-             organization_id: operation.organization_id,
-             workspace_id: operation.workspace_id,
-             source_id: source.id,
-             provider: identity.provider,
-             object_type: identity.object_type,
-             external_id: identity.external_id,
-             url: identity.url,
-             sync_state: "synced",
-             operation_id: operation.id,
-             resource_type: identity.resource_type,
-             resource_id: identity.resource_id
-           },
-           &reference_insert_contract/2,
-           &reference_by_lookup/2
-         ) do
+    case result do
+      {:ok, reference, _notifications} ->
+        persist_or_reconcile_reference(operation, reference, identity)
+
       {:ok, reference} ->
-        if reference.id == reference_id do
-          trace!(operation, reference.id, "create")
-          {:ok, reference}
-        else
-          reconcile_reference(operation, reference, identity)
-        end
+        persist_or_reconcile_reference(operation, reference, identity)
 
       {:error, _storage_error} ->
         {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp persist_or_reconcile_reference(operation, reference, identity) do
+    if created_by_upsert?(reference) do
+      trace!(operation, reference.id, "create")
+      {:ok, reference}
+    else
+      reconcile_reference(operation, reference, identity)
+    end
+  end
+
+  defp created_by_upsert?(reference) do
+    case Ash.Resource.get_metadata(reference, :upsert_action) do
+      :insert -> true
+      :update -> false
+      _other -> not Ash.Resource.get_metadata(reference, :upsert_skipped)
     end
   end
 
@@ -134,7 +150,7 @@ defmodule OfficeGraph.ExternalRefs do
           sync_state: "synced",
           operation_id: operation.id
         })
-        |> Repo.ash_update!()
+        |> Ash.update!(authorize?: false)
 
       trace!(operation, reference.id, "update")
       {:ok, reference}
@@ -171,24 +187,6 @@ defmodule OfficeGraph.ExternalRefs do
         else: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
     Ash.read_one(query, authorize?: false)
-  end
-
-  defp reference_insert_contract(ExternalReference, %{workspace_id: nil}) do
-    {
-      "external_references",
-      {:unsafe_fragment,
-       "(organization_id, source_id, external_id) WHERE organization_id IS NOT NULL AND workspace_id IS NULL"},
-      [:id, :organization_id, :source_id, :operation_id, :resource_id]
-    }
-  end
-
-  defp reference_insert_contract(ExternalReference, _attrs) do
-    {
-      "external_references",
-      {:unsafe_fragment,
-       "(organization_id, workspace_id, source_id, external_id) WHERE workspace_id IS NOT NULL"},
-      [:id, :organization_id, :workspace_id, :source_id, :operation_id, :resource_id]
-    }
   end
 
   defp validate_source(%{id: id, kind: "provider"}) when is_binary(id), do: :ok

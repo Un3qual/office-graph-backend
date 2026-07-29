@@ -1,24 +1,12 @@
 defmodule OfficeGraph.Projections.OperatorRunIndexTest do
   use OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  import OfficeGraph.TestSupport.PostgresCatalog
-
   alias OfficeGraph.Runs.Run
 
-  test "storage enforces the run index lifecycle and keyset contracts" do
+  test "run resources require every projected lifecycle state" do
     for field <- [:aggregate_state, :execution_state, :verification_state] do
-      refute column_nullable?("runs", Atom.to_string(field))
       refute Ash.Resource.Info.attribute(Run, field).allow_nil?
     end
-
-    assert index_columns("runs_scope_inserted_at_id_index") == [
-             "organization_id",
-             "workspace_id",
-             "inserted_at",
-             "id"
-           ]
-
-    assert index_orders("runs_scope_inserted_at_id_index") == [:asc, :asc, :desc, :desc]
   end
 
   test "returns newest-first safe run summaries with packet labels" do

@@ -10,7 +10,7 @@
 - [x] 2.1 Replace tenancy and content explicit transactions with action-owned Ash persistence and preserve bootstrap/document atomicity
 - [x] 2.2 Replace authorization partial-index fragments and explicit transactions with Ash identities, actions, and upserts
 - [x] 2.3 Replace identity bootstrap and session transactions, OIDC SQL, normalized-email fragments, and advisory locks with Ash actions, atomics, identities, and query locks
-- [ ] 2.4 Add concurrent owner/session/OIDC/external-identity tests proving uniqueness, consumption, stale conflict, and failure atomicity
+- [x] 2.4 Add concurrent owner/session/OIDC/external-identity tests proving uniqueness, consumption, stale conflict, and failure atomicity
 
 ## 3. Replace Core Workflow Escapes
 
@@ -54,12 +54,12 @@
 - [x] 8.2 Replace agent-runtime test SQL/direct Ecto with public actions and test adapter seams
 - [x] 8.3 Replace GitHub integration test SQL/direct Ecto with public actions, provider adapters, and typed ordering controls
 - [x] 8.4 Replace work-graph, work-packet, run, projection, and web API test SQL/direct Ecto with public actions and behavior assertions
-- [ ] 8.5 Replace concurrency-support triggers, functions, advisory locks, row mutation, and catalog helpers with typed action/adapter barriers and independent sandbox owners
-- [ ] 8.6 Remove obsolete migration-specific tests that are superseded by the unreleased-migration rebaseline, without editing migration history in this change
+- [x] 8.5 Replace concurrency-support triggers, functions, advisory locks, row mutation, and catalog helpers with typed action/adapter barriers and independent sandbox owners
+- [x] 8.6 Remove obsolete migration-specific tests that are superseded by the unreleased-migration rebaseline, without editing migration history in this change
 
 ## 9. Verify And Finish
 
-- [ ] 9.1 Remove all matching debt rows and prove the inventory contains zero `remove-direct-database-access` entries, 173 migration debt entries, and only the existing approved UUIDv7 exception
+- [x] 9.1 Remove all matching debt rows and prove the inventory contains zero `remove-direct-database-access` entries, 173 migration debt entries, and only the existing approved UUIDv7 exception
 - [ ] 9.2 Run focused authorization, lifecycle, idempotency, replay, optimistic-lock, concurrency, projection query-count, worker, and failure-atomicity suites
 - [ ] 9.3 Run formatter, compile with warnings as errors, strict Credo/database-boundary checks, type analysis, and strict OpenSpec validation
 - [ ] 9.4 Run the complete canonical `bin/verify` gate and confirm quiet SQL logging, 104 canonical specs plus the active change, frontend verification, and the full backend suite

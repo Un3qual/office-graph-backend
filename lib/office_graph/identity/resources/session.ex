@@ -22,6 +22,7 @@ defmodule OfficeGraph.Identity.Actions.IssueHumanSession do
   alias OfficeGraph.Identity.{
     AuthenticationEvent,
     ExternalIdentityLink,
+    HumanSessionPersistence,
     HumanSessionIssueResult,
     Principal,
     Session
@@ -177,7 +178,11 @@ defmodule OfficeGraph.Identity.Actions.IssueHumanSession do
     end
   end
 
-  defp create_event(attrs), do: create(AuthenticationEvent, attrs)
+  defp create_event(attrs) do
+    with :ok <- HumanSessionPersistence.before_access(:issue_event) do
+      create(AuthenticationEvent, attrs)
+    end
+  end
 
   defp create(resource, attrs) do
     resource

@@ -1,8 +1,6 @@
 defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   use OfficeGraph.DataCase, async: false
 
-  import OfficeGraph.TestSupport.PostgresCatalog
-
   alias OfficeGraph.Repo
 
   test "Oban is configured as the Postgres-backed durable runtime" do
@@ -62,39 +60,6 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     refute worker_deadlines == []
     assert Enum.all?(worker_deadlines, &is_integer/1)
     assert Enum.max(worker_deadlines) < lifeline_options[:rescue_after]
-  end
-
-  test "durable runtime tables preserve typed event and job state" do
-    assert table_exists?("oban_jobs")
-    assert table_exists?("domain_events")
-
-    assert MapSet.new(columns("domain_events")) ==
-             MapSet.new([
-               "id",
-               "organization_id",
-               "workspace_id",
-               "operation_id",
-               "causation_event_id",
-               "event_key",
-               "event_kind",
-               "operation_kind",
-               "event_scope",
-               "subject_kind",
-               "subject_id",
-               "subject_version",
-               "delivery_state",
-               "failure_code",
-               "occurred_at",
-               "dispatched_at",
-               "failed_at",
-               "inserted_at",
-               "updated_at"
-             ])
-
-    assert index_exists?("domain_events_event_key_index")
-    assert index_exists?("domain_events_scope_state_occurred_at_index")
-    assert index_exists?("domain_events_operation_id_index")
-    assert index_exists?("domain_events_subject_index")
   end
 
   defp production_oban_worker?(module) do
