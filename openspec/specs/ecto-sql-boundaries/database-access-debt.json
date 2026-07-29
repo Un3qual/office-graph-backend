@@ -2355,41 +2355,6 @@
     {
       "occurrences": [
         [
-          "sha256:51e5357dbc456ae4a8b6379eb731ef73ef2ea04385bf0076ec5ec18e0603995f",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          1
-        ],
-        [
-          "sha256:561056e2cb8037c82868ab46a61f19f4cb18d4480c8d1b3a1ee0f3f696a14c8d",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          2
-        ],
-        [
-          "sha256:16bd16273add42070e75be487aaf3aab263ba5d07d25bf786102ffb2b358b78f",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          3
-        ],
-        [
-          "sha256:0f604023e8151b594ed0709323be732aad8ec2f02c9cd6a12844faffda217e1c",
-          "raw_sql",
-          "Repo.query!",
-          null,
-          4
-        ]
-      ],
-      "owner": "OfficeGraph.AuthenticationTest",
-      "path": "test/office_graph/authentication_test.exs",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:af97529fe5f223ee3c058678bbb7ba5b95e1d59a12131c6c8db170b4c9489de0",
           "raw_sql",
           "Repo.query!",

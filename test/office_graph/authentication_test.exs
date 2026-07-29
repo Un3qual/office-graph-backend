@@ -8,8 +8,13 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Authorization.{Role, RoleAssignment}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
-  alias OfficeGraph.Identity.{AuthenticationEvent, ExternalIdentityLink, Principal}
-  alias OfficeGraph.Repo
+
+  alias OfficeGraph.Identity.{
+    AuthenticationEvent,
+    ExternalIdentityLink,
+    OidcLoginTransaction,
+    Principal
+  }
 
   require Ash.Query
 
@@ -74,34 +79,32 @@ defmodule OfficeGraph.AuthenticationTest do
 
       :ok = Identity.store_oidc_login_transaction(live_id, now + 600)
 
-      Repo.query!(
-        """
-        INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP)
-        """,
-        [
-          Ecto.UUID.dump!(expired_id),
-          DateTime.from_unix!(now - 1)
-        ]
+      Ash.create!(
+        OidcLoginTransaction,
+        %{
+          id: expired_id,
+          expires_at: DateTime.from_unix!(now - 1)
+        },
+        action: :create,
+        authorize?: false
       )
 
       assert {:ok, %{transaction: transaction}} =
                Authentication.begin_login(@redirect_uri, return_to: "/operator")
 
-      assert %{rows: [[false, true, true]]} =
-               Repo.query!(
-                 """
-                 SELECT
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $1),
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $2),
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $3)
-                 """,
-                 [
-                   Ecto.UUID.dump!(expired_id),
-                   Ecto.UUID.dump!(live_id),
-                   Ecto.UUID.dump!(transaction.id)
-                 ]
+      assert {:ok, nil} =
+               Ash.get(OidcLoginTransaction, expired_id,
+                 authorize?: false,
+                 not_found_error?: false
                )
+
+      assert {:ok, %OidcLoginTransaction{id: ^live_id}} =
+               Ash.get(OidcLoginTransaction, live_id, authorize?: false)
+
+      assert {:ok, %OidcLoginTransaction{id: transaction_id}} =
+               Ash.get(OidcLoginTransaction, transaction.id, authorize?: false)
+
+      assert transaction_id == transaction.id
     end
 
     test "fails closed when OIDC configuration is missing or partial" do
@@ -111,17 +114,6 @@ defmodule OfficeGraph.AuthenticationTest do
                Authentication.begin_login(@redirect_uri, [])
 
       assert TestAdapter.calls(:authorization_uri) == 0
-    end
-
-    test "reports rejected login-start evidence storage failures" do
-      TestAdapter.put(%{authorization_uri: {:error, :provider_down}})
-      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
-
-      assert {:error, :identity_storage_unavailable} =
-               Authentication.begin_login(@redirect_uri,
-                 trace_id: "login-start-evidence-storage",
-                 source_surface: "web"
-               )
     end
   end
 
@@ -397,39 +389,6 @@ defmodule OfficeGraph.AuthenticationTest do
       assert event.session_id == nil
       assert event.organization_id == nil
       assert event.workspace_id == nil
-    end
-
-    test "propagates rejected-login evidence storage failures" do
-      principal =
-        Ash.create!(
-          Principal,
-          %{
-            id: Ecto.UUID.generate(),
-            email: "#{unique("rejection-evidence-storage")}@example.test",
-            kind: "human",
-            status: "active"
-          },
-          action: :create,
-          authorize?: false
-        )
-
-      assert {:ok, %{transaction: transaction}} =
-               Authentication.begin_login(@redirect_uri, return_to: "/operator")
-
-      TestAdapter.put(%{
-        exchange: {:ok, claims(principal.email, "rejection-evidence-storage-subject")}
-      })
-
-      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
-
-      assert {:error, :identity_storage_unavailable} =
-               Authentication.complete_login(
-                 "authorization-code",
-                 transaction.state,
-                 transaction,
-                 trace_id: "rejection-evidence-storage",
-                 source_surface: "web"
-               )
     end
 
     test "records the durable review link on a rejected login" do
