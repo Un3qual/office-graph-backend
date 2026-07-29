@@ -3,48 +3,6 @@
     {
       "occurrences": [
         [
-          "sha256:52bdf0486d917e12227ba2ca83ba803171ae8109eaf212db41ec4b7cf11b437b",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_resolution/6",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/commands/approval_commands.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:f13d85cde0554553b48a6d5259940ed51de11d7316c138cdad81a617995a8cac",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_cancel/4",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/commands/cancellation_commands.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:e8327053ef257b50d56b35d1825672eef53f585a66a0e55cd2ae8c225bfb2e2b",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_resolution/6",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/commands/context_expansion_commands.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:e106f52e298f4a41ec2c93fedcf3029202cfbb7560435d2aa1343466dda8c72e",
           "raw_sql",
           "Repo.query",
@@ -82,20 +40,6 @@
       ],
       "owner": "OfficeGraph.AgentRuntime",
       "path": "lib/office_graph/agent_runtime/workers/execution_worker.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
-          "sha256:e7524fa96c0c025c20e013b0a4a8f5bc7108a9c895c8b88acc6f5a6932f38e2e",
-          "direct_ecto",
-          "Repo.transaction",
-          "expire/2",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.AgentRuntime",
-      "path": "lib/office_graph/agent_runtime/workers/gate_expiry_worker.ex",
       "remediation_change": "remove-direct-database-access"
     },
     {

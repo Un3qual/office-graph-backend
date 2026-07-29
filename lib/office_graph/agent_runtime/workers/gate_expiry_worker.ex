@@ -1,3 +1,25 @@
+defmodule OfficeGraph.AgentRuntime.GateExpiryResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :status, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:complete, :snooze]]
+
+    field :delay_seconds, :integer, constraints: [min: 1]
+  end
+
+  def complete!, do: new!(status: :complete)
+  def snooze!(delay_seconds), do: new!(status: :snooze, delay_seconds: delay_seconds)
+
+  def to_oban_result(%__MODULE__{status: :complete}), do: :ok
+
+  def to_oban_result(%__MODULE__{status: :snooze, delay_seconds: delay_seconds}),
+    do: {:snooze, delay_seconds}
+end
+
 defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
   @moduledoc false
 
@@ -6,13 +28,16 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
     max_attempts: 3,
     unique: [period: :infinity, fields: [:worker, :queue, :args], states: :all]
 
-  alias OfficeGraph.{DurableDelivery, Operations, Repo}
+  alias OfficeGraph.{CommandSupport, DurableDelivery, Operations}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentExecution,
     ApprovalRequest,
     ContextExpansionRequest,
-    ExecutionStateMachine
+    ExecutionStateMachine,
+    GateExpiryResult,
+    StorageResult
   }
 
   require Ash.Query
@@ -28,6 +53,21 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
   @impl Oban.Worker
   def timeout(_job), do: :timer.minutes(30)
 
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl Ash.Resource.Actions.Implementation
+  def run(input, [request_kind: request_kind], _context)
+      when request_kind in ["approval", "context_expansion"] do
+    resource = request_resource(request_kind)
+
+    case expire_locked(request_kind, input.arguments.request_id) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(resource, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"request_id" => request_id, "request_kind" => request_kind}})
       when is_binary(request_id) and request_kind in ["approval", "context_expansion"] do
@@ -37,41 +77,52 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
   def perform(_job), do: {:cancel, "invalid_agent_gate_expiry_job"}
 
   defp expire(request_kind, request_id) do
-    case Repo.transaction(fn -> expire_locked(request_kind, request_id) end) do
-      {:ok, result} -> result
-      {:error, reason} -> {:error, reason}
-    end
+    StorageResult.run(fn ->
+      request_kind
+      |> request_resource()
+      |> Ash.ActionInput.for_action(:expire_gate_contract, %{request_id: request_id})
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
+      |> case do
+        {:ok, result} -> GateExpiryResult.to_oban_result(result)
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   defp expire_locked(request_kind, request_id) do
-    request = lock_request(request_kind, request_id)
-
-    if is_nil(request) do
-      :ok
-    else
-      execution = lock_execution(request.execution_id)
-      expire_request(request_kind, request, execution)
+    with {:ok, request} <- lock_request(request_kind, request_id) do
+      if is_nil(request) do
+        {:ok, GateExpiryResult.complete!()}
+      else
+        with {:ok, execution} <- lock_execution(request.execution_id) do
+          expire_request(request_kind, request, execution)
+        end
+      end
     end
   end
 
-  defp expire_request(_request_kind, %{state: state}, _execution) when state != "pending", do: :ok
+  defp expire_request(_request_kind, %{state: state}, _execution) when state != "pending",
+    do: {:ok, GateExpiryResult.complete!()}
 
   defp expire_request(request_kind, request, execution) do
     now = DateTime.utc_now()
 
     cond do
       DateTime.compare(request.expires_at, now) == :gt ->
-        {:snooze, max(DateTime.diff(request.expires_at, now, :second), 1)}
+        {:ok, GateExpiryResult.snooze!(max(DateTime.diff(request.expires_at, now, :second), 1))}
 
       matching_wait?(request_kind, request, execution) ->
-        operation = read_operation!(request.operation_id)
-        mark_expired!(request_kind, request, now)
-        fail_waiting_execution!(request_kind, execution, operation, now)
-        :ok
+        with {:ok, operation} <- read_operation(request.operation_id),
+             {:ok, _expired} <- mark_expired(request_kind, request, now),
+             :ok <- fail_waiting_execution(request_kind, execution, operation, now) do
+          {:ok, GateExpiryResult.complete!()}
+        end
 
       true ->
-        mark_superseded!(request, now)
-        :ok
+        with {:ok, _superseded} <- mark_superseded(request, now) do
+          {:ok, GateExpiryResult.complete!()}
+        end
     end
   end
 
@@ -85,7 +136,7 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
       execution.workspace_id == request.workspace_id
   end
 
-  defp mark_expired!(request_kind, request, now) do
+  defp mark_expired(request_kind, request, now) do
     request
     |> Ash.Changeset.for_update(:resolve, %{
       state: "expired",
@@ -93,10 +144,11 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
       resolution_reason: "#{request_kind}_expired",
       resolved_at: now
     })
-    |> Repo.ash_update!()
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> CommandSupport.normalize_ash_write()
   end
 
-  defp mark_superseded!(request, now) do
+  defp mark_superseded(request, now) do
     request
     |> Ash.Changeset.for_update(:resolve, %{
       state: "superseded",
@@ -104,29 +156,28 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
       resolution_reason: "execution_no_longer_waiting",
       resolved_at: now
     })
-    |> Repo.ash_update!()
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> CommandSupport.normalize_ash_write()
   end
 
-  defp fail_waiting_execution!(request_kind, execution, operation, now) do
-    with :ok <- ExecutionStateMachine.validate(execution.state, "failed") do
-      failed =
-        execution
-        |> Ash.Changeset.for_update(:transition, %{
-          state: "failed",
-          failure_code: "agent_#{request_kind}_expired",
-          lease_token: nil,
-          lease_expires_at: nil,
-          completed_at: now
-        })
-        |> Repo.ash_update!()
-
-      record_failure_event!(operation, failed)
-    else
-      {:error, reason} -> Repo.rollback(reason)
+  defp fail_waiting_execution(request_kind, execution, operation, now) do
+    with :ok <- ExecutionStateMachine.validate(execution.state, "failed"),
+         {:ok, failed} <-
+           execution
+           |> Ash.Changeset.for_update(:transition, %{
+             state: "failed",
+             failure_code: "agent_#{request_kind}_expired",
+             lease_token: nil,
+             lease_expires_at: nil,
+             completed_at: now
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write() do
+      record_failure_event(operation, failed)
     end
   end
 
-  defp record_failure_event!(operation, execution) do
+  defp record_failure_event(operation, execution) do
     attrs =
       DurableDelivery.event_attrs(
         "agent-execution:#{execution.id}:v#{execution.state_version}",
@@ -138,16 +189,11 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
 
     case DurableDelivery.record_system_and_enqueue(operation, attrs) do
       {:ok, _event} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp read_operation!(operation_id) do
-    case Operations.read_operation(operation_id) do
-      {:ok, operation} -> operation
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
+  defp read_operation(operation_id), do: Operations.read_operation(operation_id)
 
   defp lock_request("approval", request_id), do: lock(ApprovalRequest, request_id)
 
@@ -158,10 +204,13 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
     resource
     |> Ash.Query.filter(id == ^id)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
   defp lock_execution(execution_id), do: lock(AgentExecution, execution_id)
+
+  defp request_resource("approval"), do: ApprovalRequest
+  defp request_resource("context_expansion"), do: ContextExpansionRequest
 
   defp waiting_state("approval"), do: "waiting_approval"
   defp waiting_state("context_expansion"), do: "waiting_context"

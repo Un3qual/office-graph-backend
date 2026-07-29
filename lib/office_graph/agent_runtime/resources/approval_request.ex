@@ -1,3 +1,21 @@
+defmodule OfficeGraph.AgentRuntime.ApprovalResolutionResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :request, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ApprovalRequest]
+
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+  end
+
+  def build!(request, execution), do: new!(request: request, execution: execution)
+end
+
 defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
   @moduledoc false
 
@@ -103,6 +121,48 @@ defmodule OfficeGraph.AgentRuntime.ApprovalRequest do
       ]
 
       validate one_of(:state, @states)
+    end
+
+    action :persist_resolution_contract, OfficeGraph.AgentRuntime.ApprovalResolutionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.AgentExecution,
+        OfficeGraph.AgentRuntime.ModelRequest,
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :request_id, :uuid, allow_nil?: false
+      argument :expected_version, :integer, allow_nil?: false, constraints: [min: 1]
+      argument :decision, :string, allow_nil?: false
+
+      argument :resolution_reason, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 2_000]
+
+      validate argument_in(:decision, ~w(approved denied cancelled))
+
+      run {OfficeGraph.AgentRuntime.ApprovalCommands, mode: :persist_resolution}
+    end
+
+    action :expire_gate_contract, OfficeGraph.AgentRuntime.GateExpiryResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.AgentExecution,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :request_id, :uuid, allow_nil?: false
+
+      run {OfficeGraph.AgentRuntime.GateExpiryWorker, request_kind: "approval"}
     end
   end
 

@@ -138,7 +138,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       Enum.map(
         [
           "lib/office_graph/agent_runtime.ex",
+          "lib/office_graph/agent_runtime/commands/approval_commands.ex",
+          "lib/office_graph/agent_runtime/commands/cancellation_commands.ex",
+          "lib/office_graph/agent_runtime/commands/context_expansion_commands.ex",
           "lib/office_graph/agent_runtime/commands/invocation_commands.ex",
+          "lib/office_graph/agent_runtime/workers/gate_expiry_worker.ex",
           "lib/office_graph/authorization.ex",
           "lib/office_graph/content.ex",
           "lib/office_graph/identity.ex",

@@ -81,6 +81,27 @@ defmodule OfficeGraph.AgentRuntime.InvocationResult do
   end
 end
 
+defmodule OfficeGraph.AgentRuntime.CancellationResult do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+    field :model_request, :struct,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ModelRequest]
+
+    field :replayed?, :boolean, allow_nil?: false
+  end
+
+  def build!(execution, model_request, replayed?) do
+    new!(execution: execution, model_request: model_request, replayed?: replayed?)
+  end
+end
+
 defimpl Jason.Encoder, for: OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
   def encode(result, options) do
     Jason.Encode.map(
@@ -374,6 +395,25 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :delegator_principal_id, :uuid
 
       run {OfficeGraph.AgentRuntime.InvocationCommands, mode: :persist}
+    end
+
+    action :persist_cancellation_contract, OfficeGraph.AgentRuntime.CancellationResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.ApprovalRequest,
+        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        OfficeGraph.AgentRuntime.ModelRequest,
+        OfficeGraph.DurableDelivery.DomainEvent,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :execution_id, :uuid, allow_nil?: false
+      argument :expected_state_version, :integer, allow_nil?: false, constraints: [min: 1]
+
+      run {OfficeGraph.AgentRuntime.CancellationCommands, mode: :persist_cancel}
     end
 
     update :transition do

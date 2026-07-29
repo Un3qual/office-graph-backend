@@ -1,13 +1,15 @@
 defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Audit, Authorization, DurableDelivery, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, Authorization, CommandSupport, DurableDelivery, Operations, Revisions}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentExecution,
     AuthoritySnapshot,
     ContextAssembler,
     ContextExpansionRequest,
+    ContextExpansionResolutionResult,
     ContextPackage,
     ExecutionStateMachine,
     ExecutionWorker,
@@ -18,6 +20,28 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
 
   @operation_action "agent.context_expansion.resolve"
   @decisions ~w(approved denied cancelled)
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :persist_resolution], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    case persist_resolution_records(
+           session_context,
+           attrs.operation_id,
+           attrs.request_id,
+           attrs.expected_version,
+           attrs.decision,
+           attrs.resolution_reason
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(ContextExpansionRequest, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def resolve(session_context, operation, request_id, expected_version, decision, reason)
       when is_map(session_context) and is_map(operation) do
@@ -68,31 +92,45 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
 
   defp persist_resolution(session_context, operation, request_id, version, decision, reason) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
-             %ContextExpansionRequest{} = request <- lock_request(request_id, session_context),
-             %AgentExecution{} = execution <-
-               lock_execution(request.execution_id, session_context),
-             %AuthoritySnapshot{} = snapshot <- lock_snapshot(request.authority_snapshot_id),
-             %ContextPackage{} = package <- lock_package(request.current_context_package_id) do
-          resources = %{
-            request: request,
-            execution: execution,
-            snapshot: snapshot,
-            package: package
-          }
-
-          resolve_locked(session_context, operation, resources, version, decision, reason)
-        else
-          nil -> Repo.rollback(:forbidden)
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
+      ContextExpansionRequest
+      |> Ash.ActionInput.for_action(:persist_resolution_contract, %{
+        operation_id: operation.id,
+        request_id: request_id,
+        expected_version: version,
+        decision: decision,
+        resolution_reason: reason
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
+  end
+
+  defp persist_resolution_records(
+         session_context,
+         operation_id,
+         request_id,
+         version,
+         decision,
+         reason
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         %ContextExpansionRequest{} = request <- lock_request(request_id, session_context),
+         %AgentExecution{} = execution <-
+           lock_execution(request.execution_id, session_context),
+         %AuthoritySnapshot{} = snapshot <- lock_snapshot(request.authority_snapshot_id),
+         %ContextPackage{} = package <- lock_package(request.current_context_package_id) do
+      resources = %{
+        request: request,
+        execution: execution,
+        snapshot: snapshot,
+        package: package
+      }
+
+      resolve_locked(session_context, operation, resources, version, decision, reason)
+    else
+      nil -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp resolve_locked(
@@ -105,19 +143,21 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
        ) do
     cond do
       replay?(request, operation, expected_version, decision, reason) ->
-        %{request: request, execution: execution, context_package: expanded_package(request.id)}
+        with {:ok, context_package} <- expanded_package(request.id) do
+          {:ok, resolution_result(request, execution, context_package)}
+        end
 
       request.version != expected_version ->
-        Repo.rollback({:stale_agent_context_expansion, request.id, request.version})
+        {:error, {:stale_agent_context_expansion, request.id, request.version}}
 
       request.state != "pending" ->
-        Repo.rollback({:agent_context_expansion_resolved, request.id, request.state})
+        {:error, {:agent_context_expansion_resolved, request.id, request.state}}
 
       DateTime.compare(request.expires_at, DateTime.utc_now()) != :gt ->
-        Repo.rollback({:agent_context_expansion_expired, request.id})
+        {:error, {:agent_context_expansion_expired, request.id}}
 
       not matching_wait?(request, execution, snapshot, package) ->
-        Repo.rollback({:stale_agent_context_expansion, request.id, request.version})
+        {:error, {:stale_agent_context_expansion, request.id, request.version}}
 
       true ->
         persist_decision(
@@ -162,56 +202,82 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
        ) do
     now = DateTime.utc_now()
 
-    resolved =
-      request
-      |> Ash.Changeset.for_update(:resolve, %{
-        state: decision,
-        version: request.version + 1,
-        resolution_operation_id: operation.id,
-        resolved_by_principal_id: session_context.principal_id,
-        resolution_reason: reason,
-        resolved_at: now
-      })
-      |> Repo.ash_update!()
-
-    context_package =
-      if decision == "approved" do
-        {expanded, _entries} =
-          ContextAssembler.persist_expansion!(execution, snapshot, operation, resolved, package)
-
-        expanded
-      end
-
     {next_state, failure_code} =
       if decision == "approved",
         do: {"queued", nil},
         else: {"cancelled", "context_expansion_#{decision}"}
 
-    with :ok <- ExecutionStateMachine.validate(execution.state, next_state) do
-      transitioned =
-        execution
-        |> Ash.Changeset.for_update(:transition, %{
-          state: next_state,
-          failure_code: failure_code,
-          lease_token: nil,
-          lease_expires_at: nil,
-          cancelled_at: if(next_state == "cancelled", do: now, else: nil)
-        })
-        |> Repo.ash_update!()
-
-      if decision == "approved" do
-        ExecutionWorker.enqueue_context_expansion_resume!(transitioned, resolved)
-      end
-
-      record_traces!(session_context, operation, resolved, transitioned)
-
-      %{request: resolved, execution: transitioned, context_package: context_package}
-    else
-      {:error, error} -> Repo.rollback(error)
+    with :ok <- ExecutionStateMachine.validate(execution.state, next_state),
+         {:ok, resolved} <-
+           request
+           |> Ash.Changeset.for_update(:resolve, %{
+             state: decision,
+             version: request.version + 1,
+             resolution_operation_id: operation.id,
+             resolved_by_principal_id: session_context.principal_id,
+             resolution_reason: reason,
+             resolved_at: now
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         {:ok, context_package} <-
+           persist_context_package(
+             decision,
+             execution,
+             snapshot,
+             operation,
+             resolved,
+             package
+           ),
+         {:ok, transitioned} <-
+           execution
+           |> Ash.Changeset.for_update(:transition, %{
+             state: next_state,
+             failure_code: failure_code,
+             lease_token: nil,
+             lease_expires_at: nil,
+             cancelled_at: if(next_state == "cancelled", do: now, else: nil)
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         :ok <- after_transition(decision, transitioned, resolved),
+         :ok <- record_traces(session_context, operation, resolved, transitioned) do
+      {:ok, resolution_result(resolved, transitioned, context_package)}
     end
   end
 
-  defp record_traces!(session_context, operation, request, execution) do
+  defp persist_context_package(
+         "approved",
+         execution,
+         snapshot,
+         operation,
+         resolved,
+         package
+       ) do
+    {expanded, _entries} =
+      ContextAssembler.persist_expansion!(execution, snapshot, operation, resolved, package)
+
+    {:ok, expanded}
+  end
+
+  defp persist_context_package(
+         _decision,
+         _execution,
+         _snapshot,
+         _operation,
+         _resolved,
+         _package
+       ),
+       do: {:ok, nil}
+
+  defp after_transition("approved", transitioned, resolved) do
+    ExecutionWorker.enqueue_context_expansion_resume!(transitioned, resolved)
+    :ok
+  end
+
+  defp after_transition(_decision, _transitioned, _resolved), do: :ok
+
+  defp record_traces(session_context, operation, request, execution) do
     Audit.record_once!(
       operation,
       "agent_context_expansion.#{request.state}",
@@ -227,7 +293,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
       "Agent context expansion #{request.state}"
     )
 
-    Enum.each(
+    Enum.reduce_while(
       [
         DurableDelivery.event_attrs(
           "agent-context-expansion-request:#{request.id}:v#{request.version}",
@@ -244,10 +310,11 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
           execution.state_version
         )
       ],
-      fn attrs ->
+      :ok,
+      fn attrs, :ok ->
         case DurableDelivery.record_and_enqueue(session_context, operation, attrs) do
-          {:ok, _event} -> :ok
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, _event} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
       end
     )
@@ -256,7 +323,11 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
   defp expanded_package(request_id) do
     ContextPackage
     |> Ash.Query.filter(expansion_request_id == ^request_id)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp resolution_result(request, execution, context_package) do
+    ContextExpansionResolutionResult.build!(request, execution, context_package)
   end
 
   defp lock_request(request_id, session_context) do
@@ -266,7 +337,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> read_one()
   end
 
   defp lock_execution(execution_id, session_context) do
@@ -276,20 +347,27 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionCommands do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> read_one()
   end
 
   defp lock_snapshot(snapshot_id) do
     AuthoritySnapshot
     |> Ash.Query.filter(id == ^snapshot_id)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> read_one()
   end
 
   defp lock_package(package_id) do
     ContextPackage
     |> Ash.Query.filter(id == ^package_id)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> read_one()
+  end
+
+  defp read_one(query) do
+    case Ash.read_one(query, authorize?: false) do
+      {:ok, record} -> record
+      {:error, error} -> {:error, error}
+    end
   end
 end

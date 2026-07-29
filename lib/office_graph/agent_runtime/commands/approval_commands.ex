@@ -1,11 +1,13 @@
 defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Audit, Authorization, DurableDelivery, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, Authorization, CommandSupport, DurableDelivery, Operations, Revisions}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentExecution,
     ApprovalRequest,
+    ApprovalResolutionResult,
     ExecutionStateMachine,
     ExecutionWorker,
     ModelRequest,
@@ -16,6 +18,28 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
 
   @operation_action "agent.approval.resolve"
   @decisions ~w(approved denied cancelled)
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :persist_resolution], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    case persist_resolution_records(
+           session_context,
+           attrs.operation_id,
+           attrs.request_id,
+           attrs.expected_version,
+           attrs.decision,
+           attrs.resolution_reason
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(ApprovalRequest, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def resolve(session_context, operation, request_id, expected_version, decision, reason)
       when is_map(session_context) and is_map(operation) do
@@ -66,30 +90,44 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
 
   defp persist_resolution(session_context, operation, request_id, version, decision, reason) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id),
-             %ApprovalRequest{} = request <- lock_request(request_id, session_context),
-             %AgentExecution{} = execution <-
-               lock_execution(request.execution_id, session_context) do
-          resolve_locked(
-            session_context,
-            operation,
-            request,
-            execution,
-            version,
-            decision,
-            reason
-          )
-        else
-          nil -> Repo.rollback(:forbidden)
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
+      ApprovalRequest
+      |> Ash.ActionInput.for_action(:persist_resolution_contract, %{
+        operation_id: operation.id,
+        request_id: request_id,
+        expected_version: version,
+        decision: decision,
+        resolution_reason: reason
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
+  end
+
+  defp persist_resolution_records(
+         session_context,
+         operation_id,
+         request_id,
+         version,
+         decision,
+         reason
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         %ApprovalRequest{} = request <- lock_request(request_id, session_context),
+         %AgentExecution{} = execution <-
+           lock_execution(request.execution_id, session_context) do
+      resolve_locked(
+        session_context,
+        operation,
+        request,
+        execution,
+        version,
+        decision,
+        reason
+      )
+    else
+      nil -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp resolve_locked(
@@ -103,19 +141,19 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
        ) do
     cond do
       replay?(request, operation, expected_version, decision, reason) ->
-        %{request: request, execution: execution}
+        {:ok, resolution_result(request, execution)}
 
       request.version != expected_version ->
-        Repo.rollback({:stale_agent_approval, request.id, request.version})
+        {:error, {:stale_agent_approval, request.id, request.version}}
 
       request.state != "pending" ->
-        Repo.rollback({:agent_approval_resolved, request.id, request.state})
+        {:error, {:agent_approval_resolved, request.id, request.state}}
 
       DateTime.compare(request.expires_at, DateTime.utc_now()) != :gt ->
-        Repo.rollback({:agent_approval_expired, request.id})
+        {:error, {:agent_approval_expired, request.id}}
 
       not matching_wait?(request, execution) ->
-        Repo.rollback({:stale_agent_approval, request.id, request.version})
+        {:error, {:stale_agent_approval, request.id, request.version}}
 
       true ->
         persist_decision(session_context, operation, request, execution, decision, reason)
@@ -140,47 +178,49 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
   defp persist_decision(session_context, operation, request, execution, decision, reason) do
     now = DateTime.utc_now()
 
-    resolved =
-      request
-      |> Ash.Changeset.for_update(:resolve, %{
-        state: decision,
-        version: request.version + 1,
-        resolution_operation_id: operation.id,
-        resolved_by_principal_id: session_context.principal_id,
-        resolution_reason: reason,
-        resolved_at: now
-      })
-      |> Repo.ash_update!()
-
     {next_state, failure_code} =
       if decision == "approved", do: {"queued", nil}, else: {"cancelled", "approval_#{decision}"}
 
-    with :ok <- ExecutionStateMachine.validate(execution.state, next_state) do
-      transitioned =
-        execution
-        |> Ash.Changeset.for_update(:transition, %{
-          state: next_state,
-          failure_code: failure_code,
-          lease_token: nil,
-          lease_expires_at: nil,
-          cancelled_at: if(next_state == "cancelled", do: now, else: nil)
-        })
-        |> Repo.ash_update!()
-
-      if decision == "approved" do
-        ExecutionWorker.enqueue_approval_resume!(transitioned, resolved)
-      else
-        cancel_active_model_request!(execution.id, request.step_key, failure_code, now)
-      end
-
-      record_traces!(session_context, operation, resolved, transitioned)
-      %{request: resolved, execution: transitioned}
-    else
-      {:error, error} -> Repo.rollback(error)
+    with :ok <- ExecutionStateMachine.validate(execution.state, next_state),
+         {:ok, resolved} <-
+           request
+           |> Ash.Changeset.for_update(:resolve, %{
+             state: decision,
+             version: request.version + 1,
+             resolution_operation_id: operation.id,
+             resolved_by_principal_id: session_context.principal_id,
+             resolution_reason: reason,
+             resolved_at: now
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         {:ok, transitioned} <-
+           execution
+           |> Ash.Changeset.for_update(:transition, %{
+             state: next_state,
+             failure_code: failure_code,
+             lease_token: nil,
+             lease_expires_at: nil,
+             cancelled_at: if(next_state == "cancelled", do: now, else: nil)
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         :ok <- after_transition(decision, execution, transitioned, resolved, failure_code, now),
+         :ok <- record_traces(session_context, operation, resolved, transitioned) do
+      {:ok, resolution_result(resolved, transitioned)}
     end
   end
 
-  defp record_traces!(session_context, operation, request, execution) do
+  defp after_transition("approved", _execution, transitioned, resolved, _failure_code, _now) do
+    ExecutionWorker.enqueue_approval_resume!(transitioned, resolved)
+    :ok
+  end
+
+  defp after_transition(_decision, execution, _transitioned, _resolved, failure_code, now) do
+    cancel_active_model_request(execution.id, execution.current_step_key, failure_code, now)
+  end
+
+  defp record_traces(session_context, operation, request, execution) do
     Audit.record_once!(
       operation,
       "agent_approval.#{request.state}",
@@ -196,12 +236,16 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
       "Agent approval #{request.state}"
     )
 
-    Enum.each([request_event(request), execution_event(execution)], fn attrs ->
+    Enum.reduce_while([request_event(request), execution_event(execution)], :ok, fn attrs, :ok ->
       case DurableDelivery.record_and_enqueue(session_context, operation, attrs) do
-        {:ok, _event} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
+        {:ok, _event} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp resolution_result(request, execution) do
+    ApprovalResolutionResult.build!(request, execution)
   end
 
   defp request_event(request) do
@@ -224,26 +268,34 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
     )
   end
 
-  defp cancel_active_model_request!(execution_id, step_key, failure_code, now) do
+  defp cancel_active_model_request(execution_id, step_key, failure_code, now) do
     ModelRequest
     |> Ash.Query.filter(
       execution_id == ^execution_id and step_key == ^step_key and
         state in ["pending", "running", "retry_scheduled"]
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
     |> case do
-      nil ->
+      {:ok, nil} ->
         :ok
 
-      model_request ->
+      {:ok, model_request} ->
         model_request
         |> Ash.Changeset.for_update(:record_result, %{
           state: "cancelled",
           failure_code: failure_code,
           completed_at: now
         })
-        |> Repo.ash_update!()
+        |> Ash.update(authorize?: false, return_notifications?: true)
+        |> CommandSupport.normalize_ash_write()
+        |> case do
+          {:ok, _request} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -254,7 +306,11 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, request} -> request
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp lock_execution(execution_id, session_context) do
@@ -264,6 +320,10 @@ defmodule OfficeGraph.AgentRuntime.ApprovalCommands do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, execution} -> execution
+      {:error, error} -> {:error, error}
+    end
   end
 end

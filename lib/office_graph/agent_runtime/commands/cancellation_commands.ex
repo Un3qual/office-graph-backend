@@ -1,13 +1,15 @@
 defmodule OfficeGraph.AgentRuntime.CancellationCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Authorization, DurableDelivery, Operations, Repo}
+  alias OfficeGraph.{Authorization, CommandSupport, DurableDelivery, Operations}
   alias OfficeGraph.DurableDelivery.DomainEvent
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AdapterRegistry,
     AgentExecution,
     ApprovalRequest,
+    CancellationResult,
     ContextExpansionRequest,
     ExecutionStateMachine,
     ModelRequest,
@@ -18,6 +20,26 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
 
   @operation_action "agent.cancel"
   @failure_code "cancelled_by_operator"
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :persist_cancel], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    case persist_cancel_records(
+           session_context,
+           attrs.operation_id,
+           attrs.execution_id,
+           attrs.expected_state_version
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(AgentExecution, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def cancel(session_context, operation, attrs)
       when is_map(session_context) and is_map(operation) and is_map(attrs) do
@@ -59,59 +81,70 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
 
   defp persist_cancel(session_context, operation, execution_id, expected_state_version) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        pending_gates = lock_pending_gates(execution_id, session_context)
-        execution = lock_execution(execution_id, session_context)
-
-        cond do
-          is_nil(execution) ->
-            Repo.rollback(:forbidden)
-
-          cancellation_replay?(operation.id, execution.id) ->
-            cancellation_result(execution, true)
-
-          execution.state_version != expected_state_version ->
-            Repo.rollback({:stale_agent_execution, execution.id, execution.state_version})
-
-          ExecutionStateMachine.terminal?(execution.state) ->
-            Repo.rollback({:agent_execution_terminal, execution.id, execution.state})
-
-          true ->
-            with :ok <- ExecutionStateMachine.validate(execution.state, "cancelled") do
-              model_request = lock_active_model_request(execution.id, execution.current_step_key)
-              cancel_model_request!(model_request)
-
-              cancelled_gate =
-                cancel_pending_gate!(session_context, operation, execution, pending_gates)
-
-              cancelled =
-                execution
-                |> Ash.Changeset.for_update(:transition, %{
-                  state: "cancelled",
-                  failure_code: @failure_code,
-                  lease_token: nil,
-                  lease_expires_at: nil,
-                  cancelled_at: DateTime.utc_now()
-                })
-                |> Repo.ash_update!()
-
-              record_invalidation!(session_context, operation, cancelled, cancelled_gate)
-
-              %{
-                execution: cancelled,
-                model_request: model_request,
-                replayed?: false
-              }
-            else
-              {:error, reason} -> Repo.rollback(reason)
-            end
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
+      AgentExecution
+      |> Ash.ActionInput.for_action(:persist_cancellation_contract, %{
+        operation_id: operation.id,
+        execution_id: execution_id,
+        expected_state_version: expected_state_version
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
+  end
+
+  defp persist_cancel_records(
+         session_context,
+         operation_id,
+         execution_id,
+         expected_state_version
+       ) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, pending_gates} <- lock_pending_gates(execution_id, session_context),
+         {:ok, %AgentExecution{} = execution} <-
+           lock_execution(execution_id, session_context),
+         {:ok, replayed?} <- cancellation_replay?(operation.id, execution.id) do
+      cond do
+        replayed? ->
+          cancellation_result(execution, true)
+
+        execution.state_version != expected_state_version ->
+          {:error, {:stale_agent_execution, execution.id, execution.state_version}}
+
+        ExecutionStateMachine.terminal?(execution.state) ->
+          {:error, {:agent_execution_terminal, execution.id, execution.state}}
+
+        true ->
+          persist_cancellation(session_context, operation, execution, pending_gates)
+      end
+    else
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp persist_cancellation(session_context, operation, execution, pending_gates) do
+    now = DateTime.utc_now()
+
+    with :ok <- ExecutionStateMachine.validate(execution.state, "cancelled"),
+         {:ok, model_request} <-
+           lock_active_model_request(execution.id, execution.current_step_key),
+         :ok <- cancel_model_request(model_request, now),
+         {:ok, cancelled_gate} <-
+           cancel_pending_gate(session_context, operation, execution, pending_gates, now),
+         {:ok, cancelled} <-
+           execution
+           |> Ash.Changeset.for_update(:transition, %{
+             state: "cancelled",
+             failure_code: @failure_code,
+             lease_token: nil,
+             lease_expires_at: nil,
+             cancelled_at: now
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true)
+           |> CommandSupport.normalize_ash_write(),
+         :ok <- record_invalidation(session_context, operation, cancelled, cancelled_gate) do
+      {:ok, CancellationResult.build!(cancelled, model_request, false)}
+    end
   end
 
   defp lock_execution(execution_id, session_context) do
@@ -121,26 +154,26 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
         workspace_id == ^session_context.workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
   defp lock_pending_gates(execution_id, session_context) do
-    %{
-      approval:
-        lock_pending_gate(
-          ApprovalRequest,
-          execution_id,
-          session_context.organization_id,
-          session_context.workspace_id
-        ),
-      context_expansion:
-        lock_pending_gate(
-          ContextExpansionRequest,
-          execution_id,
-          session_context.organization_id,
-          session_context.workspace_id
-        )
-    }
+    with {:ok, approval} <-
+           lock_pending_gate(
+             ApprovalRequest,
+             execution_id,
+             session_context.organization_id,
+             session_context.workspace_id
+           ),
+         {:ok, context_expansion} <-
+           lock_pending_gate(
+             ContextExpansionRequest,
+             execution_id,
+             session_context.organization_id,
+             session_context.workspace_id
+           ) do
+      {:ok, %{approval: approval, context_expansion: context_expansion}}
+    end
   end
 
   defp lock_pending_gate(resource, execution_id, organization_id, workspace_id) do
@@ -150,10 +183,10 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
         workspace_id == ^workspace_id and state == "pending"
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp lock_active_model_request(_execution_id, nil), do: nil
+  defp lock_active_model_request(_execution_id, nil), do: {:ok, nil}
 
   defp lock_active_model_request(execution_id, step_key) do
     ModelRequest
@@ -162,10 +195,10 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
         state in ["pending", "running", "retry_scheduled"]
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp lock_model_request(_execution_id, nil), do: nil
+  defp lock_model_request(_execution_id, nil), do: {:ok, nil}
 
   defp lock_model_request(execution_id, step_key) do
     ModelRequest
@@ -173,7 +206,7 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
     |> Ash.Query.sort(requested_at: :desc)
     |> Ash.Query.limit(1)
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
   defp cancellation_replay?(operation_id, execution_id) do
@@ -183,33 +216,44 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
         subject_kind == "agent_execution" and subject_id == ^execution_id
     )
     |> Ash.Query.limit(1)
-    |> Ash.read_one!(authorize?: false)
-    |> is_struct(DomainEvent)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, event} -> {:ok, is_struct(event, DomainEvent)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp cancellation_result(execution, replayed?) do
-    %{
-      execution: execution,
-      model_request: lock_model_request(execution.id, execution.current_step_key),
-      replayed?: replayed?
-    }
+    with {:ok, model_request} <-
+           lock_model_request(execution.id, execution.current_step_key) do
+      {:ok, CancellationResult.build!(execution, model_request, replayed?)}
+    end
   end
 
-  defp cancel_model_request!(nil), do: :ok
+  defp cancel_model_request(nil, _now), do: :ok
 
-  defp cancel_model_request!(request) do
+  defp cancel_model_request(request, now) do
     request
     |> Ash.Changeset.for_update(:record_result, %{
       state: "cancelled",
       failure_code: @failure_code,
-      completed_at: DateTime.utc_now()
+      completed_at: now
     })
-    |> Repo.ash_update!()
-
-    :ok
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> CommandSupport.normalize_ash_write()
+    |> case do
+      {:ok, _request} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp cancel_pending_gate!(session_context, operation, execution, pending_gates) do
+  defp cancel_pending_gate(
+         session_context,
+         operation,
+         execution,
+         pending_gates,
+         now
+       ) do
     candidate =
       case execution.state do
         "waiting_approval" -> {:approval, pending_gates.approval}
@@ -221,27 +265,31 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
       {kind, request} when not is_nil(request) ->
         if request.step_key == execution.current_step_key and
              request.execution_state_version == execution.state_version do
-          resolved =
-            request
-            |> Ash.Changeset.for_update(:resolve, %{
-              state: "cancelled",
-              version: request.version + 1,
-              resolution_operation_id: operation.id,
-              resolved_by_principal_id: session_context.principal_id,
-              resolution_reason: "execution_cancelled",
-              resolved_at: DateTime.utc_now()
-            })
-            |> Repo.ash_update!()
-
-          {kind, resolved}
+          request
+          |> Ash.Changeset.for_update(:resolve, %{
+            state: "cancelled",
+            version: request.version + 1,
+            resolution_operation_id: operation.id,
+            resolved_by_principal_id: session_context.principal_id,
+            resolution_reason: "execution_cancelled",
+            resolved_at: now
+          })
+          |> Ash.update(authorize?: false, return_notifications?: true)
+          |> CommandSupport.normalize_ash_write()
+          |> case do
+            {:ok, resolved} -> {:ok, {kind, resolved}}
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          {:ok, nil}
         end
 
       _missing_or_mismatched ->
-        nil
+        {:ok, nil}
     end
   end
 
-  defp record_invalidation!(session_context, operation, execution, cancelled_gate) do
+  defp record_invalidation(session_context, operation, execution, cancelled_gate) do
     events = [
       DurableDelivery.event_attrs(
         "agent-execution:#{execution.id}:v#{execution.state_version}",
@@ -253,10 +301,10 @@ defmodule OfficeGraph.AgentRuntime.CancellationCommands do
       | gate_events(cancelled_gate)
     ]
 
-    Enum.each(events, fn attrs ->
+    Enum.reduce_while(events, :ok, fn attrs, :ok ->
       case DurableDelivery.record_and_enqueue(session_context, operation, attrs) do
-        {:ok, _event} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
+        {:ok, _event} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

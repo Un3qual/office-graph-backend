@@ -30,7 +30,7 @@
 ## 5. Replace Agent Runtime Escapes
 
 - [x] 5.1 Replace binding and invocation advisory locks plus transaction wrappers with identities, upserts, atomic actions, and typed replay behavior
-- [ ] 5.2 Replace approval, cancellation, context expansion, and gate-expiry transactions with optimistic/atomic Ash actions
+- [x] 5.2 Replace approval, cancellation, context expansion, and gate-expiry transactions with optimistic/atomic Ash actions
 - [ ] 5.3 Replace execution-worker claim, completion, failure, and finalization SQL/transactions with lease-aware atomic actions and query locks
 - [ ] 5.4 Add separate-owner concurrency tests for invocation, binding, approval/context resolution, cancellation, leases, retry, and terminal transitions
 
