@@ -10,6 +10,7 @@ defmodule OfficeGraph.NodeConversations do
       OfficeGraph.Identity,
       OfficeGraph.Operations,
       OfficeGraph.Projections,
+      OfficeGraph.ProposedChanges,
       OfficeGraph.Repo,
       OfficeGraph.Runs,
       OfficeGraph.WorkGraph
@@ -17,55 +18,33 @@ defmodule OfficeGraph.NodeConversations do
     exports: []
 
   alias OfficeGraph.{Authorization, Operations, Repo, Runs}
-  alias OfficeGraph.NodeConversations.{Conversation, ConversationMessage}
+
+  alias OfficeGraph.NodeConversations.{
+    ActionSupport,
+    Conversation,
+    ConversationMessage
+  }
+
   alias OfficeGraph.Projections.CommandAffordance
 
   require Ash.Query
 
-  @conversation_action "conversation.start"
-  @message_action "conversation.message.create"
   @purpose "agent_runtime"
-  @visibility "run_participants"
   @invocation_control_capabilities ~w(agent.invoke)
   @terminal_execution_states ~w(completed failed cancelled)
 
   def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do
     attrs = %{run_id: run_id, graph_item_id: graph_item_id}
 
-    with :ok <- validate_human_operation(session_context, operation, @conversation_action, attrs),
-         :ok <- authorize_write(session_context, operation),
-         {:ok, _run} <- Runs.validate_conversation_scope(session_context, run_id, graph_item_id) do
-      Repo.transaction(fn ->
-        _operation = lock_operation!(operation.id)
-
-        lock_conversation_scope!(
-          session_context.organization_id,
-          session_context.workspace_id,
-          run_id,
-          graph_item_id
-        )
-
-        case read_conversation(session_context, run_id, graph_item_id, lock?: true) do
-          {:ok, nil} ->
-            Repo.ash_create!(Conversation, %{
-              organization_id: session_context.organization_id,
-              workspace_id: session_context.workspace_id,
-              graph_item_id: graph_item_id,
-              run_id: run_id,
-              created_by_principal_id: session_context.principal_id,
-              operation_id: operation.id,
-              purpose: @purpose,
-              visibility: @visibility,
-              state: "active",
-              state_version: 1
-            })
-
-          {:ok, conversation} ->
-            conversation
-
-          {:error, error} ->
-            Repo.rollback(error)
-        end
+    with :ok <- validate_human_operation(session_context, operation, "conversation.start", attrs) do
+      ActionSupport.run(fn ->
+        Conversation
+        |> Ash.ActionInput.for_action(:persist_start_contract, %{
+          operation_id: operation.id,
+          run_id: run_id,
+          graph_item_id: graph_item_id
+        })
+        |> Ash.run_action(actor: session_context, authorize?: false)
       end)
     end
   end
@@ -73,19 +52,21 @@ defmodule OfficeGraph.NodeConversations do
   def start(_session_context, _operation, _attrs), do: {:error, :forbidden}
 
   def append_human_message(session_context, operation, attrs) when is_map(attrs) do
-    with :ok <- validate_human_operation(session_context, operation, @message_action, attrs),
-         {:ok, normalized} <- normalize_human_message(attrs),
-         :ok <- authorize_write(session_context, operation) do
-      Repo.transaction(fn ->
-        _operation = lock_operation!(operation.id)
-        conversation = lock_conversation!(session_context, normalized.conversation_id)
-        validate_active_conversation!(conversation)
-        validate_message_linkage!(session_context, normalized)
-
-        case existing_message_for_operation(operation.id) do
-          nil -> create_human_message!(session_context, operation, conversation, normalized)
-          message -> validate_human_message_replay!(message, session_context, normalized)
-        end
+    with :ok <-
+           validate_human_operation(
+             session_context,
+             operation,
+             "conversation.message.create",
+             attrs
+           ),
+         {:ok, normalized} <- normalize_human_message(attrs) do
+      ActionSupport.run(fn ->
+        ConversationMessage
+        |> Ash.ActionInput.for_action(
+          :persist_human_message_contract,
+          Map.put(normalized, :operation_id, operation.id)
+        )
+        |> Ash.run_action(actor: session_context, authorize?: false)
       end)
     end
   end
@@ -134,74 +115,21 @@ defmodule OfficeGraph.NodeConversations do
       when is_map(operation) and is_map(execution) and is_map(context_package) and
              is_binary(step_key) and is_binary(body) do
     with :ok <- validate_agent_operation(operation, execution, context_package, step_key) do
-      conversation = get_or_create_conversation!(operation, execution)
-
-      case existing_agent_message(execution.id, step_key) do
-        nil ->
-          Repo.ash_create!(ConversationMessage, %{
-            conversation_id: conversation.id,
-            execution_id: execution.id,
-            author_principal_id: execution.agent_principal_id,
-            context_package_id: context_package.id,
-            step_key: step_key,
-            operation_id: operation.id,
-            source: "agent",
-            visibility: "run_participants",
-            body: body,
-            body_hash: digest(body)
-          })
-
-        message ->
-          if message.operation_id == operation.id and
-               message.context_package_id == context_package.id and
-               message.body_hash == digest(body),
-             do: message,
-             else: Repo.rollback(:agent_message_replay_conflict)
+      case ActionSupport.run(fn ->
+             ConversationMessage
+             |> Ash.ActionInput.for_action(:persist_agent_message_contract, %{
+               operation_id: operation.id,
+               execution: execution,
+               context_package: context_package,
+               step_key: step_key,
+               body: body
+             })
+             |> Ash.run_action(authorize?: false)
+           end) do
+        {:ok, message} -> message
+        {:error, _reason} = error -> error
       end
     end
-  end
-
-  defp get_or_create_conversation!(operation, execution) do
-    lock_conversation_scope!(
-      execution.organization_id,
-      execution.workspace_id,
-      execution.run_id,
-      execution.graph_item_id
-    )
-
-    Conversation
-    |> Ash.Query.filter(
-      organization_id == ^execution.organization_id and workspace_id == ^execution.workspace_id and
-        run_id == ^execution.run_id and graph_item_id == ^execution.graph_item_id and
-        purpose == @purpose
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
-    |> case do
-      nil ->
-        Repo.ash_create!(Conversation, %{
-          organization_id: execution.organization_id,
-          workspace_id: execution.workspace_id,
-          graph_item_id: execution.graph_item_id,
-          run_id: execution.run_id,
-          created_by_principal_id: execution.agent_principal_id,
-          operation_id: operation.id,
-          purpose: @purpose,
-          visibility: @visibility,
-          state: "active",
-          state_version: 1
-        })
-
-      conversation ->
-        conversation
-    end
-  end
-
-  defp existing_agent_message(execution_id, step_key) do
-    ConversationMessage
-    |> Ash.Query.filter(execution_id == ^execution_id and step_key == ^step_key)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
   end
 
   defp validate_agent_operation(operation, execution, context_package, step_key) do
@@ -214,12 +142,6 @@ defmodule OfficeGraph.NodeConversations do
          :ok <- Operations.validate_command_replay(operation, attrs) do
       :ok
     end
-  end
-
-  defp authorize_write(session_context, operation) do
-    Authorization.authorize_operation(session_context, operation, :conversation_write,
-      organization_id: session_context.organization_id
-    )
   end
 
   defp normalize_human_message(attrs) do
@@ -258,147 +180,14 @@ defmodule OfficeGraph.NodeConversations do
     end
   end
 
-  defp lock_operation!(operation_id) do
-    case Operations.lock_operation(operation_id) do
-      {:ok, operation} -> operation
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp read_conversation(session_context, run_id, graph_item_id, opts \\ []) do
+  defp read_conversation(session_context, run_id, graph_item_id) do
     Conversation
     |> Ash.Query.filter(
       organization_id == ^session_context.organization_id and
         workspace_id == ^session_context.workspace_id and run_id == ^run_id and
         graph_item_id == ^graph_item_id and purpose == ^@purpose
     )
-    |> maybe_lock(opts[:lock?])
     |> Ash.read_one(authorize?: false)
-  end
-
-  defp maybe_lock(query, true), do: Ash.Query.lock(query, :for_update)
-  defp maybe_lock(query, _lock?), do: query
-
-  defp lock_conversation!(session_context, conversation_id) do
-    Conversation
-    |> Ash.Query.filter(
-      id == ^conversation_id and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id and purpose == ^@purpose
-    )
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> Repo.rollback(:forbidden)
-      {:ok, conversation} -> conversation
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
-  defp validate_active_conversation!(%Conversation{state: "active"}), do: :ok
-
-  defp validate_active_conversation!(%Conversation{id: id, state: state}) do
-    Repo.rollback({:conversation_not_active, id, state})
-  end
-
-  defp validate_message_linkage!(session_context, normalized) do
-    case normalized do
-      %{
-        contribution_kind: "comment",
-        proposed_graph_change_id: nil,
-        domain_action_operation_id: nil
-      } ->
-        :ok
-
-      %{
-        contribution_kind: "proposal",
-        proposed_graph_change_id: proposal_id,
-        domain_action_operation_id: nil
-      }
-      when is_binary(proposal_id) ->
-        validate_proposal_scope!(session_context, proposal_id)
-
-      %{
-        contribution_kind: "domain_action",
-        proposed_graph_change_id: nil,
-        domain_action_operation_id: operation_id
-      }
-      when is_binary(operation_id) ->
-        validate_domain_operation_scope!(session_context, operation_id)
-
-      %{contribution_kind: kind} ->
-        Repo.rollback({:invalid_conversation_message_linkage, kind})
-    end
-  end
-
-  defp validate_proposal_scope!(session_context, proposal_id) do
-    case Repo.query(
-           """
-           SELECT 1
-           FROM proposed_graph_changes
-           WHERE id = $1 AND organization_id = $2 AND workspace_id = $3
-           """,
-           [
-             Ecto.UUID.dump!(proposal_id),
-             Ecto.UUID.dump!(session_context.organization_id),
-             Ecto.UUID.dump!(session_context.workspace_id)
-           ]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:ok, _missing} -> Repo.rollback(:forbidden)
-      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
-    end
-  end
-
-  defp validate_domain_operation_scope!(session_context, operation_id) do
-    case Operations.read_operation(operation_id) do
-      {:ok, operation}
-      when operation.organization_id == session_context.organization_id and
-             operation.workspace_id == session_context.workspace_id and
-             operation.action not in [@conversation_action, @message_action] ->
-        :ok
-
-      {:ok, _operation} ->
-        Repo.rollback(:forbidden)
-
-      {:error, {:not_found, _resource, _id}} ->
-        Repo.rollback(:forbidden)
-
-      {:error, _storage_error} ->
-        Repo.rollback(:integration_storage_unavailable)
-    end
-  end
-
-  defp existing_message_for_operation(operation_id) do
-    ConversationMessage
-    |> Ash.Query.filter(operation_id == ^operation_id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
-  end
-
-  defp create_human_message!(session_context, operation, conversation, normalized) do
-    Repo.ash_create!(ConversationMessage, %{
-      conversation_id: conversation.id,
-      author_principal_id: session_context.principal_id,
-      operation_id: operation.id,
-      proposed_graph_change_id: normalized.proposed_graph_change_id,
-      domain_action_operation_id: normalized.domain_action_operation_id,
-      source: "human",
-      visibility: @visibility,
-      body: normalized.body,
-      body_hash: digest(normalized.body)
-    })
-  end
-
-  defp validate_human_message_replay!(message, session_context, normalized) do
-    if message.source == "human" and
-         message.author_principal_id == session_context.principal_id and
-         message.body_hash == digest(normalized.body) and
-         message.proposed_graph_change_id == normalized.proposed_graph_change_id and
-         message.domain_action_operation_id == normalized.domain_action_operation_id do
-      message
-    else
-      Repo.rollback({:conversation_message_replay_conflict, message.id})
-    end
   end
 
   defp read_messages(nil), do: {:ok, []}
@@ -867,12 +656,6 @@ defmodule OfficeGraph.NodeConversations do
     else
       _unauthorized_or_unavailable -> CommandAffordance.policy_restricted("invoke_agent")
     end
-  end
-
-  defp lock_conversation_scope!(organization_id, workspace_id, run_id, graph_item_id) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "node-conversation:#{organization_id}:#{workspace_id}:#{run_id}:#{graph_item_id}:#{@purpose}"
-    ])
   end
 
   defp cancellation_affordance(session_context, executions) do

@@ -73,27 +73,6 @@
     {
       "occurrences": [
         [
-          "sha256:5781d4a5c6532ccb977caf227c202da773f079de76db2e2bda4d1a42bf11565f",
-          "direct_ecto",
-          "Repo.transaction",
-          "start/3",
-          1
-        ],
-        [
-          "sha256:305c66aa9c906bce628c78a19017816ca331bb652f3501d0881b94ab7f15c8a7",
-          "direct_ecto",
-          "Repo.transaction",
-          "append_human_message/3",
-          1
-        ],
-        [
-          "sha256:1b0533db5cd95cf88c48dfac23b05d17a018cb57cc500a23864ec66ea7b3d4c7",
-          "raw_sql",
-          "Repo.query",
-          "validate_proposal_scope!/2",
-          1
-        ],
-        [
           "sha256:f5d135f44c742718b5c5db9c1f848f732340f25788d0e2bdd490f806ee2e3319",
           "raw_sql",
           "Repo.query",
@@ -127,13 +106,6 @@
           "Repo.query",
           "read_agent_state/3",
           4
-        ],
-        [
-          "sha256:bc2bc4c2eede06237ea1e2bfc9709a4b564f2c47080f4ce6c4a3f22ce5863f27",
-          "raw_sql",
-          "Repo.query!",
-          "lock_conversation_scope!/4",
-          1
         ]
       ],
       "owner": "OfficeGraph.NodeConversations",

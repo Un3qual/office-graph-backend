@@ -154,6 +154,24 @@ defmodule OfficeGraph.ProposedChanges do
 
   def get_many(session_context, ids), do: read_scoped_changes(session_context, ids)
 
+  def validate_reference_scope(session_context, proposed_change_id)
+      when is_map(session_context) and is_binary(proposed_change_id) do
+    ProposedGraphChange
+    |> Ash.Query.filter(
+      id == ^proposed_change_id and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %ProposedGraphChange{}} -> :ok
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def validate_reference_scope(_session_context, _proposed_change_id),
+    do: {:error, :forbidden}
+
   def for_normalized_event(session_context, normalized_event_id) do
     ProposedGraphChange
     |> Ash.Query.filter(normalized_event_id == ^normalized_event_id)

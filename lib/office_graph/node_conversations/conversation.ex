@@ -145,6 +145,25 @@ defmodule OfficeGraph.NodeConversations.Conversation do
       change optimistic_lock(:state_version)
     end
 
+    action :persist_start_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.Authorization.AuthorizationDecision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :run_id, :uuid, allow_nil?: false
+      argument :graph_item_id, :uuid, allow_nil?: false
+
+      run {OfficeGraph.NodeConversations.ConversationCommands, mode: :start}
+    end
+
     action :start_run_conversation,
            OfficeGraph.NodeConversations.CommandResults.StartRunConversation do
       argument :idempotency_key, :string,

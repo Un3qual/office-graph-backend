@@ -42,7 +42,7 @@
 
 ## 7. Replace Conversation And Projection SQL
 
-- [ ] 7.1 Replace conversation start/append transactions and advisory lock with Ash identities, relationship reads, query locking, and action-owned writes
+- [x] 7.1 Replace conversation start/append transactions and advisory lock with Ash identities, relationship reads, query locking, and action-owned writes
 - [ ] 7.2 Replace proposal/context/agent-state conversation SQL with scoped Ash relationships and typed projection results
 - [ ] 7.3 Replace operator-workflow relationship, packet-check, and run SQL with batched Ash relationships, aggregates, and keyset-backed reads
 - [ ] 7.4 Replace run-state activity, command-option, and summary SQL with typed Ash reads while preserving cursor and bounded-query contracts

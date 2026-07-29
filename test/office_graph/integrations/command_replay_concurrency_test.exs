@@ -1,6 +1,8 @@
 defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
   use OfficeGraph.TestSupport.ConcurrencySupport
 
+  require Ash.Query
+
   test "operation idempotency keys are race safe" do
     suffix = System.unique_integer([:positive])
     organization_id = Ecto.UUID.generate()
@@ -345,6 +347,122 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
     after
       with_unboxed_connection(fn ->
         drop_conversation_insert_barrier!()
+        cleanup_conversation_scope!(organization_slug)
+        cleanup_work_run_verification_scope!(organization_slug)
+        cleanup_bootstrap_scope!(organization_slug, owner_email)
+      end)
+    end
+  end
+
+  test "conversation message replay is serialized across separate owners" do
+    suffix = System.unique_integer([:positive])
+    organization_slug = "conversation-message-race-#{suffix}"
+    workspace_slug = "conversation-message-race-workspace-#{suffix}"
+    owner_email = "conversation-message-race-#{suffix}@office-graph.local"
+
+    try do
+      {bootstrap, operation, attrs} =
+        with_unboxed_connection(fn ->
+          {:ok, bootstrap} =
+            Foundation.bootstrap_local_owner(
+              organization_name: "Conversation Message Race #{suffix}",
+              organization_slug: organization_slug,
+              workspace_name: "Conversation Message Race Workspace #{suffix}",
+              workspace_slug: workspace_slug,
+              owner_email: owner_email,
+              owner_name: "Conversation Message Race Owner"
+            )
+
+          {:ok, verification_check} =
+            create_concurrency_verification_check(
+              bootstrap.session,
+              "conversation-message-#{suffix}"
+            )
+
+          {:ok, packet_result} =
+            create_concurrency_ready_packet(bootstrap.session, [verification_check], suffix)
+
+          {:ok, run_operation} =
+            Operations.start_operation(bootstrap.session, :work_run_start,
+              idempotency_key: "conversation-message-run-#{suffix}"
+            )
+
+          {:ok, run_result} =
+            Runs.start_run(bootstrap.session, run_operation, packet_result.version, %{
+              source_surface: "concurrency_test",
+              reason: "Append one replay-safe conversation message.",
+              authority_posture: "human_supervised"
+            })
+
+          conversation_attrs = %{
+            run_id: run_result.run.id,
+            graph_item_id: verification_check.graph_item_id
+          }
+
+          {:ok, conversation_operation} =
+            Operations.start_command(
+              bootstrap.session,
+              :conversation_start,
+              "conversation-message-start-#{suffix}",
+              conversation_attrs
+            )
+
+          {:ok, conversation} =
+            NodeConversations.start(
+              bootstrap.session,
+              conversation_operation,
+              conversation_attrs
+            )
+
+          attrs = %{
+            conversation_id: conversation.id,
+            body: "Append this message exactly once.",
+            contribution_kind: "comment",
+            proposed_graph_change_id: nil,
+            domain_action_operation_id: nil
+          }
+
+          {:ok, operation} =
+            Operations.start_command(
+              bootstrap.session,
+              :conversation_message_create,
+              "conversation-message-race-#{suffix}",
+              attrs
+            )
+
+          {bootstrap, operation, attrs}
+        end)
+
+      results =
+        [
+          fn ->
+            NodeConversations.append_human_message(
+              bootstrap.session,
+              operation,
+              attrs
+            )
+          end,
+          fn ->
+            NodeConversations.append_human_message(
+              bootstrap.session,
+              operation,
+              attrs
+            )
+          end
+        ]
+        |> run_concurrently()
+
+      assert [{:ok, first}, {:ok, second}] = results
+      assert first.id == second.id
+
+      assert 1 ==
+               with_unboxed_connection(fn ->
+                 OfficeGraph.NodeConversations.ConversationMessage
+                 |> Ash.Query.filter(operation_id == ^operation.id)
+                 |> Ash.count!(authorize?: false)
+               end)
+    after
+      with_unboxed_connection(fn ->
         cleanup_conversation_scope!(organization_slug)
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)

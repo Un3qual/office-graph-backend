@@ -76,7 +76,8 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
     repo OfficeGraph.Repo
     migrate? false
 
-    identity_index_names unique_operation: "conversation_messages_operation_index"
+    identity_index_names unique_operation: "conversation_messages_operation_index",
+                         unique_agent_step: "conversation_messages_agent_step_index"
   end
 
   attributes do
@@ -132,6 +133,59 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
       validate absent(:execution_id), where: [attribute_equals(:source, "system")]
     end
 
+    action :persist_human_message_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.Authorization.AuthorizationDecision,
+        OfficeGraph.NodeConversations.Conversation,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.ProposedChanges.ProposedGraphChange
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :conversation_id, :uuid, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+      argument :contribution_kind, :string, allow_nil?: false
+      argument :proposed_graph_change_id, :uuid
+      argument :domain_action_operation_id, :uuid
+
+      validate argument_in(:contribution_kind, ~w(comment proposal domain_action))
+      run {OfficeGraph.NodeConversations.MessageCommands, mode: :human}
+    end
+
+    action :persist_agent_message_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.AgentRuntime.AgentExecution,
+        OfficeGraph.AgentRuntime.ContextPackage,
+        OfficeGraph.NodeConversations.Conversation,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+
+      argument :execution, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+      argument :context_package, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+      argument :step_key, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+
+      run {OfficeGraph.NodeConversations.MessageCommands, mode: :agent}
+    end
+
     action :append_conversation_message,
            OfficeGraph.NodeConversations.CommandResults.AppendConversationMessage do
       argument :idempotency_key, :string,
@@ -159,6 +213,8 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
   identities do
     identity :unique_operation, [:operation_id]
+
+    identity :unique_agent_step, [:execution_id, :step_key], where: expr(not is_nil(execution_id))
   end
 
   relationships do
