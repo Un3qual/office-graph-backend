@@ -364,6 +364,39 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
     assert first.target_item_id == second.source_item_id
   end
 
+  test "cycle-forbidden definitions reject a multi-hop cycle", context do
+    third_task_item = insert_graph_item!(context.bootstrap, "task", "Third cycle task")
+
+    first_request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    second_request = %{
+      first_request
+      | source_item_id: context.other_task_item.id,
+        target_item_id: third_task_item.id
+    }
+
+    cycle_request = %{
+      first_request
+      | source_item_id: third_task_item.id,
+        target_item_id: context.task_item.id
+    }
+
+    assert {:ok, _first} =
+             WorkGraph.create_relationship(context.session, context.operation, first_request)
+
+    assert {:ok, _second} =
+             WorkGraph.create_relationship(context.session, context.operation, second_request)
+
+    assert {:error, {:relationship_cycle, "depends_on"}} =
+             WorkGraph.create_relationship(context.session, context.operation, cycle_request)
+  end
+
   test "archive and restore preserve one relationship identity", context do
     request =
       RelationshipRequest.new!(%{

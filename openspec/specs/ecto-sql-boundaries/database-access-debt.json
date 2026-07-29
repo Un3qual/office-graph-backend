@@ -507,27 +507,6 @@
     {
       "occurrences": [
         [
-          "sha256:73dff2381ba0895590c972714b66e61296a444dc9f1d05ef7a54df70dab9ce23",
-          "raw_sql",
-          "Repo.query!",
-          "lock_definition!/2",
-          1
-        ],
-        [
-          "sha256:2201d9d4f1d2d7625816df1c502396b32607932c1500003f961ffaf2c7c7a23a",
-          "raw_sql",
-          "Repo.query!",
-          "reachable?/4",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.WorkGraph",
-      "path": "lib/office_graph/work_graph/policies/relationship_cycle_policy.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:2479bb29ad843d9ec5774ef1af130eb500cc4c864ef7735e3a37269930a0ccd4",
           "raw_sql",
           "migration.where",

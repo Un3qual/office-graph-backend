@@ -9,7 +9,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCycleConcurrencyTest do
     owner_email = "relationship-cycle-#{suffix}@office-graph.local"
 
     try do
-      {bootstrap, operation, first_request, second_request} =
+      {bootstrap, operations, first_request, second_request} =
         with_unboxed_connection(fn ->
           {:ok, bootstrap} =
             Foundation.bootstrap_local_owner(
@@ -22,7 +22,10 @@ defmodule OfficeGraph.WorkGraph.RelationshipCycleConcurrencyTest do
               owner_email: owner_email
             )
 
-          {:ok, operation} =
+          {:ok, first_operation} =
+            Operations.start_operation(bootstrap.session, :graph_relationship_create)
+
+          {:ok, second_operation} =
             Operations.start_operation(bootstrap.session, :graph_relationship_create)
 
           first_item = insert_graph_item!(bootstrap, "First cycle task")
@@ -42,12 +45,13 @@ defmodule OfficeGraph.WorkGraph.RelationshipCycleConcurrencyTest do
               target_item_id: first_item.id
           }
 
-          {bootstrap, operation, first_request, second_request}
+          {bootstrap, [first_operation, second_operation], first_request, second_request}
         end)
 
       results =
-        [first_request, second_request]
-        |> Enum.map(fn request ->
+        operations
+        |> Enum.zip([first_request, second_request])
+        |> Enum.map(fn {operation, request} ->
           Task.async(fn ->
             with_unboxed_connection(fn ->
               receive do
